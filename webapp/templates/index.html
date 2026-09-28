@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skantha WMS | Smart Control Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --accent: #2563eb;
+            --accent-hover: #3b82f6;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+            --warning: #f59e0b;
+        }
+        body {
+            margin: 0; font-family: 'Inter', sans-serif;
+            background: var(--bg-color); color: var(--text-main);
+            min-height: 100vh; display: flex; flex-direction: column;
+        }
+        
+        /* LOGIN OVERLAY */
+        #login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg-color); z-index: 1000;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .login-box {
+            background: var(--panel-bg); padding: 3rem; border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1); width: 100%; max-width: 400px;
+            text-align: center;
+        }
+        
+        /* HEADER BRANDING */
+        header {
+            padding: 1rem 2rem; background: rgba(15, 23, 42, 0.9);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .brand-container { display: flex; flex-direction: column; }
+        h1 { margin: 0; font-weight: 800; font-size: 1.5rem; color: white; }
+        .powered-by { font-size: 0.75rem; color: var(--accent-hover); font-weight: 600; margin-top: 4px; text-transform: uppercase;}
+        
+        /* NAVIGATION */
+        .tabs { display: flex; gap: 0.5rem; }
+        .tab-btn {
+            background: none; border: none; color: var(--text-muted); font-size: 0.9rem;
+            font-weight: 600; cursor: pointer; padding: 0.5rem 1rem; border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .tab-btn.active, .tab-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+
+        .container { display: flex; flex: 1; overflow: hidden; padding: 1.5rem; gap: 1.5rem; }
+        .glass-panel { background: var(--panel-bg); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1.5rem; }
+
+        /* VIEWS */
+        .view-section { display: none; width: 100%; height: 100%; overflow-y: auto;}
+        .view-section.active { display: block; }
+
+        /* DASHBOARD METRICS */
+        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem;}
+        .metric-card { background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); text-align: center;}
+        .metric-card h3 { margin: 0; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase;}
+        .metric-card .value { font-size: 2.5rem; font-weight: 800; color: white; margin-top: 0.5rem;}
+
+        /* CAMERA GRID */
+        .camera-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1.5rem; }
+        .video-container { width: 100%; aspect-ratio: 4/3; background: #000; border-radius: 8px; overflow: hidden; }
+        .video-container img { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* TABLES */
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 1rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        th { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
+        .badge { padding: 0.3rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold; }
+        .badge.pending { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .badge.sent { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        
+        /* STATUS COLORS */
+        .status-early { color: var(--warning); font-weight: bold; }
+        .status-delayed { color: var(--danger); font-weight: bold; }
+        .status-ontime { color: var(--success); font-weight: bold; }
+        
+        /* FORMS & BUTTONS */
+        input, select { width: 100%; padding: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; margin-bottom: 1rem; box-sizing: border-box; }
+        input[type="date"] { color-scheme: dark; }
+        button { border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: var(--danger-hover); }
+        
+    </style>
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-overlay">
+        <div class="login-box">
+            <h2 style="margin-top:0;">Skantha WMS Login</h2>
+            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:2rem;">Secure Warehouse Control Center</p>
+            <input type="text" id="username" placeholder="Username (admin)" value="admin">
+            <input type="password" id="password" placeholder="Password (admin)" value="admin">
+            <button class="btn-primary" style="width:100%; padding:1rem; font-size:1.1rem;" onclick="doLogin()">Secure Login</button>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <header style="display:none;" id="main-header">
+        <div class="brand-container">
+            <h1>SMART WMS <span style="color:var(--text-muted); font-weight:300;">| Digital Twin</span></h1>
+            <div class="powered-by">Powered by Skantha Technology Solutions</div>
+        </div>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
+            <button class="tab-btn" onclick="switchTab('deliveries')">Pre-Registration</button>
+            <button class="tab-btn" onclick="switchTab('cameras')">Live Cameras</button>
+            <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management</button>
+            <button class="tab-btn" onclick="switchTab('docks')">Dock Management</button>
+        </div>
+    </header>
+
+    <div class="container" style="display:none;" id="main-container">
+        
+        <!-- DASHBOARD VIEW -->
+        <div id="dashboard-view" class="view-section active">
+            <div class="glass-panel">
+                <h2>Warehouse Overview</h2>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <h3>Expected POs</h3>
+                        <div class="value" id="stat-expected">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <h3>Trucks Arrived</h3>
+                        <div class="value" id="stat-arrived">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <h3>Pending at Gate</h3>
+                        <div class="value" id="stat-pending">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <h3>Active at Docks</h3>
+                        <div class="value" id="stat-dock">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PRE-REGISTRATION (EXPECTED DELIVERIES) VIEW -->
+        <div id="deliveries-view" class="view-section">
+            <div style="display: flex; gap: 2rem;">
+                <aside class="glass-panel" style="width: 300px; height: fit-content;">
+                    <h3>Pre-Register Delivery</h3>
+                    <p style="font-size:0.85rem; color:var(--text-muted);">Log incoming orders even if you don't know the truck yet.</p>
+                    <form id="addDeliveryForm">
+                        <label>PO / Order Number *</label> <input type="text" id="expPO" placeholder="PO-12345" required>
+                        <label>Expected Date *</label> <input type="date" id="expDate" required>
+                        <label>Expected Load *</label> <input type="text" id="expLoad" placeholder="10 Pallets Electronics" required>
+                        <label>Expected Plate (Optional)</label> <input type="text" id="expPlate" placeholder="XYZ 123">
+                        <label>Driver Name (Optional)</label> <input type="text" id="expDriver" placeholder="John Doe">
+                        <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
+                    </form>
+                </aside>
+                <div class="glass-panel" style="flex:1;">
+                    <h2>Expected Deliveries Log</h2>
+                    <table>
+                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Expected Load</th><th>Plate (If Known)</th></tr></thead>
+                        <tbody id="expectedTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- CAMERA VIEW -->
+        <div id="cameras-view" class="view-section">
+            <div style="display: flex; gap: 2rem;">
+                <aside class="glass-panel" style="width: 300px; height: fit-content;">
+                    <h3>Add Camera</h3>
+                    <form id="addCameraForm">
+                        <label>Name</label> <input type="text" id="camName" placeholder="Main Gate" required>
+                        <label>Location</label> 
+                        <select id="camLocation">
+                            <option value="Gate">Gate Entry</option>
+                            <option value="Dock">Loading Dock</option>
+                        </select>
+                        <label>Stream URL</label> <input type="text" id="camUrl" placeholder="http://192.168.x.x:8080/video" required>
+                        <button type="submit" class="btn-primary" style="width:100%">Connect</button>
+                    </form>
+                </aside>
+                <div id="cameraGrid" class="camera-grid" style="flex:1;"></div>
+            </div>
+        </div>
+
+        <!-- GATE MANAGEMENT VIEW -->
+        <div id="gate-passes-view" class="view-section">
+            <div class="glass-panel">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>Generated Gate Passes</h2>
+                    <span style="font-size: 0.85rem; color: var(--success);">Match AI Detections to Expected POs</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pass ID</th><th>Arrival</th><th>Date Status</th><th>Plate (Editable)</th>
+                            <th>Driver</th><th>Load (Match to PO)</th><th>Dock</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gatePassTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- DOCK MANAGEMENT VIEW -->
+        <div id="docks-view" class="view-section">
+            <div class="glass-panel">
+                <h2>Active Docks</h2>
+                <p style="color:var(--text-muted);">Trucks assigned to docks by Gate Management appear here.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Dock #</th><th>Vehicle</th><th>Driver</th><th>Load To Unload</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dockTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Store deliveries globally in frontend so we can use them in the Gate Passes table
+        let globalDeliveries = [];
+
+        // Pre-fill date to today
+        document.getElementById('expDate').valueAsDate = new Date();
+
+        // Login Logic
+        function doLogin() {
+            if(document.getElementById('username').value === 'admin' && document.getElementById('password').value === 'admin') {
+                document.getElementById('login-overlay').style.display = 'none';
+                document.getElementById('main-header').style.display = 'flex';
+                document.getElementById('main-container').style.display = 'flex';
+                pollData();
+                fetchGatePasses();
+                fetchDeliveries();
+            } else {
+                alert("Invalid Credentials. Use admin/admin");
+            }
+        }
+
+        // Tab Switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId + '-view').classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Data Polling
+        let processedEvents = new Set();
+        async function pollData() {
+            try {
+                // Fetch Stats
+                const statRes = await fetch('/api/stats');
+                const stats = await statRes.json();
+                document.getElementById('stat-expected').innerText = stats.total_expected;
+                document.getElementById('stat-arrived').innerText = stats.total_arrived;
+                document.getElementById('stat-pending').innerText = stats.pending_dock;
+                document.getElementById('stat-dock').innerText = stats.at_dock;
+
+                // Fetch Cameras
+                const camRes = await fetch('/api/cameras');
+                const cameras = await camRes.json();
+                renderCameras(cameras);
+
+                // Auto-create Passes
+                cameras.forEach(cam => {
+                    if(cam.location === 'Gate' && cam.events) {
+                        cam.events.forEach(async (ev) => {
+                            const eventKey = ev.plate + ev.time;
+                            if(!processedEvents.has(eventKey)) {
+                                processedEvents.add(eventKey);
+                                await fetch('/api/gate_passes', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({ plate: ev.plate, type: ev.type })
+                                });
+                                fetchGatePasses(); 
+                            }
+                        });
+                    }
+                });
+            } catch(e) {}
+        }
+
+        // Deliveries
+        document.getElementById('addDeliveryForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await fetch('/api/deliveries', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    po_number: document.getElementById('expPO').value,
+                    expected_date: document.getElementById('expDate').value,
+                    plate: document.getElementById('expPlate').value,
+                    driver_name: document.getElementById('expDriver').value,
+                    load: document.getElementById('expLoad').value
+                })
+            });
+            e.target.reset();
+            document.getElementById('expDate').valueAsDate = new Date();
+            fetchDeliveries();
+            pollData();
+        });
+
+        async function fetchDeliveries() {
+            try {
+                const res = await fetch('/api/deliveries');
+                globalDeliveries = await res.json();
+                
+                const tbody = document.getElementById('expectedTableBody');
+                if(globalDeliveries.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No expected deliveries registered.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = globalDeliveries.map(d => `
+                    <tr>
+                        <td style="font-weight:bold; color:var(--accent-hover);">${d.po_number}</td>
+                        <td>${d.expected_date}</td>
+                        <td>${d.load}</td>
+                        <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
+                    </tr>
+                `).join('');
+                
+                fetchGatePasses();
+            } catch(e) {}
+        }
+
+        // Helper to autofill row when PO is selected
+        function handlePOSelect(selectElement, gpId) {
+            const selectedOption = selectElement.options[selectElement.selectedIndex];
+            if(selectedOption.value) {
+                // value holds the load details, data-driver holds the driver, data-date holds expected date, text holds po
+                document.getElementById(`load_${gpId}`).value = selectedOption.value;
+                document.getElementById(`expectedDate_${gpId}`).value = selectedOption.getAttribute('data-date');
+                document.getElementById(`poNumber_${gpId}`).value = selectedOption.getAttribute('data-po');
+                const driver = selectedOption.getAttribute('data-driver');
+                if(driver) {
+                    document.getElementById(`driver_${gpId}`).value = driver;
+                }
+            }
+        }
+
+        // Gate Passes & Docks
+        async function fetchGatePasses() {
+            try {
+                const res = await fetch('/api/gate_passes');
+                const passes = await res.json();
+                const gateBody = document.getElementById('gatePassTableBody');
+                const dockBody = document.getElementById('dockTableBody');
+                
+                if(passes.length === 0) {
+                    gateBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No gate passes yet.</td></tr>';
+                    dockBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No trucks at docks.</td></tr>';
+                    return;
+                }
+
+                // Render Gate Pass Table
+                gateBody.innerHTML = passes.map(gp => {
+                    let poDropdown = '';
+                    let expectedDateInput = `<input type="hidden" id="expectedDate_${gp.id}" value="${gp.expected_date || ''}">`;
+                    let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${gp.po_number || ''}">`;
+                    
+                    if (gp.status === 'Pending') {
+                        if (gp.po_number) {
+                            poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ Auto-Matched PO:<br/>${gp.po_number}</div>`;
+                        } else {
+                            poDropdown = `
+                                <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(37,99,235,0.2);">
+                                    <option value="">Match to a Pending PO...</option>
+                                    ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}">${d.po_number}: ${d.load}</option>`).join('')}
+                                </select><br/>
+                            `;
+                        }
+                    } else if (gp.po_number) {
+                        poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ PO: ${gp.po_number}</div>`;
+                    }
+                    
+                    // Date Status Logic
+                    let dateStatusHtml = '<span style="color:var(--text-muted)">Unmatched</span>';
+                    if (gp.expected_date && gp.arrival_date) {
+                        if (gp.arrival_date === gp.expected_date) {
+                            dateStatusHtml = '<span class="status-ontime">On Time</span>';
+                        } else if (gp.arrival_date > gp.expected_date) {
+                            dateStatusHtml = '<span class="status-delayed">Delayed</span>';
+                        } else {
+                            dateStatusHtml = '<span class="status-early">Early</span>';
+                        }
+                    }
+                    
+                    return `
+                    <tr>
+                        <td style="font-weight:bold; color:var(--accent-hover);">
+                            ${gp.id}<br/>
+                            <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}" style="margin-top:4px; display:inline-block">${gp.status}</span>
+                        </td>
+                        <td>${gp.arrival_date}<br/><span style="color:var(--text-muted); font-size:0.8rem;">${gp.time}</span></td>
+                        <td>
+                            ${dateStatusHtml}<br/>
+                            <span style="font-size:0.75rem; color:var(--text-muted)">Exp: ${gp.expected_date || 'N/A'}</span>
+                        </td>
+                        <td>
+                            <input type="text" id="plate_${gp.id}" value="${gp.plate}" style="margin:0; padding:0.4rem; font-family:monospace; font-size:1.1rem; color: ${gp.driver_name !== 'Awaiting Input' ? 'var(--success)' : 'inherit'}; border: 1px dashed rgba(255,255,255,0.3);" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">AI: ${gp.vehicle_type}</div>
+                        </td>
+                        <td><input type="text" id="driver_${gp.id}" value="${gp.driver_name}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}></td>
+                        <td>
+                            ${expectedDateInput}
+                            ${poNumberInput}
+                            ${poDropdown}
+                            <input type="text" id="load_${gp.id}" value="${gp.load}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                        </td>
+                        <td>
+                            <select id="dock_${gp.id}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                                <option value="Not Assigned" ${gp.dock === 'Not Assigned' ? 'selected': ''}>Select Dock...</option>
+                                <option value="Dock 1" ${gp.dock === 'Dock 1' ? 'selected': ''}>Dock 1</option>
+                                <option value="Dock 2" ${gp.dock === 'Dock 2' ? 'selected': ''}>Dock 2</option>
+                            </select>
+                        </td>
+                        <td>
+                            ${gp.status === 'Pending' ? 
+                                `<button class="btn-primary" style="margin-bottom:4px; width:100%;" onclick="updatePass('${gp.id}')">Approve</button><br/>
+                                 <button class="btn-danger" style="width:100%;" onclick="deletePass('${gp.id}')">Delete</button>` : 
+                                `<button class="btn-danger" onclick="deletePass('${gp.id}')">Delete</button>`
+                            }
+                        </td>
+                    </tr>
+                `}).join('');
+
+                // Render Dock Table (Only 'Sent to Dock')
+                const dockedPasses = passes.filter(p => p.status === 'Sent to Dock');
+                if(dockedPasses.length > 0) {
+                    dockBody.innerHTML = dockedPasses.map(gp => `
+                        <tr>
+                            <td style="font-size:1.2rem; font-weight:bold; color:var(--accent-hover)">${gp.dock}</td>
+                            <td>${gp.plate} (${gp.vehicle_type})</td>
+                            <td>${gp.driver_name}</td>
+                            <td>${gp.load}</td>
+                            <td><span class="badge sent">Unloading...</span></td>
+                        </tr>
+                    `).join('');
+                } else {
+                    dockBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No trucks at docks.</td></tr>';
+                }
+
+            } catch(e) {}
+        }
+
+        async function updatePass(id) {
+            const plate = document.getElementById(`plate_${id}`).value;
+            const driver = document.getElementById(`driver_${id}`).value;
+            const load = document.getElementById(`load_${id}`).value;
+            const dock = document.getElementById(`dock_${id}`).value;
+            const expectedDate = document.getElementById(`expectedDate_${id}`).value;
+            const poNumber = document.getElementById(`poNumber_${id}`).value;
+            
+            if(dock === 'Not Assigned') { alert("Please assign a dock before approving."); return; }
+            await fetch(`/api/gate_passes/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ plate: plate, driver_name: driver, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, status: 'Sent to Dock' })
+            });
+            fetchGatePasses();
+            pollData();
+        }
+
+        async function deletePass(id) {
+            if(confirm('Are you sure you want to delete this Gate Pass?')) {
+                await fetch(`/api/gate_passes/${id}`, { method: 'DELETE' });
+                fetchGatePasses();
+                pollData();
+            }
+        }
+
+        // Camera Management
+        document.getElementById('addCameraForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await fetch('/api/cameras', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: document.getElementById('camName').value,
+                    location: document.getElementById('camLocation').value,
+                    url: document.getElementById('camUrl').value
+                })
+            });
+            e.target.reset();
+            pollData();
+        });
+
+        function renderCameras(cameras) {
+            const grid = document.getElementById('cameraGrid');
+            cameras.forEach(cam => {
+                let card = document.getElementById(`cam-${cam.id}`);
+                if (!card) {
+                    card = document.createElement('div');
+                    card.className = 'glass-panel';
+                    card.id = `cam-${cam.id}`;
+                    card.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; margin-bottom:1rem;">
+                            <strong style="font-size:1.1rem">${cam.name}</strong>
+                            <span class="badge pending">${cam.location}</span>
+                        </div>
+                        <div class="video-container">
+                            <img src="/video_feed/${cam.id}" alt="Live Feed">
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                }
+            });
+        }
+
+        // Background polling
+        setInterval(() => {
+            if (document.getElementById('main-container').style.display !== 'none') {
+                pollData();
+            }
+        }, 2000);
+    </script>
+</body>
+</html>
