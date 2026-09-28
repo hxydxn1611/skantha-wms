@@ -69,9 +69,14 @@
         .metric-card .value { font-size: 2.5rem; font-weight: 800; color: white; margin-top: 0.5rem;}
 
         /* CAMERA GRID */
-        .camera-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1.5rem; }
-        .video-container { width: 100%; aspect-ratio: 4/3; background: #000; border-radius: 8px; overflow: hidden; }
-        .video-container img { width: 100%; height: 100%; object-fit: cover; }
+        .camera-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+        .video-container { width: 100%; aspect-ratio: 4/3; background: #000; border-radius: 8px; overflow: hidden; position: relative; transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .video-container:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+        .video-container img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
+        .fullscreen-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; }
+        .fullscreen-overlay.active { display: flex; }
+        .fullscreen-overlay img { max-width: 90vw; max-height: 90vh; border-radius: 12px; }
+        .close-fs { position: absolute; top: 20px; right: 30px; color: white; font-size: 2rem; cursor: pointer; font-weight: bold; }
         
         /* TABLES */
         table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
@@ -108,6 +113,12 @@
             <input type="password" id="password" placeholder="Password (admin)" value="admin">
             <button class="btn-primary" style="width:100%; padding:1rem; font-size:1.1rem;" onclick="doLogin()">Secure Login</button>
         </div>
+    </div>
+
+    <!-- FULLSCREEN CAMERA -->
+    <div id="fsOverlay" class="fullscreen-overlay" onclick="closeFullscreen()">
+        <span class="close-fs">&times;</span>
+        <img id="fsImg" src="" alt="Fullscreen Camera">
     </div>
 
     <!-- MAIN APP -->
@@ -162,6 +173,7 @@
                         <label>PO / Order Number *</label> <input type="text" id="expPO" placeholder="PO-12345" required>
                         <label>Expected Date *</label> <input type="date" id="expDate" required>
                         <label>Expected Load *</label> <input type="text" id="expLoad" placeholder="10 Pallets Electronics" required>
+                        <label>Vendor *</label> <input type="text" id="expVendor" placeholder="Samsung Electronics" required>
                         <label>Expected Plate (Optional)</label> <input type="text" id="expPlate" placeholder="XYZ 123">
                         <label>Driver Name (Optional)</label> <input type="text" id="expDriver" placeholder="John Doe">
                         <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
@@ -170,7 +182,7 @@
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
                     <table>
-                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Expected Load</th><th>Plate (If Known)</th></tr></thead>
+                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Vendor</th><th>Expected Load</th><th>Plate (If Known)</th></tr></thead>
                         <tbody id="expectedTableBody"></tbody>
                     </table>
                 </div>
@@ -189,8 +201,22 @@
                             <option value="Gate">Gate Entry</option>
                             <option value="Dock">Loading Dock</option>
                         </select>
+                        <label>Camera Type</label>
+                        <select id="camType">
+                            <option value="IP Camera">IP Camera</option>
+                            <option value="DVR">DVR</option>
+                            <option value="NVR">NVR</option>
+                            <option value="USB Webcam">USB Webcam</option>
+                        </select>
+                        <label>Vendor</label>
+                        <select id="camVendor">
+                            <option value="Hikvision">Hikvision</option>
+                            <option value="Dahua">Dahua</option>
+                            <option value="CP Plus">CP Plus</option>
+                            <option value="Other">Other</option>
+                        </select>
                         <label>Stream URL</label> <input type="text" id="camUrl" placeholder="http://192.168.x.x:8080/video" required>
-                        <button type="submit" class="btn-primary" style="width:100%">Connect</button>
+                        <button type="submit" class="btn-primary" style="width:100%">Connect Camera</button>
                     </form>
                 </aside>
                 <div id="cameraGrid" class="camera-grid" style="flex:1;"></div>
@@ -332,7 +358,8 @@
                     expected_date: document.getElementById('expDate').value,
                     plate: document.getElementById('expPlate').value,
                     driver_name: document.getElementById('expDriver').value,
-                    load: document.getElementById('expLoad').value
+                    load: document.getElementById('expLoad').value,
+                    vendor: document.getElementById('expVendor').value
                 })
             });
             e.target.reset();
@@ -355,6 +382,7 @@
                     <tr>
                         <td style="font-weight:bold; color:var(--accent-hover);">${d.po_number}</td>
                         <td>${d.expected_date}</td>
+                        <td style="color:var(--text-muted);">${d.vendor || 'Unknown'}</td>
                         <td>${d.load}</td>
                         <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
                     </tr>
@@ -375,6 +403,10 @@
                 const driver = selectedOption.getAttribute('data-driver');
                 if(driver) {
                     document.getElementById(`driver_${gpId}`).value = driver;
+                }
+                const vendor = selectedOption.getAttribute('data-vendor');
+                if(vendor) {
+                    document.getElementById(`vendor_${gpId}`).value = vendor;
                 }
             }
         }
@@ -406,7 +438,7 @@
                             poDropdown = `
                                 <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(37,99,235,0.2);">
                                     <option value="">Match to a Pending PO...</option>
-                                    ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}">${d.po_number}: ${d.load}</option>`).join('')}
+                                    ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}">${d.po_number}: ${d.load}</option>`).join('')}
                                 </select><br/>
                             `;
                         }
@@ -441,7 +473,10 @@
                             <input type="text" id="plate_${gp.id}" value="${gp.plate}" style="margin:0; padding:0.4rem; font-family:monospace; font-size:1.1rem; color: ${gp.driver_name !== 'Awaiting Input' ? 'var(--success)' : 'inherit'}; border: 1px dashed rgba(255,255,255,0.3);" ${gp.status !== 'Pending' ? 'disabled': ''}>
                             <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">AI: ${gp.vehicle_type}</div>
                         </td>
-                        <td><input type="text" id="driver_${gp.id}" value="${gp.driver_name}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}></td>
+                        <td>
+                            <input type="text" id="driver_${gp.id}" value="${gp.driver_name}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Driver" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            <input type="text" id="vendor_${gp.id}" value="${gp.vendor || ''}" style="margin:0; padding:0.4rem;" placeholder="Vendor" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                        </td>
                         <td>
                             ${expectedDateInput}
                             ${poNumberInput}
@@ -494,6 +529,7 @@
         async function updatePass(id) {
             const plate = document.getElementById(`plate_${id}`).value;
             const driver = document.getElementById(`driver_${id}`).value;
+            const vendor = document.getElementById(`vendor_${id}`).value;
             const load = document.getElementById(`load_${id}`).value;
             const dock = document.getElementById(`dock_${id}`).value;
             const expectedDate = document.getElementById(`expectedDate_${id}`).value;
@@ -503,7 +539,7 @@
             await fetch(`/api/gate_passes/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ plate: plate, driver_name: driver, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, status: 'Sent to Dock' })
+                body: JSON.stringify({ plate: plate, driver_name: driver, vendor: vendor, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, status: 'Sent to Dock' })
             });
             fetchGatePasses();
             pollData();
@@ -547,7 +583,9 @@
                 body: JSON.stringify({
                     name: document.getElementById('camName').value,
                     location: document.getElementById('camLocation').value,
-                    url: document.getElementById('camUrl').value
+                    url: document.getElementById('camUrl').value,
+                    type: document.getElementById('camType').value,
+                    vendor: document.getElementById('camVendor').value
                 })
             });
             e.target.reset();
@@ -563,17 +601,36 @@
                     card.className = 'glass-panel';
                     card.id = `cam-${cam.id}`;
                     card.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; margin-bottom:1rem;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
                             <strong style="font-size:1.1rem">${cam.name}</strong>
                             <span class="badge pending">${cam.location}</span>
                         </div>
-                        <div class="video-container">
+                        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; display:flex; gap:10px;">
+                            <span>Type: ${cam.type}</span>
+                            <span>Vendor: ${cam.vendor}</span>
+                        </div>
+                        <div class="video-container" onclick="openFullscreen('/video_feed/${cam.id}')">
                             <img src="/video_feed/${cam.id}" alt="Live Feed">
+                            <div style="position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.6); padding:4px 8px; border-radius:4px; font-size:0.7rem; pointer-events:none; color:white;">&#x26F6; Fullscreen</div>
                         </div>
                     `;
                     grid.appendChild(card);
                 }
             });
+        }
+        
+        // Fullscreen Logic
+        function openFullscreen(url) {
+            const overlay = document.getElementById('fsOverlay');
+            const img = document.getElementById('fsImg');
+            img.src = url;
+            overlay.classList.add('active');
+        }
+        function closeFullscreen() {
+            const overlay = document.getElementById('fsOverlay');
+            const img = document.getElementById('fsImg');
+            overlay.classList.remove('active');
+            img.src = "";
         }
 
         // Background polling

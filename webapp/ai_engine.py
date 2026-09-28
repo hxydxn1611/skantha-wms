@@ -7,11 +7,13 @@ import easyocr
 import copy
 
 class SmartCamera:
-    def __init__(self, camera_id, name, url, location):
+    def __init__(self, camera_id, name, url, location, cam_type="IP Camera", vendor="Unknown"):
         self.camera_id = camera_id
         self.name = name
         self.url = url
         self.location = location
+        self.cam_type = cam_type
+        self.vendor = vendor
         self.is_running = False
         self.events = []
         self.visible_packages = 0
