@@ -14,6 +14,9 @@ class SmartCamera:
         self.location = location
         self.is_running = False
         self.events = []
+        self.visible_packages = 0
+        self.last_package_count = 0
+        self.consecutive_zeros = 0
         
         # Thread-safe frame passing
         self.raw_frame = None
@@ -45,6 +48,7 @@ class SmartCamera:
     def _capture_loop(self):
         # This thread just grabs frames from the camera network stream
         cap = cv2.VideoCapture(self.url)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Reduce video lag by minimizing buffer
         while self.is_running:
             ret, frame = cap.read()
             if not ret:
@@ -70,8 +74,10 @@ class SmartCamera:
                 ai_frame = self.raw_frame.copy()
             
             # --- HEAVY AI PROCESSING ---
-            results = SmartCamera.vehicle_model(ai_frame, classes=[2, 5, 7], verbose=False)
+            # Classes: Vehicles (2,5,7), Packages (39=bottle, 41=cup, 47=apple, 64=mouse, 65=remote, 67=cell phone, 73=book)
+            results = SmartCamera.vehicle_model(ai_frame, classes=[2, 5, 7, 39, 41, 47, 64, 65, 67, 73], verbose=False)
             new_boxes = []
+            package_count = 0
             
             for result in results:
                 for box in result.boxes:
@@ -84,14 +90,19 @@ class SmartCamera:
                         vehicle_type = "Heavy Commercial (HCV)"
                     elif raw_type == "car":
                         vehicle_type = "Light Vehicle (LMV)"
+                    elif raw_type in ["bottle", "cup", "apple", "mouse", "remote", "cell phone", "book"]:
+                        vehicle_type = "Package"
+                        package_count += 1
                     else:
                         vehicle_type = raw_type.title()
                         
+                    # Color coding: Packages get blue box, Vehicles get green box
                     new_boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "type": vehicle_type})
                     
                     ocr_counter += 1
-                    # Run OCR aggressively for PoC
-                    if self.location == "Gate":
+                    ocr_counter += 1
+                    # Run OCR aggressively for PoC, ONLY on vehicles
+                    if vehicle_type != "Package" and self.location == "Gate":
                         vehicle_crop = ai_frame[max(0, y1):y2, max(0, x1):x2]
                         if vehicle_crop.size > 0:
                             ocr_results = SmartCamera.ocr_reader.readtext(vehicle_crop)
@@ -109,9 +120,30 @@ class SmartCamera:
                                     self.events = self.events[:10]
                                     break # found a plate, move on
             
+            # Edge-triggered automatic counting (debounced)
+            if package_count > 0:
+                if self.last_package_count == 0:
+                    # We transitioned from seeing 0 boxes to >0 boxes!
+                    if self.location == "Dock":
+                        event = {
+                            "time": time.strftime("%H:%M:%S"),
+                            "type": "Package_Auto_Count",
+                            "count": package_count,
+                            "camera": self.name
+                        }
+                        self.events.insert(0, event)
+                        self.events = self.events[:20]
+                self.last_package_count = package_count
+                self.consecutive_zeros = 0
+            else:
+                self.consecutive_zeros += 1
+                if self.consecutive_zeros > 15: # Increased debounce to 15 frames to prevent flicker double-counting
+                    self.last_package_count = 0
+
             # Update boxes safely so the video thread can draw them
             with self.lock:
                 self.latest_boxes = new_boxes
+                self.visible_packages = package_count
 
             time.sleep(0.05) # Prevent AI from hogging 100% CPU
 
@@ -125,8 +157,13 @@ class SmartCamera:
 
         # Draw boxes
         for box in boxes_to_draw:
-            cv2.rectangle(display_frame, (box['x1'], box['y1']), (box['x2'], box['y2']), (0, 255, 150), 2)
-            cv2.putText(display_frame, box['type'], (box['x1'], box['y1'] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 150), 2)
+            color = (255, 150, 0) if box['type'] == 'Package' else (0, 255, 150)
+            cv2.rectangle(display_frame, (box['x1'], box['y1']), (box['x2'], box['y2']), color, 2)
+            cv2.putText(display_frame, box['type'], (box['x1'], box['y1'] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             
+        # Draw Live Count Overlay if Dock Camera
+        if self.location == "Dock":
+            cv2.putText(display_frame, f"LIVE BOX COUNT: {self.visible_packages}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 150, 0), 3)
+
         ret, buffer = cv2.imencode('.jpg', display_frame)
         return buffer.tobytes()

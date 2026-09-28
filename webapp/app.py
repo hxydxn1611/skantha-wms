@@ -77,7 +77,8 @@ def create_gate_pass():
         "status": "Pending",
         "dock": "Not Assigned",
         "arrival_date": time.strftime("%Y-%m-%d"),
-        "time": time.strftime("%H:%M:%S")
+        "time": time.strftime("%H:%M:%S"),
+        "unloaded_qty": 0
     }
     gate_passes.insert(0, new_gp)
     return jsonify({"success": True, "gate_pass": new_gp})
@@ -99,8 +100,35 @@ def update_gate_pass(gp_id):
             if 'dock' in data: gp['dock'] = data['dock']
             if 'expected_date' in data: gp['expected_date'] = data['expected_date']
             if 'po_number' in data: gp['po_number'] = data['po_number']
+            if 'unloaded_qty' in data: gp['unloaded_qty'] = data['unloaded_qty']
             return jsonify({"success": True, "gate_pass": gp})
     return jsonify({"success": False})
+
+@app.route('/api/dock/unload_step/<gp_id>', methods=['POST'])
+def unload_step(gp_id):
+    # Get total visible packages across all cameras
+    visible_packages = 0
+    for cam in active_cameras.values():
+        visible_packages += cam.visible_packages
+        
+    if visible_packages == 0:
+         return jsonify({"success": False, "message": "No packages detected by AI."})
+         
+    for gp in gate_passes:
+        if gp['id'] == gp_id:
+            gp['unloaded_qty'] = gp.get('unloaded_qty', 0) + visible_packages
+            return jsonify({"success": True, "added": visible_packages, "total": gp['unloaded_qty']})
+    return jsonify({"success": False, "message": "Gate pass not found."})
+
+@app.route('/api/dock/auto_add/<gp_id>', methods=['POST'])
+def auto_add_step(gp_id):
+    data = request.json
+    count = data.get('count', 0)
+    for gp in gate_passes:
+        if gp['id'] == gp_id:
+            gp['unloaded_qty'] = gp.get('unloaded_qty', 0) + count
+            return jsonify({"success": True, "added": count, "total": gp['unloaded_qty']})
+    return jsonify({"success": False, "message": "Gate pass not found."})
 
 @app.route('/api/cameras', methods=['GET'])
 def get_cameras():

@@ -7,7 +7,8 @@ def main():
     print("Loading AI Models... This might take a moment on the first run.")
     
     # 1. Load YOLOv8 for Vehicle Detection (Downloads the small 'nano' model automatically)
-    # COCO dataset classes: 2=car, 3=motorcycle, 5=bus, 7=truck
+    # CO
+    #CO dataset classes: 2=car, 3=motorcycle, 5=bus, 7=truck
     try:
         vehicle_model = YOLO('yolov8n.pt') 
     except Exception as e:
