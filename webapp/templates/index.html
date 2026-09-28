@@ -225,7 +225,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Dock #</th><th>Vehicle</th><th>Driver</th><th>Load To Unload</th><th>Status</th>
+                            <th>Dock #</th><th>Vehicle</th><th>Driver</th><th>Load To Unload</th><th>Status</th><th>AI Verification</th>
                         </tr>
                     </thead>
                     <tbody id="dockTableBody"></tbody>
@@ -281,12 +281,12 @@
                 const cameras = await camRes.json();
                 renderCameras(cameras);
 
-                // Auto-create Passes
+                // Auto-create Passes and Auto-Count Packages
                 cameras.forEach(cam => {
                     if(cam.location === 'Gate' && cam.events) {
                         cam.events.forEach(async (ev) => {
                             const eventKey = ev.plate + ev.time;
-                            if(!processedEvents.has(eventKey)) {
+                            if(!processedEvents.has(eventKey) && ev.type !== 'Package_Auto_Count') {
                                 processedEvents.add(eventKey);
                                 await fetch('/api/gate_passes', {
                                     method: 'POST',
@@ -294,6 +294,26 @@
                                     body: JSON.stringify({ plate: ev.plate, type: ev.type })
                                 });
                                 fetchGatePasses(); 
+                            }
+                        });
+                    }
+                    if(cam.location === 'Dock' && cam.events) {
+                        cam.events.forEach(async (ev) => {
+                            const eventKey = "auto_" + ev.time + ev.count;
+                            if(!processedEvents.has(eventKey) && ev.type === 'Package_Auto_Count') {
+                                processedEvents.add(eventKey);
+                                
+                                const gpRes = await fetch('/api/gate_passes');
+                                const gpList = await gpRes.json();
+                                const activeDock = gpList.find(p => p.status === 'Sent to Dock');
+                                if(activeDock) {
+                                    await fetch(`/api/dock/auto_add/${activeDock.id}`, {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({ count: ev.count })
+                                    });
+                                    fetchGatePasses();
+                                }
                             }
                         });
                     }
@@ -445,8 +465,8 @@
                     </tr>
                 `}).join('');
 
-                // Render Dock Table (Only 'Sent to Dock')
-                const dockedPasses = passes.filter(p => p.status === 'Sent to Dock');
+                // Render Dock Table (Only 'Sent to Dock' or 'Completed')
+                const dockedPasses = passes.filter(p => p.status === 'Sent to Dock' || p.status === 'Completed');
                 if(dockedPasses.length > 0) {
                     dockBody.innerHTML = dockedPasses.map(gp => `
                         <tr>
@@ -454,7 +474,14 @@
                             <td>${gp.plate} (${gp.vehicle_type})</td>
                             <td>${gp.driver_name}</td>
                             <td>${gp.load}</td>
-                            <td><span class="badge sent">Unloading...</span></td>
+                            <td>
+                                <span class="badge ${gp.status === 'Completed' ? 'sent' : 'pending'}">${gp.status === 'Completed' ? 'Unloaded' : 'Unloading...'}</span>
+                            </td>
+                            <td>
+                                <div style="font-weight:bold; font-size:1.1rem; margin-bottom:8px;">Boxes: <span id="unloaded_${gp.id}" style="color:var(--accent-hover)">${gp.unloaded_qty || 0}</span></div>
+                                <button class="btn-primary" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Scan Visible Boxes</button>
+                                <button class="btn-danger" style="margin-top:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish</button>
+                            </td>
                         </tr>
                     `).join('');
                 } else {
@@ -488,6 +515,27 @@
                 fetchGatePasses();
                 pollData();
             }
+        }
+        
+        async function scanPackages(id) {
+            const res = await fetch(`/api/dock/unload_step/${id}`, { method: 'POST' });
+            const data = await res.json();
+            if(data.success) {
+                document.getElementById(`unloaded_${id}`).innerText = data.total;
+                // Toast notification optional
+                console.log("Added " + data.added + " packages");
+            } else {
+                alert(data.message);
+            }
+        }
+
+        async function completeUnload(id) {
+            await fetch(`/api/gate_passes/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ status: 'Completed' })
+            });
+            fetchGatePasses();
         }
 
         // Camera Management
