@@ -25,7 +25,8 @@ def handle_deliveries():
             "expected_date": data.get("expected_date", time.strftime("%Y-%m-%d")),
             "plate": data.get("plate", "").upper(),
             "driver_name": data.get("driver_name", ""),
-            "load": data.get("load", "")
+            "load": data.get("load", ""),
+            "vendor": data.get("vendor", "")
         })
         return jsonify({"success": True})
     return jsonify(expected_deliveries)
@@ -58,12 +59,14 @@ def create_gate_pass():
     load_info = 'Awaiting Input'
     expected_date = ''
     po_number = ''
+    vendor = data.get('vendor', 'Unknown')
     for ed in expected_deliveries:
         if ed['plate'] == plate:
             driver_name = ed['driver_name']
             load_info = ed['load']
             expected_date = ed.get('expected_date', '')
             po_number = ed.get('po_number', '')
+            vendor = ed.get('vendor', vendor)
             break
             
     new_gp = {
@@ -72,6 +75,7 @@ def create_gate_pass():
         "vehicle_type": data.get('type', 'Unknown'),
         "driver_name": driver_name,
         "load": load_info,
+        "vendor": vendor,
         "expected_date": expected_date,
         "po_number": po_number,
         "status": "Pending",
@@ -96,6 +100,7 @@ def update_gate_pass(gp_id):
             if 'plate' in data: gp['plate'] = data['plate']
             if 'driver_name' in data: gp['driver_name'] = data['driver_name']
             if 'load' in data: gp['load'] = data['load']
+            if 'vendor' in data: gp['vendor'] = data['vendor']
             if 'status' in data: gp['status'] = data['status']
             if 'dock' in data: gp['dock'] = data['dock']
             if 'expected_date' in data: gp['expected_date'] = data['expected_date']
@@ -139,6 +144,8 @@ def get_cameras():
             "name": cam.name,
             "url": cam.url,
             "location": cam.location,
+            "type": cam.cam_type,
+            "vendor": cam.vendor,
             "events": cam.events
         })
     return jsonify(cameras_data)
@@ -152,7 +159,9 @@ def add_camera():
         camera_id=cam_id,
         name=data.get('name'),
         url=data.get('url'),
-        location=data.get('location')
+        location=data.get('location'),
+        cam_type=data.get('type', 'IP Camera'),
+        vendor=data.get('vendor', 'Unknown')
     )
     new_camera.start()
     active_cameras[cam_id] = new_camera
