@@ -125,20 +125,60 @@ class SmartCamera:
                     if vehicle_type != "Package" and self.location == "Gate":
                         vehicle_crop = ai_frame[max(0, y1):y2, max(0, x1):x2]
                         if vehicle_crop.size > 0:
-                            ocr_results = SmartCamera.ocr_reader.readtext(vehicle_crop)
+                            # 1. Image Processing to increase OCR accuracy to >80%
+                            gray = cv2.cvtColor(vehicle_crop, cv2.COLOR_BGR2GRAY)
+                            h, w = gray.shape
+                            # License plates are generally in the lower half of the vehicle.
+                            # Crop to bottom 60% to eliminate logos and cabin text
+                            gray_bottom = gray[int(h*0.4):, :]
+                            
+                            # Enhance contrast and reduce noise using Bilateral Filter
+                            gray_bottom = cv2.bilateralFilter(gray_bottom, 11, 17, 17)
+                            
+                            # Scale up image for EasyOCR which struggles on small text
+                            gray_bottom = cv2.resize(gray_bottom, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                            
+                            # 2. Run OCR
+                            ocr_results = SmartCamera.ocr_reader.readtext(gray_bottom)
+                            
+                            best_plate = ""
+                            best_prob = 0
+                            
+                            # We can also attempt to combine parts if the plate is split
+                            parts = []
                             for (_, text, prob) in ocr_results:
                                 clean_text = "".join(e for e in text if e.isalnum()).upper()
-                                # Relaxed OCR: Let any 4+ character string through to Gate Pass for manual correction
-                                if len(clean_text) >= 4 and prob > 0.1:
-                                    event = {
-                                        "time": time.strftime("%H:%M:%S"),
-                                        "type": vehicle_type,
-                                        "plate": clean_text,
-                                        "camera": self.name
-                                    }
-                                    self.events.insert(0, event)
-                                    self.events = self.events[:10]
-                                    break # found a plate, move on
+                                if len(clean_text) >= 2 and prob > 0.3:
+                                    parts.append(clean_text)
+                                    
+                                # 3. Heuristic filtering for actual license plates
+                                # A typical plate has letters and numbers, length 6 to 12
+                                if 6 <= len(clean_text) <= 12 and prob > 0.4:
+                                    has_digit = any(c.isdigit() for c in clean_text)
+                                    has_alpha = any(c.isalpha() for c in clean_text)
+                                    if has_digit and has_alpha:
+                                        if prob > best_prob:
+                                            best_prob = prob
+                                            best_plate = clean_text
+                                            
+                            # Fallback: if no single string matched perfectly, try combining parts
+                            if best_plate == "" and len(parts) > 0:
+                                combined = "".join(parts)
+                                if 6 <= len(combined) <= 12:
+                                    has_digit = any(c.isdigit() for c in combined)
+                                    has_alpha = any(c.isalpha() for c in combined)
+                                    if has_digit and has_alpha:
+                                        best_plate = combined
+                                        
+                            if best_plate != "":
+                                event = {
+                                    "time": time.strftime("%H:%M:%S"),
+                                    "type": vehicle_type,
+                                    "plate": best_plate,
+                                    "camera": self.name
+                                }
+                                self.events.insert(0, event)
+                                self.events = self.events[:10]
             
             # Edge-triggered automatic counting (debounced)
             if package_count > 0:
