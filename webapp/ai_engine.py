@@ -148,12 +148,12 @@ class SmartCamera:
                             parts = []
                             for (_, text, prob) in ocr_results:
                                 clean_text = "".join(e for e in text if e.isalnum()).upper()
-                                if len(clean_text) >= 2 and prob > 0.3:
+                                if len(clean_text) >= 2 and prob > 0.2:
                                     parts.append(clean_text)
                                     
                                 # 3. Heuristic filtering for actual license plates
-                                # A typical plate has letters and numbers, length 6 to 12
-                                if 6 <= len(clean_text) <= 12 and prob > 0.4:
+                                # A typical plate has letters and numbers, length 4 to 12
+                                if 4 <= len(clean_text) <= 12 and prob > 0.2:
                                     has_digit = any(c.isdigit() for c in clean_text)
                                     has_alpha = any(c.isalpha() for c in clean_text)
                                     if has_digit and has_alpha:
@@ -164,7 +164,7 @@ class SmartCamera:
                             # Fallback: if no single string matched perfectly, try combining parts
                             if best_plate == "" and len(parts) > 0:
                                 combined = "".join(parts)
-                                if 6 <= len(combined) <= 12:
+                                if 4 <= len(combined) <= 12:
                                     has_digit = any(c.isdigit() for c in combined)
                                     has_alpha = any(c.isalpha() for c in combined)
                                     if has_digit and has_alpha:
