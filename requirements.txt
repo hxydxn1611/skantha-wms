@@ -1,0 +1,18 @@
+# Skandha WMS & Gate Vision Dependencies
+
+# Core Web Framework
+Flask>=3.0.0
+
+# Computer Vision & Deep Learning
+opencv-python>=4.8.0
+ultralytics>=8.0.0
+easyocr>=1.7.0
+numpy>=1.24.0
+
+# PyTorch Deep Learning Backend (CPU or CUDA)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Optional Utilities
+Pillow>=10.0.0
+requests>=2.31.0
