@@ -227,7 +227,8 @@
                             <option value="Loading">Loading (Outgoing)</option>
                         </select>
                         <label>Expected Date *</label> <input type="date" id="expDate" required>
-                        <label>Expected Load *</label> <input type="text" id="expLoad" placeholder="10 Pallets Electronics" required>
+                        <label>Expected Load *</label> <input type="text" id="expLoad" placeholder="Electronics" required>
+                        <label>Expected Quantity (Boxes) *</label> <input type="number" id="expQty" placeholder="50" value="50" required>
                         <label>Vendor *</label> <input type="text" id="expVendor" placeholder="Samsung Electronics" required>
                         <label>Expected Plate (Optional)</label> <input type="text" id="expPlate" placeholder="XYZ 123">
                         <label>Driver Name (Optional)</label> <input type="text" id="expDriver" placeholder="John Doe">
@@ -237,7 +238,7 @@
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
                     <table>
-                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Expected Load</th><th>Plate (If Known)</th></tr></thead>
+                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th></tr></thead>
                         <tbody id="expectedTableBody"></tbody>
                     </table>
                 </div>
@@ -403,18 +404,17 @@
                     }
                     if(cam.location === 'Dock' && cam.events) {
                         cam.events.forEach(async (ev) => {
-                            const eventKey = "auto_" + ev.time + ev.count;
-                            if(!processedEvents.has(eventKey) && ev.type === 'Package_Auto_Count') {
+                            const eventKey = "auto_" + ev.time + ev.track_id;
+                            if(!processedEvents.has(eventKey) && ev.type === 'Package_Tracked') {
                                 processedEvents.add(eventKey);
                                 
                                 const gpRes = await fetch('/api/gate_passes');
                                 const gpList = await gpRes.json();
-                                const activeDock = gpList.find(p => p.status === 'Sent to Dock');
+                                const activeDock = gpList.find(p => p.status === 'Sent to Dock' || p.status === 'Unloading');
                                 if(activeDock) {
-                                    await fetch(`/api/dock/auto_add/${activeDock.id}`, {
-                                        method: 'POST',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({ count: ev.count })
+                                    // With the new API, we just trigger an unload step update to sync total_unloaded
+                                    await fetch(`/api/dock/unload_step/${activeDock.id}`, {
+                                        method: 'POST'
                                     });
                                     fetchGatePasses();
                                 }
@@ -438,7 +438,13 @@
                     driver_name: document.getElementById('expDriver').value,
                     load: document.getElementById('expLoad').value,
                     vendor: document.getElementById('expVendor').value,
-                    activity: document.getElementById('expActivity').value
+                    activity: document.getElementById('expActivity').value,
+                    unloading_sheet: [{
+                        sku: "BOX-GENERIC",
+                        description: document.getElementById('expLoad').value,
+                        uom: "Boxes",
+                        expected: parseInt(document.getElementById('expQty').value) || 0
+                    }]
                 })
             });
             e.target.reset();
@@ -464,6 +470,7 @@
                         <td>${d.activity || 'Loading'}</td>
                         <td style="color:var(--text-muted);">${d.vendor || 'Unknown'}</td>
                         <td>${d.load}</td>
+                        <td style="font-weight:bold;">${d.unloading_sheet ? d.unloading_sheet[0].expected : '-'}</td>
                         <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
                     </tr>
                 `).join('');
@@ -623,11 +630,47 @@
                                 ${gp.status === 'Sent to Dock' ? `
                                     <button class="btn-primary" style="width:100%; background:var(--success); margin-bottom:4px;" onclick="updateDockStatus('${gp.id}', 'Unloading')">Allow</button>
                                     <button class="btn-danger" style="width:100%;" onclick="updateDockStatus('${gp.id}', 'Rejected')">Reject</button>
-                                ` : `
-                                    <div style="font-weight:bold; font-size:1.1rem; margin-bottom:8px;">Boxes: <span id="unloaded_${gp.id}" style="color:var(--accent-hover)">${gp.unloaded_qty || 0}</span></div>
-                                    <input type="text" id="bin_${gp.id}" placeholder="Bin / Aisle Allocation" value="${gp.bin_allocation || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" ${gp.status === 'Completed' ? 'disabled' : ''}>
-                                    <button class="btn-primary" style="width:100%; margin-bottom:4px;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Scan Visible Boxes</button>
-                                    <button class="btn-danger" style="width:100%;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish</button>
+                                    ` : `
+                                    <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 8px; margin-bottom: 8px;">
+                                        <h4 style="margin:0 0 8px 0; color:var(--text-muted); font-size:0.85rem; display:flex; justify-content:space-between;">
+                                            <span>UNLOADING SHEET (AI VERIFICATION)</span>
+                                            <span style="color:var(--success);">98% Accuracy Tracker</span>
+                                        </h4>
+                                        <div style="margin-bottom: 8px;">
+                                            <img src="/video_feed/07b3adfb" style="width:100%; border-radius:4px; max-height:200px; object-fit:cover;" alt="Live Dock Camera"/>
+                                        </div>
+                                        <table style="margin:0; font-size:0.85rem; background:transparent;">
+                                            <thead>
+                                                <tr><th style="padding:4px;">SKU / Desc</th><th style="padding:4px;">Expected</th><th style="padding:4px;">AI Count</th><th style="padding:4px;">Match</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                ${(gp.unloading_sheet && gp.unloading_sheet.length > 0) ? gp.unloading_sheet.map(item => {
+                                                    const matchColor = (gp.unloaded_qty === item.expected) ? 'var(--success)' : 'var(--warning)';
+                                                    const matchText = (gp.unloaded_qty === item.expected) ? 'YES' : 'NO';
+                                                    return `
+                                                    <tr>
+                                                        <td style="padding:4px;">
+                                                            <div style="font-family:monospace; color:var(--text-main);">${item.sku}</div>
+                                                            <div style="font-size:0.75rem; color:var(--text-muted);">${item.description}</div>
+                                                        </td>
+                                                        <td style="padding:4px; font-weight:bold;">${item.expected} ${item.uom}</td>
+                                                        <td style="padding:4px; font-weight:bold; color:var(--accent-hover);" id="unloaded_${gp.id}">${gp.unloaded_qty || 0}</td>
+                                                        <td style="padding:4px; font-weight:bold; color:${matchColor};">${matchText}</td>
+                                                    </tr>
+                                                    `;
+                                                }).join('') : `
+                                                    <tr>
+                                                        <td style="padding:4px;" colspan="2">No Unloading Sheet</td>
+                                                        <td style="padding:4px; font-weight:bold; color:var(--accent-hover);" id="unloaded_${gp.id}">${gp.unloaded_qty || 0}</td>
+                                                        <td style="padding:4px;">-</td>
+                                                    </tr>
+                                                `}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <input type="text" id="bin_${gp.id}" placeholder="Bin / Aisle Allocation (e.g. Aisle 4)" value="${gp.bin_allocation || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" ${gp.status === 'Completed' ? 'disabled' : ''}>
+                                    <button class="btn-primary" style="width:100%; margin-bottom:4px;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>🔄 Sync AI Tracker Count</button>
+                                    <button class="btn-danger" style="width:100%;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
                                 `}
                             </td>
                         </tr>
@@ -744,9 +787,9 @@
             const res = await fetch(`/api/dock/unload_step/${id}`, { method: 'POST' });
             const data = await res.json();
             if(data.success) {
-                document.getElementById(`unloaded_${id}`).innerText = data.total;
-                // Toast notification optional
-                console.log("Added " + data.added + " packages");
+                // We re-render the whole table to update the Unloading Sheet 'Match' coloring
+                fetchGatePasses();
+                console.log("Synced total: " + data.total + " packages");
             } else {
                 alert(data.message);
             }

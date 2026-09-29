@@ -30,7 +30,8 @@ def handle_deliveries():
             "driver_name": data.get("driver_name", ""),
             "load": data.get("load", ""),
             "vendor": data.get("vendor", ""),
-            "activity": data.get("activity", "Loading")
+            "activity": data.get("activity", "Loading"),
+            "unloading_sheet": data.get("unloading_sheet", [])
         })
         return jsonify({"success": True})
     return jsonify(expected_deliveries)
@@ -65,6 +66,7 @@ def create_gate_pass():
     po_number = data.get('po_number', '')
     vendor = data.get('vendor', 'Unknown')
     activity = data.get('activity', 'Loading')
+    unloading_sheet = data.get('unloading_sheet', [])
     photo = data.get('photo', '')
     
     for ed in expected_deliveries:
@@ -75,6 +77,7 @@ def create_gate_pass():
             po_number = ed.get('po_number', po_number)
             vendor = ed.get('vendor', vendor)
             activity = ed.get('activity', activity)
+            unloading_sheet = ed.get('unloading_sheet', unloading_sheet)
             break
             
     new_gp = {
@@ -87,6 +90,7 @@ def create_gate_pass():
         "expected_date": expected_date,
         "po_number": po_number,
         "activity": activity,
+        "unloading_sheet": unloading_sheet,
         "photo": photo,
         "status": "Pending",
         "dock": "Not Assigned",
@@ -125,18 +129,18 @@ def update_gate_pass(gp_id):
 
 @app.route('/api/dock/unload_step/<gp_id>', methods=['POST'])
 def unload_step(gp_id):
-    # Get total visible packages across all cameras
-    visible_packages = 0
+    # Get total visible packages across all cameras (or total tracked if available)
+    total_unloaded = 0
     for cam in active_cameras.values():
-        visible_packages += cam.visible_packages
+        total_unloaded += cam.total_unloaded
         
-    if visible_packages == 0:
+    if total_unloaded == 0:
          return jsonify({"success": False, "message": "No packages detected by AI."})
          
     for gp in gate_passes:
         if gp['id'] == gp_id:
-            gp['unloaded_qty'] = gp.get('unloaded_qty', 0) + visible_packages
-            return jsonify({"success": True, "added": visible_packages, "total": gp['unloaded_qty']})
+            gp['unloaded_qty'] = total_unloaded
+            return jsonify({"success": True, "total": gp['unloaded_qty']})
     return jsonify({"success": False, "message": "Gate pass not found."})
 
 @app.route('/api/dock/auto_add/<gp_id>', methods=['POST'])
