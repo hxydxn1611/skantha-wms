@@ -238,7 +238,7 @@
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
                     <table>
-                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th></tr></thead>
+                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th><th>Connected Pass / Status</th></tr></thead>
                         <tbody id="expectedTableBody"></tbody>
                     </table>
                 </div>
@@ -460,20 +460,28 @@
                 
                 const tbody = document.getElementById('expectedTableBody');
                 if(globalDeliveries.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No expected deliveries registered.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No expected deliveries registered.</td></tr>';
                     return;
                 }
-                tbody.innerHTML = globalDeliveries.map(d => `
+                tbody.innerHTML = globalDeliveries.map(d => {
+                    let statusBadge = '<span class="badge pending" style="font-size:0.75rem;">Awaiting Gate</span>';
+                    if (d.linked_gate_pass_id) {
+                        statusBadge = `<span class="badge sent" style="font-size:0.75rem; background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3);">🔗 Pass ${d.linked_gate_pass_id} (${d.status})</span>`;
+                    } else if (d.status === 'Arrived') {
+                        statusBadge = `<span class="badge sent" style="font-size:0.75rem;">Arrived</span>`;
+                    }
+                    return `
                     <tr>
                         <td style="font-weight:bold; color:var(--accent-hover);">${d.po_number}</td>
                         <td>${d.expected_date}</td>
                         <td>${d.activity || 'Loading'}</td>
                         <td style="color:var(--text-muted);">${d.vendor || 'Unknown'}</td>
                         <td>${d.load}</td>
-                        <td style="font-weight:bold;">${d.unloading_sheet ? d.unloading_sheet[0].expected : '-'}</td>
+                        <td style="font-weight:bold;">${d.unloading_sheet && d.unloading_sheet.length > 0 ? d.unloading_sheet[0].expected : '-'}</td>
                         <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
+                        <td>${statusBadge}</td>
                     </tr>
-                `).join('');
+                `;}).join('');
                 
                 fetchGatePasses();
             } catch(e) {}
@@ -699,6 +707,7 @@
                 body: JSON.stringify({ plate: plate, driver_name: driver, vendor: vendor, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, activity: activity, status: 'Sent to Dock' })
             });
             fetchGatePasses();
+            fetchDeliveries();
             pollData();
         }
 
@@ -706,6 +715,7 @@
             if(confirm('Are you sure you want to delete this Gate Pass?')) {
                 await fetch(`/api/gate_passes/${id}`, { method: 'DELETE' });
                 fetchGatePasses();
+                fetchDeliveries();
                 pollData();
             }
         }
@@ -717,6 +727,7 @@
                 body: JSON.stringify({ status: newStatus })
             });
             fetchGatePasses();
+            fetchDeliveries();
             pollData();
         }
 
@@ -754,6 +765,7 @@
                     body: JSON.stringify({ plate: plate, type: 'Manual Entry', photo: photoUrl })
                 });
                 fetchGatePasses();
+                fetchDeliveries();
             }
         }
         
