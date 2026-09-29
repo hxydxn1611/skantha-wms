@@ -1,0 +1,17 @@
+# Editor & IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Environment & local files
+.env
+venv/
+env/
+.DS_Store
