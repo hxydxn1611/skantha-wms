@@ -8,12 +8,13 @@ import os
 
 app = Flask(__name__)
 
+import db
+
+# Initialize SQLite database schema
+db.init_db()
+
 # Store active cameras in memory
 active_cameras = {}
-# Store gate passes in memory
-gate_passes = []
-# Expected Deliveries (Pre-registered stock)
-expected_deliveries = []
 
 @app.route('/')
 def index():
@@ -23,109 +24,58 @@ def index():
 def handle_deliveries():
     if request.method == 'POST':
         data = request.json
-        expected_deliveries.append({
-            "po_number": data.get("po_number", f"PO-{len(expected_deliveries)+1000}"),
-            "expected_date": data.get("expected_date", time.strftime("%Y-%m-%d")),
-            "plate": data.get("plate", "").upper(),
-            "driver_name": data.get("driver_name", ""),
-            "load": data.get("load", ""),
-            "vendor": data.get("vendor", ""),
-            "activity": data.get("activity", "Loading"),
-            "unloading_sheet": data.get("unloading_sheet", [])
-        })
+        new_deliv = db.create_delivery(data)
+        return jsonify({"success": True, "delivery": new_deliv})
+    return jsonify(db.get_all_deliveries())
+
+@app.route('/api/deliveries/<po_number>', methods=['GET', 'DELETE'])
+def handle_single_delivery(po_number):
+    if request.method == 'DELETE':
+        db.delete_delivery(po_number)
         return jsonify({"success": True})
-    return jsonify(expected_deliveries)
+    deliv = db.get_delivery(po_number)
+    if deliv:
+        return jsonify(deliv)
+    return jsonify({"success": False, "message": "Delivery not found"}), 404
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    return jsonify({
-        "total_expected": len(expected_deliveries),
-        "total_arrived": len(gate_passes),
-        "pending_dock": len([g for g in gate_passes if g['status'] == 'Pending']),
-        "at_dock": len([g for g in gate_passes if g['status'] == 'Sent to Dock'])
-    })
+    return jsonify(db.get_stats())
 
 @app.route('/api/gate_passes', methods=['GET'])
 def get_gate_passes():
-    return jsonify(gate_passes)
+    return jsonify(db.get_all_gate_passes())
 
 @app.route('/api/gate_passes', methods=['POST'])
 def create_gate_pass():
     data = request.json
-    plate = data.get('plate')
     
     # Enforce one truck at the gate at a time.
     # If there is already a Pending gate pass, block new ones until it's processed.
-    if any(gp['status'] == 'Pending' for gp in gate_passes):
+    if db.has_pending_gate_pass():
         return jsonify({"success": False, "message": "Clear pending gate pass first."})
             
-    # Auto-fill from expected deliveries if available!
-    driver_name = data.get('driver_name', 'Awaiting Input')
-    load_info = data.get('load', 'Awaiting Input')
-    expected_date = data.get('expected_date', '')
-    po_number = data.get('po_number', '')
-    vendor = data.get('vendor', 'Unknown')
-    activity = data.get('activity', 'Loading')
-    unloading_sheet = data.get('unloading_sheet', [])
-    photo = data.get('photo', '')
-    
-    for ed in expected_deliveries:
-        if ed['plate'] == plate:
-            driver_name = ed.get('driver_name', driver_name)
-            load_info = ed.get('load', load_info)
-            expected_date = ed.get('expected_date', expected_date)
-            po_number = ed.get('po_number', po_number)
-            vendor = ed.get('vendor', vendor)
-            activity = ed.get('activity', activity)
-            unloading_sheet = ed.get('unloading_sheet', unloading_sheet)
-            break
-            
-    new_gp = {
-        "id": f"GP-{len(gate_passes)+1000}",
-        "plate": plate,
-        "vehicle_type": data.get('type', 'Unknown'),
-        "driver_name": driver_name,
-        "load": load_info,
-        "vendor": vendor,
-        "expected_date": expected_date,
-        "po_number": po_number,
-        "activity": activity,
-        "unloading_sheet": unloading_sheet,
-        "photo": photo,
-        "status": "Pending",
-        "dock": "Not Assigned",
-        "arrival_date": time.strftime("%Y-%m-%d"),
-        "time": time.strftime("%H:%M:%S"),
-        "unloaded_qty": 0,
-        "bin_allocation": ""
-    }
-    gate_passes.insert(0, new_gp)
+    # Auto-matches against pre-registered deliveries (by plate or po_number)
+    # and connects both collections inside db.create_gate_pass
+    new_gp = db.create_gate_pass(data)
     return jsonify({"success": True, "gate_pass": new_gp})
 
-@app.route('/api/gate_passes/<gp_id>', methods=['PUT', 'DELETE'])
+@app.route('/api/gate_passes/<gp_id>', methods=['GET', 'PUT', 'DELETE'])
 def update_gate_pass(gp_id):
-    global gate_passes
     if request.method == 'DELETE':
-        gate_passes = [gp for gp in gate_passes if gp['id'] != gp_id]
+        db.delete_gate_pass(gp_id)
         return jsonify({"success": True})
+    if request.method == 'GET':
+        gp = db.get_gate_pass(gp_id)
+        if gp:
+            return jsonify(gp)
+        return jsonify({"success": False, "message": "Gate pass not found"}), 404
         
     data = request.json
-    for gp in gate_passes:
-        if gp['id'] == gp_id:
-            if 'plate' in data: gp['plate'] = data['plate']
-            if 'driver_name' in data: gp['driver_name'] = data['driver_name']
-            if 'load' in data: gp['load'] = data['load']
-            if 'vendor' in data: gp['vendor'] = data['vendor']
-            if 'status' in data: gp['status'] = data['status']
-            if 'dock' in data: gp['dock'] = data['dock']
-            if 'expected_date' in data: gp['expected_date'] = data['expected_date']
-            if 'po_number' in data: gp['po_number'] = data['po_number']
-            if 'unloaded_qty' in data: gp['unloaded_qty'] = data['unloaded_qty']
-            if 'activity' in data: gp['activity'] = data['activity']
-            if 'bin_allocation' in data: gp['bin_allocation'] = data['bin_allocation']
-            if 'photo' in data: gp['photo'] = data['photo']
-            return jsonify({"success": True, "gate_pass": gp})
-    return jsonify({"success": False})
+    gp = db.update_gate_pass(gp_id, data)
+    if gp:
+        return jsonify({"success": True, "gate_pass": gp})
+    return jsonify({"success": False, "message": "Gate pass not found"})
 
 @app.route('/api/dock/unload_step/<gp_id>', methods=['POST'])
 def unload_step(gp_id):
@@ -137,20 +87,18 @@ def unload_step(gp_id):
     if total_unloaded == 0:
          return jsonify({"success": False, "message": "No packages detected by AI."})
          
-    for gp in gate_passes:
-        if gp['id'] == gp_id:
-            gp['unloaded_qty'] = total_unloaded
-            return jsonify({"success": True, "total": gp['unloaded_qty']})
+    gp = db.set_unload_qty(gp_id, total_unloaded)
+    if gp:
+        return jsonify({"success": True, "total": gp['unloaded_qty']})
     return jsonify({"success": False, "message": "Gate pass not found."})
 
 @app.route('/api/dock/auto_add/<gp_id>', methods=['POST'])
 def auto_add_step(gp_id):
     data = request.json
     count = data.get('count', 0)
-    for gp in gate_passes:
-        if gp['id'] == gp_id:
-            gp['unloaded_qty'] = gp.get('unloaded_qty', 0) + count
-            return jsonify({"success": True, "added": count, "total": gp['unloaded_qty']})
+    gp = db.add_unload_qty(gp_id, count)
+    if gp:
+        return jsonify({"success": True, "added": count, "total": gp['unloaded_qty']})
     return jsonify({"success": False, "message": "Gate pass not found."})
 
 @app.route('/api/cameras', methods=['GET'])

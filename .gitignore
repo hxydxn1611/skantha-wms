@@ -19,3 +19,6 @@ env/
 webapp/*.pt
 webapp/weights/
 webapp/static/captures/
+*.db
+*.db-wal
+*.db-shm
