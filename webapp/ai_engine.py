@@ -171,11 +171,20 @@ class SmartCamera:
                                         best_plate = combined
                                         
                             if best_plate != "":
+                                # Save the frame as a photo
+                                import uuid
+                                import os
+                                photo_filename = f"captures/{uuid.uuid4().hex}.jpg"
+                                capture_path = os.path.join(os.path.dirname(__file__), "static", photo_filename)
+                                os.makedirs(os.path.dirname(capture_path), exist_ok=True)
+                                cv2.imwrite(capture_path, ai_frame)
+                                
                                 event = {
                                     "time": time.strftime("%H:%M:%S"),
                                     "type": vehicle_type,
                                     "plate": best_plate,
-                                    "camera": self.name
+                                    "camera": self.name,
+                                    "photo": photo_filename
                                 }
                                 self.events.insert(0, event)
                                 self.events = self.events[:10]

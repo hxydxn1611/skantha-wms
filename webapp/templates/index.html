@@ -136,6 +136,16 @@
             animation: pulseGlow 1.8s infinite ease-in-out;
             display: inline-flex; align-items: center; gap: 4px;
         }
+        .nav-badge {
+            display: inline-block;
+            width: 8px; height: 8px;
+            background-color: var(--danger);
+            border-radius: 50%;
+            margin-left: 6px;
+            vertical-align: middle;
+            animation: pulseGlow 1.8s infinite ease-in-out;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -171,8 +181,8 @@
             <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
             <button class="tab-btn" onclick="switchTab('deliveries')">Pre-Registration</button>
             <button class="tab-btn" onclick="switchTab('cameras')">Live Cameras</button>
-            <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management</button>
-            <button class="tab-btn" onclick="switchTab('docks')">Dock Management</button>
+            <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
+            <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
         </div>
     </header>
 
@@ -211,6 +221,11 @@
                     <p style="font-size:0.85rem; color:var(--text-muted);">Log incoming orders even if you don't know the truck yet.</p>
                     <form id="addDeliveryForm">
                         <label>PO / Order Number *</label> <input type="text" id="expPO" placeholder="PO-12345" required>
+                        <label>Activity *</label>
+                        <select id="expActivity">
+                            <option value="Unloading">Unloading (Incoming)</option>
+                            <option value="Loading">Loading (Outgoing)</option>
+                        </select>
                         <label>Expected Date *</label> <input type="date" id="expDate" required>
                         <label>Expected Load *</label> <input type="text" id="expLoad" placeholder="10 Pallets Electronics" required>
                         <label>Vendor *</label> <input type="text" id="expVendor" placeholder="Samsung Electronics" required>
@@ -222,7 +237,7 @@
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
                     <table>
-                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Vendor</th><th>Expected Load</th><th>Plate (If Known)</th></tr></thead>
+                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Expected Load</th><th>Plate (If Known)</th></tr></thead>
                         <tbody id="expectedTableBody"></tbody>
                     </table>
                 </div>
@@ -288,7 +303,10 @@
             <div class="glass-panel">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <h2>Generated Gate Passes</h2>
-                    <span style="font-size: 0.85rem; color: var(--success);">Match AI Detections to Expected POs</span>
+                    <div>
+                        <span style="font-size: 0.85rem; color: var(--success); margin-right:1rem;">Match AI Detections to Expected POs</span>
+                        <button class="btn-primary" onclick="createManualPass()" style="font-size:0.85rem;">+ Create Manual Pass</button>
+                    </div>
                 </div>
                 <table>
                     <thead>
@@ -419,7 +437,8 @@
                     plate: document.getElementById('expPlate').value,
                     driver_name: document.getElementById('expDriver').value,
                     load: document.getElementById('expLoad').value,
-                    vendor: document.getElementById('expVendor').value
+                    vendor: document.getElementById('expVendor').value,
+                    activity: document.getElementById('expActivity').value
                 })
             });
             e.target.reset();
@@ -442,6 +461,7 @@
                     <tr>
                         <td style="font-weight:bold; color:var(--accent-hover);">${d.po_number}</td>
                         <td>${d.expected_date}</td>
+                        <td>${d.activity || 'Loading'}</td>
                         <td style="color:var(--text-muted);">${d.vendor || 'Unknown'}</td>
                         <td>${d.load}</td>
                         <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
@@ -460,6 +480,10 @@
                 document.getElementById(`load_${gpId}`).value = selectedOption.value;
                 document.getElementById(`expectedDate_${gpId}`).value = selectedOption.getAttribute('data-date');
                 document.getElementById(`poNumber_${gpId}`).value = selectedOption.getAttribute('data-po');
+                const activity = selectedOption.getAttribute('data-activity');
+                if(activity && document.getElementById(`activity_${gpId}`)) {
+                    document.getElementById(`activity_${gpId}`).value = activity;
+                }
                 const driver = selectedOption.getAttribute('data-driver');
                 if(driver) {
                     document.getElementById(`driver_${gpId}`).value = driver;
@@ -478,6 +502,12 @@
                 const passes = await res.json();
                 const gateBody = document.getElementById('gatePassTableBody');
                 const dockBody = document.getElementById('dockTableBody');
+                
+                // Badges
+                const pendingCount = passes.filter(p => p.status === 'Pending').length;
+                const activeDockCount = passes.filter(p => p.status === 'Sent to Dock').length;
+                document.getElementById('gate-badge').style.display = pendingCount > 0 ? 'inline-block' : 'none';
+                document.getElementById('dock-badge').style.display = activeDockCount > 0 ? 'inline-block' : 'none';
                 
                 if(passes.length === 0) {
                     gateBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No gate passes yet.</td></tr>';
@@ -498,7 +528,7 @@
                             poDropdown = `
                                 <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(212,175,55,0.1);">
                                     <option value="">Match to a Pending PO...</option>
-                                    ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}">${d.po_number}: ${d.load}</option>`).join('')}
+                                    ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}">${d.po_number}: ${d.load}</option>`).join('')}
                                 </select><br/>
                             `;
                         }
@@ -541,7 +571,15 @@
                             ${expectedDateInput}
                             ${poNumberInput}
                             ${poDropdown}
-                            <input type="text" id="load_${gp.id}" value="${gp.load}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            <input type="text" id="load_${gp.id}" value="${gp.load}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Load" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            <select id="activity_${gp.id}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                                <option value="Unloading" ${gp.activity === 'Unloading' ? 'selected' : ''}>Unloading</option>
+                                <option value="Loading" ${gp.activity === 'Loading' ? 'selected' : ''}>Loading</option>
+                            </select>
+                            ${gp.photo 
+                                ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" style="max-width:120px; border-radius:4px; display:block; margin-bottom:4px;" alt="Truck Photo"/><span style="cursor:pointer; font-size:0.85rem; color:var(--text-muted);" onclick="retakePhoto('${gp.id}')">🔄 Retake</span></div>` 
+                                : `<div style="margin-top:4px;"><button class="btn-primary" style="padding:2px 8px; font-size:0.75rem;" onclick="retakePhoto('${gp.id}')">📸 Snap Photo</button></div>`
+                            }
                         </td>
                         <td>
                             <select id="dock_${gp.id}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}>
@@ -560,22 +598,37 @@
                     </tr>
                 `}).join('');
 
-                // Render Dock Table (Only 'Sent to Dock' or 'Completed')
-                const dockedPasses = passes.filter(p => p.status === 'Sent to Dock' || p.status === 'Completed');
+                // Render Dock Table (Only 'Sent to Dock', 'Unloading' or 'Completed')
+                const dockedPasses = passes.filter(p => ['Sent to Dock', 'Unloading', 'Completed'].includes(p.status));
                 if(dockedPasses.length > 0) {
                     dockBody.innerHTML = dockedPasses.map(gp => `
                         <tr>
                             <td style="font-size:1.2rem; font-weight:bold; color:var(--accent-hover)">${gp.dock}</td>
-                            <td>${gp.plate} (${gp.vehicle_type})</td>
-                            <td>${gp.driver_name}</td>
-                            <td>${gp.load}</td>
                             <td>
-                                <span class="badge ${gp.status === 'Completed' ? 'sent' : 'pending'}">${gp.status === 'Completed' ? 'Unloaded' : 'Unloading...'}</span>
+                                <div>${gp.plate} (${gp.vehicle_type})</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Vendor: ${gp.vendor || 'N/A'}</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">PO: ${gp.po_number || 'N/A'}</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Exp: ${gp.expected_date || 'N/A'}</div>
+                            </td>
+                            <td>${gp.driver_name}</td>
+                            <td>
+                                <div>${gp.load}</div>
+                                <div style="font-size:0.8rem; color:var(--accent-hover); margin-top:4px; font-weight:bold;">Activity: ${gp.activity || 'Loading'}</div>
+                                ${gp.photo ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" style="max-width:150px; border-radius:4px; display:block;" alt="Truck Photo"/></div>` : '<div style="font-size:0.8rem; color:var(--text-muted);">No Photo</div>'}
                             </td>
                             <td>
-                                <div style="font-weight:bold; font-size:1.1rem; margin-bottom:8px;">Boxes: <span id="unloaded_${gp.id}" style="color:var(--accent-hover)">${gp.unloaded_qty || 0}</span></div>
-                                <button class="btn-primary" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Scan Visible Boxes</button>
-                                <button class="btn-danger" style="margin-top:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish</button>
+                                <span class="badge ${gp.status === 'Completed' ? 'sent' : 'pending'}">${gp.status}</span>
+                            </td>
+                            <td>
+                                ${gp.status === 'Sent to Dock' ? `
+                                    <button class="btn-primary" style="width:100%; background:var(--success); margin-bottom:4px;" onclick="updateDockStatus('${gp.id}', 'Unloading')">Allow</button>
+                                    <button class="btn-danger" style="width:100%;" onclick="updateDockStatus('${gp.id}', 'Rejected')">Reject</button>
+                                ` : `
+                                    <div style="font-weight:bold; font-size:1.1rem; margin-bottom:8px;">Boxes: <span id="unloaded_${gp.id}" style="color:var(--accent-hover)">${gp.unloaded_qty || 0}</span></div>
+                                    <input type="text" id="bin_${gp.id}" placeholder="Bin / Aisle Allocation" value="${gp.bin_allocation || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" ${gp.status === 'Completed' ? 'disabled' : ''}>
+                                    <button class="btn-primary" style="width:100%; margin-bottom:4px;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Scan Visible Boxes</button>
+                                    <button class="btn-danger" style="width:100%;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish</button>
+                                `}
                             </td>
                         </tr>
                     `).join('');
@@ -594,12 +647,13 @@
             const dock = document.getElementById(`dock_${id}`).value;
             const expectedDate = document.getElementById(`expectedDate_${id}`).value;
             const poNumber = document.getElementById(`poNumber_${id}`).value;
+            const activity = document.getElementById(`activity_${id}`).value;
             
             if(dock === 'Not Assigned') { alert("Please assign a dock before approving."); return; }
             await fetch(`/api/gate_passes/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ plate: plate, driver_name: driver, vendor: vendor, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, status: 'Sent to Dock' })
+                body: JSON.stringify({ plate: plate, driver_name: driver, vendor: vendor, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, activity: activity, status: 'Sent to Dock' })
             });
             fetchGatePasses();
             pollData();
@@ -610,6 +664,79 @@
                 await fetch(`/api/gate_passes/${id}`, { method: 'DELETE' });
                 fetchGatePasses();
                 pollData();
+            }
+        }
+        
+        async function updateDockStatus(id, newStatus) {
+            await fetch(`/api/gate_passes/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ status: newStatus })
+            });
+            fetchGatePasses();
+            pollData();
+        }
+
+        async function createManualPass() {
+            const plate = prompt("Enter Vehicle Plate (or leave blank):", "MANUAL-ENTRY");
+            if(plate !== null) {
+                let photoUrl = "";
+                
+                // Try to find a Gate camera to snap a photo from
+                try {
+                    const camRes = await fetch('/api/cameras');
+                    const cameras = await camRes.json();
+                    const gateCams = cameras.filter(c => c.location === 'Gate');
+                    if(gateCams.length > 0) {
+                        if(confirm("Do you want to capture a photo from the Gate Camera?")) {
+                            const snapRes = await fetch(`/api/cameras/${gateCams[0].id}/snap`, { method: 'POST' });
+                            const snapData = await snapRes.json();
+                            if(snapData.success) {
+                                photoUrl = snapData.photo;
+                                alert("Photo captured successfully!");
+                            } else {
+                                alert("Failed to capture photo: " + snapData.message);
+                            }
+                        }
+                    } else {
+                        alert("No Gate Camera active. Creating pass without photo.");
+                    }
+                } catch(e) {
+                    console.error("Camera snap error", e);
+                }
+                
+                await fetch('/api/gate_passes', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ plate: plate, type: 'Manual Entry', photo: photoUrl })
+                });
+                fetchGatePasses();
+            }
+        }
+        
+        async function retakePhoto(gpId) {
+            try {
+                const camRes = await fetch('/api/cameras');
+                const cameras = await camRes.json();
+                const gateCams = cameras.filter(c => c.location === 'Gate');
+                if(gateCams.length > 0) {
+                    const snapRes = await fetch(`/api/cameras/${gateCams[0].id}/snap`, { method: 'POST' });
+                    const snapData = await snapRes.json();
+                    if(snapData.success) {
+                        await fetch(`/api/gate_passes/${gpId}`, {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ photo: snapData.photo })
+                        });
+                        fetchGatePasses();
+                    } else {
+                        alert("Failed to snap photo: " + snapData.message);
+                    }
+                } else {
+                    alert("No Gate Camera active to snap from.");
+                }
+            } catch(e) {
+                console.error("Retake photo error", e);
             }
         }
         
@@ -626,10 +753,11 @@
         }
 
         async function completeUnload(id) {
+            const bin = document.getElementById(`bin_${id}`) ? document.getElementById(`bin_${id}`).value : "";
             await fetch(`/api/gate_passes/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ status: 'Completed' })
+                body: JSON.stringify({ status: 'Completed', bin_allocation: bin })
             });
             fetchGatePasses();
         }
@@ -863,6 +991,20 @@
             pollData();
         }
 
+        async function manualSnapshot(camId) {
+            try {
+                const snapRes = await fetch(`/api/cameras/${camId}/snap`, { method: 'POST' });
+                const snapData = await snapRes.json();
+                if(snapData.success) {
+                    window.open(`/static/${snapData.photo}`, '_blank');
+                } else {
+                    alert("Failed to snap: " + snapData.message);
+                }
+            } catch(e) {
+                console.error("Snapshot error", e);
+            }
+        }
+
         window.addEventListener('beforeunload', () => {
             Object.values(activeDeviceStreams).forEach(item => {
                 if (item.stream) item.stream.getTracks().forEach(t => t.stop());
@@ -905,6 +1047,7 @@
                             <div style="position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.6); padding:4px 8px; border-radius:4px; font-size:0.7rem; pointer-events:none; color:white;">&#x26F6; Fullscreen</div>
                         </div>
                         <div style="display:flex; gap:8px; margin-top:0.75rem;">
+                            <button class="btn-primary" style="flex:1; font-size:0.8rem; padding:6px; background:var(--success);" onclick="manualSnapshot('${cam.id}')">📸 Snapshot</button>
                             ${isLocalDevice ? `<button class="btn-primary" style="flex:1; font-size:0.8rem; padding:6px;" onclick="flipDeviceCamera('${cam.id}')">🔄 Flip Lens</button>` : ''}
                             <button class="btn-danger" style="flex:1; font-size:0.8rem; padding:6px;" onclick="deleteCamera('${cam.id}')">Disconnect</button>
                         </div>

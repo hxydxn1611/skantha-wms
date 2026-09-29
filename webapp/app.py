@@ -4,6 +4,7 @@ import time
 import uuid
 import cv2
 import numpy as np
+import os
 
 app = Flask(__name__)
 
@@ -28,7 +29,8 @@ def handle_deliveries():
             "plate": data.get("plate", "").upper(),
             "driver_name": data.get("driver_name", ""),
             "load": data.get("load", ""),
-            "vendor": data.get("vendor", "")
+            "vendor": data.get("vendor", ""),
+            "activity": data.get("activity", "Loading")
         })
         return jsonify({"success": True})
     return jsonify(expected_deliveries)
@@ -57,18 +59,22 @@ def create_gate_pass():
         return jsonify({"success": False, "message": "Clear pending gate pass first."})
             
     # Auto-fill from expected deliveries if available!
-    driver_name = 'Awaiting Input'
-    load_info = 'Awaiting Input'
-    expected_date = ''
-    po_number = ''
+    driver_name = data.get('driver_name', 'Awaiting Input')
+    load_info = data.get('load', 'Awaiting Input')
+    expected_date = data.get('expected_date', '')
+    po_number = data.get('po_number', '')
     vendor = data.get('vendor', 'Unknown')
+    activity = data.get('activity', 'Loading')
+    photo = data.get('photo', '')
+    
     for ed in expected_deliveries:
         if ed['plate'] == plate:
-            driver_name = ed['driver_name']
-            load_info = ed['load']
-            expected_date = ed.get('expected_date', '')
-            po_number = ed.get('po_number', '')
+            driver_name = ed.get('driver_name', driver_name)
+            load_info = ed.get('load', load_info)
+            expected_date = ed.get('expected_date', expected_date)
+            po_number = ed.get('po_number', po_number)
             vendor = ed.get('vendor', vendor)
+            activity = ed.get('activity', activity)
             break
             
     new_gp = {
@@ -80,11 +86,14 @@ def create_gate_pass():
         "vendor": vendor,
         "expected_date": expected_date,
         "po_number": po_number,
+        "activity": activity,
+        "photo": photo,
         "status": "Pending",
         "dock": "Not Assigned",
         "arrival_date": time.strftime("%Y-%m-%d"),
         "time": time.strftime("%H:%M:%S"),
-        "unloaded_qty": 0
+        "unloaded_qty": 0,
+        "bin_allocation": ""
     }
     gate_passes.insert(0, new_gp)
     return jsonify({"success": True, "gate_pass": new_gp})
@@ -108,6 +117,9 @@ def update_gate_pass(gp_id):
             if 'expected_date' in data: gp['expected_date'] = data['expected_date']
             if 'po_number' in data: gp['po_number'] = data['po_number']
             if 'unloaded_qty' in data: gp['unloaded_qty'] = data['unloaded_qty']
+            if 'activity' in data: gp['activity'] = data['activity']
+            if 'bin_allocation' in data: gp['bin_allocation'] = data['bin_allocation']
+            if 'photo' in data: gp['photo'] = data['photo']
             return jsonify({"success": True, "gate_pass": gp})
     return jsonify({"success": False})
 
@@ -151,6 +163,23 @@ def get_cameras():
             "events": cam.events
         })
     return jsonify(cameras_data)
+
+@app.route('/api/cameras/<cam_id>/snap', methods=['POST'])
+def snap_camera(cam_id):
+    cam = active_cameras.get(cam_id)
+    if not cam:
+        return jsonify({"success": False, "message": "Camera not found"})
+    frame_bytes = cam.get_frame()
+    if not frame_bytes:
+        return jsonify({"success": False, "message": "No frame available"})
+    
+    photo_filename = f"captures/manual_{uuid.uuid4().hex}.jpg"
+    capture_path = os.path.join(os.path.dirname(__file__), "static", photo_filename)
+    os.makedirs(os.path.dirname(capture_path), exist_ok=True)
+    with open(capture_path, "wb") as f:
+        f.write(frame_bytes)
+        
+    return jsonify({"success": True, "photo": photo_filename})
 
 @app.route('/api/cameras', methods=['POST'])
 def add_camera():
