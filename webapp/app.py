@@ -2,6 +2,8 @@ from flask import Flask, render_template, Response, request, jsonify
 from ai_engine import SmartCamera
 import time
 import uuid
+import cv2
+import numpy as np
 
 app = Flask(__name__)
 
@@ -167,6 +169,30 @@ def add_camera():
     active_cameras[cam_id] = new_camera
     
     return jsonify({"success": True, "id": cam_id})
+
+@app.route('/api/cameras/<camera_id>/frame', methods=['POST'])
+def receive_camera_frame(camera_id):
+    if camera_id not in active_cameras:
+        return jsonify({"success": False, "message": "Camera not found"}), 404
+    
+    frame_data = request.get_data()
+    if not frame_data:
+        return jsonify({"success": False, "message": "No frame data"}), 400
+    
+    np_arr = np.frombuffer(frame_data, np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if frame is not None:
+        active_cameras[camera_id].push_frame(frame)
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Failed to decode frame"}), 400
+
+@app.route('/api/cameras/<camera_id>', methods=['DELETE'])
+def delete_camera(camera_id):
+    if camera_id in active_cameras:
+        cam = active_cameras.pop(camera_id)
+        cam.stop()
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Camera not found"}), 404
 
 def generate_frames(camera_id):
     while True:

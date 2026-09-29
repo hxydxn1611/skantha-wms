@@ -2,9 +2,10 @@ import cv2
 import threading
 import time
 import re
+import copy
+import numpy as np
 from ultralytics import YOLO
 import easyocr
-import copy
 
 class SmartCamera:
     def __init__(self, camera_id, name, url, location, cam_type="IP Camera", vendor="Unknown"):
@@ -34,28 +35,40 @@ class SmartCamera:
     def start(self):
         self.is_running = True
         
-        # Thread 1: ONLY captures video from the network as fast as possible
-        self.capture_thread = threading.Thread(target=self._capture_loop)
-        self.capture_thread.daemon = True
-        self.capture_thread.start()
+        # Thread 1: ONLY captures video from network/local device if not client-pushed
+        if self.cam_type != "Device Camera":
+            self.capture_thread = threading.Thread(target=self._capture_loop)
+            self.capture_thread.daemon = True
+            self.capture_thread.start()
         
         # Thread 2: ONLY runs AI in the background, doesn't block video
         self.ai_thread = threading.Thread(target=self._ai_loop)
         self.ai_thread.daemon = True
         self.ai_thread.start()
 
+    def push_frame(self, frame):
+        """Thread-safe injection of client frames (e.g. from laptop/phone device cameras)."""
+        if frame is not None:
+            if frame.shape[1] != 640 or frame.shape[0] != 480:
+                frame = cv2.resize(frame, (640, 480))
+            with self.lock:
+                self.raw_frame = frame
+
     def stop(self):
         self.is_running = False
 
     def _capture_loop(self):
-        # This thread just grabs frames from the camera network stream
-        cap = cv2.VideoCapture(self.url)
+        # Support integer source for USB webcams (e.g. "0")
+        cap_source = self.url
+        if isinstance(cap_source, str) and cap_source.strip().isdigit():
+            cap_source = int(cap_source.strip())
+        cap = cv2.VideoCapture(cap_source)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Reduce video lag by minimizing buffer
         while self.is_running:
             ret, frame = cap.read()
             if not ret:
                 time.sleep(1)
-                cap = cv2.VideoCapture(self.url)
+                cap = cv2.VideoCapture(cap_source)
                 continue
             
             frame = cv2.resize(frame, (640, 480))
@@ -72,8 +85,13 @@ class SmartCamera:
             # Grab a copy of the latest frame safely
             with self.lock:
                 if self.raw_frame is None:
-                    continue
-                ai_frame = self.raw_frame.copy()
+                    ai_frame = None
+                else:
+                    ai_frame = self.raw_frame.copy()
+            
+            if ai_frame is None:
+                time.sleep(0.05)
+                continue
             
             # --- HEAVY AI PROCESSING ---
             # Classes: Vehicles (2,5,7), Packages (39=bottle, 41=cup, 47=apple, 64=mouse, 65=remote, 67=cell phone, 73=book)
@@ -153,7 +171,12 @@ class SmartCamera:
         # The web server calls this constantly. We just draw boxes on the latest frame!
         with self.lock:
             if self.raw_frame is None:
-                return None
+                # Sleek placeholder frame while stream initiates
+                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(placeholder, "Awaiting Camera Feed...", (150, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
+                ret, buf = cv2.imencode('.jpg', placeholder)
+                return buf.tobytes() if ret else None
             display_frame = self.raw_frame.copy()
             boxes_to_draw = copy.deepcopy(self.latest_boxes)
 

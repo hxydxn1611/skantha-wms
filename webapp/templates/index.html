@@ -128,6 +128,14 @@
         .btn-danger { background: var(--danger); color: white; }
         .btn-danger:hover { background: var(--danger-hover); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); }
         
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.65; transform: scale(0.97); }
+        }
+        .pulse-badge {
+            animation: pulseGlow 1.8s infinite ease-in-out;
+            display: inline-flex; align-items: center; gap: 4px;
+        }
     </style>
 </head>
 <body>
@@ -234,21 +242,41 @@
                             <option value="Dock">Loading Dock</option>
                         </select>
                         <label>Camera Type</label>
-                        <select id="camType">
+                        <select id="camType" onchange="handleCamTypeChange()">
+                            <option value="Device Camera">Device Camera (Laptop / Phone)</option>
                             <option value="IP Camera">IP Camera</option>
                             <option value="DVR">DVR</option>
                             <option value="NVR">NVR</option>
                             <option value="USB Webcam">USB Webcam</option>
                         </select>
-                        <label>Vendor</label>
-                        <select id="camVendor">
-                            <option value="Hikvision">Hikvision</option>
-                            <option value="Dahua">Dahua</option>
-                            <option value="CP Plus">CP Plus</option>
-                            <option value="Other">Other</option>
-                        </select>
-                        <label>Stream URL</label> <input type="text" id="camUrl" placeholder="http://192.168.x.x:8080/video" required>
-                        <button type="submit" class="btn-primary" style="width:100%">Connect Camera</button>
+                        
+                        <div id="deviceFacingGroup">
+                            <label>Device Camera Lens</label>
+                            <select id="camFacing">
+                                <option value="environment">Back / Rear Camera (Scan Trucks / Docks)</option>
+                                <option value="user">Front Camera (Laptop Webcam / Self)</option>
+                            </select>
+                            <p style="font-size:0.75rem; color:var(--text-muted); margin-top:-6px; margin-bottom:12px;">
+                                💡 Directly streams from this device's camera into YOLO & OCR recognition.
+                            </p>
+                        </div>
+
+                        <div id="vendorGroup">
+                            <label>Vendor</label>
+                            <select id="camVendor">
+                                <option value="Built-in Device">Built-in / Native Device</option>
+                                <option value="Hikvision">Hikvision</option>
+                                <option value="Dahua">Dahua</option>
+                                <option value="CP Plus">CP Plus</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                        <div id="camUrlGroup" style="display:none;">
+                            <label>Stream URL</label> <input type="text" id="camUrl" placeholder="http://192.168.x.x:8080/video">
+                        </div>
+
+                        <button type="submit" id="connectCameraBtn" class="btn-primary" style="width:100%; margin-top:8px;">Connect Camera</button>
                     </form>
                 </aside>
                 <div id="cameraGrid" class="camera-grid" style="flex:1;"></div>
@@ -606,44 +634,279 @@
             fetchGatePasses();
         }
 
-        // Camera Management
+        // Camera Management & Device Streaming State
+        const activeDeviceStreams = {}; // camId -> { stream, intervalId, videoEl, canvasEl, facingMode }
+
+        function isMobileDevice() {
+            return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+
+        function handleCamTypeChange() {
+            const camType = document.getElementById('camType').value;
+            const isDevice = (camType === 'Device Camera');
+            
+            const facingGroup = document.getElementById('deviceFacingGroup');
+            const urlGroup = document.getElementById('camUrlGroup');
+            const camUrlInput = document.getElementById('camUrl');
+            const camNameInput = document.getElementById('camName');
+            const camVendorSelect = document.getElementById('camVendor');
+
+            if (facingGroup) facingGroup.style.display = isDevice ? 'block' : 'none';
+            if (urlGroup) urlGroup.style.display = isDevice ? 'none' : 'block';
+            if (camUrlInput) camUrlInput.required = !isDevice;
+
+            if (isDevice) {
+                if (!camNameInput.value || camNameInput.value === 'Main Gate' || camNameInput.value.includes('Camera')) {
+                    camNameInput.value = isMobileDevice() ? 'Mobile Device Camera' : 'Laptop Built-in Camera';
+                }
+                if (camVendorSelect) camVendorSelect.value = 'Built-in Device';
+                if (camUrlInput) camUrlInput.value = 'device://client';
+                const facingSelect = document.getElementById('camFacing');
+                if (facingSelect) {
+                    facingSelect.value = isMobileDevice() ? 'environment' : 'user';
+                }
+            } else {
+                if (camUrlInput && camUrlInput.value === 'device://client') {
+                    camUrlInput.value = '';
+                }
+                if (camVendorSelect && camVendorSelect.value === 'Built-in Device') {
+                    camVendorSelect.value = 'Hikvision';
+                }
+            }
+        }
+
         document.getElementById('addCameraForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            await fetch('/api/cameras', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    name: document.getElementById('camName').value,
-                    location: document.getElementById('camLocation').value,
-                    url: document.getElementById('camUrl').value,
-                    type: document.getElementById('camType').value,
-                    vendor: document.getElementById('camVendor').value
-                })
-            });
-            e.target.reset();
+            const btn = document.getElementById('connectCameraBtn');
+            const originalBtnText = btn.innerText;
+            const camType = document.getElementById('camType').value;
+            const name = document.getElementById('camName').value;
+            const location = document.getElementById('camLocation').value;
+            const vendor = document.getElementById('camVendor').value;
+            const url = document.getElementById('camUrl').value;
+            const facingMode = document.getElementById('camFacing') ? document.getElementById('camFacing').value : 'user';
+
+            if (camType === 'Device Camera') {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                        alert("Device camera access on mobile over Wi-Fi requires HTTPS or localhost. Please connect via HTTPS or enable 'Insecure origins treated as secure' in chrome://flags for this URL.");
+                    } else {
+                        alert("Camera access is not supported or was blocked by browser security permissions.");
+                    }
+                    return;
+                }
+
+                btn.innerText = "Requesting Camera Access...";
+                btn.disabled = true;
+
+                let stream = null;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: { ideal: facingMode },
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        },
+                        audio: false
+                    });
+                } catch(err) {
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    } catch(fallbackErr) {
+                        alert("Unable to open device camera: " + (fallbackErr.message || fallbackErr.name));
+                        btn.innerText = originalBtnText;
+                        btn.disabled = false;
+                        return;
+                    }
+                }
+
+                btn.innerText = "Starting AI Pipeline...";
+
+                try {
+                    const res = await fetch('/api/cameras', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            name: name,
+                            location: location,
+                            url: 'device://client',
+                            type: 'Device Camera',
+                            vendor: vendor
+                        })
+                    });
+                    const camData = await res.json();
+                    const camId = camData.id;
+
+                    // Create offscreen video element to capture frames
+                    const videoEl = document.createElement('video');
+                    videoEl.autoplay = true;
+                    videoEl.playsInline = true;
+                    videoEl.muted = true;
+                    videoEl.srcObject = stream;
+                    await videoEl.play();
+
+                    const canvasEl = document.createElement('canvas');
+                    canvasEl.width = 640;
+                    canvasEl.height = 480;
+                    const ctx = canvasEl.getContext('2d');
+
+                    let isSending = false;
+                    const intervalId = setInterval(() => {
+                        if (isSending) return;
+                        if (videoEl.readyState < 2) return;
+                        ctx.drawImage(videoEl, 0, 0, 640, 480);
+                        canvasEl.toBlob((blob) => {
+                            if (!blob) return;
+                            isSending = true;
+                            fetch(`/api/cameras/${camId}/frame`, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'image/jpeg'},
+                                body: blob
+                            })
+                            .catch(() => {})
+                            .finally(() => { isSending = false; });
+                        }, 'image/jpeg', 0.65);
+                    }, 125); // ~8 FPS streaming rate
+
+                    activeDeviceStreams[camId] = {
+                        stream: stream,
+                        intervalId: intervalId,
+                        videoEl: videoEl,
+                        canvasEl: canvasEl,
+                        facingMode: facingMode
+                    };
+
+                    e.target.reset();
+                    handleCamTypeChange();
+                    pollData();
+                } catch(serverErr) {
+                    alert("Failed to initialize camera on server: " + serverErr.message);
+                    stream.getTracks().forEach(t => t.stop());
+                } finally {
+                    btn.innerText = originalBtnText;
+                    btn.disabled = false;
+                }
+            } else {
+                await fetch('/api/cameras', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: name,
+                        location: location,
+                        url: url,
+                        type: camType,
+                        vendor: vendor
+                    })
+                });
+                e.target.reset();
+                handleCamTypeChange();
+                pollData();
+            }
+        });
+
+        async function flipDeviceCamera(camId) {
+            const info = activeDeviceStreams[camId];
+            if (!info) return;
+
+            info.stream.getTracks().forEach(t => t.stop());
+            clearInterval(info.intervalId);
+
+            const nextFacing = (info.facingMode === 'environment') ? 'user' : 'environment';
+            info.facingMode = nextFacing;
+
+            try {
+                const newStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: nextFacing },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+                info.stream = newStream;
+                info.videoEl.srcObject = newStream;
+                await info.videoEl.play();
+
+                let isSending = false;
+                info.intervalId = setInterval(() => {
+                    if (isSending) return;
+                    if (info.videoEl.readyState < 2) return;
+                    const ctx = info.canvasEl.getContext('2d');
+                    ctx.drawImage(info.videoEl, 0, 0, 640, 480);
+                    info.canvasEl.toBlob((blob) => {
+                        if (!blob) return;
+                        isSending = true;
+                        fetch(`/api/cameras/${camId}/frame`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'image/jpeg'},
+                            body: blob
+                        })
+                        .catch(() => {})
+                        .finally(() => { isSending = false; });
+                    }, 'image/jpeg', 0.65);
+                }, 125);
+            } catch(e) {
+                alert("Failed to flip camera lens: " + e.message);
+            }
+        }
+
+        async function deleteCamera(camId) {
+            if (!confirm("Are you sure you want to disconnect this camera?")) return;
+            if (activeDeviceStreams[camId]) {
+                activeDeviceStreams[camId].stream.getTracks().forEach(t => t.stop());
+                clearInterval(activeDeviceStreams[camId].intervalId);
+                delete activeDeviceStreams[camId];
+            }
+            await fetch(`/api/cameras/${camId}`, { method: 'DELETE' });
+            const card = document.getElementById(`cam-${camId}`);
+            if (card) card.remove();
             pollData();
+        }
+
+        window.addEventListener('beforeunload', () => {
+            Object.values(activeDeviceStreams).forEach(item => {
+                if (item.stream) item.stream.getTracks().forEach(t => t.stop());
+                if (item.intervalId) clearInterval(item.intervalId);
+            });
         });
 
         function renderCameras(cameras) {
             const grid = document.getElementById('cameraGrid');
+            const currentIds = new Set(cameras.map(c => `cam-${c.id}`));
+            
+            // Remove cards of cameras that were disconnected
+            Array.from(grid.children).forEach(child => {
+                if (!currentIds.has(child.id)) {
+                    child.remove();
+                }
+            });
+
             cameras.forEach(cam => {
                 let card = document.getElementById(`cam-${cam.id}`);
+                const isLocalDevice = !!activeDeviceStreams[cam.id];
                 if (!card) {
                     card = document.createElement('div');
                     card.className = 'glass-panel';
                     card.id = `cam-${cam.id}`;
                     card.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
                             <strong style="font-size:1.1rem">${cam.name}</strong>
-                            <span class="badge pending">${cam.location}</span>
+                            <div style="display:flex; gap:6px; align-items:center;">
+                                ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:rgba(16,185,129,0.25); color:var(--success); border:1px solid rgba(16,185,129,0.4);">● Device Stream</span>' : ''}
+                                <span class="badge pending">${cam.location}</span>
+                            </div>
                         </div>
-                        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; display:flex; gap:10px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.75rem; display:flex; gap:10px;">
                             <span>Type: ${cam.type}</span>
                             <span>Vendor: ${cam.vendor}</span>
                         </div>
                         <div class="video-container" onclick="openFullscreen('/video_feed/${cam.id}')">
                             <img src="/video_feed/${cam.id}" alt="Live Feed">
                             <div style="position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.6); padding:4px 8px; border-radius:4px; font-size:0.7rem; pointer-events:none; color:white;">&#x26F6; Fullscreen</div>
+                        </div>
+                        <div style="display:flex; gap:8px; margin-top:0.75rem;">
+                            ${isLocalDevice ? `<button class="btn-primary" style="flex:1; font-size:0.8rem; padding:6px;" onclick="flipDeviceCamera('${cam.id}')">🔄 Flip Lens</button>` : ''}
+                            <button class="btn-danger" style="flex:1; font-size:0.8rem; padding:6px;" onclick="deleteCamera('${cam.id}')">Disconnect</button>
                         </div>
                     `;
                     grid.appendChild(card);
@@ -671,6 +934,9 @@
                 pollData();
             }
         }, 2000);
+
+        // Initialize camera form state on load
+        handleCamTypeChange();
     </script>
 </body>
 </html>
