@@ -83,21 +83,59 @@ def main():
                     vehicle_crop = frame[y1:y2, x1:x2]
                     
                     if vehicle_crop.size > 0:
-                        # Run OCR on the cropped vehicle image
-                        # (In a production system, you'd use a 2nd YOLO model specifically to find the plate first, 
-                        # but searching the whole vehicle works for a basic PoC)
-                        ocr_results = ocr_reader.readtext(vehicle_crop)
+                        # --- ADVANCED OCR PIPELINE ---
+                        # 1. Pre-process to increase accuracy
+                        gray = cv2.cvtColor(vehicle_crop, cv2.COLOR_BGR2GRAY)
+                        h, w = gray.shape
+                        # License plates are generally in the lower half of the vehicle
+                        gray_bottom = gray[int(h*0.4):, :]
                         
-                        # Filter out garbage OCR results (keep strings longer than 4 chars)
+                        # Enhance contrast and reduce noise using Bilateral Filter
+                        gray_bottom = cv2.bilateralFilter(gray_bottom, 11, 17, 17)
+                        
+                        # Scale up image for EasyOCR which struggles on small text
+                        gray_bottom = cv2.resize(gray_bottom, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                        
+                        # 2. Run OCR on processed image
+                        ocr_results = ocr_reader.readtext(gray_bottom)
+                        
+                        best_plate = ""
+                        best_prob = 0
+                        parts = []
+                        
+                        # Filter out garbage OCR results
                         for (bbox, text, prob) in ocr_results:
                             # Basic cleanup: remove spaces and special characters
                             clean_text = "".join(e for e in text if e.isalnum()).upper()
-                            if len(clean_text) > 4 and prob > 0.3: 
-                                plate_text = clean_text
-                                print(f"Detected {vehicle_type.upper()} with Plate: {plate_text} (Confidence: {prob:.2f})")
-                                # Here is where you would send an API request to your iWMS backend!
-                                # e.g., requests.post('http://localhost:3000/api/gate-pass', json={'plate': plate_text, 'type': vehicle_type})
-                                break
+                            
+                            if len(clean_text) >= 2 and prob > 0.2:
+                                parts.append(clean_text)
+                                
+                            # Heuristic: plates usually have numbers and letters, length 4-12
+                            if 4 <= len(clean_text) <= 12 and prob > 0.2: 
+                                has_digit = any(c.isdigit() for c in clean_text)
+                                has_alpha = any(c.isalpha() for c in clean_text)
+                                if has_digit and has_alpha:
+                                    if prob > best_prob:
+                                        best_prob = prob
+                                        best_plate = clean_text
+                                        
+                        # Fallback: if split across lines, try combining
+                        if best_plate == "" and len(parts) > 0:
+                            combined = "".join(parts)
+                            if 4 <= len(combined) <= 12:
+                                has_digit = any(c.isdigit() for c in combined)
+                                has_alpha = any(c.isalpha() for c in combined)
+                                if has_digit and has_alpha:
+                                    best_plate = combined
+                                    best_prob = 0.5 # Estimated fallback confidence
+                                    
+                        if best_plate != "":
+                            plate_text = best_plate
+                            print(f"Detected {vehicle_type.upper()} with Plate: {plate_text} (Confidence: {best_prob:.2f})")
+                            # Here is where you would send an API request to your iWMS backend!
+                            # e.g., requests.post('http://localhost:5000/api/gate_passes', json={'plate': plate_text, 'type': vehicle_type})
+                            break
 
                 # Display the info on the screen
                 label = f"{vehicle_type} {plate_text}"
