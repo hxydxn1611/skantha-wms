@@ -22,7 +22,7 @@
         body {
             margin: 0; font-family: 'Rajdhani', sans-serif;
             background: var(--bg-color); color: var(--text-main);
-            min-height: 100vh; display: flex; flex-direction: column;
+            min-height: 100vh; display: flex; flex-direction: row;
         }
         
         /* LOGIN OVERLAY */
@@ -62,25 +62,28 @@
             font-weight: 800;
         }
         
-        /* HEADER BRANDING */
-        header {
-            padding: 1rem 2rem; background: rgba(15, 23, 42, 0.85);
+        /* SIDEBAR BRANDING */
+        #main-header {
+            width: 280px; padding: 2rem 1.5rem; background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border-light);
-            display: flex; justify-content: space-between; align-items: center;
+            border-right: 1px solid var(--border-light);
+            display: flex; flex-direction: column; gap: 2.5rem;
+            flex-shrink: 0;
+            overflow-y: auto;
         }
-        .brand-container { display: flex; flex-direction: column; }
-        h1 { margin: 0; font-weight: 800; font-size: 1.5rem; color: var(--text-main); }
-        .powered-by { font-size: 0.75rem; color: var(--accent-hover); font-weight: 600; margin-top: 4px; text-transform: uppercase;}
+        .brand-container { display: flex; flex-direction: column; gap: 0.5rem; text-align: center; margin-bottom: 1rem; }
+        .brand-container img { margin: 0 auto; display: block; max-height: 80px; }
+        h1 { margin: 0; font-weight: 800; font-size: 1.8rem; color: var(--text-main); }
+        .powered-by { font-size: 0.75rem; color: var(--accent-hover); font-weight: 600; text-transform: uppercase; line-height: 1.3;}
         
         /* NAVIGATION */
-        .tabs { display: flex; gap: 0.5rem; }
+        .tabs { display: flex; flex-direction: column; gap: 0.75rem; }
         .tab-btn {
-            background: none; border: none; color: var(--text-muted); font-size: 0.9rem;
-            font-weight: 600; cursor: pointer; padding: 0.5rem 1rem; border-radius: 8px;
-            transition: all 0.2s;
+            background: none; border: 1px solid transparent; color: var(--text-muted); font-size: 1rem;
+            font-weight: 600; cursor: pointer; padding: 1rem 1.25rem; border-radius: 8px;
+            transition: all 0.2s; text-align: left; display: flex; justify-content: space-between; align-items: center;
         }
-        .tab-btn.active, .tab-btn:hover { background: rgba(212, 175, 55, 0.15); color: var(--accent-hover); }
+        .tab-btn.active, .tab-btn:hover { background: rgba(212, 175, 55, 0.15); color: var(--accent-hover); border-color: rgba(6, 182, 212, 0.3); }
 
         .container { display: flex; flex: 1; overflow: hidden; padding: 1.5rem; gap: 1.5rem; }
         .glass-panel { background: var(--panel-bg); backdrop-filter: blur(12px); border: 1px solid var(--border-light); border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
@@ -168,14 +171,11 @@
         <img id="fsImg" src="" alt="Fullscreen Camera">
     </div>
 
-    <!-- MAIN APP -->
-    <header style="display:none;" id="main-header">
+    <aside style="display:none;" id="main-header">
         <div class="brand-container">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <img src="/static/logo.png" alt="W.A.R.L.O.G Logo" style="height: 32px; filter: brightness(1.2);">
-                <h1 class="metallic-text" style="margin: 0; font-size: 1.5rem; letter-spacing: 1px;">W.A.R.L.O.G</h1>
-            </div>
-            <div class="powered-by">Warehouse Analytics, Recognition, Logistics & Operational Guidance</div>
+            <img src="/static/logo.png" alt="W.A.R.L.O.G Logo" style="filter: brightness(1.2);">
+            <h1 class="metallic-text" style="letter-spacing: 1px;">W.A.R.L.O.G</h1>
+            <div class="powered-by">Warehouse Analytics,<br>Recognition, Logistics<br>& Operational Guidance</div>
         </div>
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
@@ -183,10 +183,13 @@
             <button class="tab-btn" onclick="switchTab('cameras')">Live Cameras</button>
             <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
             <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
+            <button class="tab-btn" onclick="switchTab('vehicle-log')">Vehicle Master</button>
+            <button class="tab-btn" onclick="switchTab('gate-pass-master')">Gate Pass Master</button>
+            <button class="tab-btn" onclick="switchTab('invoices')">Invoice Master</button>
         </div>
-    </header>
+    </aside>
 
-    <div class="container" style="display:none;" id="main-container">
+    <main class="container" style="display:none;" id="main-container">
         
         <!-- DASHBOARD VIEW -->
         <div id="dashboard-view" class="view-section active">
@@ -311,16 +314,7 @@
                         <button class="btn-primary" onclick="createManualPass()" style="font-size:0.85rem;">+ Create Manual Pass</button>
                     </div>
                 </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Pass ID</th><th>Arrival</th><th>Date Status</th><th>Plate (Editable)</th>
-                            <th>Driver</th><th>Load (Match to PO)</th><th>Dock</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="gatePassTableBody"></tbody>
-                </table>
+                <div id="gatePassGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1.5rem; margin-top: 1rem;"></div>
             </div>
         </div>
 
@@ -340,8 +334,56 @@
             </div>
         </div>
 
-    </div>
+        <!-- VEHICLE MASTER VIEW -->
+        <div id="vehicle-log-view" class="view-section">
+            <div class="glass-panel">
+                <h2>Vehicle Master Log</h2>
+                <p style="color:var(--text-muted);">Historical tracking of all vehicles entering and leaving the facility.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>Gate Pass</th><th>Plate</th><th>Driver</th><th>Entry Time</th><th>Exit Time</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vehicleLogBody"></tbody>
+                </table>
+            </div>
+        </div>
 
+        <!-- INVOICES VIEW -->
+        <div id="invoices-view" class="view-section">
+            <div class="glass-panel">
+                <h2>Invoice Master</h2>
+                <p style="color:var(--text-muted);">Invoices automatically generated and emailed to vendors upon completion.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>Gate Pass</th><th>PO Number</th><th>Vendor</th><th>Email</th><th>Generated At</th><th>Download</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invoicesBody"></tbody>
+                </table>
+            </div>
+        </div>
+        <!-- GATE PASS MASTER VIEW -->
+        <div id="gate-pass-master-view" class="view-section">
+            <div class="glass-panel">
+                <h2>Gate Pass Master</h2>
+                <p style="color:var(--text-muted);">Historical log of all generated gate passes.</p>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th>Gate Pass ID</th><th>Plate</th><th>Driver</th><th>Status</th><th>Dock</th><th>Arrival Time</th><th>Exit Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gatePassMasterBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
     <script>
         // Store deliveries globally in frontend so we can use them in the Gate Passes table
         let globalDeliveries = [];
@@ -519,8 +561,9 @@
             try {
                 const res = await fetch('/api/gate_passes');
                 const passes = await res.json();
-                const gateBody = document.getElementById('gatePassTableBody');
+                const gateBody = document.getElementById('gatePassGrid');
                 const dockBody = document.getElementById('dockTableBody');
+                const masterBody = document.getElementById('gatePassMasterBody');
                 
                 // Badges
                 const pendingCount = passes.filter(p => p.status === 'Pending').length;
@@ -528,105 +571,145 @@
                 document.getElementById('gate-badge').style.display = pendingCount > 0 ? 'inline-block' : 'none';
                 document.getElementById('dock-badge').style.display = activeDockCount > 0 ? 'inline-block' : 'none';
                 
-                if(passes.length === 0) {
-                    gateBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No gate passes yet.</td></tr>';
-                    dockBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No trucks at docks.</td></tr>';
-                    return;
+                // Render Master Table
+                if(masterBody) {
+                    masterBody.innerHTML = passes.map(gp => `
+                        <tr>
+                            <td>${gp.id}</td>
+                            <td>${gp.plate}</td>
+                            <td>${gp.driver_name || '-'}</td>
+                            <td><span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span></td>
+                            <td>${gp.dock || '-'}</td>
+                            <td>${gp.arrival_date} ${gp.time}</td>
+                            <td>${gp.exit_time || '-'}</td>
+                        </tr>
+                    `).join('');
                 }
 
-                // Render Gate Pass Table
-                gateBody.innerHTML = passes.map(gp => {
-                    let poDropdown = '';
-                    let expectedDateInput = `<input type="hidden" id="expectedDate_${gp.id}" value="${gp.expected_date || ''}">`;
-                    let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${gp.po_number || ''}">`;
-                    
-                    if (gp.status === 'Pending') {
-                        if (gp.po_number) {
-                            poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ Auto-Matched PO:<br/>${gp.po_number}</div>`;
-                        } else {
-                            poDropdown = `
-                                <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(212,175,55,0.1);">
-                                    <option value="">Match to a Pending PO...</option>
-                                    ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}">${d.po_number}: ${d.load}</option>`).join('')}
-                                </select><br/>
-                            `;
+                // Filter Active Passes for the Grid
+                const activePasses = passes.filter(p => !['Completed', 'Departed'].includes(p.status));
+
+                if(activePasses.length === 0) {
+                    gateBody.innerHTML = '<div style="grid-column: 1 / -1; text-align:center; padding: 2rem;">No active gate passes.</div>';
+                } else {
+                    gateBody.innerHTML = activePasses.map(gp => {
+                        let poDropdown = '';
+                        let expectedDateInput = `<input type="hidden" id="expectedDate_${gp.id}" value="${gp.expected_date || ''}">`;
+                        let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${gp.po_number || ''}">`;
+                        
+                        if (gp.status === 'Pending') {
+                            if (gp.po_number) {
+                                poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ Auto-Matched PO:<br/>${gp.po_number}</div>`;
+                            } else {
+                                poDropdown = `
+                                    <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(212,175,55,0.1);">
+                                        <option value="">Match to a Pending PO...</option>
+                                        ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}">${d.po_number}: ${d.load}</option>`).join('')}
+                                    </select><br/>
+                                `;
+                            }
+                        } else if (gp.po_number) {
+                            poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ PO: ${gp.po_number}</div>`;
                         }
-                    } else if (gp.po_number) {
-                        poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ PO: ${gp.po_number}</div>`;
-                    }
-                    
-                    // Date Status Logic
-                    let dateStatusHtml = '<span style="color:var(--text-muted)">Unmatched</span>';
-                    if (gp.expected_date && gp.arrival_date) {
-                        if (gp.arrival_date === gp.expected_date) {
-                            dateStatusHtml = '<span class="status-ontime">On Time</span>';
-                        } else if (gp.arrival_date > gp.expected_date) {
-                            dateStatusHtml = '<span class="status-delayed">Delayed</span>';
-                        } else {
-                            dateStatusHtml = '<span class="status-early">Early</span>';
+                        
+                        let dateStatusHtml = '<span style="color:var(--text-muted)">Unmatched</span>';
+                        if (gp.expected_date && gp.arrival_date) {
+                            if (gp.arrival_date === gp.expected_date) {
+                                dateStatusHtml = '<span class="status-ontime">On Time</span>';
+                            } else if (gp.arrival_date > gp.expected_date) {
+                                dateStatusHtml = '<span class="status-delayed">Delayed</span>';
+                            } else {
+                                dateStatusHtml = '<span class="status-early">Early</span>';
+                            }
                         }
-                    }
-                    
-                    return `
-                    <tr>
-                        <td style="font-weight:bold; color:var(--accent-hover);">
-                            ${gp.id}<br/>
-                            <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}" style="margin-top:4px; display:inline-block">${gp.status}</span>
-                        </td>
-                        <td>${gp.arrival_date}<br/><span style="color:var(--text-muted); font-size:0.8rem;">${gp.time}</span></td>
-                        <td>
-                            ${dateStatusHtml}<br/>
-                            <span style="font-size:0.75rem; color:var(--text-muted)">Exp: ${gp.expected_date || 'N/A'}</span>
-                        </td>
-                        <td>
-                            <input type="text" id="plate_${gp.id}" value="${gp.plate}" style="margin:0; padding:0.4rem; font-family:monospace; font-size:1.1rem; color: ${gp.driver_name !== 'Awaiting Input' ? 'var(--success)' : 'inherit'}; border: 1px dashed var(--border-light);" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">AI: ${gp.vehicle_type}</div>
-                        </td>
-                        <td>
-                            <input type="text" id="driver_${gp.id}" value="${gp.driver_name}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Driver Name" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                            <input type="text" id="driver_phone_${gp.id}" value="${gp.driver_phone || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Driver Phone" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                        
+                        return `
+                        <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-light); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; position: relative;">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <div>
+                                    <h3 style="margin: 0; color: var(--accent-hover); font-size: 1.2rem;">Pass ${gp.id}</h3>
+                                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Arrival: ${gp.arrival_date} ${gp.time}</div>
+                                </div>
+                                <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span>
+                            </div>
                             
-                            <input type="text" id="vendor_${gp.id}" value="${gp.vendor || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Vendor Name" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                            <input type="text" id="vendor_email_${gp.id}" value="${gp.vendor_email || ''}" style="margin:0; padding:0.4rem;" placeholder="Vendor Email" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                        </td>
-                        <td>
-                            ${expectedDateInput}
-                            ${poNumberInput}
-                            ${poDropdown}
-                            <input type="text" id="load_${gp.id}" value="${gp.load}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Load" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                            <select id="activity_${gp.id}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                                <option value="Unloading" ${gp.activity === 'Unloading' ? 'selected' : ''}>Unloading</option>
-                                <option value="Loading" ${gp.activity === 'Loading' ? 'selected' : ''}>Loading</option>
-                            </select>
-                            ${gp.photo 
-                                ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" style="max-width:120px; border-radius:4px; display:block; margin-bottom:4px;" alt="Truck Photo"/><span style="cursor:pointer; font-size:0.85rem; color:var(--text-muted);" onclick="retakePhoto('${gp.id}')">🔄 Retake</span></div>` 
-                                : `<div style="margin-top:4px;"><button class="btn-primary" style="padding:2px 8px; font-size:0.75rem;" onclick="retakePhoto('${gp.id}')">📸 Snap Photo</button></div>`
-                            }
-                        </td>
-                        <td>
-                            <select id="dock_${gp.id}" style="margin:0; padding:0.4rem;" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                                <option value="Not Assigned" ${gp.dock === 'Not Assigned' ? 'selected': ''}>Select Dock...</option>
-                                <option value="Dock 1" ${gp.dock === 'Dock 1' ? 'selected': ''}>Dock 1</option>
-                                <option value="Dock 2" ${gp.dock === 'Dock 2' ? 'selected': ''}>Dock 2</option>
-                            </select>
-                        </td>
-                        <td>
-                            ${gp.status === 'Pending' ? 
-                                (gp.otp_verified === 0 && gp.driver_phone ? 
-                                `<button class="btn-primary" style="margin-bottom:4px; width:100%; background:var(--warning);" onclick="verifyOtp('${gp.id}')">Verify OTP</button><br/>` : '') +
-                                `<button class="btn-primary" style="margin-bottom:4px; width:100%;" onclick="updatePass('${gp.id}')">Approve</button><br/>
-                                 <button class="btn-danger" style="width:100%;" onclick="deletePass('${gp.id}')">Delete</button>` 
-                            : gp.status === 'Completed' ? 
-                                `<button class="btn-primary" style="margin-bottom:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', '${gp.plate}')">Check Out</button><br/>
-                                 <button class="btn-danger" onclick="deletePass('${gp.id}')">Delete</button>`
-                            : gp.status === 'Departed' ?
-                                `<span class="status-ontime">Checked Out</span>`
-                            :
-                                `<button class="btn-danger" onclick="deletePass('${gp.id}')">Delete</button>`
-                            }
-                        </td>
-                    </tr>
-                `}).join('');
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px;">
+                                <div>
+                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Vehicle Plate</label>
+                                    <input type="text" id="plate_${gp.id}" value="${gp.plate || ''}" placeholder="Enter Plate" style="margin: 4px 0 0 0; font-family: monospace;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">AI: ${gp.vehicle_type}</div>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Date Status</label>
+                                    <div style="margin-top: 4px;">${dateStatusHtml}</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Exp: ${gp.expected_date || 'N/A'}</div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Driver & Vendor Details</label>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 4px;">
+                                    <input type="text" id="driver_${gp.id}" value="${gp.driver_name || ''}" placeholder="Driver Name" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <input type="text" id="driver_phone_${gp.id}" value="${gp.driver_phone || ''}" placeholder="Driver Phone" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <input type="text" id="vendor_${gp.id}" value="${gp.vendor || ''}" placeholder="Vendor Name" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <input type="email" id="vendor_email_${gp.id}" value="${gp.vendor_email || ''}" placeholder="Vendor Email" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Load Information</label>
+                                ${expectedDateInput}
+                                ${poNumberInput}
+                                <div style="margin-top: 4px;">${poDropdown}</div>
+                                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
+                                    <input type="text" id="load_${gp.id}" value="${gp.load || ''}" placeholder="Load Description" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <select id="activity_${gp.id}" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                        <option value="Unloading" ${gp.activity === 'Unloading' ? 'selected' : ''}>Unloading</option>
+                                        <option value="Loading" ${gp.activity === 'Loading' ? 'selected' : ''}>Loading</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div>
+                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Truck Photo</label>
+                                    ${gp.photo 
+                                        ? `<div style="margin-top: 4px;"><img src="/static/${gp.photo}" style="width: 100%; max-height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-light);"/><div style="cursor:pointer; font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:4px;" onclick="retakePhoto('${gp.id}')">🔄 Retake Photo</div></div>` 
+                                        : `<button class="btn-primary" style="margin-top: 4px; width: 100%; padding: 6px; font-size: 0.8rem;" onclick="retakePhoto('${gp.id}')">📸 Snap Photo</button>`
+                                    }
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Driver Face</label>
+                                    ${gp.driver_photo 
+                                        ? `<div style="margin-top: 4px;"><img src="/static/${gp.driver_photo}" style="width: 100%; max-height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-light);"/><div style="cursor:pointer; font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:4px;" onclick="captureDriverPhoto('${gp.id}')">🔄 Retake Face</div></div>` 
+                                        : `<button class="btn-primary" style="margin-top: 4px; width: 100%; padding: 6px; font-size: 0.8rem;" onclick="captureDriverPhoto('${gp.id}')">📸 Scan Face</button>`
+                                    }
+                                </div>
+                            </div>
+
+                            ${gp.status === 'Pending' ? `
+                            <div style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-light);">
+                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Assign Dock</label>
+                                <div style="display: flex; gap: 0.5rem; margin-top: 4px;">
+                                    <select id="dock_${gp.id}" style="margin: 0; flex: 1;">
+                                        <option value="Not Assigned" ${gp.dock === 'Not Assigned' ? 'selected' : ''}>Select Dock...</option>
+                                        <option value="Dock 1" ${gp.dock === 'Dock 1' ? 'selected' : ''}>Dock 1</option>
+                                        <option value="Dock 2" ${gp.dock === 'Dock 2' ? 'selected' : ''}>Dock 2</option>
+                                    </select>
+                                </div>
+                            </div>` : ''}
+
+                            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                                ${gp.status === 'Pending' ? `
+                                    ${(gp.otp_verified === 0 && gp.driver_phone) ? `<button class="btn-primary" style="flex: 1; background: var(--warning);" onclick="verifyOtp('${gp.id}')">Verify OTP</button>` : ''}
+                                    <button class="btn-primary" style="flex: 1;" onclick="updatePass('${gp.id}')">Approve & Assign</button>
+                                    <button class="btn-danger" style="flex: 1;" onclick="deletePass('${gp.id}')">Reject</button>
+                                ` : ''}
+                                ${(gp.status !== 'Pending') ? `<button class="btn-danger" style="flex: 1;" onclick="deletePass('${gp.id}')">Delete Pass</button>` : ''}
+                            </div>
+                        </div>
+                    `}).join('');
+                }
 
                 // Render Dock Table (Only 'Sent to Dock', 'Unloading' or 'Completed')
                 const dockedPasses = passes.filter(p => ['Sent to Dock', 'Unloading', 'Completed'].includes(p.status));
@@ -681,20 +764,14 @@
                                                         <td style="padding:4px; font-weight:bold; color:${matchColor};">${matchText}</td>
                                                     </tr>
                                                     `;
-                                                }).join('') : `
-                                                    <tr>
-                                                        <td style="padding:4px;" colspan="2">No Unloading Sheet</td>
-                                                        <td style="padding:4px; font-weight:bold; color:var(--accent-hover);" id="unloaded_${gp.id}">${gp.unloaded_qty || 0}</td>
-                                                        <td style="padding:4px;">-</td>
-                                                    </tr>
-                                                `}
+                                                }).join('') : `<tr><td colspan="4" style="text-align:center; padding:4px;">No PO Sheet Linked</td></tr>`}
                                             </tbody>
                                         </table>
                                     </div>
-                                    <input type="text" id="bin_${gp.id}" placeholder="Bin / Aisle Allocation (e.g. Aisle 4)" value="${gp.bin_allocation || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" ${gp.status === 'Completed' ? 'disabled' : ''}>
                                     <button class="btn-primary" style="width:100%; margin-bottom:4px;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>🔄 Sync AI Tracker Count</button>
                                     <button class="btn-danger" style="width:100%; margin-bottom:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="width:100%; background:var(--accent-hover);" onclick="sendInvoice('${gp.id}')">📧 Send Invoice to Vendor</button>` : ''}
+                                    ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', '${gp.plate}')">Check Out</button>` : ''}
                                 `}
                             </td>
                         </tr>
@@ -705,6 +782,7 @@
 
             } catch(e) {}
         }
+
 
         async function updatePass(id) {
             const plate = document.getElementById(`plate_${id}`).value;
@@ -719,11 +797,23 @@
             const activity = document.getElementById(`activity_${id}`).value;
             
             if(dock === 'Not Assigned') { alert("Please assign a dock before approving."); return; }
-            await fetch(`/api/gate_passes/${id}`, {
+            const res = await fetch(`/api/gate_passes/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ plate: plate, driver_name: driver, driver_phone: driverPhone, vendor: vendor, vendor_email: vendorEmail, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, activity: activity, status: 'Sent to Dock' })
             });
+            const data = await res.json();
+            if(data.otp_generated) {
+                if(data.sms_response) {
+                    if(data.sms_response.success) {
+                        alert(`REAL SMS Sent! OTP ${data.otp_generated} sent to Driver Phone ${driverPhone || 'N/A'}`);
+                    } else {
+                        alert(`SMS Delivery Failed (Quota Reached?): ${data.sms_response.error || 'Unknown error'}\n\nSince this is a free SMS tier, please use this OTP manually for testing: ${data.otp_generated}`);
+                    }
+                } else {
+                    alert(`No valid driver phone. Testing OTP is: ${data.otp_generated}`);
+                }
+            }
             fetchGatePasses();
             fetchDeliveries();
             pollData();
@@ -750,7 +840,7 @@
         }
 
         async function createManualPass() {
-            const plate = prompt("Enter Vehicle Plate (or leave blank):", "MANUAL-ENTRY");
+            const plate = prompt("Enter Vehicle Plate (or leave blank):", "");
             if(plate !== null) {
                 let photoUrl = "";
                 
@@ -852,14 +942,19 @@
         async function checkout(id, expectedPlate) {
             const plate = prompt(`Scan/Enter Plate for Check-Out (Expected: ${expectedPlate}):`);
             if(plate) {
-                const res = await fetch('/api/gate/checkout', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ gp_id: id, plate: plate })
-                });
-                const data = await res.json();
-                alert(data.message);
-                if(data.success) fetchGatePasses();
+                if(confirm('Proceed to scan Driver Face for checkout verification?')) {
+                    const res = await fetch('/api/gate/checkout', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ gp_id: id, plate: plate, face_check: true })
+                    });
+                    const data = await res.json();
+                    alert(data.message);
+                    if(data.success) {
+                        fetchGatePasses();
+                        if(typeof fetchVehicleLogs === 'function') fetchVehicleLogs();
+                    }
+                }
             }
         }
 
@@ -871,6 +966,83 @@
             });
             const data = await res.json();
             alert(data.message);
+            if(typeof fetchInvoices === 'function') fetchInvoices();
+        }
+
+        // --- NEW FEATURES: DRIVER PHOTO, VEHICLE LOG, INVOICES ---
+        async function captureDriverPhoto(gpId) {
+            try {
+                const camRes = await fetch('/api/cameras');
+                const cameras = await camRes.json();
+                const gateCams = cameras.filter(c => c.location === 'Gate');
+                if(gateCams.length > 0) {
+                    const snapRes = await fetch(`/api/cameras/${gateCams[0].id}/snap`, { method: 'POST' });
+                    const snapData = await snapRes.json();
+                    if(snapData.success) {
+                        await fetch(`/api/gate_passes/${gpId}`, {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ driver_photo: snapData.photo })
+                        });
+                        alert("Face successfully snapshotted!");
+                        fetchGatePasses();
+                    } else {
+                        alert("Failed to snap face: " + snapData.message);
+                    }
+                } else {
+                    alert("No Gate Camera active to snap from. Please connect a device camera.");
+                }
+            } catch(e) {
+                console.error("Retake photo error", e);
+            }
+        }
+
+        async function fetchVehicleLogs() {
+            try {
+                const res = await fetch('/api/vehicle_log');
+                const logs = await res.json();
+                const tbody = document.getElementById('vehicleLogBody');
+                if(!tbody) return;
+                if(logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No vehicle logs found.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = logs.map(l => `
+                    <tr>
+                        <td style="font-family:monospace;">${l.id}</td>
+                        <td style="color:var(--accent); font-weight:bold;">${l.gp_id}</td>
+                        <td style="font-family:monospace; font-size:1.1rem;">${l.plate}</td>
+                        <td>${l.driver_name}</td>
+                        <td>${l.entry_time}</td>
+                        <td>${l.exit_time || '-'}</td>
+                        <td><span class="badge ${l.status === 'Departed' ? 'sent' : 'pending'}">${l.status}</span></td>
+                    </tr>
+                `).join('');
+            } catch(e) {}
+        }
+
+        async function fetchInvoices() {
+            try {
+                const res = await fetch('/api/invoices');
+                const invs = await res.json();
+                const tbody = document.getElementById('invoicesBody');
+                if(!tbody) return;
+                if(invs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No invoices found.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = invs.map(i => `
+                    <tr>
+                        <td style="font-family:monospace;">${i.id}</td>
+                        <td style="color:var(--accent); font-weight:bold;">${i.gp_id}</td>
+                        <td>${i.po_number}</td>
+                        <td>${i.vendor}</td>
+                        <td>${i.vendor_email}</td>
+                        <td>${i.generated_at}</td>
+                        <td><a href="/static/invoices/${i.pdf_path}" target="_blank" class="btn-primary" style="text-decoration:none; display:inline-block; padding:4px 12px; font-size:0.85rem;">📄 Download PDF</a></td>
+                    </tr>
+                `).join('');
+            } catch(e) {}
         }
 
         // Camera Management & Device Streaming State
@@ -1186,6 +1358,8 @@
         setInterval(() => {
             if (document.getElementById('main-container').style.display !== 'none') {
                 pollData();
+                if(typeof fetchVehicleLogs === 'function' && document.getElementById('vehicle-log-view').classList.contains('active')) fetchVehicleLogs();
+                if(typeof fetchInvoices === 'function' && document.getElementById('invoices-view').classList.contains('active')) fetchInvoices();
             }
         }, 2000);
 

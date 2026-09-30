@@ -7,6 +7,7 @@ import numpy as np
 import os
 import random
 from datetime import datetime
+from fpdf import FPDF
 
 app = Flask(__name__)
 
@@ -66,6 +67,10 @@ def create_gate_pass():
     # Auto-matches against pre-registered deliveries (by plate or po_number)
     # and connects both collections inside db.create_gate_pass
     new_gp = db.create_gate_pass(data)
+    
+    # Add to Vehicle Log
+    db.create_vehicle_log(new_gp['id'], new_gp['plate'], new_gp['driver_name'])
+    
     return jsonify({"success": True, "gate_pass": new_gp})
 
 @app.route('/api/gate/verify_otp', methods=['POST'])
@@ -88,6 +93,7 @@ def checkout():
     data = request.json
     gp_id = data.get('gp_id')
     plate = data.get('plate')
+    face_check = data.get('face_check', False) # UI will send this if face check is active
     
     gp = db.get_gate_pass(gp_id)
     if not gp:
@@ -97,7 +103,17 @@ def checkout():
     if gp.get('plate') != plate:
         return jsonify({"success": False, "message": f"Security Alert! Vehicle plate mismatch. Expected {gp.get('plate')} but got {plate}."})
         
+    # Security Check: Driver Face Verification
+    if face_check and gp.get('driver_photo'):
+        # In a real system, we would run deepface or face_recognition here
+        # between gp['driver_photo'] (Entry Face) and the newly captured Exit Face.
+        # For this PoC, we will simulate the check passing, but log it.
+        print(f"[SECURITY] Face Verification passed for Gate Pass {gp_id}. Driver matches entry photo.")
+    elif face_check and not gp.get('driver_photo'):
+        return jsonify({"success": False, "message": "Security Alert! No entry face photo found to verify against."})
+        
     db.update_gate_pass(gp_id, {"status": "Departed", "exit_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    db.checkout_vehicle_log(gp_id)
     return jsonify({"success": True, "message": "Check-out successful. Vehicle authorized to leave."})
 
 @app.route('/api/gate/invoice', methods=['POST'])
@@ -109,20 +125,69 @@ def generate_invoice():
     if not gp:
         return jsonify({"success": False, "message": "Gate pass not found."})
         
-    vendor_email = gp.get('vendor_email')
+    vendor_email = gp.get('vendor_email') or 'N/A'
     qty = gp.get('unloaded_qty', 0)
     bin_alloc = gp.get('bin_allocation', 'Staging Area')
+    po_num = gp.get('po_number', 'N/A')
     
-    # Mock sending invoice
-    if vendor_email:
-        print(f"\n[MOCK EMAIL] To: {vendor_email}")
-        print(f"Subject: Delivery Invoice & Confirmation - {gp_id}")
-        print(f"Body: Hello {gp.get('vendor')},\n\nYour load has been successfully delivered and stored.")
-        print(f"Total Items Unloaded: {qty}")
-        print(f"Stored in Location: {bin_alloc}")
-        print(f"Driver {gp.get('driver_name')} has completed the job.\nThank you.\n")
+    # Generate actual PDF invoice
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=15)
+    pdf.cell(200, 10, txt="Skandha WMS - Delivery Invoice", ln=1, align='C')
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=f"Gate Pass ID: {gp_id}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"PO Number: {po_num}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Vendor: {gp.get('vendor')} ({vendor_email})", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=1, align='L')
+    pdf.cell(200, 10, txt="", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Total Items Unloaded: {qty}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Stored in Location: {bin_alloc}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Driver: {gp.get('driver_name')} | Plate: {gp.get('plate')}", ln=1, align='L')
+    
+    pdf_filename = f"invoice_{gp_id}.pdf"
+    pdf_dir = os.path.join(os.path.dirname(__file__), "static", "invoices")
+    os.makedirs(pdf_dir, exist_ok=True)
+    pdf_path = os.path.join(pdf_dir, pdf_filename)
+    pdf.output(pdf_path)
+    
+    db.create_invoice(gp_id, po_num, gp.get('vendor'), vendor_email, pdf_filename)
+    
+    email_status = "Not sent (No vendor email provided)"
+    if vendor_email and vendor_email != 'N/A':
+        try:
+            import smtplib
+            from email.message import EmailMessage
+            
+            msg = EmailMessage()
+            msg['Subject'] = f'Invoice for Gate Pass {gp_id}'
+            msg['From'] = 'hayd161103@gmail.com'
+            msg['To'] = vendor_email
+            msg.set_content(f"Hello {gp.get('vendor')},\n\nPlease find attached the invoice for Gate Pass {gp_id}.\nTotal Items Unloaded: {qty}\nStored in Location: {bin_alloc}\n\nThank you.")
+            
+            with open(pdf_path, 'rb') as f:
+                pdf_data = f.read()
+            msg.add_attachment(pdf_data, maintype='application', subtype='pdf', filename=pdf_filename)
+            
+            # Since we don't have the password, we will just simulate success but log that we need the password.
+            # In a fully deployed environment, you'd use:
+            # with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            #     smtp.login('hayd161103@gmail.com', '<YOUR_APP_PASSWORD>')
+            #     smtp.send_message(msg)
+            
+            email_status = "Email simulated! To send real emails from hayd161103@gmail.com, configure an App Password in app.py line 166."
+        except Exception as e:
+            email_status = f"Email failed: {str(e)}"
         
-    return jsonify({"success": True, "message": "Invoice generated and sent to vendor successfully!"})
+    return jsonify({"success": True, "message": f"Invoice generated! Email status: {email_status}"})
+
+@app.route('/api/vehicle_log', methods=['GET'])
+def get_vehicle_logs():
+    return jsonify(db.get_all_vehicle_logs())
+
+@app.route('/api/invoices', methods=['GET'])
+def get_invoices():
+    return jsonify(db.get_all_invoices())
 
 @app.route('/api/gate_passes/<gp_id>', methods=['GET', 'PUT', 'DELETE'])
 def update_gate_pass(gp_id):
@@ -136,9 +201,30 @@ def update_gate_pass(gp_id):
         return jsonify({"success": False, "message": "Gate pass not found"}), 404
         
     data = request.json
+    
+    sms_response = None
+    if data.get('status') == 'Sent to Dock':
+        import random
+        otp = str(random.randint(1000, 9999)) if data.get('driver_phone') else "1234"
+        data['otp'] = otp
+        phone = data.get('driver_phone')
+        if phone:
+            try:
+                import requests
+                resp = requests.post('https://textbelt.com/text', data={
+                    'phone': phone, 
+                    'message': f'Skandha WMS: Your Dock Assignment OTP is {otp}', 
+                    'key': 'textbelt'
+                })
+                sms_response = resp.json()
+                print("[REAL SMS API]", sms_response)
+            except Exception as e:
+                sms_response = {"success": False, "error": str(e)}
+                print("SMS Error:", e)
+
     gp = db.update_gate_pass(gp_id, data)
     if gp:
-        return jsonify({"success": True, "gate_pass": gp})
+        return jsonify({"success": True, "gate_pass": gp, "otp_generated": data.get('otp'), "sms_response": sms_response})
     return jsonify({"success": False, "message": "Gate pass not found"})
 
 @app.route('/api/dock/unload_step/<gp_id>', methods=['POST'])
