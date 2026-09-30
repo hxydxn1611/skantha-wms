@@ -16,3 +16,5 @@ torchvision>=0.15.0
 # Optional Utilities
 Pillow>=10.0.0
 requests>=2.31.0
+fpdf2>=2.8.0
+
