@@ -5,6 +5,8 @@ import uuid
 import cv2
 import numpy as np
 import os
+import random
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -55,10 +57,72 @@ def create_gate_pass():
     if db.has_pending_gate_pass():
         return jsonify({"success": False, "message": "Clear pending gate pass first."})
             
+    # Generate a random 4-digit OTP if driver_phone is provided
+    otp = str(random.randint(1000, 9999)) if data.get('driver_phone') else ""
+    if otp:
+        data['otp'] = otp
+        print(f"\n[MOCK SMS] Sent OTP {otp} to Driver Phone {data.get('driver_phone')}\n")
+            
     # Auto-matches against pre-registered deliveries (by plate or po_number)
     # and connects both collections inside db.create_gate_pass
     new_gp = db.create_gate_pass(data)
     return jsonify({"success": True, "gate_pass": new_gp})
+
+@app.route('/api/gate/verify_otp', methods=['POST'])
+def verify_otp():
+    data = request.json
+    gp_id = data.get('gp_id')
+    entered_otp = data.get('otp')
+    
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found."})
+    
+    if gp.get('otp') == entered_otp:
+        db.update_gate_pass(gp_id, {"otp_verified": 1})
+        return jsonify({"success": True, "message": "OTP Verified Successfully!"})
+    return jsonify({"success": False, "message": "Invalid OTP. Please try again."})
+
+@app.route('/api/gate/checkout', methods=['POST'])
+def checkout():
+    data = request.json
+    gp_id = data.get('gp_id')
+    plate = data.get('plate')
+    
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found."})
+        
+    # Security Check: Ensure the same vehicle is leaving
+    if gp.get('plate') != plate:
+        return jsonify({"success": False, "message": f"Security Alert! Vehicle plate mismatch. Expected {gp.get('plate')} but got {plate}."})
+        
+    db.update_gate_pass(gp_id, {"status": "Departed", "exit_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    return jsonify({"success": True, "message": "Check-out successful. Vehicle authorized to leave."})
+
+@app.route('/api/gate/invoice', methods=['POST'])
+def generate_invoice():
+    data = request.json
+    gp_id = data.get('gp_id')
+    
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found."})
+        
+    vendor_email = gp.get('vendor_email')
+    qty = gp.get('unloaded_qty', 0)
+    bin_alloc = gp.get('bin_allocation', 'Staging Area')
+    
+    # Mock sending invoice
+    if vendor_email:
+        print(f"\n[MOCK EMAIL] To: {vendor_email}")
+        print(f"Subject: Delivery Invoice & Confirmation - {gp_id}")
+        print(f"Body: Hello {gp.get('vendor')},\n\nYour load has been successfully delivered and stored.")
+        print(f"Total Items Unloaded: {qty}")
+        print(f"Stored in Location: {bin_alloc}")
+        print(f"Driver {gp.get('driver_name')} has completed the job.\nThank you.\n")
+        
+    return jsonify({"success": True, "message": "Invoice generated and sent to vendor successfully!"})
 
 @app.route('/api/gate_passes/<gp_id>', methods=['GET', 'PUT', 'DELETE'])
 def update_gate_pass(gp_id):

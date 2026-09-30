@@ -230,8 +230,10 @@
                         <label>Expected Load *</label> <input type="text" id="expLoad" placeholder="Electronics" required>
                         <label>Expected Quantity (Boxes) *</label> <input type="number" id="expQty" placeholder="50" value="50" required>
                         <label>Vendor *</label> <input type="text" id="expVendor" placeholder="Samsung Electronics" required>
+                        <label>Vendor Email *</label> <input type="email" id="expVendorEmail" placeholder="logistics@vendor.com" required>
                         <label>Expected Plate (Optional)</label> <input type="text" id="expPlate" placeholder="XYZ 123">
                         <label>Driver Name (Optional)</label> <input type="text" id="expDriver" placeholder="John Doe">
+                        <label>Driver Phone (Optional)</label> <input type="tel" id="expDriverPhone" placeholder="123-456-7890">
                         <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
                     </form>
                 </aside>
@@ -436,8 +438,10 @@
                     expected_date: document.getElementById('expDate').value,
                     plate: document.getElementById('expPlate').value,
                     driver_name: document.getElementById('expDriver').value,
+                    driver_phone: document.getElementById('expDriverPhone').value,
                     load: document.getElementById('expLoad').value,
                     vendor: document.getElementById('expVendor').value,
+                    vendor_email: document.getElementById('expVendorEmail').value,
                     activity: document.getElementById('expActivity').value,
                     unloading_sheet: [{
                         sku: "BOX-GENERIC",
@@ -579,8 +583,11 @@
                             <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">AI: ${gp.vehicle_type}</div>
                         </td>
                         <td>
-                            <input type="text" id="driver_${gp.id}" value="${gp.driver_name}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Driver" ${gp.status !== 'Pending' ? 'disabled': ''}>
-                            <input type="text" id="vendor_${gp.id}" value="${gp.vendor || ''}" style="margin:0; padding:0.4rem;" placeholder="Vendor" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            <input type="text" id="driver_${gp.id}" value="${gp.driver_name}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Driver Name" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            <input type="text" id="driver_phone_${gp.id}" value="${gp.driver_phone || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Driver Phone" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            
+                            <input type="text" id="vendor_${gp.id}" value="${gp.vendor || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" placeholder="Vendor Name" ${gp.status !== 'Pending' ? 'disabled': ''}>
+                            <input type="text" id="vendor_email_${gp.id}" value="${gp.vendor_email || ''}" style="margin:0; padding:0.4rem;" placeholder="Vendor Email" ${gp.status !== 'Pending' ? 'disabled': ''}>
                         </td>
                         <td>
                             ${expectedDateInput}
@@ -605,8 +612,16 @@
                         </td>
                         <td>
                             ${gp.status === 'Pending' ? 
+                                (gp.otp_verified === 0 && gp.driver_phone ? 
+                                `<button class="btn-primary" style="margin-bottom:4px; width:100%; background:var(--warning);" onclick="verifyOtp('${gp.id}')">Verify OTP</button><br/>` : '') +
                                 `<button class="btn-primary" style="margin-bottom:4px; width:100%;" onclick="updatePass('${gp.id}')">Approve</button><br/>
-                                 <button class="btn-danger" style="width:100%;" onclick="deletePass('${gp.id}')">Delete</button>` : 
+                                 <button class="btn-danger" style="width:100%;" onclick="deletePass('${gp.id}')">Delete</button>` 
+                            : gp.status === 'Completed' ? 
+                                `<button class="btn-primary" style="margin-bottom:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', '${gp.plate}')">Check Out</button><br/>
+                                 <button class="btn-danger" onclick="deletePass('${gp.id}')">Delete</button>`
+                            : gp.status === 'Departed' ?
+                                `<span class="status-ontime">Checked Out</span>`
+                            :
                                 `<button class="btn-danger" onclick="deletePass('${gp.id}')">Delete</button>`
                             }
                         </td>
@@ -678,7 +693,8 @@
                                     </div>
                                     <input type="text" id="bin_${gp.id}" placeholder="Bin / Aisle Allocation (e.g. Aisle 4)" value="${gp.bin_allocation || ''}" style="margin:0; margin-bottom:4px; padding:0.4rem;" ${gp.status === 'Completed' ? 'disabled' : ''}>
                                     <button class="btn-primary" style="width:100%; margin-bottom:4px;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>🔄 Sync AI Tracker Count</button>
-                                    <button class="btn-danger" style="width:100%;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
+                                    <button class="btn-danger" style="width:100%; margin-bottom:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
+                                    ${gp.status === 'Completed' ? `<button class="btn-primary" style="width:100%; background:var(--accent-hover);" onclick="sendInvoice('${gp.id}')">📧 Send Invoice to Vendor</button>` : ''}
                                 `}
                             </td>
                         </tr>
@@ -693,7 +709,9 @@
         async function updatePass(id) {
             const plate = document.getElementById(`plate_${id}`).value;
             const driver = document.getElementById(`driver_${id}`).value;
+            const driverPhone = document.getElementById(`driver_phone_${id}`) ? document.getElementById(`driver_phone_${id}`).value : '';
             const vendor = document.getElementById(`vendor_${id}`).value;
+            const vendorEmail = document.getElementById(`vendor_email_${id}`) ? document.getElementById(`vendor_email_${id}`).value : '';
             const load = document.getElementById(`load_${id}`).value;
             const dock = document.getElementById(`dock_${id}`).value;
             const expectedDate = document.getElementById(`expectedDate_${id}`).value;
@@ -704,7 +722,7 @@
             await fetch(`/api/gate_passes/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ plate: plate, driver_name: driver, vendor: vendor, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, activity: activity, status: 'Sent to Dock' })
+                body: JSON.stringify({ plate: plate, driver_name: driver, driver_phone: driverPhone, vendor: vendor, vendor_email: vendorEmail, load: load, dock: dock, expected_date: expectedDate, po_number: poNumber, activity: activity, status: 'Sent to Dock' })
             });
             fetchGatePasses();
             fetchDeliveries();
@@ -815,6 +833,44 @@
                 body: JSON.stringify({ status: 'Completed', bin_allocation: bin })
             });
             fetchGatePasses();
+        }
+
+        async function verifyOtp(id) {
+            const otp = prompt("Enter the 4-digit OTP sent to the driver:");
+            if(otp) {
+                const res = await fetch('/api/gate/verify_otp', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ gp_id: id, otp: otp })
+                });
+                const data = await res.json();
+                alert(data.message);
+                if(data.success) fetchGatePasses();
+            }
+        }
+
+        async function checkout(id, expectedPlate) {
+            const plate = prompt(`Scan/Enter Plate for Check-Out (Expected: ${expectedPlate}):`);
+            if(plate) {
+                const res = await fetch('/api/gate/checkout', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ gp_id: id, plate: plate })
+                });
+                const data = await res.json();
+                alert(data.message);
+                if(data.success) fetchGatePasses();
+            }
+        }
+
+        async function sendInvoice(id) {
+            const res = await fetch('/api/gate/invoice', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ gp_id: id })
+            });
+            const data = await res.json();
+            alert(data.message);
         }
 
         // Camera Management & Device Streaming State

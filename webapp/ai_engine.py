@@ -164,9 +164,8 @@ class SmartCamera:
                     new_boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "type": label, "is_package": vehicle_type=="Package"})
                     
                     ocr_counter += 1
-                    ocr_counter += 1
-                    # Run OCR aggressively for PoC, ONLY on vehicles
-                    if vehicle_type != "Package" and self.location == "Gate":
+                    # Run OCR aggressively for PoC, ONLY on vehicles, but throttle slightly to ensure UI remains quick
+                    if vehicle_type != "Package" and self.location == "Gate" and ocr_counter % 3 == 0:
                         vehicle_crop = ai_frame[max(0, y1):y2, max(0, x1):x2]
                         if vehicle_crop.size > 0:
                             # 1. Image Processing to increase OCR accuracy to >80%
