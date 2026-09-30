@@ -23,9 +23,11 @@ def init_db():
             expected_date TEXT NOT NULL,
             activity TEXT DEFAULT 'Unloading',
             vendor TEXT,
+            vendor_email TEXT,
             load_description TEXT,
             plate TEXT,
             driver_name TEXT,
+            driver_phone TEXT,
             unloading_sheet TEXT,
             status TEXT DEFAULT 'Expected',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -38,7 +40,9 @@ def init_db():
             plate TEXT NOT NULL,
             vehicle_type TEXT DEFAULT 'Unknown',
             driver_name TEXT,
+            driver_phone TEXT,
             vendor TEXT,
+            vendor_email TEXT,
             load_description TEXT,
             activity TEXT DEFAULT 'Loading',
             expected_date TEXT,
@@ -50,17 +54,43 @@ def init_db():
             unloaded_qty INTEGER DEFAULT 0,
             bin_allocation TEXT,
             unloading_sheet TEXT,
+            otp TEXT,
+            otp_verified INTEGER DEFAULT 0,
+            exit_time TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (po_number) REFERENCES expected_deliveries (po_number)
                 ON UPDATE CASCADE ON DELETE SET NULL
         );
 
+        -- Attempt to add columns for existing databases
+        -- SQLite will error if they already exist, which is fine in exec script if we catch it, but execscript aborts on error.
+        -- Better to do it via python try-except.
+        
         CREATE INDEX IF NOT EXISTS idx_deliveries_plate ON expected_deliveries(plate);
         CREATE INDEX IF NOT EXISTS idx_deliveries_status ON expected_deliveries(status);
         CREATE INDEX IF NOT EXISTS idx_gate_passes_po ON gate_passes(po_number);
         CREATE INDEX IF NOT EXISTS idx_gate_passes_plate ON gate_passes(plate);
         CREATE INDEX IF NOT EXISTS idx_gate_passes_status ON gate_passes(status);
         """)
+        
+        # Alter existing tables if needed
+        columns_expected = ['vendor_email', 'driver_phone']
+        for col in columns_expected:
+            try:
+                conn.execute(f"ALTER TABLE expected_deliveries ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
+                
+        columns_gp = ['driver_phone', 'vendor_email', 'otp', 'exit_time']
+        for col in columns_gp:
+            try:
+                conn.execute(f"ALTER TABLE gate_passes ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
+        try:
+            conn.execute("ALTER TABLE gate_passes ADD COLUMN otp_verified INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
     conn.close()
 
 def _clean_plate(plate):
@@ -81,9 +111,11 @@ def _row_to_delivery(row):
         "expected_date": d.get("expected_date") or "",
         "activity": d.get("activity") or "Unloading",
         "vendor": d.get("vendor") or "Unknown",
+        "vendor_email": d.get("vendor_email") or "",
         "load": d.get("load_description") or "",
         "plate": d.get("plate") or "",
         "driver_name": d.get("driver_name") or "",
+        "driver_phone": d.get("driver_phone") or "",
         "unloading_sheet": sheet,
         "status": d.get("status") or "Expected",
         "linked_gate_pass_id": d.get("linked_gate_pass_id"),
@@ -104,7 +136,9 @@ def _row_to_gate_pass(row):
         "plate": d.get("plate") or "",
         "vehicle_type": d.get("vehicle_type") or "Unknown",
         "driver_name": d.get("driver_name") or "Awaiting Input",
+        "driver_phone": d.get("driver_phone") or "",
         "vendor": d.get("vendor") or "Unknown",
+        "vendor_email": d.get("vendor_email") or "",
         "load": d.get("load_description") or "Awaiting Input",
         "activity": d.get("activity") or "Loading",
         "expected_date": d.get("expected_date") or "",
@@ -116,6 +150,9 @@ def _row_to_gate_pass(row):
         "unloaded_qty": d.get("unloaded_qty") or 0,
         "bin_allocation": d.get("bin_allocation") or "",
         "unloading_sheet": sheet,
+        "otp": d.get("otp") or "",
+        "otp_verified": d.get("otp_verified") or 0,
+        "exit_time": d.get("exit_time") or "",
         "created_at": d.get("created_at")
     }
 
@@ -166,19 +203,24 @@ def create_delivery(data):
         sheet_json = json.dumps(sheet) if isinstance(sheet, (list, dict)) else str(sheet)
         status = "Expected"
 
+        vendor_email = data.get("vendor_email") or ""
+        driver_phone = data.get("driver_phone") or ""
+
         conn.execute("""
             INSERT INTO expected_deliveries 
-            (po_number, expected_date, activity, vendor, load_description, plate, driver_name, unloading_sheet, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (po_number, expected_date, activity, vendor, vendor_email, load_description, plate, driver_name, driver_phone, unloading_sheet, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(po_number) DO UPDATE SET
                 expected_date = excluded.expected_date,
                 activity = excluded.activity,
                 vendor = excluded.vendor,
+                vendor_email = excluded.vendor_email,
                 load_description = excluded.load_description,
                 plate = excluded.plate,
                 driver_name = excluded.driver_name,
+                driver_phone = excluded.driver_phone,
                 unloading_sheet = excluded.unloading_sheet
-        """, (po_number, expected_date, activity, vendor, load_desc, plate, driver_name, sheet_json, status))
+        """, (po_number, expected_date, activity, vendor, vendor_email, load_desc, plate, driver_name, driver_phone, sheet_json, status))
     conn.close()
     return get_delivery(po_number)
 
@@ -236,12 +278,15 @@ def create_gate_pass(data):
         vehicle_type = data.get('type') or 'Unknown'
         photo = data.get('photo') or ''
         driver_name = data.get('driver_name') or 'Awaiting Input'
+        driver_phone = data.get('driver_phone') or ''
         load_info = data.get('load') or 'Awaiting Input'
         vendor = data.get('vendor') or 'Unknown'
+        vendor_email = data.get('vendor_email') or ''
         expected_date = data.get('expected_date') or ''
         po_number = (data.get('po_number') or '').strip()
         activity = data.get('activity') or 'Loading'
         unloading_sheet = data.get('unloading_sheet') or []
+        otp = data.get('otp') or ''
 
         # CONNECTION LOGIC:
         # 1. Match by Plate if plate is available
@@ -264,12 +309,16 @@ def create_gate_pass(data):
             po_number = matched_deliv['po_number']
             if driver_name == 'Awaiting Input' and matched_deliv['driver_name']:
                 driver_name = matched_deliv['driver_name']
+            if not driver_phone and matched_deliv['driver_phone']:
+                driver_phone = matched_deliv['driver_phone']
             if load_info == 'Awaiting Input' and matched_deliv['load_description']:
                 load_info = matched_deliv['load_description']
             if not expected_date and matched_deliv['expected_date']:
                 expected_date = matched_deliv['expected_date']
             if vendor == 'Unknown' and matched_deliv['vendor']:
                 vendor = matched_deliv['vendor']
+            if not vendor_email and matched_deliv['vendor_email']:
+                vendor_email = matched_deliv['vendor_email']
             if matched_deliv['activity']:
                 activity = matched_deliv['activity']
             if not unloading_sheet and matched_deliv['unloading_sheet']:
@@ -287,13 +336,13 @@ def create_gate_pass(data):
 
         conn.execute("""
             INSERT INTO gate_passes
-            (id, po_number, plate, vehicle_type, driver_name, vendor, load_description,
+            (id, po_number, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_description,
              activity, expected_date, arrival_date, arrival_time, status, dock, photo,
-             unloaded_qty, bin_allocation, unloading_sheet)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (new_id, po_number or None, plate, vehicle_type, driver_name, vendor, load_info,
+             unloaded_qty, bin_allocation, unloading_sheet, otp, otp_verified)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (new_id, po_number or None, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_info,
               activity, expected_date, arrival_date, arrival_time, 'Pending', 'Not Assigned', photo,
-              0, '', sheet_json))
+              0, '', sheet_json, otp, 0))
     conn.close()
     return get_gate_pass(new_id)
 
