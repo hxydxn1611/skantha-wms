@@ -3,25 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>W.A.R.L.O.G | Warehouse Analytics, Recognition, Logistics & Operational Guidance</title>
+    <title>W.A.R.L.O.G | Skantha Technology Solution</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <script>
+        (function() {
+            try {
+                var savedTheme = localStorage.getItem('warlog_theme');
+                if (savedTheme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                } else {
+                    document.documentElement.removeAttribute('data-theme');
+                    localStorage.setItem('warlog_theme', 'light');
+                }
+            } catch(e) {}
+        })();
+    </script>
     <style>
         :root {
-            --bg-color: #0f172a;
-            --panel-bg: rgba(15, 23, 42, 0.75);
-            --accent: #06b6d4;
-            --accent-hover: #0891b2;
+            --bg-color: #faf8f5;
+            --bg-main: #faf8f5;
+            --panel-bg: #fffdfa;
+            --panel-subtle: #f5f1e8;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --accent-light: #eff6ff;
+            --accent-border: #bfdbfe;
+            --primary-navy: #1e3a8a;
             --danger: #ef4444;
             --danger-hover: #dc2626;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --border-light: rgba(6, 182, 212, 0.25);
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --success: #16a34a;
+            --warning: #d97706;
+            --border-light: #e8e2d5;
+            --border-blue: #bfdbfe;
+            --card-shadow: 0 2px 10px rgba(50, 40, 30, 0.04), 0 1px 3px rgba(37, 99, 235, 0.04);
         }
         body {
             margin: 0; font-family: 'Rajdhani', sans-serif;
-            background: var(--bg-color); color: var(--text-main);
+            background: var(--bg-main); color: var(--text-main);
             min-height: 100vh; display: flex; flex-direction: row;
         }
         
@@ -40,12 +60,12 @@
             z-index: -1;
         }
         .login-box {
-            background: rgba(15, 23, 42, 0.7);
+            background: rgba(15, 23, 42, 0.72);
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px);
             padding: 3.5rem 3rem; border-radius: 20px;
-            border: 1px solid rgba(6, 182, 212, 0.3);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgba(6, 182, 212, 0.1);
+            border: 1px solid rgba(6, 182, 212, 0.35);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgba(6, 182, 212, 0.15);
             width: 100%; max-width: 400px;
             text-align: center;
             transform: translateY(0);
@@ -53,40 +73,139 @@
         }
         .login-box:hover {
             transform: translateY(-5px);
-            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6), 0 0 50px rgba(6, 182, 212, 0.2);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6), 0 0 50px rgba(6, 182, 212, 0.25);
+        }
+        .login-box .metallic-text {
+            color: #DADBDD !important;
+        }
+        .login-box input {
+            width: 100% !important;
+            box-sizing: border-box !important;
+            background: rgba(30, 41, 59, 0.9) !important;
+            border: 1px solid rgba(6, 182, 212, 0.3) !important;
+            color: #ffffff !important;
+            padding: 1rem !important;
+            font-size: 1rem !important;
+            border-radius: 8px !important;
+            margin-bottom: 1rem !important;
+            font-family: inherit !important;
+            outline: none !important;
+            transition: border-color 0.2s, box-shadow 0.2s !important;
+        }
+        .login-box input:focus {
+            border-color: #06b6d4 !important;
+            box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.25) !important;
+        }
+        .login-box input::placeholder {
+            color: #94a3b8 !important;
+        }
+        .login-box .btn-login {
+            background: #00acc1;
+            color: #ffffff;
+            font-size: 1.1rem;
+            font-weight: 700;
+            padding: 1rem;
+            width: 100%;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.4);
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+        .login-box .btn-login:hover {
+            background: #0891b2;
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.6);
+            transform: translateY(-2px);
         }
         
         .metallic-text {
-            color: #DADBDD;
+            color: #1e3a8a;
             font-family: 'Orbitron', sans-serif;
             font-weight: 800;
+        }
+        .warlog-heading {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        .warlog-heading img.warlog-w-icon {
+            display: inline-block !important;
+            height: 1.05em !important;
+            max-height: 1.05em !important;
+            width: auto !important;
+            margin: 0 4px 0 0 !important;
+            vertical-align: middle !important;
+            filter: drop-shadow(0 2px 4px rgba(37, 99, 235, 0.2));
         }
         
         /* SIDEBAR BRANDING */
         #main-header {
-            width: 280px; padding: 2rem 1.5rem; background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(12px);
+            width: 280px; padding: 2rem 1.5rem; background: var(--panel-bg);
             border-right: 1px solid var(--border-light);
-            display: flex; flex-direction: column; gap: 2.5rem;
+            box-shadow: 2px 0 12px rgba(30, 58, 138, 0.04);
+            display: flex; flex-direction: column;
             flex-shrink: 0;
             overflow-y: auto;
+            box-sizing: border-box;
+            height: 100vh;
         }
-        .brand-container { display: flex; flex-direction: column; gap: 0.5rem; text-align: center; margin-bottom: 1rem; }
-        .brand-container img { margin: 0 auto; display: block; max-height: 80px; }
-        h1 { margin: 0; font-weight: 800; font-size: 1.8rem; color: var(--text-main); }
-        .powered-by { font-size: 0.75rem; color: var(--accent-hover); font-weight: 600; text-transform: uppercase; line-height: 1.3;}
+        .brand-container { display: flex; flex-direction: column; gap: 0.5rem; text-align: center; margin-bottom: 1.5rem; }
+        .brand-container img.skantha-logo { margin: 0 auto; display: block; max-height: 75px; }
+        h1 { margin: 0; font-weight: 800; font-size: 1.8rem; color: #1e3a8a; }
+        h2, h3 { color: #1e3a8a; font-weight: 700; }
+        .powered-by { font-size: 0.75rem; color: var(--accent); font-weight: 700; text-transform: uppercase; line-height: 1.3;}
         
         /* NAVIGATION */
-        .tabs { display: flex; flex-direction: column; gap: 0.75rem; }
+        .tabs { display: flex; flex-direction: column; gap: 0.75rem; flex: 1; }
         .tab-btn {
-            background: none; border: 1px solid transparent; color: var(--text-muted); font-size: 1rem;
+            background: none; border: 1px solid transparent; color: #475569; font-size: 1rem;
             font-weight: 600; cursor: pointer; padding: 1rem 1.25rem; border-radius: 8px;
             transition: all 0.2s; text-align: left; display: flex; justify-content: space-between; align-items: center;
         }
-        .tab-btn.active, .tab-btn:hover { background: rgba(212, 175, 55, 0.15); color: var(--accent-hover); border-color: rgba(6, 182, 212, 0.3); }
+        .tab-btn:hover { background: #f0f6ff; color: #1d4ed8; }
+        .tab-btn.active {
+            background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; font-weight: 700;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08);
+        }
 
-        .container { display: flex; flex: 1; overflow: hidden; padding: 1.5rem; gap: 1.5rem; }
-        .glass-panel { background: var(--panel-bg); backdrop-filter: blur(12px); border: 1px solid var(--border-light); border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+        /* SIDEBAR FOOTER (BOTTOM LEFT THEME SWITCHER) */
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 1.25rem;
+            border-top: 1px solid var(--border-light);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .sidebar-footer-label {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.75px;
+            text-align: left;
+        }
+        .sidebar-footer .theme-segmented {
+            width: 100%;
+            box-sizing: border-box;
+            display: flex;
+        }
+        .sidebar-footer .theme-toggle-btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .container { display: flex; flex: 1; overflow: hidden; padding: 1.5rem; gap: 1.5rem; background: var(--bg-main); }
+        .glass-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: var(--card-shadow);
+        }
 
         /* VIEWS */
         .view-section { display: none; width: 100%; height: 100%; overflow-y: auto;}
@@ -94,16 +213,27 @@
 
         /* DASHBOARD METRICS */
         .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem;}
-        .metric-card { background: rgba(212, 175, 55, 0.05); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-light); text-align: center;}
-        .metric-card h3 { margin: 0; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase;}
-        .metric-card .value { font-size: 2.5rem; font-weight: 800; color: var(--accent-hover); margin-top: 0.5rem;}
+        .metric-card {
+            background: var(--panel-bg);
+            padding: 1.5rem; border-radius: 10px;
+            border: 1px solid var(--border-light); text-align: center;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            border-color: #bfdbfe;
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.1);
+        }
+        .metric-card h3 { margin: 0; color: #64748b; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
+        .metric-card .value { font-size: 2.5rem; font-weight: 800; color: #1d4ed8; margin-top: 0.5rem;}
 
         /* CAMERA GRID */
         .camera-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
-        .video-container { width: 100%; aspect-ratio: 4/3; background: #e5e7eb; border-radius: 8px; overflow: hidden; position: relative; transition: transform 0.3s ease, box-shadow 0.3s ease; }
-        .video-container:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(212,175,55,0.2); }
+        .video-container { width: 100%; aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; border: 1px solid #cbd5e1; overflow: hidden; position: relative; transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .video-container:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(37, 99, 235, 0.15); }
         .video-container img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
-        .fullscreen-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; }
+        .fullscreen-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(8px); z-index: 2000; justify-content: center; align-items: center; }
         .fullscreen-overlay.active { display: flex; }
         .fullscreen-overlay img { max-width: 90vw; max-height: 90vh; border-radius: 12px; }
         .close-fs { position: absolute; top: 20px; right: 30px; color: white; font-size: 2rem; cursor: pointer; font-weight: bold; }
@@ -111,25 +241,28 @@
         /* TABLES */
         table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
         th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-light); }
-        th { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
-        .badge { padding: 0.3rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold; }
-        .badge.pending { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
-        .badge.sent { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        th { background: var(--panel-subtle); color: #475569; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--border-light); }
+        tbody tr { transition: background-color 0.15s ease; }
+        tbody tr:hover { background-color: #f7f3ea; }
+        .badge { padding: 0.3rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 700; }
+        .badge.pending { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+        .badge.sent { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
         
         /* STATUS COLORS */
-        .status-early { color: var(--warning); font-weight: bold; }
+        .status-early { color: #d97706; font-weight: bold; }
         .status-delayed { color: var(--danger); font-weight: bold; }
         .status-ontime { color: var(--success); font-weight: bold; }
         
         /* FORMS & BUTTONS */
-        input, select { width: 100%; padding: 0.75rem; background: rgba(30, 41, 59, 0.8); border: 1px solid var(--border-light); border-radius: 8px; color: var(--text-main); margin-bottom: 1rem; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; }
-        input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.2); }
+        label { color: #334155; font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 0.35rem; }
+        input, select { width: 100%; padding: 0.75rem; background: var(--panel-bg); border: 1px solid var(--border-light); border-radius: 8px; color: var(--text-main); margin-bottom: 1rem; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s; font-family: inherit; font-size: 0.95rem; }
+        input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
         input[type="date"] { color-scheme: light; }
-        button { border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        button { border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; font-family: inherit; }
         .btn-primary { background: var(--accent); color: white; }
-        .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3); }
+        .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); }
         .btn-danger { background: var(--danger); color: white; }
-        .btn-danger:hover { background: var(--danger-hover); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); }
+        .btn-danger:hover { background: var(--danger-hover); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25); }
         
         @keyframes pulseGlow {
             0%, 100% { opacity: 1; transform: scale(1); }
@@ -149,6 +282,174 @@
             animation: pulseGlow 1.8s infinite ease-in-out;
             display: none;
         }
+
+        /* SMOOTH THEME TRANSITION */
+        body, #main-header, .container, .glass-panel, .metric-card, .login-box, input, select, table, th, td {
+            transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        /* THEME SWITCH CONTROL */
+        .theme-segmented {
+            display: inline-flex;
+            background: #ede8dc;
+            border: 1px solid var(--border-light);
+            border-radius: 20px;
+            padding: 3px;
+            gap: 2px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06);
+            transition: all 0.25s ease;
+            user-select: none;
+        }
+        .theme-toggle-btn {
+            background: none;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .theme-toggle-btn:hover {
+            color: var(--text-main);
+        }
+        .theme-toggle-btn.active {
+            background: var(--panel-bg);
+            color: var(--accent);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        /* DARK THEME (BLACK/CYBER SLATE) OVERRIDES */
+        html[data-theme="dark"] {
+            --bg-color: #0b0f19;
+            --bg-main: #0b0f19;
+            --panel-bg: #111827;
+            --panel-subtle: #1e293b;
+            --accent: #2563eb;
+            --accent-hover: #3b82f6;
+            --accent-light: rgba(59, 130, 246, 0.15);
+            --accent-border: rgba(59, 130, 246, 0.35);
+            --primary-navy: #93c5fd;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --border-light: rgba(255, 255, 255, 0.10);
+            --border-blue: rgba(59, 130, 246, 0.35);
+            --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.08);
+        }
+
+        html[data-theme="dark"] body {
+            background: #0b0f19;
+            color: #f8fafc;
+        }
+
+        html[data-theme="dark"] .metallic-text {
+            color: #f1f5f9;
+        }
+
+        html[data-theme="dark"] .theme-segmented {
+            background: #1e293b;
+            border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        html[data-theme="dark"] .theme-toggle-btn.active {
+            background: #0b0f19;
+            color: #60a5fa;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        html[data-theme="dark"] .tab-btn {
+            color: #94a3b8;
+        }
+
+        html[data-theme="dark"] .tab-btn:hover {
+            background: #1e293b;
+            color: #60a5fa;
+        }
+
+        html[data-theme="dark"] .tab-btn.active {
+            background: rgba(59, 130, 246, 0.18);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.4);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        html[data-theme="dark"] table th {
+            background: #1e293b !important;
+            color: #94a3b8 !important;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.12) !important;
+        }
+
+        html[data-theme="dark"] tbody tr:hover {
+            background-color: #1e293b !important;
+        }
+
+        html[data-theme="dark"] input, html[data-theme="dark"] select {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        html[data-theme="dark"] label {
+            color: #cbd5e1 !important;
+        }
+
+        html[data-theme="dark"] .metric-card {
+            background: #111827 !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }
+
+        html[data-theme="dark"] .metric-card h3 {
+            color: #94a3b8 !important;
+        }
+
+        html[data-theme="dark"] .metric-card .value {
+            color: #60a5fa !important;
+        }
+
+        html[data-theme="dark"] .badge.pending {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        html[data-theme="dark"] .badge.sent {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .sub-tab-btn {
+            background: var(--panel-bg);
+            color: #1e40af;
+            border: 1px solid var(--border-blue);
+        }
+        .sub-tab-btn.active {
+            background: var(--accent) !important;
+            color: #ffffff !important;
+            border-color: var(--accent) !important;
+        }
+
+        html[data-theme="dark"] .sub-tab-btn {
+            background: #1e293b;
+            color: #93c5fd;
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+        html[data-theme="dark"] .sub-tab-btn.active {
+            background: var(--accent) !important;
+            color: #ffffff !important;
+            border-color: var(--accent) !important;
+        }
     </style>
 </head>
 <body>
@@ -156,12 +457,13 @@
     <!-- LOGIN SCREEN -->
     <div id="login-overlay">
         <div class="login-box">
-            <img src="/static/logo.png" alt="W.A.R.L.O.G Logo" style="max-width: 150px; margin-bottom: 1rem; filter: brightness(1.2);">
-            <h2 class="metallic-text" style="margin-top:0; font-size: 2.5rem; margin-bottom: 0.5rem; letter-spacing: 2px;">W.A.R.L.O.G</h2>
-            <p style="color:var(--accent); font-size:0.95rem; margin-bottom:2.5rem; font-weight: 600; letter-spacing: 1px;">SEE EVERYTHING. MOVE WITH PRECISION.</p>
-            <input type="text" id="username" placeholder="Username (admin)" value="admin" style="background: rgba(30,41,59,0.9); padding: 1rem; font-size: 1rem; color: #fff;">
-            <input type="password" id="password" placeholder="Password (admin)" value="admin" style="background: rgba(30,41,59,0.9); padding: 1rem; font-size: 1rem; color: #fff;">
-            <button class="btn-primary" style="width:100%; padding:1rem; font-size:1.1rem; margin-top: 1rem;" onclick="doLogin()">Secure Login</button>
+            <img src="/static/skantha_logo.png" class="skantha-logo" alt="Skantha Technology Solution Logo" style="max-height: 90px; max-width: 140px; object-fit: contain; margin: 0 auto 1.25rem auto; display: block;">
+            <h2 class="metallic-text warlog-heading" style="margin-top:0; font-size: 2.3rem; margin-bottom: 0.35rem; letter-spacing: 2px;"><img src="/static/warlog_w.png" class="warlog-w-icon" alt="W">ARLOG</h2>
+            <p style="color:#06b6d4; font-size:0.85rem; margin-bottom:0.35rem; font-weight: 700; letter-spacing: 1px;">SEE EVERYTHING. MOVE WITH PRECISION.</p>
+            <div style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2rem;">Made by Skantha Technology Solution</div>
+            <input type="text" id="username" placeholder="Username (admin)" value="admin">
+            <input type="password" id="password" placeholder="Password (admin)" value="admin">
+            <button class="btn-login" onclick="doLogin()">Secure Login</button>
         </div>
     </div>
 
@@ -173,10 +475,12 @@
 
     <aside style="display:none;" id="main-header">
         <div class="brand-container">
-            <img src="/static/logo.png" alt="W.A.R.L.O.G Logo" style="filter: brightness(1.2);">
-            <h1 class="metallic-text" style="letter-spacing: 1px;">W.A.R.L.O.G</h1>
-            <div class="powered-by">Warehouse Analytics,<br>Recognition, Logistics<br>& Operational Guidance</div>
+            <img src="/static/skantha_logo.png" class="skantha-logo" alt="Skantha Technology Solution Logo" style="max-height: 75px; object-fit: contain; margin: 0 auto 0.5rem auto; display: block;">
+            <h1 class="metallic-text warlog-heading" style="letter-spacing: 1px; font-size: 1.7rem;"><img src="/static/warlog_w.png" class="warlog-w-icon" alt="W">ARLOG</h1>
+            <div class="powered-by">Warehouse Analytics, Recognition, Logistics<br>& Operational Guidance</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;">Made by Skantha Technology Solution</div>
         </div>
+
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
             <button class="tab-btn" onclick="switchTab('deliveries')">Pre-Registration</button>
@@ -184,6 +488,19 @@
             <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
             <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
             <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
+        </div>
+
+        <!-- THEME SWITCHER AT BOTTOM LEFT CORNER -->
+        <div class="sidebar-footer">
+            <div class="sidebar-footer-label">THEME</div>
+            <div class="theme-segmented">
+                <button type="button" class="theme-toggle-btn active" data-theme-btn="light" onclick="setTheme('light')" title="Switch to White theme">
+                    <span>☀️</span> White
+                </button>
+                <button type="button" class="theme-toggle-btn" data-theme-btn="dark" onclick="setTheme('dark')" title="Switch to Black theme">
+                    <span>🌙</span> Black
+                </button>
+            </div>
         </div>
     </aside>
 
@@ -375,10 +692,10 @@
                 <h2>Master Data Hub</h2>
                 <p style="color:var(--text-muted); margin-bottom: 1rem;">Consolidated view of all system masters.</p>
                 <div style="display:flex; gap:10px; margin-bottom: 20px;">
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('po-master', this)" style="background:var(--accent-hover);">PO Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)" style="background:var(--bg-main); border: 1px solid var(--border-light);">Gate Pass Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)" style="background:var(--bg-main); border: 1px solid var(--border-light);">Vehicle Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)" style="background:var(--bg-main); border: 1px solid var(--border-light);">Invoice Master</button>
+                    <button class="btn-primary sub-tab-btn active" onclick="switchSubTab('po-master', this)">PO Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)">Gate Pass Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)">Vehicle Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)">Invoice Master</button>
                 </div>
                 
                 <div id="po-master-sub" class="sub-master-section">
@@ -432,11 +749,9 @@
                 <script>
                     function switchSubTab(tabId, btn) {
                         document.querySelectorAll('.sub-master-section').forEach(el => el.style.display = 'none');
-                        document.querySelectorAll('.sub-tab-btn').forEach(el => {
-                            el.style.background = 'var(--bg-main)';
-                        });
+                        document.querySelectorAll('.sub-tab-btn').forEach(el => el.classList.remove('active'));
                         document.getElementById(tabId + '-sub').style.display = 'block';
-                        btn.style.background = 'var(--accent-hover)';
+                        btn.classList.add('active');
                         
                         if(typeof window.fetchDeliveries === 'function' && tabId === 'po-master') window.fetchDeliveries();
                         if(typeof window.fetchGatePasses === 'function' && tabId === 'gate-pass-master') window.fetchGatePasses();
@@ -473,8 +788,10 @@
         function switchTab(tabId) {
             document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-            document.getElementById(tabId + '-view').classList.add('active');
-            event.target.classList.add('active');
+            const targetView = document.getElementById(tabId + '-view');
+            if (targetView) targetView.classList.add('active');
+            const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick')?.includes(`'${tabId}'`));
+            if (targetBtn) targetBtn.classList.add('active');
         }
 
         // Data Polling
@@ -579,7 +896,7 @@
                 const rowsHtml = globalDeliveries.map(d => {
                     let statusBadge = '<span class="badge pending" style="font-size:0.75rem;">Awaiting Gate</span>';
                     if (d.linked_gate_pass_id) {
-                        statusBadge = `<span class="badge sent" style="font-size:0.75rem; background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3);">🔗 Pass ${d.linked_gate_pass_id} (${d.status})</span>`;
+                        statusBadge = `<span class="badge sent" style="font-size:0.75rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🔗 Pass ${d.linked_gate_pass_id} (${d.status})</span>`;
                     } else if (d.status === 'Arrived') {
                         statusBadge = `<span class="badge sent" style="font-size:0.75rem;">Arrived</span>`;
                     }
@@ -703,7 +1020,7 @@
                                 poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ Auto-Matched PO:<br/>${gp.po_number}</div>`;
                             } else {
                                 poDropdown = `
-                                    <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(212,175,55,0.1);">
+                                    <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; font-weight:600;">
                                         <option value="">Match to a Pending PO...</option>
                                         ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}" data-phone="${d.driver_phone || ''}" data-email="${d.vendor_email || ''}">${d.po_number}: ${d.load} (${d.vendor} - ${d.vendor_email || 'No Email'})</option>`).join('')}
                                     </select><br/>
@@ -725,7 +1042,7 @@
                         }
                         
                         return `
-                        <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-light); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; position: relative;">
+                        <div style="background: var(--panel-bg); border: 1px solid var(--border-blue); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; position: relative; box-shadow: var(--card-shadow);">
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                 <div>
                                     <h3 style="margin: 0; color: var(--accent-hover); font-size: 1.2rem;">Pass ${gp.id}</h3>
@@ -734,7 +1051,7 @@
                                 <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span>
                             </div>
                             
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--panel-subtle); border: 1px solid var(--border-light); padding: 1rem; border-radius: 8px;">
                                 <div>
                                     <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Vehicle Plate</label>
                                     <input type="text" id="plate_${gp.id}" value="${gp.plate || ''}" placeholder="Enter Plate" style="margin: 4px 0 0 0; font-family: monospace;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
@@ -838,7 +1155,7 @@
                                     <button class="btn-primary" style="width:100%; background:var(--success); margin-bottom:4px;" onclick="updateDockStatus('${gp.id}', 'Unloading')">Allow</button>
                                     <button class="btn-danger" style="width:100%;" onclick="updateDockStatus('${gp.id}', 'Rejected')">Reject</button>
                                     ` : `
-                                    <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 8px; margin-bottom: 8px;">
+                                    <div style="background: var(--panel-subtle); border: 1px solid var(--border-light); padding: 12px; border-radius: 8px; margin-bottom: 8px;">
                                         <h4 style="margin:0 0 8px 0; color:var(--text-muted); font-size:0.85rem; display:flex; justify-content:space-between;">
                                             <span>UNLOADING SHEET (AI VERIFICATION)</span>
                                             <span style="color:var(--success);">98% Accuracy Tracker</span>
@@ -1454,9 +1771,9 @@
                     card.id = `cam-${cam.id}`;
                     card.innerHTML = `
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                            <strong style="font-size:1.1rem">${cam.name}</strong>
+                            <strong style="font-size:1.1rem; color:var(--primary-navy);">${cam.name}</strong>
                             <div style="display:flex; gap:6px; align-items:center;">
-                                ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:rgba(16,185,129,0.25); color:var(--success); border:1px solid rgba(16,185,129,0.4);">● Device Stream</span>' : ''}
+                                ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">● Device Stream</span>' : ''}
                                 <span class="badge pending">${cam.location}</span>
                             </div>
                         </div>
@@ -1508,6 +1825,36 @@
 
         // Initialize camera form state on load
         handleCamTypeChange();
+
+        // THEME SWITCHER LOGIC
+        function setTheme(theme) {
+            if (theme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                try { localStorage.setItem('warlog_theme', 'dark'); } catch(e) {}
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+                try { localStorage.setItem('warlog_theme', 'light'); } catch(e) {}
+            }
+            updateThemeButtons(theme);
+        }
+
+        function updateThemeButtons(theme) {
+            document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+                if (btn.getAttribute('data-theme-btn') === theme) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        // Sync buttons on initial load
+        (function() {
+            try {
+                const currentTheme = localStorage.getItem('warlog_theme') || 'light';
+                updateThemeButtons(currentTheme);
+            } catch(e) {}
+        })();
     </script>
 </body>
 </html>
