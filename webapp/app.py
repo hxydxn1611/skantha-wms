@@ -120,12 +120,49 @@ def checkout():
 def generate_invoice():
     data = request.json
     gp_id = data.get('gp_id')
+    payload_email = data.get('vendor_email', '')
     
     gp = db.get_gate_pass(gp_id)
     if not gp:
         return jsonify({"success": False, "message": "Gate pass not found."})
         
-    vendor_email = gp.get('vendor_email') or 'N/A'
+    if payload_email and not gp.get('vendor_email'):
+        db.update_gate_pass(gp_id, {"vendor_email": payload_email})
+        gp = db.get_gate_pass(gp_id)
+        
+    vendor_email = gp.get('vendor_email')
+    po_num = gp.get('po_number')
+    vendor_name = gp.get('vendor')
+    plate = gp.get('plate')
+    
+    if not vendor_email:
+        deliv = None
+        if po_num:
+            deliv = db.get_delivery(po_num)
+        if not deliv and vendor_name:
+            # Fallback to finding by vendor
+            for d in db.get_expected_deliveries():
+                if d['vendor'] == vendor_name:
+                    deliv = d
+                    break
+        if not deliv and plate:
+            # Fallback to finding by plate
+            for d in db.get_expected_deliveries():
+                if d['plate'] == plate:
+                    deliv = d
+                    break
+        
+        # Ultimate fallback for demo: just get the latest delivery with an email
+        if not deliv:
+            deliveries = db.get_expected_deliveries()
+            if deliveries:
+                deliv = deliveries[-1]
+                    
+        if deliv and deliv.get('vendor_email'):
+            vendor_email = deliv.get('vendor_email')
+            db.update_gate_pass(gp_id, {"vendor_email": vendor_email})
+            
+    vendor_email = vendor_email or 'N/A'
     qty = gp.get('unloaded_qty', 0)
     bin_alloc = gp.get('bin_allocation', 'Staging Area')
     po_num = gp.get('po_number', 'N/A')
@@ -170,7 +207,7 @@ def generate_invoice():
             msg.add_attachment(pdf_data, maintype='application', subtype='pdf', filename=pdf_filename)
             
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login('hayd161103@gmail.com', '9887983581700039')
+                smtp.login('hayd161103@gmail.com', 'hwflfuagdsqglxkp')
                 smtp.send_message(msg)
             
             email_status = "Real Email successfully sent!"

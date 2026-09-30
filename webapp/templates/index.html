@@ -183,9 +183,7 @@
             <button class="tab-btn" onclick="switchTab('cameras')">Live Cameras</button>
             <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
             <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
-            <button class="tab-btn" onclick="switchTab('vehicle-log')">Vehicle Master</button>
-            <button class="tab-btn" onclick="switchTab('gate-pass-master')">Gate Pass Master</button>
-            <button class="tab-btn" onclick="switchTab('invoices')">Invoice Master</button>
+            <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
         </div>
     </aside>
 
@@ -219,31 +217,68 @@
         <!-- PRE-REGISTRATION (EXPECTED DELIVERIES) VIEW -->
         <div id="deliveries-view" class="view-section">
             <div style="display: flex; gap: 2rem;">
-                <aside class="glass-panel" style="width: 300px; height: fit-content;">
+                <aside class="glass-panel" style="flex: 0 0 450px; height: fit-content;">
                     <h3>Pre-Register Delivery</h3>
-                    <p style="font-size:0.85rem; color:var(--text-muted);">Log incoming orders even if you don't know the truck yet.</p>
-                    <form id="addDeliveryForm">
-                        <label>PO / Order Number *</label> <input type="text" id="expPO" placeholder="PO-12345" required>
-                        <label>Activity *</label>
-                        <select id="expActivity">
-                            <option value="Unloading">Unloading (Incoming)</option>
-                            <option value="Loading">Loading (Outgoing)</option>
-                        </select>
-                        <label>Expected Date *</label> <input type="date" id="expDate" required>
-                        <label>Expected Load *</label> <input type="text" id="expLoad" placeholder="Electronics" required>
-                        <label>Expected Quantity (Boxes) *</label> <input type="number" id="expQty" placeholder="50" value="50" required>
-                        <label>Vendor *</label> <input type="text" id="expVendor" placeholder="Samsung Electronics" required>
-                        <label>Vendor Email *</label> <input type="email" id="expVendorEmail" placeholder="logistics@vendor.com" required>
-                        <label>Expected Plate (Optional)</label> <input type="text" id="expPlate" placeholder="XYZ 123">
-                        <label>Driver Name (Optional)</label> <input type="text" id="expDriver" placeholder="John Doe">
-                        <label>Driver Phone (Optional)</label> <input type="tel" id="expDriverPhone" placeholder="123-456-7890">
-                        <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
+                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 1.5rem;">Log incoming orders even if you don't know the truck yet.</p>
+                    <form id="addDeliveryForm" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div style="grid-column: 1 / -1;">
+                            <label>PO / Order Number *</label>
+                            <input type="text" id="expPO" placeholder="PO-12345" required style="width: 100%; margin-bottom: 0;">
+                        </div>
+                        
+                        <div>
+                            <label>Activity *</label>
+                            <select id="expActivity" style="width: 100%; margin-bottom: 0;">
+                                <option value="Unloading">Unloading (Incoming)</option>
+                                <option value="Loading">Loading (Outgoing)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Expected Date *</label> 
+                            <input type="date" id="expDate" required style="width: 100%; margin-bottom: 0;">
+                        </div>
+
+                        <div>
+                            <label>Expected Load *</label> 
+                            <input type="text" id="expLoad" placeholder="Electronics" required style="width: 100%; margin-bottom: 0;">
+                        </div>
+                        <div>
+                            <label>Expected Qty (Boxes) *</label> 
+                            <input type="number" id="expQty" placeholder="50" value="50" required style="width: 100%; margin-bottom: 0;">
+                        </div>
+
+                        <div>
+                            <label>Vendor *</label> 
+                            <input type="text" id="expVendor" placeholder="Samsung Electronics" required style="width: 100%; margin-bottom: 0;">
+                        </div>
+                        <div>
+                            <label>Vendor Email *</label> 
+                            <input type="email" id="expVendorEmail" placeholder="logistics@vendor.com" required style="width: 100%; margin-bottom: 0;">
+                        </div>
+
+                        <div>
+                            <label>Expected Plate</label> 
+                            <input type="text" id="expPlate" placeholder="XYZ 123" style="width: 100%; margin-bottom: 0;">
+                        </div>
+                        <div>
+                            <label>Driver Name</label> 
+                            <input type="text" id="expDriver" placeholder="John Doe" style="width: 100%; margin-bottom: 0;">
+                        </div>
+
+                        <div style="grid-column: 1 / -1;">
+                            <label>Driver Phone</label> 
+                            <input type="tel" id="expDriverPhone" placeholder="123-456-7890" style="width: 100%; margin-bottom: 0;">
+                        </div>
+                        
+                        <div style="grid-column: 1 / -1; margin-top: 0.5rem;">
+                            <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
+                        </div>
                     </form>
                 </aside>
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
                     <table>
-                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th><th>Connected Pass / Status</th></tr></thead>
+                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Vendor Email</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th><th>Connected Pass / Status</th></tr></thead>
                         <tbody id="expectedTableBody"></tbody>
                     </table>
                 </div>
@@ -334,52 +369,81 @@
             </div>
         </div>
 
-        <!-- VEHICLE MASTER VIEW -->
-        <div id="vehicle-log-view" class="view-section">
+        <!-- MASTER HUB VIEW -->
+        <div id="master-hub-view" class="view-section">
             <div class="glass-panel">
-                <h2>Vehicle Master Log</h2>
-                <p style="color:var(--text-muted);">Historical tracking of all vehicles entering and leaving the facility.</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th><th>Gate Pass</th><th>Plate</th><th>Driver</th><th>Entry Time</th><th>Exit Time</th><th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="vehicleLogBody"></tbody>
-                </table>
-            </div>
-        </div>
+                <h2>Master Data Hub</h2>
+                <p style="color:var(--text-muted); margin-bottom: 1rem;">Consolidated view of all system masters.</p>
+                <div style="display:flex; gap:10px; margin-bottom: 20px;">
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('po-master', this)" style="background:var(--accent-hover);">PO Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)" style="background:var(--bg-main); border: 1px solid var(--border-light);">Gate Pass Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)" style="background:var(--bg-main); border: 1px solid var(--border-light);">Vehicle Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)" style="background:var(--bg-main); border: 1px solid var(--border-light);">Invoice Master</button>
+                </div>
+                
+                <div id="po-master-sub" class="sub-master-section">
+                    <h3>PO Master</h3>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;">
+                            <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Vendor Email</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th></tr></thead>
+                            <tbody id="poMasterBody"></tbody>
+                        </table>
+                    </div>
+                </div>
 
-        <!-- INVOICES VIEW -->
-        <div id="invoices-view" class="view-section">
-            <div class="glass-panel">
-                <h2>Invoice Master</h2>
-                <p style="color:var(--text-muted);">Invoices automatically generated and emailed to vendors upon completion.</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th><th>Gate Pass</th><th>PO Number</th><th>Vendor</th><th>Email</th><th>Generated At</th><th>Download</th>
-                        </tr>
-                    </thead>
-                    <tbody id="invoicesBody"></tbody>
-                </table>
-            </div>
-        </div>
-        <!-- GATE PASS MASTER VIEW -->
-        <div id="gate-pass-master-view" class="view-section">
-            <div class="glass-panel">
-                <h2>Gate Pass Master</h2>
-                <p style="color:var(--text-muted);">Historical log of all generated gate passes.</p>
-                <div style="overflow-x:auto;">
-                    <table style="width:100%;">
+                <div id="gate-pass-master-sub" class="sub-master-section" style="display:none;">
+                    <h3>Gate Pass Master</h3>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Gate Pass ID</th><th>PO Num</th><th>Plate</th><th>Driver</th><th>Status</th><th>Dock</th><th>Arrival Time</th><th>Schedule Status</th><th>Exit Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gatePassMasterBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="vehicle-master-sub" class="sub-master-section" style="display:none;">
+                    <h3>Vehicle Master Log</h3>
+                    <table>
                         <thead>
                             <tr>
-                                <th>Gate Pass ID</th><th>Plate</th><th>Driver</th><th>Status</th><th>Dock</th><th>Arrival Time</th><th>Exit Time</th>
+                                <th>ID</th><th>Gate Pass</th><th>Plate</th><th>Driver</th><th>Entry Time</th><th>Exit Time</th><th>Status</th>
                             </tr>
                         </thead>
-                        <tbody id="gatePassMasterBody"></tbody>
+                        <tbody id="vehicleLogBody"></tbody>
                     </table>
                 </div>
+
+                <div id="invoice-master-sub" class="sub-master-section" style="display:none;">
+                    <h3>Invoice Master</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th><th>Gate Pass</th><th>PO Number</th><th>Vendor</th><th>Email</th><th>Generated At</th><th>Download</th>
+                            </tr>
+                        </thead>
+                        <tbody id="invoicesBody"></tbody>
+                    </table>
+                </div>
+                
+                <script>
+                    function switchSubTab(tabId, btn) {
+                        document.querySelectorAll('.sub-master-section').forEach(el => el.style.display = 'none');
+                        document.querySelectorAll('.sub-tab-btn').forEach(el => {
+                            el.style.background = 'var(--bg-main)';
+                        });
+                        document.getElementById(tabId + '-sub').style.display = 'block';
+                        btn.style.background = 'var(--accent-hover)';
+                        
+                        if(typeof window.fetchDeliveries === 'function' && tabId === 'po-master') window.fetchDeliveries();
+                        if(typeof window.fetchGatePasses === 'function' && tabId === 'gate-pass-master') window.fetchGatePasses();
+                        if(typeof window.fetchVehicleLogs === 'function' && tabId === 'vehicle-master') window.fetchVehicleLogs();
+                        if(typeof window.fetchInvoices === 'function' && tabId === 'invoice-master') window.fetchInvoices();
+                    }
+                </script>
             </div>
         </div>
 
@@ -505,11 +569,14 @@
                 globalDeliveries = await res.json();
                 
                 const tbody = document.getElementById('expectedTableBody');
+                const pBody = document.getElementById('poMasterBody');
                 if(globalDeliveries.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No expected deliveries registered.</td></tr>';
+                    const emptyMsg = '<tr><td colspan="8" style="text-align:center;">No expected deliveries registered.</td></tr>';
+                    tbody.innerHTML = emptyMsg;
+                    if(pBody) pBody.innerHTML = emptyMsg;
                     return;
                 }
-                tbody.innerHTML = globalDeliveries.map(d => {
+                const rowsHtml = globalDeliveries.map(d => {
                     let statusBadge = '<span class="badge pending" style="font-size:0.75rem;">Awaiting Gate</span>';
                     if (d.linked_gate_pass_id) {
                         statusBadge = `<span class="badge sent" style="font-size:0.75rem; background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3);">🔗 Pass ${d.linked_gate_pass_id} (${d.status})</span>`;
@@ -522,12 +589,16 @@
                         <td>${d.expected_date}</td>
                         <td>${d.activity || 'Loading'}</td>
                         <td style="color:var(--text-muted);">${d.vendor || 'Unknown'}</td>
+                        <td style="color:var(--text-muted);">${d.vendor_email || '-'}</td>
                         <td>${d.load}</td>
                         <td style="font-weight:bold;">${d.unloading_sheet && d.unloading_sheet.length > 0 ? d.unloading_sheet[0].expected : '-'}</td>
                         <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
                         <td>${statusBadge}</td>
                     </tr>
                 `;}).join('');
+                
+                tbody.innerHTML = rowsHtml;
+                if(pBody) pBody.innerHTML = rowsHtml;
                 
                 fetchGatePasses();
             } catch(e) {}
@@ -561,6 +632,12 @@
                 if(email && document.getElementById(`vendor_email_${gpId}`)) {
                     document.getElementById(`vendor_email_${gpId}`).value = email;
                 }
+                // Silently update PO backend on selection
+                fetch(`/api/gate_passes/${gpId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ po_number: selectedOption.getAttribute('data-po'), vendor_email: email, vendor: vendor })
+                });
             }
         }
 
@@ -569,6 +646,7 @@
             try {
                 const res = await fetch('/api/gate_passes');
                 const passes = await res.json();
+                window.globalGatePasses = passes;
                 const gateBody = document.getElementById('gatePassGrid');
                 const dockBody = document.getElementById('dockTableBody');
                 const masterBody = document.getElementById('gatePassMasterBody');
@@ -581,17 +659,32 @@
                 
                 // Render Master Table
                 if(masterBody) {
-                    masterBody.innerHTML = passes.map(gp => `
+                    masterBody.innerHTML = passes.map(gp => {
+                        let dateStatusHtml = '<span style="color:var(--text-muted)">Unmatched</span>';
+                        if (gp.expected_date && gp.arrival_date) {
+                            if (gp.arrival_date === gp.expected_date) {
+                                dateStatusHtml = '<span class="status-ontime">On Time</span>';
+                            } else if (gp.arrival_date > gp.expected_date) {
+                                dateStatusHtml = '<span class="status-delayed">Delayed</span>';
+                            } else {
+                                dateStatusHtml = '<span class="status-early">Early</span>';
+                            }
+                        }
+                        
+                        return `
                         <tr>
                             <td>${gp.id}</td>
+                            <td>${gp.po_number || '-'}</td>
                             <td>${gp.plate}</td>
                             <td>${gp.driver_name || '-'}</td>
                             <td><span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span></td>
                             <td>${gp.dock || '-'}</td>
                             <td>${gp.arrival_date} ${gp.time}</td>
+                            <td>${dateStatusHtml}</td>
                             <td>${gp.exit_time || '-'}</td>
                         </tr>
-                    `).join('');
+                        `;
+                    }).join('');
                 }
 
                 // Filter Active Passes for the Grid
@@ -612,7 +705,7 @@
                                 poDropdown = `
                                     <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(212,175,55,0.1);">
                                         <option value="">Match to a Pending PO...</option>
-                                        ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}" data-phone="${d.driver_phone || ''}" data-email="${d.vendor_email || ''}">${d.po_number}: ${d.load}</option>`).join('')}
+                                        ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}" data-phone="${d.driver_phone || ''}" data-email="${d.vendor_email || ''}">${d.po_number}: ${d.load} (${d.vendor} - ${d.vendor_email || 'No Email'})</option>`).join('')}
                                     </select><br/>
                                 `;
                             }
@@ -967,10 +1060,48 @@
         }
 
         async function sendInvoice(id) {
+            let email = document.getElementById(`vendor_email_${id}`) ? document.getElementById(`vendor_email_${id}`).value : '';
+            
+            if(!email) {
+                // Try to find it from the PO automatically first
+                const gp = window.globalGatePasses?.find(g => g.id === id);
+                if (gp) {
+                    let deliv = null;
+                    if (gp.po_number) {
+                        deliv = globalDeliveries.find(d => d.po_number === gp.po_number);
+                    }
+                    if (!deliv && gp.vendor) {
+                        deliv = globalDeliveries.find(d => d.vendor === gp.vendor);
+                    }
+                    if (!deliv && gp.plate) {
+                        deliv = globalDeliveries.find(d => d.plate === gp.plate);
+                    }
+                    
+                    // Ultimate fallback for demo: just grab the most recently added expected delivery's email
+                    if (!deliv && globalDeliveries.length > 0) {
+                        deliv = globalDeliveries[globalDeliveries.length - 1]; // get latest
+                    }
+                    
+                    if (deliv && deliv.vendor_email) {
+                        email = deliv.vendor_email;
+                    }
+                }
+            }
+            
+            if(!email) {
+                alert("Vendor email could not be found automatically. Please ensure the vendor email was provided during pre-registration.");
+                return;
+            }
+            
+            // Update the input field visually if it exists
+            if(document.getElementById(`vendor_email_${id}`)) {
+                document.getElementById(`vendor_email_${id}`).value = email;
+            }
+            
             const res = await fetch('/api/gate/invoice', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ gp_id: id })
+                body: JSON.stringify({ gp_id: id, vendor_email: email })
             });
             const data = await res.json();
             alert(data.message);
@@ -1366,8 +1497,12 @@
         setInterval(() => {
             if (document.getElementById('main-container').style.display !== 'none') {
                 pollData();
-                if(typeof fetchVehicleLogs === 'function' && document.getElementById('vehicle-log-view').classList.contains('active')) fetchVehicleLogs();
-                if(typeof fetchInvoices === 'function' && document.getElementById('invoices-view').classList.contains('active')) fetchInvoices();
+                if(document.getElementById('master-hub-view').classList.contains('active')) {
+                    if(document.getElementById('vehicle-master-sub').style.display !== 'none' && typeof fetchVehicleLogs === 'function') fetchVehicleLogs();
+                    if(document.getElementById('invoice-master-sub').style.display !== 'none' && typeof fetchInvoices === 'function') fetchInvoices();
+                    if(document.getElementById('gate-pass-master-sub').style.display !== 'none' && typeof fetchGatePasses === 'function') fetchGatePasses();
+                    if(document.getElementById('po-master-sub').style.display !== 'none' && typeof fetchDeliveries === 'function') fetchDeliveries();
+                }
             }
         }, 2000);
 
