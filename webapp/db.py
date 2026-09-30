@@ -38,7 +38,7 @@ def init_db():
             id TEXT PRIMARY KEY,
             po_number TEXT,
             plate TEXT NOT NULL,
-            vehicle_type TEXT DEFAULT 'Unknown',
+            vehicle_type TEXT DEFAULT '',
             driver_name TEXT,
             driver_phone TEXT,
             vendor TEXT,
@@ -66,6 +66,30 @@ def init_db():
         -- SQLite will error if they already exist, which is fine in exec script if we catch it, but execscript aborts on error.
         -- Better to do it via python try-except.
         
+        -- Vehicle Log Collection
+        CREATE TABLE IF NOT EXISTS vehicle_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gp_id TEXT,
+            plate TEXT NOT NULL,
+            driver_name TEXT,
+            entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            exit_time TIMESTAMP,
+            status TEXT DEFAULT 'Inside',
+            FOREIGN KEY (gp_id) REFERENCES gate_passes(id)
+        );
+
+        -- Invoices Master Collection
+        CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gp_id TEXT,
+            po_number TEXT,
+            vendor TEXT,
+            vendor_email TEXT,
+            pdf_path TEXT,
+            generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (gp_id) REFERENCES gate_passes(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_deliveries_plate ON expected_deliveries(plate);
         CREATE INDEX IF NOT EXISTS idx_deliveries_status ON expected_deliveries(status);
         CREATE INDEX IF NOT EXISTS idx_gate_passes_po ON gate_passes(po_number);
@@ -81,7 +105,7 @@ def init_db():
             except sqlite3.OperationalError:
                 pass
                 
-        columns_gp = ['driver_phone', 'vendor_email', 'otp', 'exit_time']
+        columns_gp = ['driver_phone', 'vendor_email', 'otp', 'exit_time', 'driver_photo']
         for col in columns_gp:
             try:
                 conn.execute(f"ALTER TABLE gate_passes ADD COLUMN {col} TEXT")
@@ -110,7 +134,7 @@ def _row_to_delivery(row):
         "po_number": d.get("po_number"),
         "expected_date": d.get("expected_date") or "",
         "activity": d.get("activity") or "Unloading",
-        "vendor": d.get("vendor") or "Unknown",
+        "vendor": d.get("vendor") or "",
         "vendor_email": d.get("vendor_email") or "",
         "load": d.get("load_description") or "",
         "plate": d.get("plate") or "",
@@ -134,12 +158,12 @@ def _row_to_gate_pass(row):
         "id": d.get("id"),
         "po_number": d.get("po_number") or "",
         "plate": d.get("plate") or "",
-        "vehicle_type": d.get("vehicle_type") or "Unknown",
-        "driver_name": d.get("driver_name") or "Awaiting Input",
+        "vehicle_type": d.get("vehicle_type") or "",
+        "driver_name": d.get("driver_name") or "",
         "driver_phone": d.get("driver_phone") or "",
-        "vendor": d.get("vendor") or "Unknown",
+        "vendor": d.get("vendor") or "",
         "vendor_email": d.get("vendor_email") or "",
-        "load": d.get("load_description") or "Awaiting Input",
+        "load": d.get("load_description") or "",
         "activity": d.get("activity") or "Loading",
         "expected_date": d.get("expected_date") or "",
         "arrival_date": d.get("arrival_date") or "",
@@ -147,7 +171,11 @@ def _row_to_gate_pass(row):
         "status": d.get("status") or "Pending",
         "dock": d.get("dock") or "Not Assigned",
         "photo": d.get("photo") or "",
+        "driver_photo": d.get("driver_photo") or "",
         "unloaded_qty": d.get("unloaded_qty") or 0,
+        "bin_allocation": d.get("bin_allocation") or "",
+        "otp_verified": d.get("otp_verified") or 0,
+        "exit_time": d.get("exit_time") or "",
         "bin_allocation": d.get("bin_allocation") or "",
         "unloading_sheet": sheet,
         "otp": d.get("otp") or "",
@@ -275,12 +303,12 @@ def create_gate_pass(data):
         new_id = f"GP-{max_num + 1}"
 
         plate = (data.get('plate') or '').strip().upper()
-        vehicle_type = data.get('type') or 'Unknown'
+        vehicle_type = data.get('type') or ''
         photo = data.get('photo') or ''
-        driver_name = data.get('driver_name') or 'Awaiting Input'
+        driver_name = data.get('driver_name') or ''
         driver_phone = data.get('driver_phone') or ''
-        load_info = data.get('load') or 'Awaiting Input'
-        vendor = data.get('vendor') or 'Unknown'
+        load_info = data.get('load') or ''
+        vendor = data.get('vendor') or ''
         vendor_email = data.get('vendor_email') or ''
         expected_date = data.get('expected_date') or ''
         po_number = (data.get('po_number') or '').strip()
@@ -291,7 +319,7 @@ def create_gate_pass(data):
         # CONNECTION LOGIC:
         # 1. Match by Plate if plate is available
         matched_deliv = None
-        if plate and plate != "MANUAL-ENTRY":
+        if plate and plate != "":
             clean_search = _clean_plate(plate)
             # Find in expected deliveries
             all_delivs = conn.execute("SELECT * FROM expected_deliveries ORDER BY created_at DESC").fetchall()
@@ -307,15 +335,15 @@ def create_gate_pass(data):
         # If matched, auto-populate from pre-registration and connect them!
         if matched_deliv:
             po_number = matched_deliv['po_number']
-            if driver_name == 'Awaiting Input' and matched_deliv['driver_name']:
+            if driver_name == '' and matched_deliv['driver_name']:
                 driver_name = matched_deliv['driver_name']
             if not driver_phone and matched_deliv['driver_phone']:
                 driver_phone = matched_deliv['driver_phone']
-            if load_info == 'Awaiting Input' and matched_deliv['load_description']:
+            if load_info == '' and matched_deliv['load_description']:
                 load_info = matched_deliv['load_description']
             if not expected_date and matched_deliv['expected_date']:
                 expected_date = matched_deliv['expected_date']
-            if vendor == 'Unknown' and matched_deliv['vendor']:
+            if vendor == '' and matched_deliv['vendor']:
                 vendor = matched_deliv['vendor']
             if not vendor_email and matched_deliv['vendor_email']:
                 vendor_email = matched_deliv['vendor_email']
@@ -334,14 +362,16 @@ def create_gate_pass(data):
         arrival_date = time.strftime("%Y-%m-%d")
         arrival_time = time.strftime("%H:%M:%S")
 
+        driver_photo = data.get('driver_photo') or ''
+
         conn.execute("""
             INSERT INTO gate_passes
             (id, po_number, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_description,
-             activity, expected_date, arrival_date, arrival_time, status, dock, photo,
+             activity, expected_date, arrival_date, arrival_time, status, dock, photo, driver_photo,
              unloaded_qty, bin_allocation, unloading_sheet, otp, otp_verified)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (new_id, po_number or None, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_info,
-              activity, expected_date, arrival_date, arrival_time, 'Pending', 'Not Assigned', photo,
+              activity, expected_date, arrival_date, arrival_time, 'Pending', 'Not Assigned', photo, driver_photo,
               0, '', sheet_json, otp, 0))
     conn.close()
     return get_gate_pass(new_id)
@@ -367,6 +397,12 @@ def update_gate_pass(gp_id, data):
         activity = data.get('activity', curr['activity'])
         bin_allocation = data.get('bin_allocation', curr['bin_allocation'])
         photo = data.get('photo', curr['photo'])
+        driver_photo = data.get('driver_photo', curr['driver_photo'])
+        driver_phone = data.get('driver_phone', curr['driver_phone'])
+        vendor_email = data.get('vendor_email', curr['vendor_email'])
+        otp = data.get('otp', curr['otp'])
+        otp_verified = data.get('otp_verified', curr['otp_verified'])
+        exit_time = data.get('exit_time', curr['exit_time'])
 
         sheet_str = curr['unloading_sheet']
 
@@ -385,11 +421,11 @@ def update_gate_pass(gp_id, data):
             UPDATE gate_passes SET
                 plate = ?, driver_name = ?, load_description = ?, vendor = ?,
                 status = ?, dock = ?, expected_date = ?, po_number = ?,
-                unloaded_qty = ?, activity = ?, bin_allocation = ?, photo = ?,
-                unloading_sheet = ?
+                unloaded_qty = ?, activity = ?, bin_allocation = ?, photo = ?, driver_photo = ?,
+                unloading_sheet = ?, driver_phone = ?, vendor_email = ?, otp = ?, otp_verified = ?, exit_time = ?
             WHERE id = ?
         """, (plate, driver_name, load_desc, vendor, status, dock, expected_date,
-              po_number or None, unloaded_qty, activity, bin_allocation, photo, sheet_str, gp_id))
+              po_number or None, unloaded_qty, activity, bin_allocation, photo, driver_photo, sheet_str, driver_phone, vendor_email, otp, otp_verified, exit_time, gp_id))
     conn.close()
     return get_gate_pass(gp_id)
 
@@ -436,3 +472,40 @@ def get_stats():
         "pending_dock": pending_dock,
         "at_dock": at_dock
     }
+
+# ----------------- Vehicle Log & Invoices -----------------
+
+def get_all_vehicle_logs():
+    conn = get_db()
+    logs = conn.execute("SELECT * FROM vehicle_log ORDER BY entry_time DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in logs]
+
+def create_vehicle_log(gp_id, plate, driver_name):
+    conn = get_db()
+    conn.execute("INSERT INTO vehicle_log (gp_id, plate, driver_name, status) VALUES (?, ?, ?, 'Inside')",
+                 (gp_id, plate, driver_name))
+    conn.commit()
+    conn.close()
+
+def checkout_vehicle_log(gp_id):
+    conn = get_db()
+    # Using python datetime to match other timestamps
+    from datetime import datetime
+    exit_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE vehicle_log SET exit_time = ?, status = 'Departed' WHERE gp_id = ?", (exit_time, gp_id))
+    conn.commit()
+    conn.close()
+
+def get_all_invoices():
+    conn = get_db()
+    invs = conn.execute("SELECT * FROM invoices ORDER BY generated_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in invs]
+
+def create_invoice(gp_id, po_number, vendor, vendor_email, pdf_path):
+    conn = get_db()
+    conn.execute("INSERT INTO invoices (gp_id, po_number, vendor, vendor_email, pdf_path) VALUES (?, ?, ?, ?, ?)",
+                 (gp_id, po_number, vendor, vendor_email, pdf_path))
+    conn.commit()
+    conn.close()
