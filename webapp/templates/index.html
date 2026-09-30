@@ -553,6 +553,14 @@
                 if(vendor) {
                     document.getElementById(`vendor_${gpId}`).value = vendor;
                 }
+                const phone = selectedOption.getAttribute('data-phone');
+                if(phone && document.getElementById(`driver_phone_${gpId}`)) {
+                    document.getElementById(`driver_phone_${gpId}`).value = phone;
+                }
+                const email = selectedOption.getAttribute('data-email');
+                if(email && document.getElementById(`vendor_email_${gpId}`)) {
+                    document.getElementById(`vendor_email_${gpId}`).value = email;
+                }
             }
         }
 
@@ -604,7 +612,7 @@
                                 poDropdown = `
                                     <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:rgba(212,175,55,0.1);">
                                         <option value="">Match to a Pending PO...</option>
-                                        ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}">${d.po_number}: ${d.load}</option>`).join('')}
+                                        ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}" data-phone="${d.driver_phone || ''}" data-email="${d.vendor_email || ''}">${d.po_number}: ${d.load}</option>`).join('')}
                                     </select><br/>
                                 `;
                             }
