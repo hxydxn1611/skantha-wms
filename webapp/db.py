@@ -439,6 +439,10 @@ def delete_gate_pass(gp_id):
             other = conn.execute("SELECT 1 FROM gate_passes WHERE po_number = ? AND id != ? LIMIT 1", (curr['po_number'], gp_id)).fetchone()
             if not other:
                 conn.execute("UPDATE expected_deliveries SET status = 'Expected' WHERE po_number = ?", (curr['po_number'],))
+        
+        # Delete dependent rows to avoid FOREIGN KEY constraint failures
+        conn.execute("DELETE FROM vehicle_log WHERE gp_id = ?", (gp_id,))
+        conn.execute("DELETE FROM invoices WHERE gp_id = ?", (gp_id,))
         conn.execute("DELETE FROM gate_passes WHERE id = ?", (gp_id,))
     conn.close()
     return True
