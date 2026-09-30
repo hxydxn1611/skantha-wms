@@ -169,13 +169,11 @@ def generate_invoice():
                 pdf_data = f.read()
             msg.add_attachment(pdf_data, maintype='application', subtype='pdf', filename=pdf_filename)
             
-            # Since we don't have the password, we will just simulate success but log that we need the password.
-            # In a fully deployed environment, you'd use:
-            # with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            #     smtp.login('hayd161103@gmail.com', '<YOUR_APP_PASSWORD>')
-            #     smtp.send_message(msg)
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                smtp.login('hayd161103@gmail.com', '9887983581700039')
+                smtp.send_message(msg)
             
-            email_status = "Email simulated! To send real emails from hayd161103@gmail.com, configure an App Password in app.py line 166."
+            email_status = "Real Email successfully sent!"
         except Exception as e:
             email_status = f"Email failed: {str(e)}"
         
