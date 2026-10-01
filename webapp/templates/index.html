@@ -46,149 +46,418 @@
             overflow: hidden;
         }
         
-        /* LOGIN OVERLAY */
+        
+        
+        /* LOGIN OVERLAY - EXACT MATCH */
         #login-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: url('/static/bg.jpg') no-repeat center center/cover;
             z-index: 1000;
-            display: flex; justify-content: center; align-items: center;
-            overflow: hidden;
+            display: flex;
+            overflow-y: auto;
+            font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #ffffff;
         }
+        
         #login-overlay::before {
             content: '';
-            position: absolute; top:0; left:0; width:100%; height:100%;
-            background: rgba(15, 23, 42, 0.6);
-            z-index: -1;
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: transparent;
+            z-index: 0;
         }
 
-        /* LOGIN SCREEN - TOP RIGHT SKANTHA BRANDING */
-        .login-top-brand {
-            position: absolute;
-            top: 2rem;
-            right: 2.5rem;
+
+        
+        
+        /* LEFT SIDE LAYOUT */
+        .login-left {
+            flex: 1.2;
+            padding: 1rem 2rem;
             display: flex;
             flex-direction: column;
+            justify-content: center;
+            position: relative;
+            background: linear-gradient(90deg, rgba(4, 10, 25, 0.95) 0%, rgba(4, 10, 25, 0.7) 60%, rgba(4, 10, 25, 0.3) 100%);
+            /* By setting the background here, the logo's mix-blend-mode will correctly blend with it! */
+        }
+        
+        .login-brand-top {
+            display: flex;
             align-items: center;
-            text-align: center;
-            z-index: 1001;
-            transition: transform 0.25s ease;
+            gap: 12px;
+            position: absolute;
+            top: 1.5rem;
+            left: 2rem;
         }
-        .login-top-brand:hover {
-            transform: translateY(-2px);
+        .login-brand-top img {
+            height: 32px;
         }
-        .login-top-brand img.login-skantha-logo {
-            max-height: 68px;
-            max-width: 140px;
-            object-fit: contain;
-            filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
-            display: block;
+        .login-brand-top div {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
-        .login-top-brand .login-skantha-name {
-            font-size: 0.8rem;
-            color: #f1f5f9;
-            font-weight: 700;
+        .login-brand-top h2 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: #ffffff;
+        }
+        .login-brand-top p {
+            margin: 0;
+            font-size: 0.5rem;
+            font-weight: 600;
+            color: #94a3b8;
+            letter-spacing: 2px;
             text-transform: uppercase;
-            letter-spacing: 0.75px;
-            margin-top: 6px;
-            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
         }
 
-        /* LOGIN BOX (MIDDLE OF LOGIN PAGE) */
-        .login-box {
-            background: rgba(15, 23, 42, 0.76);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            padding: 3rem 2.75rem; border-radius: 20px;
-            border: 1px solid rgba(6, 182, 212, 0.35);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgba(6, 182, 212, 0.15);
-            width: 100%; max-width: 400px;
-            text-align: center;
-            transform: translateY(0);
-            transition: all 0.3s ease;
+        .login-hero {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding-right: 1rem;
+            margin-top: 3rem; /* Space for absolute top brand */
+        }
+        .login-hero-logo {
+            height: clamp(80px, 15vh, 140px);
+            width: auto;
+            margin-bottom: 0px;
+            mix-blend-mode: screen;
+            display: block;
+            align-self: flex-start;
+        }
+        .login-hero-title {
+            font-size: clamp(2.5rem, 4vw, 3.5rem);
+            font-weight: 900;
+            letter-spacing: 4px;
+            margin: 0 0 0.25rem 0;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            font-family: 'Orbitron', sans-serif;
+            color: #ffffff;
+        }
+        .login-hero-tagline {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+        .login-hero-tagline::before {
+            content: '';
+            width: 15px;
+            height: 2px;
+            background: #0ea5e9;
+            transform: skewX(-45deg);
+        }
+        .login-hero-tagline span {
+            font-size: clamp(0.75rem, 1vw, 0.9rem);
+            font-weight: 700;
+            letter-spacing: 3px;
+            color: #e2e8f0;
+            text-transform: uppercase;
+        }
+        .login-hero-desc {
+            font-size: clamp(0.8rem, 1vw, 0.9rem);
+            color: #94a3b8;
+            line-height: 1.4;
+            max-width: 450px;
+            margin-bottom: 1.5rem;
+        }
+        .login-hero-desc span {
+            color: #0ea5e9;
+        }
+
+        .login-features {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+        .feature-box {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            text-align: left;
             position: relative;
-            z-index: 1001;
+            flex: 1;
         }
-        .login-box:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6), 0 0 50px rgba(6, 182, 212, 0.25);
+        .feature-box:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: -0.5rem;
+            top: 5px;
+            height: 25px;
+            width: 1px;
+            background: rgba(255,255,255,0.2);
         }
-        .login-warlog-icon-wrap {
+        .feature-box i {
+            font-size: 1rem;
+            color: #0ea5e9;
+            margin-bottom: 6px;
+            filter: drop-shadow(0 0 10px rgba(14, 165, 233, 0.4));
+        }
+        .feature-box span {
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: #e2e8f0;
+            text-transform: uppercase;
+            line-height: 1.2;
+            letter-spacing: 0.5px;
+        }
+
+        .login-cursive {
+            font-family: 'Caveat', 'Brush Script MT', cursive;
+            font-size: 1.5rem;
+            color: #0ea5e9;
+            transform: rotate(-3deg);
+            margin-top: 1.5rem;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            font-weight: 700;
+        }
+
+        /* RIGHT SIDE LAYOUT */
+        .login-right {
+            flex: 1;
+            padding: 1rem 2rem;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 1;
+        }
+        .login-top-links {
+            text-align: right;
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: #e2e8f0;
+            letter-spacing: 1px;
+            position: absolute;
+            top: 1.5rem;
+            right: 2rem;
+            width: 100%;
+        }
+        .login-top-links span {
+            color: #475569;
+            margin: 0 4px;
+        }
+
+        .login-card-container {
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: auto 0;
+            width: 100%;
+        }
+        
+        .login-card {
+            width: 100%;
+            max-width: 380px;
+            background: rgba(10, 15, 35, 0.55);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 12px;
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            box-shadow: 0 0 30px rgba(14, 165, 233, 0.15), inset 0 0 20px rgba(255,255,255,0.02);
+            padding: 1.5rem;
+            position: relative;
+        }
+        .login-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            border: 1px solid #0ea5e9;
+            background: rgba(14, 165, 233, 0.1);
+            color: #38bdf8;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-bottom: 0.75rem;
+        }
+        .login-card h2 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin: 0 0 4px 0;
+            color: #ffffff;
+        }
+        .login-card p {
+            color: #cbd5e1;
+            font-size: 0.8rem;
+            margin-bottom: 1rem;
+        }
+        .login-card p span {
+            color: #38bdf8;
+            font-weight: 700;
+        }
+
+        .input-group {
+            position: relative;
+            margin-bottom: 0.85rem;
+        }
+        .input-group i:not(.password-toggle) {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+            font-size: 0.85rem;
+            z-index: 2;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 8px 12px 8px 38px !important;
+            background: rgba(15, 23, 42, 0.6) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-radius: 8px !important;
+            color: #ffffff !important;
+            font-size: 0.85rem !important;
+            transition: all 0.3s ease;
+            box-sizing: border-box !important;
+        }
+        .input-group input:focus {
+            border-color: #0ea5e9 !important;
+            background: rgba(15, 23, 42, 0.8) !important;
+            box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2) !important;
+            outline: none !important;
+        }
+        .input-group input::placeholder {
+            color: #64748b !important;
+        }
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            z-index: 2;
+            transition: color 0.2s;
+        }
+        .password-toggle:hover {
+            color: #38bdf8;
+        }
+
+        .login-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .login-options label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #cbd5e1;
+            cursor: pointer;
+        }
+        .login-options input[type="checkbox"] {
+            width: 12px !important;
+            height: 12px !important;
+            accent-color: #0ea5e9;
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 3px;
+        }
+        .login-options a {
+            color: #38bdf8;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .login-options a:hover {
+            text-decoration: underline;
+        }
+
+        .btn-login-main {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(90deg, #06b6d4, #2563eb);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
             display: flex;
             justify-content: center;
             align-items: center;
-            margin-bottom: 0.85rem;
+            gap: 6px;
+            box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
         }
-        .login-warlog-icon-wrap img {
-            height: 64px;
-            max-width: 130px;
-            width: auto;
-            object-fit: contain;
-            filter: drop-shadow(0 4px 14px rgba(6, 182, 212, 0.5));
-            display: block;
-        }
-        .login-warlog-title {
-            margin: 0 0 0.35rem 0;
-            font-size: 2.25rem;
-            font-family: 'Orbitron', sans-serif;
-            font-weight: 900;
-            letter-spacing: 5px;
-            color: #DADBDD !important;
-            text-shadow: 0 0 16px rgba(6, 182, 212, 0.35);
-        }
-        .login-warlog-tagline {
-            color: #06b6d4;
-            font-size: 0.82rem;
-            margin: 0 0 1.75rem 0;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-        }
-        .login-box input {
-            width: 100% !important;
-            box-sizing: border-box !important;
-            background: rgba(30, 41, 59, 0.9) !important;
-            border: 1px solid rgba(6, 182, 212, 0.3) !important;
-            color: #ffffff !important;
-            padding: 1rem !important;
-            font-size: 1rem !important;
-            border-radius: 8px !important;
-            margin-bottom: 1rem !important;
-            font-family: inherit !important;
-            outline: none !important;
-            transition: border-color 0.2s, box-shadow 0.2s !important;
-        }
-        .login-box input:focus {
-            border-color: #06b6d4 !important;
-            box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.25) !important;
-        }
-        .login-box input::placeholder {
-            color: #94a3b8 !important;
-        }
-        .login-box .btn-login {
-            background: #00acc1;
-            color: #ffffff;
-            font-size: 1.1rem;
-            font-weight: 700;
-            padding: 1rem;
-            width: 100%;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            margin-top: 0.5rem;
-            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.4);
-            transition: all 0.2s ease;
-            font-family: inherit;
-        }
-        .login-box .btn-login:hover {
-            background: #0891b2;
-            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.6);
+        .btn-login-main:hover {
             transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(37, 99, 235, 0.6);
+            background: linear-gradient(90deg, #0891b2, #1d4ed8);
         }
+
+        .login-divider-line {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.65rem;
+            margin: 1rem 0;
+            letter-spacing: 1px;
+        }
+        .login-divider-line::before, .login-divider-line::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .login-divider-line:not(:empty)::before { margin-right: 1em; }
+        .login-divider-line:not(:empty)::after { margin-left: 1em; }
+
+        .btn-signup-main {
+            width: 100%;
+            padding: 10px;
+            background: rgba(255,255,255,0.05);
+            color: #cbd5e1;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 1rem;
+        }
+        .btn-signup-main:hover {
+            background: rgba(255,255,255,0.1);
+            color: #ffffff;
+        }
+
+        .login-card-footer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: #94a3b8;
+            font-size: 0.65rem;
+            letter-spacing: 0.5px;
+        }
+        .login-card-footer img {
+            height: 20px;
+            filter: brightness(1.2);
+        }
+        .login-card-footer span {
+            color: #ffffff;
+            font-weight: 700;
+        }
+
+
         
-        .metallic-text {
-            color: #1e3a8a;
-            font-family: 'Orbitron', sans-serif;
-            font-weight: 800;
+
+        /* Media queries to handle smaller screens and prevent overlap */
+        @media (max-width: 1100px) {
+            #login-overlay { flex-direction: column; }
+            .login-left, .login-right { flex: auto; width: 100%; padding: 2rem; }
+            .login-hero { margin-top: 2rem; align-items: center; text-align: center; padding-right: 0; }
+            .login-hero-logo { align-self: center; }
+            .login-top-links { position: relative; text-align: center; top: 0; right: 0; margin-bottom: 2rem; }
+            .login-brand-top { position: relative; top: 0; left: 0; justify-content: center; margin-bottom: 2rem; }
         }
 
         /* DASHBOARD TOPBAR */
@@ -641,27 +910,123 @@
 </head>
 <body>
 
+    
     <!-- LOGIN SCREEN -->
     <div id="login-overlay">
-        <!-- TOP-CORNER SKANTHA BRANDING -->
-        <div class="login-top-brand">
-            <img src="/static/skantha_logo.png" class="login-skantha-logo" alt="Skantha Technology Solution Logo">
-            <div class="login-skantha-name">Skantha Technology Solution</div>
+        <!-- LEFT PANEL -->
+        <div class="login-left">
+            <div class="login-brand-top">
+                <img src="/static/skantha_logo.png" alt="Skantha Logo">
+                <div>
+                    <h2>SKANTHA</h2>
+                    <p>TECHNOLOGY SOLUTION</p>
+                </div>
+            </div>
+
+            <div class="login-hero">
+                <img src="/static/warlog_logo.png" onerror="this.src='/static/warlog_w.png'" class="login-hero-logo" alt="WARLOG Logo">
+                <h1 class="login-hero-title" style="letter-spacing: 2px;">W.A.R.L.O.G</h1>
+                <div class="login-hero-tagline">
+                    <span>INTELLIGENCE DRIVES OPERATIONS</span>
+                </div>
+                <p class="login-hero-desc">AI-powered warehouse management system for greater visibility, efficiency and <span>control.</span></p>
+
+                <div class="login-features">
+                    <div class="feature-box">
+                        <i class="fas fa-bullseye"></i>
+                        <span>REAL-TIME<br>VISIBILITY</span>
+                    </div>
+                    <div class="feature-box">
+                        <i class="fas fa-cube"></i>
+                        <span>SMART<br>INVENTORY</span>
+                    </div>
+                    <div class="feature-box">
+                        <i class="fas fa-truck"></i>
+                        <span>SEAMLESS<br>LOGISTICS</span>
+                    </div>
+                    <div class="feature-box">
+                        <i class="fas fa-shield-check" style="font-family: 'Font Awesome 6 Free'; font-weight: 900; content: '2ed';"></i>
+                        <!-- Using regular shield-alt if shield-check fails -->
+                        <i class="fas fa-shield-alt" style="position:absolute; visibility:hidden;"></i>
+                        <span>SECURE<br>OPERATIONS</span>
+                    </div>
+                </div>
+
+                <div class="login-cursive">
+                    Smarter Logistics.<br>Built for What's Next.
+                </div>
+            </div>
         </div>
 
-        <!-- CENTERED LOGIN SECTION -->
-        <div class="login-box">
-            <!-- WARLOG LOGO SEPARATE ON TOP -->
-            <div class="login-warlog-icon-wrap">
-                <img src="/static/warlog_w.png" alt="WARLOG Logo">
+        <!-- RIGHT PANEL -->
+        <div class="login-right">
+            <div class="login-top-links">
+                SMARTER WAREHOUSES <span>|</span> STRONGER SUPPLY CHAINS <span>|</span> A BRIGHTER TOMORROW
             </div>
-            <!-- WARLOG NAME WITH DOTS BETWEEN EACH LETTER -->
-            <h2 class="metallic-text login-warlog-title">W.A.R.L.O.G.</h2>
-            <p class="login-warlog-tagline">SEE EVERYTHING. MOVE WITH PRECISION.</p>
-            <input type="text" id="username" placeholder="Username (admin)" value="admin">
-            <input type="password" id="password" placeholder="Password (admin)" value="admin" onkeydown="if(event.key==='Enter') doLogin()">
-            <button class="btn-login" onclick="doLogin()">Secure Login</button>
+
+            <div class="login-card-container">
+                <!-- SIGN IN FORM -->
+                <div class="login-card" id="form-signin">
+                    <div class="login-badge">
+                        <i class="fas fa-shield-alt"></i> GATE ACCESS SYSTEM
+                    </div>
+                    <h2>Welcome Back</h2>
+                    <p>Sign in to your <span>W.A.R.L.O.G</span> account</p>
+
+                    <div class="input-group">
+                        <i class="fas fa-user"></i>
+                        <input type="text" id="username" placeholder="Enter your username" value="admin">
+                    </div>
+                    <div class="input-group">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="password" placeholder="Enter your password" value="admin" onkeydown="if(event.key==='Enter') doLogin()">
+                        <i class="fas fa-eye-slash password-toggle" onclick="togglePassword('password')"></i>
+                    </div>
+
+                    <div class="login-options">
+                        <label><input type="checkbox" checked> Remember me</label>
+                        <a href="#" onclick="alert('Password reset instructions sent to your registered email.')">Forgot password?</a>
+                    </div>
+
+                    <button class="btn-login-main" onclick="doLogin()">Secure Login <i class="fas fa-arrow-right" style="margin-left: 5px; font-weight: 300;"></i></button>
+
+                    <div class="login-divider-line">OR</div>
+                    <button class="btn-signup-main" onclick="toggleAuthMode()">Add Fresh User</button>
+
+                    
+                    </div>
+                </div>
+                
+                <!-- SIGN UP FORM -->
+                <div class="login-card" id="form-signup" style="display: none;">
+                    <div class="login-badge" style="border-color:#10b981; background:rgba(16, 185, 129, 0.1); color:#34d399;">
+                        <i class="fas fa-user-plus"></i> NEW REGISTRATION
+                    </div>
+                    <h2>Add Fresh User</h2>
+                    <p>Create a new <span>W.A.R.L.O.G</span> access account</p>
+
+                    <div class="input-group">
+                        <i class="fas fa-user"></i>
+                        <input type="text" id="reg-username" placeholder="Choose a username">
+                    </div>
+                    <div class="input-group">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="reg-password" placeholder="Choose a password" onkeydown="if(event.key==='Enter') doSignup()">
+                        <i class="fas fa-eye-slash password-toggle" onclick="togglePassword('reg-password')"></i>
+                    </div>
+
+                    <button class="btn-login-main" style="background: linear-gradient(90deg, #10b981, #059669); margin-top: 1rem; box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);" onclick="doSignup()">Register User <i class="fas fa-check" style="margin-left: 5px;"></i></button>
+
+                    <div class="login-divider-line">OR</div>
+                    <button class="btn-signup-main" onclick="toggleAuthMode()">Back to Sign In</button>
+
+                    
+                    </div>
+                </div>
+            </div>
         </div>
+
+
     </div>
 
     <!-- FULLSCREEN CAMERA -->
@@ -987,20 +1352,79 @@
         document.getElementById('expDate').valueAsDate = new Date();
 
         // Login Logic
-        function doLogin() {
-            if(document.getElementById('username').value === 'admin' && document.getElementById('password').value === 'admin') {
-                document.getElementById('login-overlay').style.display = 'none';
-                const topBar = document.getElementById('top-bar');
-                if (topBar) topBar.style.display = 'flex';
-                const appLayout = document.getElementById('app-layout');
-                if (appLayout) appLayout.style.display = 'flex';
-                document.getElementById('main-header').style.display = 'flex';
-                document.getElementById('main-container').style.display = 'flex';
-                pollData();
-                fetchGatePasses();
-                fetchDeliveries();
+        
+        function toggleAuthMode() {
+            const signin = document.getElementById('form-signin');
+            const signup = document.getElementById('form-signup');
+            const tagline = document.getElementById('login-tagline');
+            if(signin.style.display === 'none') {
+                signin.style.display = 'block';
+                signup.style.display = 'none';
+                if(tagline) tagline.innerText = "SEE EVERYTHING. MOVE WITH PRECISION.";
             } else {
-                alert("Invalid Credentials. Use admin/admin");
+                signin.style.display = 'none';
+                signup.style.display = 'block';
+                if(tagline) tagline.innerText = "CREATE A NEW W.A.R.L.O.G ACCOUNT.";
+            }
+        }
+
+        async function doLogin() {
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const data = await res.json();
+                
+                if(data.success) {
+                    document.getElementById('login-overlay').style.display = 'none';
+                    const topBar = document.getElementById('top-bar');
+                    if (topBar) topBar.style.display = 'flex';
+                    const appLayout = document.getElementById('app-layout');
+                    if (appLayout) appLayout.style.display = 'flex';
+                    document.getElementById('main-header').style.display = 'flex';
+                    document.getElementById('main-container').style.display = 'flex';
+                    pollData();
+                    fetchGatePasses();
+                    fetchDeliveries();
+                } else {
+                    alert(data.message);
+                }
+            } catch(e) {
+                console.error(e);
+                alert("Login failed");
+            }
+        }
+
+        async function doSignup() {
+            const u = document.getElementById('reg-username').value;
+            const p = document.getElementById('reg-password').value;
+            if(!u || !p) {
+                alert("Please fill all fields");
+                return;
+            }
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert(data.message + ". You can now login.");
+                    toggleAuthMode();
+                    document.getElementById('username').value = u;
+                    document.getElementById('password').value = p;
+                } else {
+                    alert(data.message);
+                }
+            } catch(e) {
+                console.error(e);
+                alert("Registration failed");
             }
         }
 
