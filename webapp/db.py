@@ -90,6 +90,12 @@ def init_db():
             FOREIGN KEY (gp_id) REFERENCES gate_passes(id)
         );
 
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_deliveries_plate ON expected_deliveries(plate);
         CREATE INDEX IF NOT EXISTS idx_deliveries_status ON expected_deliveries(status);
         CREATE INDEX IF NOT EXISTS idx_gate_passes_po ON gate_passes(po_number);
@@ -115,7 +121,26 @@ def init_db():
             conn.execute("ALTER TABLE gate_passes ADD COLUMN otp_verified INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+        
+        conn.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('admin', 'admin')")
     conn.close()
+
+def get_user(username, password):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    user = cur.fetchone()
+    conn.close()
+    return user
+
+def create_user(username, password):
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        return True
+    except sqlite3.IntegrityError:
+        return False
 
 def _clean_plate(plate):
     if not plate:

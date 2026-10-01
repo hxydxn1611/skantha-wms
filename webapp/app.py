@@ -25,6 +25,26 @@ active_cameras = {}
 def index():
     return render_template('index.html')
 
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    data = request.json
+    user = db.get_user(data.get('username'), data.get('password'))
+    if user:
+        return jsonify({'success': True, 'message': 'Logged in successfully'})
+    return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+
+@app.route('/api/register', methods=['POST'])
+def api_register():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password:
+        return jsonify({'success': False, 'message': 'Username and password required'}), 400
+    
+    if db.create_user(username, password):
+        return jsonify({'success': True, 'message': 'User registered successfully'})
+    return jsonify({'success': False, 'message': 'Username already exists'}), 409
+
 @app.route('/api/deliveries', methods=['GET', 'POST'])
 def handle_deliveries():
     if request.method == 'POST':
