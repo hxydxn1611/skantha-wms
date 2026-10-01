@@ -6,6 +6,7 @@ import copy
 import numpy as np
 from ultralytics import YOLO
 import easyocr
+from identity_service import get_identity_service
 
 class SmartCamera:
     def __init__(self, camera_id, name, url, location, cam_type="IP Camera", vendor="Unknown"):
@@ -125,6 +126,32 @@ class SmartCamera:
                         vehicle_type = "Heavy Commercial (HCV)"
                     elif raw_type == "car":
                         vehicle_type = "Light Vehicle (LMV)"
+
+                    # If it's a vehicle at the gate, try OCR occasionally
+                    if self.location == 'Gate' and raw_type in ["bus", "truck", "car"]:
+                        ocr_counter += 1
+                        if ocr_counter % 15 == 0:
+                            def run_ocr(frame, cam_id, cam_name, v_type, events):
+                                try:
+                                    id_svc = get_identity_service()
+                                    res = id_svc.process_frame(frame, cam_id)
+                                    for track in res.get('tracks', []):
+                                        ident = track.get('identity', {})
+                                        if ident.get('status') in ['IDENTIFIED', 'UNIDENTIFIED'] and ident.get('source') == 'OCR':
+                                            plate_text = ident.get('value')
+                                            if plate_text and len(plate_text) >= 4:
+                                                if not any(e.get('plate') == plate_text for e in events):
+                                                    event = {
+                                                        "time": time.strftime("%H:%M:%S"),
+                                                        "type": v_type,
+                                                        "plate": plate_text,
+                                                        "camera": cam_name
+                                                    }
+                                                    events.insert(0, event)
+                                except Exception as e:
+                                    pass
+                            
+                            threading.Thread(target=run_ocr, args=(ai_frame.copy(), self.camera_id, self.name, vehicle_type, self.events)).start()
                     elif raw_type == "person":
                         vehicle_type = "Worker"
                     else:

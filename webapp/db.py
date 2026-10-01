@@ -34,6 +34,15 @@ def init_db():
         );
 
         -- Generated Gate Passes Collection
+        
+        CREATE TABLE IF NOT EXISTS bins (
+            bin_id TEXT PRIMARY KEY,
+            stock_count INTEGER DEFAULT 0,
+            vendor TEXT,
+            status TEXT DEFAULT 'Active',
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS gate_passes (
             id TEXT PRIMARY KEY,
             po_number TEXT,
@@ -1698,3 +1707,23 @@ def get_zone_rois(zone_identifier):
     return rois, None
 
 
+
+def get_all_bins():
+    conn = get_db()
+    cursor = conn.execute("SELECT * FROM bins ORDER BY bin_id ASC")
+    bins = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return bins
+
+def update_bin_stock(bin_id, vendor, count):
+    conn = get_db()
+    with conn:
+        conn.execute("""
+            INSERT INTO bins (bin_id, vendor, stock_count, last_updated)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(bin_id) DO UPDATE SET 
+                stock_count = stock_count + ?, 
+                vendor = excluded.vendor,
+                last_updated = CURRENT_TIMESTAMP
+        """, (bin_id, vendor, count, count))
+    conn.close()
