@@ -42,7 +42,8 @@
         body {
             margin: 0; font-family: 'Rajdhani', sans-serif;
             background: var(--bg-main); color: var(--text-main);
-            min-height: 100vh; display: flex; flex-direction: row;
+            min-height: 100vh; height: 100vh; display: flex; flex-direction: column;
+            overflow: hidden;
         }
         
         /* LOGIN OVERLAY */
@@ -59,24 +60,88 @@
             background: rgba(15, 23, 42, 0.6);
             z-index: -1;
         }
+
+        /* LOGIN SCREEN - TOP RIGHT SKANTHA BRANDING */
+        .login-top-brand {
+            position: absolute;
+            top: 2rem;
+            right: 2.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            z-index: 1001;
+            transition: transform 0.25s ease;
+        }
+        .login-top-brand:hover {
+            transform: translateY(-2px);
+        }
+        .login-top-brand img.login-skantha-logo {
+            max-height: 68px;
+            max-width: 140px;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+            display: block;
+        }
+        .login-top-brand .login-skantha-name {
+            font-size: 0.8rem;
+            color: #f1f5f9;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.75px;
+            margin-top: 6px;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+        }
+
+        /* LOGIN BOX (MIDDLE OF LOGIN PAGE) */
         .login-box {
-            background: rgba(15, 23, 42, 0.72);
+            background: rgba(15, 23, 42, 0.76);
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px);
-            padding: 3.5rem 3rem; border-radius: 20px;
+            padding: 3rem 2.75rem; border-radius: 20px;
             border: 1px solid rgba(6, 182, 212, 0.35);
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgba(6, 182, 212, 0.15);
             width: 100%; max-width: 400px;
             text-align: center;
             transform: translateY(0);
             transition: all 0.3s ease;
+            position: relative;
+            z-index: 1001;
         }
         .login-box:hover {
-            transform: translateY(-5px);
+            transform: translateY(-4px);
             box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6), 0 0 50px rgba(6, 182, 212, 0.25);
         }
-        .login-box .metallic-text {
+        .login-warlog-icon-wrap {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 0.85rem;
+        }
+        .login-warlog-icon-wrap img {
+            height: 64px;
+            max-width: 130px;
+            width: auto;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 14px rgba(6, 182, 212, 0.5));
+            display: block;
+        }
+        .login-warlog-title {
+            margin: 0 0 0.35rem 0;
+            font-size: 2.25rem;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900;
+            letter-spacing: 5px;
             color: #DADBDD !important;
+            text-shadow: 0 0 16px rgba(6, 182, 212, 0.35);
+        }
+        .login-warlog-tagline {
+            color: #06b6d4;
+            font-size: 0.82rem;
+            margin: 0 0 1.75rem 0;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
         }
         .login-box input {
             width: 100% !important;
@@ -125,35 +190,124 @@
             font-family: 'Orbitron', sans-serif;
             font-weight: 800;
         }
-        .warlog-heading {
-            display: inline-flex;
+
+        /* DASHBOARD TOPBAR */
+        .dashboard-topbar {
+            width: 100%;
+            height: 74px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-light);
+            box-shadow: 0 2px 10px rgba(50, 40, 30, 0.04), 0 1px 3px rgba(37, 99, 235, 0.04);
+            display: flex;
+            justify-content: space-between;
             align-items: center;
+            padding: 0 1.75rem;
+            box-sizing: border-box;
+            flex-shrink: 0;
+            z-index: 50;
+            transition: background 0.25s ease, border-color 0.25s ease;
+        }
+        .topbar-left {
+            display: flex;
+            align-items: center;
+        }
+        .topbar-warlog-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+        }
+        .topbar-warlog-logo {
+            height: 46px;
+            width: auto;
+            max-width: 95px;
+            object-fit: contain;
+            filter: drop-shadow(0 2px 6px rgba(37, 99, 235, 0.25));
+            display: block;
+        }
+        .topbar-product-text {
+            display: flex;
+            flex-direction: column;
             justify-content: center;
-            margin: 0 auto;
         }
-        .warlog-heading img.warlog-w-icon {
-            display: inline-block !important;
-            height: 1.05em !important;
-            max-height: 1.05em !important;
-            width: auto !important;
-            margin: 0 4px 0 0 !important;
-            vertical-align: middle !important;
-            filter: drop-shadow(0 2px 4px rgba(37, 99, 235, 0.2));
+        .topbar-warlog-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.55rem;
+            font-weight: 900;
+            letter-spacing: 3.5px;
+            line-height: 1.1;
+            color: var(--primary-navy);
         }
-        
-        /* SIDEBAR BRANDING */
+        .topbar-warlog-subtitle {
+            font-size: 0.72rem;
+            color: var(--accent);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            line-height: 1.2;
+            margin-top: 3px;
+        }
+        .topbar-right {
+            display: flex;
+            align-items: center;
+        }
+        .topbar-skantha-brand {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: transform 0.2s ease;
+        }
+        .topbar-skantha-brand:hover {
+            transform: translateY(-1px);
+        }
+        .topbar-skantha-logo {
+            height: 40px;
+            max-width: 130px;
+            object-fit: contain;
+            display: block;
+        }
+        .topbar-skantha-name {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        /* APP LAYOUT WRAPPER */
+        .app-layout {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+            flex-direction: row;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        /* SIDEBAR */
         #main-header {
-            width: 280px; padding: 2rem 1.5rem; background: var(--panel-bg);
+            width: 280px; padding: 1.5rem 1.25rem; background: var(--panel-bg);
             border-right: 1px solid var(--border-light);
             box-shadow: 2px 0 12px rgba(30, 58, 138, 0.04);
             display: flex; flex-direction: column;
             flex-shrink: 0;
             overflow-y: auto;
             box-sizing: border-box;
-            height: 100vh;
+            height: 100%;
         }
-        .brand-container { display: flex; flex-direction: column; gap: 0.5rem; text-align: center; margin-bottom: 1.5rem; }
-        .brand-container img.skantha-logo { margin: 0 auto; display: block; max-height: 75px; }
+        .sidebar-nav-header {
+            margin-bottom: 1.25rem;
+            padding: 0 0.25rem 0.75rem 0.25rem;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .sidebar-nav-title {
+            font-size: 0.72rem;
+            font-weight: 800;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
         h1 { margin: 0; font-weight: 800; font-size: 1.8rem; color: #1e3a8a; }
         h2, h3 { color: #1e3a8a; font-weight: 700; }
         .powered-by { font-size: 0.75rem; color: var(--accent); font-weight: 700; text-transform: uppercase; line-height: 1.3;}
@@ -198,7 +352,7 @@
             justify-content: center;
         }
 
-        .container { display: flex; flex: 1; overflow: hidden; padding: 1.5rem; gap: 1.5rem; background: var(--bg-main); }
+        .container { display: flex; flex: 1; min-width: 0; overflow: hidden; padding: 1.5rem; gap: 1.5rem; background: var(--bg-main); height: 100%; box-sizing: border-box; }
         .glass-panel {
             background: var(--panel-bg);
             border: 1px solid var(--border-light);
@@ -208,7 +362,7 @@
         }
 
         /* VIEWS */
-        .view-section { display: none; width: 100%; height: 100%; overflow-y: auto;}
+        .view-section { display: none; width: 100%; height: 100%; overflow-y: auto; box-sizing: border-box; }
         .view-section.active { display: block; }
 
         /* DASHBOARD METRICS */
@@ -450,19 +604,62 @@
             color: #ffffff !important;
             border-color: var(--accent) !important;
         }
+
+        html[data-theme="dark"] .dashboard-topbar {
+            background: var(--panel-bg);
+            border-bottom-color: var(--border-light);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+        html[data-theme="dark"] .topbar-warlog-title {
+            color: #f1f5f9;
+            text-shadow: 0 0 16px rgba(59, 130, 246, 0.4);
+        }
+        html[data-theme="dark"] .topbar-warlog-subtitle {
+            color: #60a5fa;
+        }
+        html[data-theme="dark"] .topbar-skantha-name {
+            color: #94a3b8;
+        }
+        html[data-theme="dark"] .sidebar-nav-header {
+            border-bottom-color: var(--border-light);
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-topbar { padding: 0 1rem; height: 64px; }
+            .topbar-warlog-subtitle { display: none; }
+            .topbar-warlog-logo { height: 36px; }
+            .topbar-warlog-title { font-size: 1.25rem; }
+            .topbar-skantha-logo { height: 32px; }
+            .topbar-skantha-name { font-size: 0.6rem; }
+            .login-top-brand { top: 1rem; right: 1rem; }
+            .login-top-brand img.login-skantha-logo { max-height: 52px; }
+            .login-top-brand .login-skantha-name { font-size: 0.72rem; }
+            .app-layout { flex-direction: column; }
+            #main-header { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-light); }
+        }
     </style>
 </head>
 <body>
 
     <!-- LOGIN SCREEN -->
     <div id="login-overlay">
+        <!-- TOP-CORNER SKANTHA BRANDING -->
+        <div class="login-top-brand">
+            <img src="/static/skantha_logo.png" class="login-skantha-logo" alt="Skantha Technology Solution Logo">
+            <div class="login-skantha-name">Skantha Technology Solution</div>
+        </div>
+
+        <!-- CENTERED LOGIN SECTION -->
         <div class="login-box">
-            <img src="/static/skantha_logo.png" class="skantha-logo" alt="Skantha Technology Solution Logo" style="max-height: 90px; max-width: 140px; object-fit: contain; margin: 0 auto 1.25rem auto; display: block;">
-            <h2 class="metallic-text warlog-heading" style="margin-top:0; font-size: 2.3rem; margin-bottom: 0.35rem; letter-spacing: 2px;"><img src="/static/warlog_w.png" class="warlog-w-icon" alt="W">ARLOG</h2>
-            <p style="color:#06b6d4; font-size:0.85rem; margin-bottom:0.35rem; font-weight: 700; letter-spacing: 1px;">SEE EVERYTHING. MOVE WITH PRECISION.</p>
-            <div style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2rem;">Made by Skantha Technology Solution</div>
+            <!-- WARLOG LOGO SEPARATE ON TOP -->
+            <div class="login-warlog-icon-wrap">
+                <img src="/static/warlog_w.png" alt="WARLOG Logo">
+            </div>
+            <!-- WARLOG NAME WITH DOTS BETWEEN EACH LETTER -->
+            <h2 class="metallic-text login-warlog-title">W.A.R.L.O.G.</h2>
+            <p class="login-warlog-tagline">SEE EVERYTHING. MOVE WITH PRECISION.</p>
             <input type="text" id="username" placeholder="Username (admin)" value="admin">
-            <input type="password" id="password" placeholder="Password (admin)" value="admin">
+            <input type="password" id="password" placeholder="Password (admin)" value="admin" onkeydown="if(event.key==='Enter') doLogin()">
             <button class="btn-login" onclick="doLogin()">Secure Login</button>
         </div>
     </div>
@@ -473,38 +670,56 @@
         <img id="fsImg" src="" alt="Fullscreen Camera">
     </div>
 
-    <aside style="display:none;" id="main-header">
-        <div class="brand-container">
-            <img src="/static/skantha_logo.png" class="skantha-logo" alt="Skantha Technology Solution Logo" style="max-height: 75px; object-fit: contain; margin: 0 auto 0.5rem auto; display: block;">
-            <h1 class="metallic-text warlog-heading" style="letter-spacing: 1px; font-size: 1.7rem;"><img src="/static/warlog_w.png" class="warlog-w-icon" alt="W">ARLOG</h1>
-            <div class="powered-by">Warehouse Analytics, Recognition, Logistics<br>& Operational Guidance</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;">Made by Skantha Technology Solution</div>
-        </div>
-
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
-            <button class="tab-btn" onclick="switchTab('deliveries')">Pre-Registration</button>
-            <button class="tab-btn" onclick="switchTab('cameras')">Live Cameras</button>
-            <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
-            <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
-            <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
-        </div>
-
-        <!-- THEME SWITCHER AT BOTTOM LEFT CORNER -->
-        <div class="sidebar-footer">
-            <div class="sidebar-footer-label">THEME</div>
-            <div class="theme-segmented">
-                <button type="button" class="theme-toggle-btn active" data-theme-btn="light" onclick="setTheme('light')" title="Switch to White theme">
-                    <span>☀️</span> White
-                </button>
-                <button type="button" class="theme-toggle-btn" data-theme-btn="dark" onclick="setTheme('dark')" title="Switch to Black theme">
-                    <span>🌙</span> Black
-                </button>
+    <!-- DASHBOARD TOPBAR -->
+    <header id="top-bar" class="dashboard-topbar" style="display:none;">
+        <div class="topbar-left">
+            <div class="topbar-warlog-brand">
+                <img src="/static/warlog_w.png" class="topbar-warlog-logo" alt="WARLOG Logo">
+                <div class="topbar-product-text">
+                    <span class="metallic-text topbar-warlog-title">W.A.R.L.O.G.</span>
+                    <span class="topbar-warlog-subtitle">Warehouse Analytics, Recognition, Logistics &amp; Operational Guidance</span>
+                </div>
             </div>
         </div>
-    </aside>
+        <div class="topbar-right">
+            <div class="topbar-skantha-brand">
+                <img src="/static/skantha_logo.png" class="topbar-skantha-logo" alt="Skantha Technology Solution Logo">
+                <div class="topbar-skantha-name">Skantha Technology Solution</div>
+            </div>
+        </div>
+    </header>
 
-    <main class="container" style="display:none;" id="main-container">
+    <!-- APP WORKSPACE LAYOUT -->
+    <div class="app-layout" id="app-layout" style="display:none;">
+        <aside style="display:none;" id="main-header">
+            <div class="sidebar-nav-header">
+                <span class="sidebar-nav-title">WORKSPACE MODULES</span>
+            </div>
+
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
+                <button class="tab-btn" onclick="switchTab('deliveries')">Pre-Registration</button>
+                <button class="tab-btn" onclick="switchTab('cameras')">Live Cameras</button>
+                <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
+                <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
+                <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
+            </div>
+
+            <!-- THEME SWITCHER AT BOTTOM LEFT CORNER -->
+            <div class="sidebar-footer">
+                <div class="sidebar-footer-label">THEME</div>
+                <div class="theme-segmented">
+                    <button type="button" class="theme-toggle-btn active" data-theme-btn="light" onclick="setTheme('light')" title="Switch to White theme">
+                        <span>☀️</span> White
+                    </button>
+                    <button type="button" class="theme-toggle-btn" data-theme-btn="dark" onclick="setTheme('dark')" title="Switch to Black theme">
+                        <span>🌙</span> Black
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="container" style="display:none;" id="main-container">
         
         <!-- DASHBOARD VIEW -->
         <div id="dashboard-view" class="view-section active">
@@ -763,6 +978,7 @@
         </div>
 
     </main>
+    </div> <!-- End #app-layout -->
     <script>
         // Store deliveries globally in frontend so we can use them in the Gate Passes table
         let globalDeliveries = [];
@@ -774,6 +990,10 @@
         function doLogin() {
             if(document.getElementById('username').value === 'admin' && document.getElementById('password').value === 'admin') {
                 document.getElementById('login-overlay').style.display = 'none';
+                const topBar = document.getElementById('top-bar');
+                if (topBar) topBar.style.display = 'flex';
+                const appLayout = document.getElementById('app-layout');
+                if (appLayout) appLayout.style.display = 'flex';
                 document.getElementById('main-header').style.display = 'flex';
                 document.getElementById('main-container').style.display = 'flex';
                 pollData();
