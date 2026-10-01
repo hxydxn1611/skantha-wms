@@ -86,10 +86,11 @@ class SmartCamera:
         cap.release()
 
     def _ai_loop(self):
-        # This thread analyzes the latest frame in the background
         ocr_counter = 0
+        self.tripwire_y = 240 # Middle of the 480p frame
+        self.tracked_centroids = {} # { track_id: (x, y) }
+        
         while self.is_running:
-            # Grab a copy of the latest frame safely
             with self.lock:
                 if self.raw_frame is None:
                     ai_frame = None
@@ -97,24 +98,18 @@ class SmartCamera:
                     ai_frame = self.raw_frame.copy()
             
             if ai_frame is None:
-                time.sleep(0.05)
+                time.sleep(0.02)
                 continue
             
-            # --- HEAVY AI PROCESSING ---
-            # Allow all classes, we'll filter them manually below to catch boxes/packages
             try:
-                # Use a very low confidence threshold (0.1) so it detects the cardboard boxes in the video
-                # Even if it incorrectly classifies a box as a "suitcase" or "tv", our logic below treats it as a Package.
                 results = SmartCamera.vehicle_model.track(ai_frame, persist=True, conf=0.1, iou=0.4, verbose=False)
             except Exception as e:
-                # Fallback to normal detection if tracking fails for any reason
                 results = SmartCamera.vehicle_model(ai_frame, conf=0.1, iou=0.4, verbose=False)
                 
             new_boxes = []
             package_count = 0
             
             for result in results:
-                # Check if tracking IDs are available
                 if result.boxes.id is not None:
                     track_ids = result.boxes.id.int().cpu().tolist()
                 else:
@@ -126,161 +121,81 @@ class SmartCamera:
                     track_id = track_ids[i]
                     raw_type = SmartCamera.vehicle_model.names[class_id]
                     
-                    # Normalize YOLO classifications to professional Warehouse types
                     if raw_type in ["bus", "truck"]:
                         vehicle_type = "Heavy Commercial (HCV)"
                     elif raw_type == "car":
                         vehicle_type = "Light Vehicle (LMV)"
                     elif raw_type == "person":
                         vehicle_type = "Worker"
-                    elif raw_type in ["cardboard box", "bundle"]:
-                        vehicle_type = "Package"
-                        package_count += 1
-                        # High-accuracy tracking logic (98%+)
                     else:
-                        # Treat all other objects (e.g. suitcases, bags, microwaves, etc) as Packages for demo purposes
                         vehicle_type = "Package"
                         package_count += 1
-                        # High-accuracy tracking logic (98%+)
-                        if track_id is not None:
-                            if track_id not in self.seen_package_ids:
-                                self.seen_package_ids.add(track_id)
-                                self.total_unloaded = len(self.seen_package_ids)
-                                # Emit an event for the UI
-                                if self.location == "Dock":
-                                    event = {
-                                        "time": time.strftime("%H:%M:%S"),
-                                        "type": "Package_Tracked",
-                                        "count": 1,
-                                        "camera": self.name
-                                    }
-                                    self.events.insert(0, event)
-                                    self.events = self.events[:20]
-
                         
-                    # Color coding: Packages get blue box, Vehicles get green box
-                    # Include Track ID in label if available
+                        # --- TRIPWIRE LOGIC FOR PACKAGE COUNTING ---
+                        if track_id is not None:
+                            cx = int((x1 + x2) / 2)
+                            cy = int((y1 + y2) / 2)
+                            
+                            # If we've seen this box before, check if it crossed the line
+                            if track_id in self.tracked_centroids:
+                                prev_cy = self.tracked_centroids[track_id][1]
+                                # Crossed from top to bottom
+                                if prev_cy < self.tripwire_y and cy >= self.tripwire_y:
+                                    if track_id not in self.seen_package_ids:
+                                        self.seen_package_ids.add(track_id)
+                                        self.total_unloaded += 1
+                                        if self.location == "Dock":
+                                            event = {
+                                                "time": time.strftime("%H:%M:%S"),
+                                                "type": "Package_Counted",
+                                                "count": self.total_unloaded,
+                                                "camera": self.name
+                                            }
+                                            self.events.insert(0, event)
+                                            self.events = self.events[:20]
+                            
+                            # Update centroid memory
+                            self.tracked_centroids[track_id] = (cx, cy)
+                        
                     label = vehicle_type if track_id is None else f"{vehicle_type} #{track_id}"
-                    new_boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "type": label, "is_package": vehicle_type=="Package"})
-                    
-                    ocr_counter += 1
-                    # Run OCR aggressively for PoC, ONLY on vehicles, but throttle slightly to ensure UI remains quick
-                    if vehicle_type != "Package" and self.location == "Gate" and ocr_counter % 3 == 0:
-                        vehicle_crop = ai_frame[max(0, y1):y2, max(0, x1):x2]
-                        if vehicle_crop.size > 0:
-                            # 1. Image Processing to increase OCR accuracy to >80%
-                            gray = cv2.cvtColor(vehicle_crop, cv2.COLOR_BGR2GRAY)
-                            h, w = gray.shape
-                            # License plates are generally in the lower half of the vehicle.
-                            # Crop to bottom 60% to eliminate logos and cabin text
-                            gray_bottom = gray[int(h*0.4):, :]
-                            
-                            # Enhance contrast and reduce noise using Bilateral Filter
-                            gray_bottom = cv2.bilateralFilter(gray_bottom, 11, 17, 17)
-                            
-                            # Scale up image for EasyOCR which struggles on small text
-                            gray_bottom = cv2.resize(gray_bottom, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-                            
-                            # 2. Run OCR
-                            ocr_results = SmartCamera.ocr_reader.readtext(gray_bottom)
-                            
-                            best_plate = ""
-                            best_prob = 0
-                            
-                            # We can also attempt to combine parts if the plate is split
-                            parts = []
-                            for (_, text, prob) in ocr_results:
-                                clean_text = "".join(e for e in text if e.isalnum()).upper()
-                                if len(clean_text) >= 2 and prob > 0.2:
-                                    parts.append(clean_text)
-                                    
-                                # 3. Heuristic filtering for actual license plates
-                                # A typical plate has letters and numbers, length 4 to 12
-                                if 4 <= len(clean_text) <= 12 and prob > 0.2:
-                                    has_digit = any(c.isdigit() for c in clean_text)
-                                    has_alpha = any(c.isalpha() for c in clean_text)
-                                    if has_digit and has_alpha:
-                                        if prob > best_prob:
-                                            best_prob = prob
-                                            best_plate = clean_text
-                                            
-                            # Fallback: if no single string matched perfectly, try combining parts
-                            if best_plate == "" and len(parts) > 0:
-                                combined = "".join(parts)
-                                if 4 <= len(combined) <= 12:
-                                    has_digit = any(c.isdigit() for c in combined)
-                                    has_alpha = any(c.isalpha() for c in combined)
-                                    if has_digit and has_alpha:
-                                        best_plate = combined
-                                        
-                            if best_plate != "":
-                                # Save the frame as a photo
-                                import uuid
-                                import os
-                                photo_filename = f"captures/{uuid.uuid4().hex}.jpg"
-                                capture_path = os.path.join(os.path.dirname(__file__), "static", photo_filename)
-                                os.makedirs(os.path.dirname(capture_path), exist_ok=True)
-                                cv2.imwrite(capture_path, ai_frame)
-                                
-                                event = {
-                                    "time": time.strftime("%H:%M:%S"),
-                                    "type": vehicle_type,
-                                    "plate": best_plate,
-                                    "camera": self.name,
-                                    "photo": photo_filename
-                                }
-                                self.events.insert(0, event)
-                                self.events = self.events[:10]
-            
-            # Edge-triggered automatic counting (debounced)
-            if package_count > 0:
-                if self.last_package_count == 0:
-                    # We transitioned from seeing 0 boxes to >0 boxes!
-                    if self.location == "Dock":
-                        event = {
-                            "time": time.strftime("%H:%M:%S"),
-                            "type": "Package_Auto_Count",
-                            "count": package_count,
-                            "camera": self.name
-                        }
-                        self.events.insert(0, event)
-                        self.events = self.events[:20]
-                self.last_package_count = package_count
-                self.consecutive_zeros = 0
-            else:
-                self.consecutive_zeros += 1
-                if self.consecutive_zeros > 15: # Increased debounce to 15 frames to prevent flicker double-counting
-                    self.last_package_count = 0
+                    new_boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "type": label, "is_package": vehicle_type=="Package", "track_id": track_id})
 
-            # Update boxes safely so the video thread can draw them
             with self.lock:
                 self.latest_boxes = new_boxes
                 self.visible_packages = package_count
 
-            time.sleep(0.05) # Prevent AI from hogging 100% CPU
+            time.sleep(0.02) # Faster loop for 30-50 FPS capabilities
 
     def get_frame(self):
-        # The web server calls this constantly. We just draw boxes on the latest frame!
         with self.lock:
             if self.raw_frame is None:
-                # Sleek placeholder frame while stream initiates
                 placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(placeholder, "Awaiting Camera Feed...", (150, 240),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
+                cv2.putText(placeholder, "Awaiting Camera Feed...", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
                 ret, buf = cv2.imencode('.jpg', placeholder)
                 return buf.tobytes() if ret else None
             display_frame = self.raw_frame.copy()
             boxes_to_draw = copy.deepcopy(self.latest_boxes)
+            
+        # Draw the Virtual Tripwire Line
+        tripwire_y = getattr(self, 'tripwire_y', 240)
+        cv2.line(display_frame, (0, tripwire_y), (640, tripwire_y), (0, 0, 255), 2)
+        cv2.putText(display_frame, "COUNTING LINE", (10, tripwire_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-        # Draw boxes
         for box in boxes_to_draw:
             color = (255, 150, 0) if box.get('is_package') else (0, 255, 150)
-            cv2.rectangle(display_frame, (box['x1'], box['y1']), (box['x2'], box['y2']), color, 2)
-            cv2.putText(display_frame, box['type'], (box['x1'], box['y1'] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(display_frame, box['type'], (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             
-        # Draw Live Count Overlay if Dock Camera
+            # Draw centroid point
+            if box.get('is_package'):
+                cx, cy = int((x1 + x2)/2), int((y1 + y2)/2)
+                cv2.circle(display_frame, (cx, cy), 4, (0, 255, 255), -1)
+
         if self.location == "Dock":
-            cv2.putText(display_frame, f"VISIBLE: {self.visible_packages} | TOTAL UNLOADED: {self.total_unloaded}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 150, 0), 3)
+            # High-tech HUD info
+            cv2.rectangle(display_frame, (10, 10), (450, 60), (0,0,0), -1)
+            cv2.putText(display_frame, f"VISIBLE: {self.visible_packages} | COUNTED: {self.total_unloaded}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 150, 0), 2)
 
         ret, buffer = cv2.imencode('.jpg', display_frame)
         return buffer.tobytes()
