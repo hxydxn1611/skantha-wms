@@ -1831,10 +1831,11 @@
             <div class="tabs">
                 <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
                 <button class="tab-btn" onclick="switchTab('deliveries')">Pre-Registration</button>
-                <button class="tab-btn" onclick="switchTab('cameras')">Live Cameras</button>
                 <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
+                <button class="tab-btn" onclick="switchTab('cameras')">Camera Junction</button>
                 <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
                 <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
+                <!-- AI Vision Master Hidden -->
                 <button class="tab-btn" onclick="switchTab('ai-vision-master')">AI Vision &amp; Tracking Master</button>
             </div>
 
@@ -1958,10 +1959,29 @@
                     <form id="addCameraForm">
                         <label>Name</label> <input type="text" id="camName" placeholder="Main Gate" required>
                         <label>Location</label> 
-                        <select id="camLocation">
+                        <select id="camLocation" onchange="if(this.value==='Bin Location'){document.getElementById('binSelectContainer').style.display='block';fetchCamBins();}else{document.getElementById('binSelectContainer').style.display='none';}">
                             <option value="Gate">Gate Entry</option>
                             <option value="Dock">Loading Dock</option>
+                            <option value="Warehouse Inside">Warehouse Inside</option>
+                            <option value="Bin Location">Bin Location</option>
+                            <option value="General">General / Security</option>
                         </select>
+                        <div id="binSelectContainer" style="display:none; margin-top: 10px;">
+                            <label style="font-size:0.8rem; font-weight:600;">Assign to Bin:</label>
+                            <select id="camBinId" style="width:100%; padding:8px; border-radius:4px; border:1px solid #ddd;">
+                                <option value="">Select a Bin...</option>
+                            </select>
+                        </div>
+                        <script>
+                            async function fetchCamBins() {
+                                try {
+                                    const res = await fetch('/api/bins');
+                                    const bins = await res.json();
+                                    const sel = document.getElementById('camBinId');
+                                    sel.innerHTML = '<option value="">Select a Bin...</option>' + bins.map(b => `<option value="${b.bin_id}">${b.bin_id} (${b.vendor || 'No Vendor'})</option>`).join('');
+                                } catch(e){}
+                            }
+                        </script>
                         <label>Camera Type</label>
                         <select id="camType" onchange="handleCamTypeChange()">
                             <option value="Device Camera">Device Camera (Laptop / Phone)</option>
@@ -2007,13 +2027,39 @@
         <!-- GATE MANAGEMENT VIEW -->
         <div id="gate-passes-view" class="view-section">
             <div class="glass-panel">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h2>Generated Gate Passes</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
                     <div>
-                        <span style="font-size: 0.85rem; color: var(--success); margin-right:1rem;">Match AI Detections to Expected POs</span>
-                        <button class="btn-primary" onclick="createManualPass()" style="font-size:0.85rem;">+ Create Manual Pass</button>
+                        <h2>Generated Gate Passes</h2>
+                        <span style="font-size: 0.85rem; color: var(--success);">Match AI Detections to Expected POs</span><br/>
+                        <button class="btn-primary" onclick="createManualPass()" style="font-size:0.85rem; margin-top: 10px;">+ Create Manual Pass</button>
+                    </div>
+                    <div id="miniGateCamContainer" style="width: 300px; height: 170px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border);">
+                        <img id="miniGateCamView" src="" alt="Live Gate Feed" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.5;">
                     </div>
                 </div>
+                
+                <script>
+                    async function loadMiniGateCam() {
+                        try {
+                            const res = await fetch('/api/cameras');
+                            const cameras = await res.json();
+                            const gateCams = cameras.filter(c => c.location === 'Gate');
+                            if(gateCams.length > 0) {
+                                document.getElementById('miniGateCamView').src = `/video_feed/${gateCams[0].id}`;
+                                document.getElementById('miniGateCamView').style.opacity = '1';
+                            } else {
+                                document.getElementById('miniGateCamView').alt = "No Gate Camera Active";
+                            }
+                        } catch(e) {}
+                    }
+                    setInterval(() => {
+                        if(document.getElementById('gate-passes-view').classList.contains('active')) {
+                            if(!document.getElementById('miniGateCamView').src.includes('/video_feed/')) {
+                                loadMiniGateCam();
+                            }
+                        }
+                    }, 3000);
+                </script>
                 <div id="gatePassGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1.5rem; margin-top: 1rem;"></div>
             </div>
         </div>
@@ -2044,9 +2090,28 @@
                     <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)">Gate Pass Master</button>
                     <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)">Vehicle Master</button>
                     <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)">Invoice Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('bin-master', this)">Bin Master</button>
                 </div>
                 
-                <div id="po-master-sub" class="sub-master-section">
+                
+                <div id="bin-master-sub" class="sub-master-section" style="display:none;">
+                    <h3>Bin Master</h3>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Bin ID</th>
+                                    <th>Vendor</th>
+                                    <th>Stock Count</th>
+                                    <th>Status</th>
+                                    <th>Last Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="binMasterBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+<div id="po-master-sub" class="sub-master-section">
                     <h3>PO Master</h3>
                     <div style="overflow-x:auto;">
                         <table style="width:100%;">
@@ -2095,7 +2160,26 @@
                 </div>
                 
                 <script>
-                    function switchSubTab(tabId, btn) {
+                    
+                async function fetchBins() {
+                    try {
+                        const res = await fetch('/api/bins');
+                        const data = await res.json();
+                        const tbody = document.getElementById('binMasterBody');
+                        tbody.innerHTML = '';
+                        data.forEach(bin => {
+                            tbody.innerHTML += `<tr>
+                                <td>${bin.bin_id}</td>
+                                <td>${bin.vendor || 'Unknown'}</td>
+                                <td><span class="status-badge" style="background:var(--primary)">${bin.stock_count}</span></td>
+                                <td>${bin.status}</td>
+                                <td>${bin.last_updated}</td>
+                            </tr>`;
+                        });
+                    } catch(e) { console.error('Error fetching bins', e); }
+                }
+
+                function switchSubTab(tabId, btn) {
                         document.querySelectorAll('.sub-master-section').forEach(el => el.style.display = 'none');
                         document.querySelectorAll('.sub-tab-btn').forEach(el => el.classList.remove('active'));
                         document.getElementById(tabId + '-sub').style.display = 'block';
@@ -2105,6 +2189,7 @@
                         if(typeof window.fetchGatePasses === 'function' && tabId === 'gate-pass-master') window.fetchGatePasses();
                         if(typeof window.fetchVehicleLogs === 'function' && tabId === 'vehicle-master') window.fetchVehicleLogs();
                         if(typeof window.fetchInvoices === 'function' && tabId === 'invoice-master') window.fetchInvoices();
+                        if(typeof window.fetchBins === 'function' && tabId === 'bin-master') window.fetchBins();
                     }
                 </script>
             </div>
@@ -2147,7 +2232,40 @@
 
                     <!-- Placeholder KPI Cards: Active Cameras, Active Objects, Active Trucks, Active Workers, Active Boxes -->
                     <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 2rem;">
-                        <div class="metric-card">
+                        
+                    <script>
+                        setInterval(async () => {
+                            if(document.getElementById('vision-dashboard-sub')?.style.display !== 'none') {
+                                try {
+                                    // 1. Cameras from Master Hub
+                                    const camRes = await fetch('/api/cameras');
+                                    const cams = await camRes.json();
+                                    document.getElementById('kpi-vision-cameras').innerText = cams.length || 0;
+                                    
+                                    // 2. Active Trucks from Gate Management Master
+                                    const gpRes = await fetch('/api/gate_passes');
+                                    const gps = await gpRes.json();
+                                    const activeTrucks = gps.filter(p => p.status !== 'Completed').length;
+                                    document.getElementById('kpi-vision-trucks').innerText = activeTrucks || 0;
+                                    
+                                    // 3. Active Boxes from Bin Master
+                                    const binRes = await fetch('/api/bins');
+                                    const bins = await binRes.json();
+                                    const totalBoxes = bins.reduce((sum, b) => sum + (b.stock_count || 0), 0);
+                                    document.getElementById('kpi-vision-boxes').innerText = totalBoxes || 0;
+                                    
+                                    // 4. Object Classes
+                                    const objRes = await fetch('/api/object_classes');
+                                    const objs = await objRes.json();
+                                    document.getElementById('kpi-vision-objects').innerText = objs.length || 0;
+                                    
+                                    // 5. Workers (None in WMS Master currently, so 0)
+                                    document.getElementById('kpi-vision-workers').innerText = 0;
+                                } catch(e) {}
+                            }
+                        }, 2000);
+                    </script>
+                    <div class="metric-card">
                             <h3>Active Cameras</h3>
                             <div class="value" id="kpi-vision-cameras" style="color:var(--accent);">2</div>
                             <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Sensor Nodes</span>
@@ -2557,10 +2675,8 @@
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="dtSourceTypeSelect" onchange="handleDetectionSourceChange()" style="margin-bottom:0;">
-                                    <option value="camera" selected>Camera Master Feed / Preview</option>
-                                    <option value="sample">Built-in Test Scene (Pre-loaded)</option>
-                                    <option value="upload">Custom Image File Upload</option>
-                                </select>
+                                      <option value="camera" selected>Camera Master Feed / Preview</option>
+                                  </select>
                             </div>
 
                             <!-- Camera Node (When Source is Camera) -->
@@ -2730,11 +2846,8 @@
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="ttSourceTypeSelect" onchange="handleTrackingSourceChange()" style="margin-bottom:0;">
-                                    <option value="carrier_motion" selected>Sequential Motion Test (Carrier Pan)</option>
-                                    <option value="camera">Camera Master Snapshot</option>
-                                    <option value="sample">Built-in Test Scene (Static)</option>
-                                    <option value="upload">Custom Image File Upload</option>
-                                </select>
+                                      <option value="camera" selected>Camera Master Snapshot</option>
+                                  </select>
                             </div>
 
                             <!-- Camera Node -->
@@ -2899,15 +3012,10 @@
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="idSourceTypeSelect" onchange="handleIdentitySourceChange()" style="margin-bottom:0;">
-                                    <option value="identity_qr_b104.jpg" selected>Sample 1: QR Code Placard [B104]</option>
-                                    <option value="identity_barcode_b105.jpg">Sample 2: 1D Barcode (Code 128) [B105]</option>
-                                    <option value="identity_ocr_b106.jpg">Sample 3: Printed Warehouse Label (OCR) [B106]</option>
-                                    <option value="identity_unidentified.jpg">Sample 4: Plain Object (Unidentified)</option>
-                                    <option value="identity_conflict.jpg">Sample 5: Conflicting Identifiers [B104 vs B109]</option>
-                                    <option value="camera">Camera Master Feed</option>
-                                    <option value="motion">Sequential Motion Test (Carrier Pan)</option>
-                                    <option value="upload">Custom Image File Upload</option>
-                                </select>
+                                      <option value="camera">Camera Master Feed</option>
+                                      <option value="motion">Live Feed (Motion Trigger)</option>
+                                      <option value="upload">Custom Image File Upload</option>
+                                  </select>
                             </div>
 
                             <!-- Camera Node -->
@@ -3128,16 +3236,10 @@
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="valSourceTypeSelect" onchange="handleValidationSourceChange()" style="margin-bottom:0;">
-                                    <option value="validation_truck_gp1000.jpg" selected>Sample 1: Active Gate Pass QR [GP-1000] → VALIDATED</option>
-                                    <option value="validation_plate_mh12.jpg">Sample 2: Truck Plate Barcode [MH12AB1234] → VALIDATED</option>
-                                    <option value="validation_box_vlv900.jpg">Sample 3: Inbound Box SKU [VLV-900] → VALIDATED</option>
-                                    <option value="validation_unknown_b999.jpg">Sample 4: Unregistered Tag [B999999] → UNREGISTERED</option>
-                                    <option value="identity_qr_b104.jpg">Sample 5: Part 7 QR Placard [B104] → UNREGISTERED</option>
-                                    <option value="identity_unidentified.jpg">Sample 6: Plain Object (Unidentified) → NOT APPLICABLE</option>
-                                    <option value="identity_conflict.jpg">Sample 7: Conflicting Identifiers [B104 vs B109] → NOT APPLICABLE</option>
-                                    <option value="camera">Camera Master Feed</option>
-                                    <option value="upload">Custom Image File Upload</option>
-                                </select>
+                                      <option value="camera">Camera Master Feed</option>
+                                      <option value="motion">Live Feed (Motion Trigger)</option>
+                                      <option value="upload">Custom Image File Upload</option>
+                                  </select>
                             </div>
 
                             <!-- Camera Node -->
@@ -3333,15 +3435,10 @@
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Test Scene / Source:</label>
                                 <select id="assocSourceTypeSelect" onchange="handleAssociationSourceChange()" style="margin-bottom:0;">
-                                    <option value="association_truck_box_dock1.jpg" selected>Scene 1: Truck GP-1000 + Box VLV-900 (Same Zone) → CONFIRMED</option>
-                                    <option value="association_truck_box_diff_zones.jpg">Scene 2: Truck GP-1000 + Box in Different Zones → REJECTED / CANDIDATE</option>
-                                    <option value="association_two_trucks_boxes.jpg">Scene 3: Two Trucks + Two Boxes (Independent Pairs)</option>
-                                    <option value="association_ambiguous_two_trucks.jpg">Scene 4: Ambiguous Two Trucks near One Box → AMBIGUOUS</option>
-                                    <option value="synthetic_confirm">Synthetic: 5-Frame Temporal Accumulation (CANDIDATE → CONFIRMED)</option>
-                                    <option value="synthetic_expire">Synthetic: Track Disappearance Sequence (CONFIRMED → EXPIRED)</option>
-                                    <option value="camera">Camera Master Feed</option>
-                                    <option value="upload">Custom Image File Upload</option>
-                                </select>
+                                      <option value="camera">Camera Master Feed</option>
+                                      <option value="motion">Live Feed (Motion Trigger)</option>
+                                      <option value="upload">Custom Image File Upload</option>
+                                  </select>
                             </div>
 
                             <!-- Camera Node -->
@@ -8186,7 +8283,12 @@
             const originalBtnText = btn.innerText;
             const camType = document.getElementById('camType').value;
             const name = document.getElementById('camName').value;
-            const location = document.getElementById('camLocation').value;
+            const rawLoc = document.getElementById('camLocation').value;
+            let location = rawLoc;
+            if(rawLoc === 'Bin Location') {
+                const bin = document.getElementById('camBinId').value;
+                if(bin) location = `Bin: ${bin}`;
+            }
             const vendor = document.getElementById('camVendor').value;
             const url = document.getElementById('camUrl').value;
             const facingMode = document.getElementById('camFacing') ? document.getElementById('camFacing').value : 'user';
@@ -8455,6 +8557,7 @@
                 if(document.getElementById('master-hub-view').classList.contains('active')) {
                     if(document.getElementById('vehicle-master-sub').style.display !== 'none' && typeof fetchVehicleLogs === 'function') fetchVehicleLogs();
                     if(document.getElementById('invoice-master-sub').style.display !== 'none' && typeof fetchInvoices === 'function') fetchInvoices();
+                    if(document.getElementById('bin-master-sub').style.display !== 'none' && typeof fetchBins === 'function') fetchBins();
                     if(document.getElementById('gate-pass-master-sub').style.display !== 'none' && typeof fetchGatePasses === 'function') fetchGatePasses();
                     if(document.getElementById('po-master-sub').style.display !== 'none' && typeof fetchDeliveries === 'function') fetchDeliveries();
                 }

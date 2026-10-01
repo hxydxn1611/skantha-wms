@@ -69,6 +69,11 @@ def handle_single_delivery(po_number):
         return jsonify(deliv)
     return jsonify({"success": False, "message": "Delivery not found"}), 404
 
+
+@app.route('/api/bins', methods=['GET'])
+def api_get_bins():
+    return jsonify(db.get_all_bins())
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     return jsonify(db.get_stats())
@@ -1731,6 +1736,13 @@ def unload_step(gp_id):
          
     gp = db.set_unload_qty(gp_id, total_unloaded)
     if gp:
+        # Auto-update Bin Master with Vendor Stock
+        vendor_name = gp.get('vendor', 'UNKNOWN')
+        bin_id = f"BIN-{vendor_name[:3].upper()}-100" if vendor_name else "BIN-GEN-100"
+        try:
+            db.update_bin_stock(bin_id, vendor_name, total_unloaded)
+        except Exception as e:
+            print("Failed to update bin stock:", e)
         return jsonify({"success": True, "total": gp['unloaded_qty']})
     return jsonify({"success": False, "message": "Gate pass not found."})
 
