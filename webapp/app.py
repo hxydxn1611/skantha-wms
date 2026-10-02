@@ -22,6 +22,7 @@ from association_service import get_association_service
 from worker_box_association_service import get_worker_box_association_service
 from box_bin_association_service import get_box_bin_association_service
 from movement_event_service import get_movement_event_service
+from material_traceability_service import get_material_traceability_service
 
 # Initialize SQLite database schema
 db.init_db()
@@ -2108,6 +2109,107 @@ def api_vision_events_camera_annotated_jpg(camera_id):
     if jpeg_bytes is None:
         return Response("Annotation rendering failed", status=500)
     return Response(jpeg_bytes, mimetype='image/jpeg')
+
+
+# ============================================================================
+# PART 13: MATERIAL TRACEABILITY FOUNDATION API
+# ============================================================================
+
+@app.route('/api/vision/traceability/status', methods=['GET'])
+def api_vision_traceability_status():
+    """Retrieve in-memory material traceability operational status."""
+    service = get_material_traceability_service()
+    return jsonify(service.get_status())
+
+
+@app.route('/api/vision/traceability/reset', methods=['POST'])
+def api_vision_traceability_reset():
+    """Reset all in-memory material traceability records and counters."""
+    service = get_material_traceability_service()
+    res = service.reset()
+    return jsonify(res)
+
+
+@app.route('/api/vision/traceability/test', methods=['POST'])
+def api_vision_traceability_test():
+    """Execute a single test frame or scenario in material traceability."""
+    service = get_material_traceability_service()
+    payload = request.get_json(silent=True) or {}
+    res = service.run_test(payload)
+    return jsonify(res)
+
+
+@app.route('/api/vision/traceability/sequence', methods=['POST'])
+def api_vision_traceability_sequence():
+    """Execute deterministic 7-frame synthetic traceability sequence."""
+    service = get_material_traceability_service()
+    payload = request.get_json(silent=True) or {}
+    seq_name = payload.get("sequence_name", "complete_trace")
+    res = service.run_synthetic_sequence(seq_name)
+    return jsonify(res)
+
+
+@app.route('/api/vision/traceability/materials', methods=['GET'])
+def api_vision_traceability_materials():
+    """List summary of all tracked materials."""
+    service = get_material_traceability_service()
+    materials = service.get_all_materials()
+    return jsonify({
+        "success": True,
+        "total": len(materials),
+        "materials": materials
+    })
+
+
+@app.route('/api/vision/traceability/materials/<material_id>', methods=['GET'])
+def api_vision_traceability_material_detail(material_id):
+    """Retrieve full material-centric dossier for a specific material or track."""
+    service = get_material_traceability_service()
+    material = service.get_material(material_id)
+    if not material:
+        return jsonify({
+            "success": False,
+            "error": f"Material '{material_id}' not found in active traceability store."
+        }), 404
+    return jsonify({
+        "success": True,
+        "material": material
+    })
+
+
+@app.route('/api/vision/traceability/materials/<material_id>/timeline', methods=['GET'])
+def api_vision_traceability_material_timeline(material_id):
+    """Retrieve chronological event timeline for a specific material."""
+    service = get_material_traceability_service()
+    timeline = service.get_timeline(material_id)
+    return jsonify({
+        "success": True,
+        "material_id": material_id,
+        "total_events": len(timeline),
+        "timeline": timeline
+    })
+
+
+@app.route('/api/vision/traceability/cameras/<camera_id>', methods=['GET'])
+def api_vision_traceability_camera(camera_id):
+    """Retrieve materials observed by a specific camera."""
+    service = get_material_traceability_service()
+    res = service.get_camera_status(camera_id)
+    return jsonify({
+        "success": True,
+        **res
+    })
+
+
+@app.route('/api/vision/traceability/cameras/<camera_id>/annotated.jpg', methods=['GET'])
+def api_vision_traceability_camera_annotated_jpg(camera_id):
+    """Return annotated binary JPEG preview for material traceability observer."""
+    service = get_material_traceability_service()
+    jpeg_bytes = service.get_annotated_jpeg(camera_id)
+    if jpeg_bytes is None:
+        return Response("Traceability preview rendering failed", status=500)
+    return Response(jpeg_bytes, mimetype='image/jpeg')
+
 
 
 @app.route('/api/gate_passes/<gp_id>', methods=['GET', 'PUT', 'DELETE'])

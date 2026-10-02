@@ -16,6 +16,7 @@
                         if (tabId === 'vision-worker-box') initWorkerBoxTestUI();
                         if (tabId === 'vision-box-bin') initBoxBinTestUI();
                         if (tabId === 'vision-events') initMovementEventsTestUI();
+                        if (tabId === 'vision-traceability') initMaterialTraceabilityUI();
                     }
 
                     // Object Classes Manager State
@@ -5441,4 +5442,491 @@
                         const modal = document.getElementById('evtEvidenceModal');
                         if (modal) modal.style.display = 'none';
                     }
+
+                    // ==========================================
+                    // PART 13: MATERIAL TRACEABILITY JAVASCRIPT
+                    // ==========================================
+                    let globalTraceabilityCache = {
+                        materials: {},
+                        currentMaterialId: "B104",
+                        timeline: []
+                    };
+
+                    async function initMaterialTraceabilityUI() {
+                        try {
+                            const res = await fetch('/api/vision/traceability/status');
+                            if (res.ok) {
+                                const status = await res.json();
+                                updateTraceabilityKPIs(status);
+                            }
+                            await refreshTraceabilityMaterialsList();
+                        } catch (e) {
+                            console.warn("Could not load traceability status:", e);
+                        }
+                    }
+
+                    function updateTraceabilityKPIs(status) {
+                        if (!status) return;
+                        const kpiTotal = document.getElementById('trcKpiTotalMaterials');
+                        const kpiVal = document.getElementById('trcKpiValidated');
+                        const kpiTransit = document.getElementById('trcKpiInTransit');
+                        const kpiEvents = document.getElementById('trcKpiTotalEvents');
+
+                        if (kpiTotal) kpiTotal.innerText = status.total_materials_tracked || 0;
+                        if (kpiVal) kpiVal.innerText = status.validated_materials || 0;
+                        if (kpiTransit) kpiTransit.innerText = status.in_transit_materials || 0;
+                        if (kpiEvents) kpiEvents.innerText = status.total_timeline_events || 0;
+                    }
+
+                    async function refreshTraceabilityMaterialsList() {
+                        try {
+                            const res = await fetch('/api/vision/traceability/materials');
+                            if (res.ok) {
+                                const data = await res.json();
+                                const materials = data.materials || [];
+                                const sel = document.getElementById('trcMaterialSelect');
+                                if (sel) {
+                                    let html = '<option value="">-- All Materials --</option>';
+                                    materials.forEach(m => {
+                                        const isSel = (m.material_id === globalTraceabilityCache.currentMaterialId) ? 'selected' : '';
+                                        html += `<option value="${escapeHtml(m.material_id)}" ${isSel}>${escapeHtml(m.material_id)} (${escapeHtml(m.material_class || 'BOX')} - ${escapeHtml(m.traceability_status || 'ACTIVE')})</option>`;
+                                    });
+                                    if (!materials.some(m => m.material_id === "B104")) {
+                                        html += `<option value="B104" ${globalTraceabilityCache.currentMaterialId === 'B104' ? 'selected' : ''}>B104 (Default Box SKU VLV-900)</option>`;
+                                    }
+                                    sel.innerHTML = html;
+                                }
+
+                                if (globalTraceabilityCache.currentMaterialId) {
+                                    await loadTraceabilityMaterialDossier(globalTraceabilityCache.currentMaterialId);
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Could not refresh traceability materials list:", e);
+                        }
+                    }
+
+                    async function handleTraceabilityMaterialSelect(materialId) {
+                        if (!materialId) {
+                            materialId = "B104";
+                        }
+                        globalTraceabilityCache.currentMaterialId = materialId;
+                        await loadTraceabilityMaterialDossier(materialId);
+                    }
+
+                    async function loadTraceabilityMaterialDossier(materialId) {
+                        try {
+                            const res = await fetch(`/api/vision/traceability/materials/${encodeURIComponent(materialId)}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.material) {
+                                    globalTraceabilityCache.materials[materialId] = data.material;
+                                    renderMaterialTraceDossier(data.material);
+                                }
+                            } else {
+                                clearMaterialTraceDossier(materialId);
+                            }
+                        } catch (e) {
+                            console.warn("Error loading material dossier:", e);
+                        }
+                    }
+
+                    function clearMaterialTraceDossier(materialId) {
+                        const title = document.getElementById('trcDossierTitle');
+                        if (title) title.innerText = materialId || 'None';
+                        const src = document.getElementById('trcDossierSource');
+                        if (src) src.innerText = '--';
+                        const dest = document.getElementById('trcDossierDestination');
+                        if (dest) dest.innerText = '--';
+                        const loc = document.getElementById('trcDossierLocation');
+                        if (loc) loc.innerText = '--';
+                        const workers = document.getElementById('trcDossierWorkers');
+                        if (workers) workers.innerText = '--';
+                        const zones = document.getElementById('trcDossierZoneHistory');
+                        if (zones) zones.innerHTML = '<span style="color:var(--text-muted);">No zone movements recorded.</span>';
+                        const cams = document.getElementById('trcDossierCameras');
+                        if (cams) cams.innerHTML = '<span style="color:var(--text-muted);">No camera observations logged.</span>';
+                        const tbody = document.getElementById('trcTimelineTbody');
+                        if (tbody) {
+                            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:2rem 1rem; color:var(--text-muted);">No traceability events recorded yet.</td></tr>';
+                        }
+                        const badge = document.getElementById('trcTimelineCountBadge');
+                        if (badge) badge.innerText = '0 Events';
+                    }
+
+                    function renderMaterialTraceDossier(mat) {
+                        if (!mat) return;
+                        const title = document.getElementById('trcDossierTitle');
+                        const levelBadge = document.getElementById('trcDossierLevelBadge');
+                        const statusBadge = document.getElementById('trcDossierStatusBadge');
+                        const src = document.getElementById('trcDossierSource');
+                        const srcNote = document.getElementById('trcDossierSourceNote');
+                        const dest = document.getElementById('trcDossierDestination');
+                        const destNote = document.getElementById('trcDossierDestNote');
+                        const loc = document.getElementById('trcDossierLocation');
+                        const workers = document.getElementById('trcDossierWorkers');
+                        const zones = document.getElementById('trcDossierZoneHistory');
+                        const cams = document.getElementById('trcDossierCameras');
+
+                        if (title) title.innerText = mat.material_id || 'Unknown';
+                        if (levelBadge) {
+                            levelBadge.innerText = mat.traceability_level || 'TRACK_LEVEL';
+                            levelBadge.style.background = mat.traceability_level === 'VALIDATED_REAL_WORLD' ? '#10b981' : (mat.traceability_level === 'IDENTIFIED' ? '#3b82f6' : '#64748b');
+                        }
+                        if (statusBadge) {
+                            statusBadge.innerText = mat.traceability_status || 'ACTIVE';
+                        }
+
+                        // Source Origin
+                        if (src) {
+                            if (mat.source && mat.source.identity_id) {
+                                src.innerHTML = `<span style="color:#3b82f6;">🚚 Truck ${escapeHtml(mat.source.identity_id)}</span>`;
+                                if (srcNote) srcNote.innerText = `Observed Associated (Score: ${mat.source.score != null ? mat.source.score.toFixed(2) : '1.0'})`;
+                            } else if (mat.source && mat.source.track_id) {
+                                src.innerHTML = `<span style="color:#64748b;">Truck Track #${mat.source.track_id} (Unidentified)</span>`;
+                            } else {
+                                src.innerHTML = '<span style="color:var(--text-muted);">Unknown / None</span>';
+                            }
+                        }
+
+                        // Destination Target
+                        if (dest) {
+                            if (mat.destination && mat.destination.identity_id) {
+                                dest.innerHTML = `<span style="color:#10b981;">🏷️ Bin ${escapeHtml(mat.destination.identity_id)}</span>`;
+                                if (destNote) destNote.innerText = `Observed Associated (Score: ${mat.destination.score != null ? mat.destination.score.toFixed(2) : '1.0'})`;
+                            } else if (mat.destination && mat.destination.track_id) {
+                                dest.innerHTML = `<span style="color:#64748b;">Bin Track #${mat.destination.track_id} (Unidentified)</span>`;
+                            } else {
+                                dest.innerHTML = '<span style="color:var(--text-muted);">Unknown / In-Transit</span>';
+                            }
+                        }
+
+                        // Current Location
+                        if (loc) {
+                            if (mat.current_location && mat.current_location.zone_code) {
+                                loc.innerHTML = `📍 <strong>${escapeHtml(mat.current_location.zone_code)}</strong> <span style="font-size:0.75rem; color:var(--text-muted);">(${escapeHtml(mat.current_location.camera_id || 'CAM-001')})</span>`;
+                            } else {
+                                loc.innerHTML = '<span style="color:var(--text-muted);">Outside / Unknown Zone</span>';
+                            }
+                        }
+
+                        // Associated Workers
+                        if (workers) {
+                            if (mat.associated_workers && mat.associated_workers.length > 0) {
+                                const wList = mat.associated_workers.map(w => {
+                                    const id = w.identity_id ? `Worker ${w.identity_id}` : `Track #${w.track_id}`;
+                                    return `<span class="badge" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:0.75rem; padding:2px 8px;">👷 ${escapeHtml(id)}</span>`;
+                                }).join(' ');
+                                workers.innerHTML = wList;
+                            } else {
+                                workers.innerHTML = '<span style="color:var(--text-muted);">None observed</span>';
+                            }
+                        }
+
+                        // Zone Traversal History Chips
+                        if (zones) {
+                            if (mat.zone_history && mat.zone_history.length > 0) {
+                                zones.innerHTML = mat.zone_history.map(zh => {
+                                    const isEnter = zh.transition === 'ENTER';
+                                    const color = isEnter ? '#10b981' : '#f59e0b';
+                                    return `<span style="background:rgba(255,255,255,0.06); border:1px solid ${color}; color:${color}; padding:2px 7px; border-radius:4px; font-size:0.72rem; display:inline-flex; align-items:center; gap:4px;">
+                                        <strong>${isEnter ? '📥 IN' : '📤 OUT'}:</strong> ${escapeHtml(zh.zone_code)}
+                                    </span>`;
+                                }).join(' ');
+                            } else {
+                                zones.innerHTML = '<span style="color:var(--text-muted);">No zone movements recorded.</span>';
+                            }
+                        }
+
+                        // Camera Sightings Chips
+                        if (cams) {
+                            if (mat.camera_observations && mat.camera_observations.length > 0) {
+                                const camCounts = {};
+                                mat.camera_observations.forEach(co => {
+                                    camCounts[co.camera_id] = (camCounts[co.camera_id] || 0) + 1;
+                                });
+                                cams.innerHTML = Object.entries(camCounts).map(([cam, cnt]) => `
+                                    <span style="background:rgba(139,92,246,0.15); border:1px solid #8b5cf6; color:#8b5cf6; padding:2px 8px; border-radius:4px; font-size:0.72rem;">
+                                        📹 ${escapeHtml(cam)} (${cnt} sightings)
+                                    </span>
+                                `).join(' ');
+                            } else {
+                                cams.innerHTML = '<span style="color:var(--text-muted);">No camera observations logged.</span>';
+                            }
+                        }
+
+                        // Update Observation Flow Graph (Section 36)
+                        const gSrc = document.getElementById('graphTextSource');
+                        const gMat = document.getElementById('graphTextMaterial');
+                        const gWrk = document.getElementById('graphTextWorker');
+                        const gDst = document.getElementById('graphTextDest');
+
+                        if (gSrc) gSrc.innerText = (mat.source && mat.source.identity_id) ? `Truck ${mat.source.identity_id}` : 'None';
+                        if (gMat) gMat.innerText = mat.material_id || 'B104';
+                        if (gWrk) {
+                            if (mat.associated_workers && mat.associated_workers.length > 0) {
+                                gWrk.innerText = `Worker ${mat.associated_workers[0].identity_id || mat.associated_workers[0].track_id}`;
+                            } else if (mat.current_location && mat.current_location.zone_code) {
+                                gWrk.innerText = `Zone ${mat.current_location.zone_code}`;
+                            } else {
+                                gWrk.innerText = 'In-Transit';
+                            }
+                        }
+                        if (gDst) gDst.innerText = (mat.destination && mat.destination.identity_id) ? `Bin ${mat.destination.identity_id}` : 'None';
+
+                        // Render Timeline Ledger
+                        renderTraceTimelineTable(mat.timeline || []);
+                    }
+
+                    function renderTraceTimelineTable(timeline) {
+                        const tbody = document.getElementById('trcTimelineTbody');
+                        const countBadge = document.getElementById('trcTimelineCountBadge');
+                        if (!tbody) return;
+
+                        globalTraceabilityCache.timeline = timeline || [];
+                        if (countBadge) countBadge.innerText = `${(timeline || []).length} Events`;
+
+                        if (!timeline || timeline.length === 0) {
+                            tbody.innerHTML = `
+                                <tr>
+                                    <td colspan="9" style="text-align:center; padding:2rem 1rem; color:var(--text-muted);">
+                                        No traceability events recorded for this material.
+                                    </td>
+                                </tr>
+                            `;
+                            return;
+                        }
+
+                        tbody.innerHTML = timeline.map(entry => {
+                            let typeColor = '#8b5cf6';
+                            if (entry.event_type.includes('ENTERED')) typeColor = '#10b981';
+                            else if (entry.event_type.includes('EXITED')) typeColor = '#f59e0b';
+                            else if (entry.event_type.includes('TRUCK')) typeColor = '#3b82f6';
+                            else if (entry.event_type.includes('WORKER')) typeColor = '#eab308';
+                            else if (entry.event_type.includes('BIN')) typeColor = '#10b981';
+
+                            let relText = '-';
+                            if (entry.related_entity) {
+                                const relCls = entry.related_entity.class_code || '';
+                                const relId = entry.related_entity.identity_id ? ` [${entry.related_entity.identity_id}]` : ` (#${entry.related_entity.track_id})`;
+                                relText = `<span style="font-weight:600;">${escapeHtml(relCls)}${escapeHtml(relId)}</span>`;
+                            }
+
+                            const zoneText = entry.zone ? `<strong>${escapeHtml(entry.zone.zone_code || '')}</strong>` : '-';
+                            const natureBadge = entry.nature === 'VALIDATED'
+                                ? '<span class="badge" style="background:#10b981; color:#fff; font-size:0.65rem;">VALIDATED</span>'
+                                : '<span class="badge" style="background:rgba(255,255,255,0.08); color:var(--text-main); font-size:0.65rem;">OBSERVED</span>';
+
+                            return `
+                                <tr>
+                                    <td style="font-family:monospace; font-weight:800; color:#8b5cf6;">${escapeHtml(entry.trace_id)}</td>
+                                    <td style="font-size:0.74rem; color:var(--text-muted); font-family:monospace;">${escapeHtml((entry.timestamp || '').slice(11, 19) || entry.timestamp)}</td>
+                                    <td style="font-family:monospace; font-weight:700;">${escapeHtml(entry.event_id)}</td>
+                                    <td><strong style="color:${typeColor}; font-size:0.76rem;">${escapeHtml(entry.event_type)}</strong></td>
+                                    <td>${natureBadge}</td>
+                                    <td>${zoneText}</td>
+                                    <td>${relText}</td>
+                                    <td><span class="badge" style="background:rgba(255,255,255,0.06); font-size:0.65rem;">${escapeHtml(entry.trace_level || 'TRACK_LEVEL')}</span></td>
+                                    <td>
+                                        <button type="button" class="btn-secondary" onclick="showTraceEvidence('${escapeHtml(entry.trace_id)}')" style="padding:2px 8px; font-size:0.70rem;">
+                                            🔍 Evidence
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('');
+                    }
+
+                    async function runTraceabilityTest() {
+                        const btn = document.getElementById('trcRunTestBtn');
+                        const scenario = document.getElementById('trcScenarioSelect') ? document.getElementById('trcScenarioSelect').value : 'box_enter_dock';
+                        const camera_id = document.getElementById('trcCameraSelect') ? document.getElementById('trcCameraSelect').value : 'CAM-001';
+
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerText = "Processing...";
+                        }
+
+                        try {
+                            const res = await fetch('/api/vision/traceability/test', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ scenario: scenario, camera_id: camera_id })
+                            });
+
+                            if (res.ok) {
+                                const data = await res.json();
+                                const kpiLat = document.getElementById('trcKpiLatency');
+                                if (kpiLat && data.processing_time_ms != null) {
+                                    kpiLat.innerText = `${data.processing_time_ms.toFixed(2)} ms`;
+                                }
+                                await initMaterialTraceabilityUI();
+                                if (data.material_dossier) {
+                                    renderMaterialTraceDossier(data.material_dossier);
+                                }
+                                updateTraceabilityImage(camera_id);
+                            }
+                        } catch (e) {
+                            alert("Traceability test failed: " + e.message);
+                        } finally {
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = "<span>▶ Run Test Frame</span>";
+                            }
+                        }
+                    }
+
+                    async function runTraceabilitySequence() {
+                        const btn = document.getElementById('trcRunSeqBtn');
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerText = "Executing Sequence...";
+                        }
+
+                        try {
+                            const res = await fetch('/api/vision/traceability/sequence', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ sequence_name: 'complete_trace' })
+                            });
+
+                            if (res.ok) {
+                                const data = await res.json();
+                                const kpiLat = document.getElementById('trcKpiLatency');
+                                if (kpiLat && data.processing_time_ms != null) {
+                                    kpiLat.innerText = `${data.processing_time_ms.toFixed(2)} ms`;
+                                }
+                                const kpiDest = document.getElementById('trcKpiDestination');
+                                if (kpiDest) kpiDest.innerText = '1';
+
+                                await initMaterialTraceabilityUI();
+                                if (data.material_dossier) {
+                                    renderMaterialTraceDossier(data.material_dossier);
+                                }
+                                updateTraceabilityImage('CAM-001');
+                            }
+                        } catch (e) {
+                            alert("Traceability sequence failed: " + e.message);
+                        } finally {
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = "<span>⚡ Run 7-Frame Sequence</span>";
+                            }
+                        }
+                    }
+
+                    async function resetTraceabilitySession() {
+                        const btn = document.getElementById('trcResetBtn');
+                        if (btn) btn.disabled = true;
+
+                        try {
+                            const res = await fetch('/api/vision/traceability/reset', { method: 'POST' });
+                            if (res.ok) {
+                                globalTraceabilityCache.materials = {};
+                                globalTraceabilityCache.timeline = [];
+                                clearMaterialTraceDossier(globalTraceabilityCache.currentMaterialId);
+                                updateTraceabilityKPIs({
+                                    total_materials_tracked: 0,
+                                    validated_materials: 0,
+                                    in_transit_materials: 0,
+                                    total_timeline_events: 0
+                                });
+                                const kpiDest = document.getElementById('trcKpiDestination');
+                                if (kpiDest) kpiDest.innerText = '0';
+                                const kpiLat = document.getElementById('trcKpiLatency');
+                                if (kpiLat) kpiLat.innerText = '-- ms';
+
+                                const img = document.getElementById('trcAnnotatedImage');
+                                const ph = document.getElementById('trcImagePlaceholder');
+                                const metaBadge = document.getElementById('trcImageMetaBadge');
+                                if (img) img.style.display = 'none';
+                                if (ph) ph.style.display = 'block';
+                                if (metaBadge) metaBadge.innerText = 'Awaiting Execution';
+
+                                await refreshTraceabilityMaterialsList();
+                            }
+                        } catch (e) {
+                            alert("Reset failed: " + e.message);
+                        } finally {
+                            if (btn) btn.disabled = false;
+                        }
+                    }
+
+                    function updateTraceabilityImage(cameraId = 'CAM-001') {
+                        const img = document.getElementById('trcAnnotatedImage');
+                        const ph = document.getElementById('trcImagePlaceholder');
+                        const metaBadge = document.getElementById('trcImageMetaBadge');
+
+                        if (img) {
+                            img.src = `/api/vision/traceability/cameras/${cameraId}/annotated.jpg?t=${Date.now()}`;
+                            img.style.display = 'block';
+                            img.onerror = function() {
+                                img.style.display = 'none';
+                                if (ph) ph.style.display = 'block';
+                            };
+                        }
+                        if (ph) ph.style.display = 'none';
+                        if (metaBadge) metaBadge.innerText = `Active Observer | ${cameraId} | In-Memory`;
+                    }
+
+                    function showTraceEvidence(traceId) {
+                        const entry = globalTraceabilityCache.timeline.find(t => t.trace_id === traceId);
+                        if (!entry) {
+                            alert("Evidence details not found in active session cache.");
+                            return;
+                        }
+
+                        const modal = document.getElementById('trcEvidenceModal');
+                        const title = document.getElementById('modalTraceTitle');
+                        const content = document.getElementById('modalTraceContent');
+
+                        if (title) title.innerText = `Trace Evidence: ${entry.trace_id} (${entry.event_type})`;
+
+                        const evidenceEntries = Object.entries(entry.evidence || {});
+                        const evidenceRows = evidenceEntries.map(([k, v]) => `
+                            <tr>
+                                <td style="font-weight:700; color:var(--text-muted); padding:6px 0; text-transform:capitalize;">${escapeHtml(k.replace(/_/g, ' '))}:</td>
+                                <td style="font-family:monospace; color:var(--text-main); font-weight:600;">${escapeHtml(JSON.stringify(v))}</td>
+                            </tr>
+                        `).join('');
+
+                        if (content) {
+                            content.innerHTML = `
+                                <div style="display:flex; justify-content:space-between; align-items:center; background:var(--panel-subtle); padding:10px 14px; border-radius:8px; margin-bottom:12px;">
+                                    <div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Material ID</div>
+                                        <strong style="font-size:1.05rem; color:#8b5cf6;">${escapeHtml(entry.material_id)}</strong>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Observation Nature</div>
+                                        <strong style="font-size:0.95rem; color:${entry.nature === 'VALIDATED' ? '#10b981' : '#38bdf8'};">${escapeHtml(entry.nature || 'OBSERVED')}</strong>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase;">Origin Event ID</div>
+                                        <strong style="font-size:1.05rem; font-family:monospace; color:var(--accent);">${escapeHtml(entry.event_id)}</strong>
+                                    </div>
+                                </div>
+
+                                <h4 style="margin:12px 0 6px 0; font-size:0.88rem; color:var(--primary-navy);">Supporting Evidence Factors</h4>
+                                <table style="width:100%; font-size:0.82rem; margin-bottom:14px;">
+                                    <tbody>
+                                        ${evidenceRows}
+                                    </tbody>
+                                </table>
+
+                                <details style="background:var(--panel-subtle); padding:8px 12px; border-radius:6px; font-size:0.75rem; cursor:pointer;">
+                                    <summary style="font-weight:700; color:var(--text-muted);">Raw Trace Record JSON</summary>
+                                    <pre style="margin:8px 0 0 0; font-family:monospace; color:var(--text-main); font-size:0.72rem; overflow-x:auto;">${escapeHtml(JSON.stringify(entry, null, 2))}</pre>
+                                </details>
+                            `;
+                        }
+
+                        if (modal) modal.style.display = 'flex';
+                    }
+
+                    function closeTraceEvidenceModal() {
+                        const modal = document.getElementById('trcEvidenceModal');
+                        if (modal) modal.style.display = 'none';
+                    }
+                
                 
