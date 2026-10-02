@@ -99,7 +99,7 @@ class SmartCamera:
                     ai_frame = self.raw_frame.copy()
             
             if ai_frame is None:
-                time.sleep(0.02)
+                time.sleep(0.016)
                 continue
             
             try:
@@ -191,7 +191,7 @@ class SmartCamera:
                 self.latest_boxes = new_boxes
                 self.visible_packages = package_count
 
-            time.sleep(0.02) # Faster loop for 30-50 FPS capabilities
+            time.sleep(0.016) # Faster loop for 60 FPS capabilities
 
     def get_frame(self):
         with self.lock:
