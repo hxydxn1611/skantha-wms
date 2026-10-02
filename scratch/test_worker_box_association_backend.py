@@ -63,6 +63,14 @@ def run_all_tests():
 
     results = []
     initial_db_checksum = get_db_checksum()
+    db_conn_init = get_db()
+    try:
+        cur_init = db_conn_init.cursor()
+        cur_init.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        initial_tables = [r[0] for r in cur_init.fetchall()]
+        initial_table_count = len(initial_tables)
+    finally:
+        db_conn_init.close()
 
     # Shared Helper Data: Track fixtures
     def create_mock_worker(w_id=7, cx=0.35, cy=0.45, zone="DOCK-01", val_status="VALIDATED", ident_val="Maddy"):
@@ -516,7 +524,7 @@ def run_all_tests():
             cur = db_conn.cursor()
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
             tables = [r[0] for r in cur.fetchall()]
-            zero_tables_added = (len(tables) == 12)
+            zero_tables_added = (len(tables) == initial_table_count)
             has_forbidden_tables = any(t in tables for t in [
                 "worker_box_associations", "material_movements", "traceability_history", "worker_associations"
             ])

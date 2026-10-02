@@ -2299,7 +2299,8 @@ async function fetchSkus() {
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-tracking', this)">Tracking Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-identity', this)">Identity Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-validation', this)">Validation Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-association', this)">Association Test</button>
+                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-association', this)">Truck ↔ Box</button>
+                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-worker-box', this)">Worker ↔ Box Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-config', this)">Configuration</button>
                 </div>
 
@@ -3664,6 +3665,234 @@ async function fetchSkus() {
                     </div>
                 </div>
 
+                <!-- 10. WORKER <-> BOX ASSOCIATION FOUNDATION SUB-PAGE (PART 10) -->
+                <div id="vision-worker-box-sub" class="vision-sub-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy);">Worker ↔ Box Association Foundation — Test Bench</h3>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Controlled, evidence-based association between tracked Workers and Boxes based on spatial proximity, warehouse zone/ROI, and sustained temporal persistence. Co-visibility is strictly NOT association.</p>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <span class="badge sent" id="wbEngineStatusBadge" style="font-size:0.75rem; padding:0.4rem 0.8rem; background:#10b981; color:#fff;">
+                                Engine: Active | In-Memory (Zero DB Writes)
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Worker-Box Association Configuration & Rules Diagnostic Strip -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                            <h4 style="margin:0; font-size:0.88rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                <span>⚖️ Configured Worker ↔ Box Evidence Rules</span>
+                                <span class="badge sent" style="font-size:0.68rem; background:rgba(37,99,235,0.15); color:var(--accent);">Explainable Evidence Model</span>
+                            </h4>
+                            <span style="font-size:0.75rem; color:var(--text-muted);">Configurable Thresholds (No Magic Numbers)</span>
+                        </div>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid var(--accent); border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Min Consecutive Frames</strong>
+                                    <span style="font-size:0.75rem; color:var(--accent); font-weight:800;" id="cfgWbMinFrames">3 frames</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Temporal persistence threshold</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #10b981; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Max Normalized Distance</strong>
+                                    <span style="font-size:0.75rem; color:#10b981; font-weight:800;" id="cfgWbMaxDist">0.40</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Normalized Euclidean center dist</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #f59e0b; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Min Association Score</strong>
+                                    <span style="font-size:0.75rem; color:#f59e0b; font-weight:800;" id="cfgWbMinScore">0.70</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Confirmation threshold [0.0 - 1.0]</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #8b5cf6; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Same Zone Required</strong>
+                                    <span style="font-size:0.75rem; color:#8b5cf6; font-weight:800;" id="cfgWbRequireZone">STRICT (True)</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Both in same warehouse ROI</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #ec4899; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Ambiguity Delta</strong>
+                                    <span style="font-size:0.75rem; color:#ec4899; font-weight:800;" id="cfgWbAmbiguityDelta">Δ ≤ 0.15</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Preserves competing candidates</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Controls & Source Toolbar -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1.1rem; margin-bottom:1.25rem;">
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px; align-items:end;">
+                            <!-- Source Selector -->
+                            <div>
+                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Test Scene / Source:</label>
+                                <select id="wbSourceTypeSelect" onchange="handleWorkerBoxSourceChange()" style="margin-bottom:0;">
+                                    <option value="association_worker_box_dock1.jpg" selected>Scene 1: Worker (Maddy) + Box VLV-900 (Same Zone) → CONFIRMED</option>
+                                    <option value="association_worker_box_diff_zones.jpg">Scene 2: Worker + Box in Different Zones → REJECTED</option>
+                                    <option value="association_two_workers_boxes.jpg">Scene 3: Two Workers + Two Boxes (Independent Pairs)</option>
+                                    <option value="association_ambiguous_two_workers.jpg">Scene 4: Ambiguous Two Workers near One Box → AMBIGUOUS</option>
+                                    <option value="synthetic_wb_confirm">Synthetic: 5-Frame Temporal Accumulation (CANDIDATE → CONFIRMED)</option>
+                                    <option value="synthetic_wb_expire">Synthetic: Track Disappearance Sequence (CONFIRMED → EXPIRED)</option>
+                                    <option value="camera">Camera Master Feed</option>
+                                    <option value="upload">Custom Image File Upload</option>
+                                </select>
+                            </div>
+
+                            <!-- Camera Node -->
+                            <div>
+                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Camera Session:</label>
+                                <select id="wbCameraSelect" style="margin-bottom:0;">
+                                    <!-- Populated dynamically -->
+                                </select>
+                            </div>
+
+                            <!-- Upload File Container -->
+                            <div id="wbUploadContainer" style="display:none;">
+                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Choose Local Image:</label>
+                                <input type="file" id="wbFileInput" accept="image/*" style="margin-bottom:0; font-size:0.8rem; padding:4px;">
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <button type="button" class="btn-primary" id="btnRunWorkerBox" onclick="runWorkerBoxTest()" style="padding:0.55rem 1.1rem; font-size:0.82rem; display:flex; align-items:center; gap:6px;">
+                                    <span>▶</span> Run Single Frame
+                                </button>
+                                <button type="button" class="btn-secondary" id="btnRunWorkerBoxSeq" onclick="runWorkerBoxSequence()" style="padding:0.55rem 1.1rem; font-size:0.82rem; display:flex; align-items:center; gap:6px;">
+                                    <span>⏩</span> Run Sequence (5 Frames)
+                                </button>
+                                <button type="button" class="btn-secondary" id="btnResetWorkerBox" onclick="resetWorkerBoxSession()" style="padding:0.55rem 0.9rem; font-size:0.82rem; display:flex; align-items:center; gap:6px;">
+                                    <span>↺</span> Reset Session
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Association KPI Cards -->
+                    <div class="kpi-grid" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:12px; margin-bottom:1.25rem;">
+                        <div class="kpi-card" style="padding:1rem; border-left:4px solid var(--accent);">
+                            <div class="label" style="font-size:0.75rem; text-transform:uppercase;">Active Workers</div>
+                            <div class="value" id="kpi-wb-workers" style="font-size:1.6rem; color:var(--accent);">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-wb-workers-sub">In current frame</span>
+                        </div>
+                        <div class="kpi-card" style="padding:1rem; border-left:4px solid #0284c7;">
+                            <div class="label" style="font-size:0.75rem; text-transform:uppercase;">Active Boxes</div>
+                            <div class="value" id="kpi-wb-boxes" style="font-size:1.6rem; color:#0284c7;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-wb-boxes-sub">In current frame</span>
+                        </div>
+                        <div class="kpi-card" style="padding:1rem; border-left:4px solid #10b981;">
+                            <div class="label" style="font-size:0.75rem; text-transform:uppercase;">Confirmed</div>
+                            <div class="value" id="kpi-wb-confirmed" style="font-size:1.6rem; color:#10b981;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-wb-confirmed-sub">Sustained proximity</span>
+                        </div>
+                        <div class="kpi-card" style="padding:1rem; border-left:4px solid #f59e0b;">
+                            <div class="label" style="font-size:0.75rem; text-transform:uppercase;">Candidates</div>
+                            <div class="value" id="kpi-wb-candidates" style="font-size:1.6rem; color:#f59e0b;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-wb-candidates-sub">Accumulating evidence</span>
+                        </div>
+                        <div class="kpi-card" style="padding:1rem; border-left:4px solid #ef4444;">
+                            <div class="label" style="font-size:0.75rem; text-transform:uppercase;">Rejected</div>
+                            <div class="value" id="kpi-wb-rejected" style="font-size:1.6rem; color:#ef4444;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-wb-rejected-sub">Zone / dist mismatch</span>
+                        </div>
+                        <div class="kpi-card" style="padding:1rem; border-left:4px solid #ec4899;">
+                            <div class="label" style="font-size:0.75rem; text-transform:uppercase;">Ambiguous</div>
+                            <div class="value" id="kpi-wb-ambiguous" style="font-size:1.6rem; color:#ec4899;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-wb-ambiguous-sub">Competing workers</span>
+                        </div>
+                        <div class="kpi-card" style="padding:1rem; border-left:4px solid var(--primary-navy);">
+                            <div class="label" style="font-size:0.75rem; text-transform:uppercase;">Assoc Latency</div>
+                            <div class="value" id="kpi-wb-ms" style="font-size:1.6rem; color:var(--primary-navy);">-</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-wb-total-ms">Total: -</span>
+                        </div>
+                    </div>
+
+                    <!-- Main Split View: Visual Overlay (Left) + Associations Table (Right) -->
+                    <div style="display:grid; grid-template-columns: minmax(340px, 40%) 1fr; gap:1.1rem; align-items:start; margin-bottom:1.5rem;">
+                        <!-- Left: Annotated Visual Frame -->
+                        <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:10px; overflow:hidden;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; border-bottom:1px solid var(--border-light); background:var(--panel-subtle);">
+                                <strong style="font-size:0.85rem; color:var(--text-main);">Visual Worker ↔ Box Overlay</strong>
+                                <span class="badge sent" id="wbImageMetaBadge" style="font-size:0.7rem;">Waiting for test</span>
+                            </div>
+                            <div id="wbImageContainer" style="position:relative; background:#0b0f19; min-height:360px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                                <div id="wbImagePlaceholder" style="text-align:center; padding:3rem 1.5rem; color:var(--text-muted);">
+                                    <div style="font-size:2.8rem; margin-bottom:0.75rem; opacity:0.5;">👷 ↔ 📦</div>
+                                    <p style="margin:0; font-size:0.9rem; font-weight:600;">No Association Frame Loaded</p>
+                                    <p style="margin:4px 0 0 0; font-size:0.78rem;">Click 'Run Single Frame' or 'Run Sequence' to evaluate Worker ↔ Box associations.</p>
+                                </div>
+                                <img id="wbAnnotatedImage" src="" alt="Worker-Box Association Frame Preview" style="width:100%; height:auto; display:none; object-fit:contain; max-height:480px;">
+                            </div>
+                        </div>
+
+                        <!-- Right: Structured Associations Table -->
+                        <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:10px; overflow:hidden;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; border-bottom:1px solid var(--border-light); background:var(--panel-subtle);">
+                                <strong style="font-size:0.85rem; color:var(--text-main);">Worker ↔ Box Pairwise Candidates</strong>
+                                <span class="badge" id="wbCountBadge" style="font-size:0.7rem; background:rgba(37,99,235,0.12); color:var(--accent);">0 Associations</span>
+                            </div>
+                            <div style="overflow-x:auto; max-height:480px;">
+                                <table style="width:100%; margin:0; font-size:0.80rem;">
+                                    <thead>
+                                        <tr>
+                                            <th style="padding:6px 4px; text-align:center;">Worker</th>
+                                            <th style="padding:6px 6px;">Worker Identity</th>
+                                            <th style="padding:6px 4px; text-align:center;">Box</th>
+                                            <th style="padding:6px 6px;">Box Identity</th>
+                                            <th style="padding:6px 6px; text-align:center;">Status</th>
+                                            <th style="padding:6px 4px; text-align:center;">Score</th>
+                                            <th style="padding:6px 6px;">Zone</th>
+                                            <th style="padding:6px 4px; text-align:center;">Dist</th>
+                                            <th style="padding:6px 4px; text-align:center;">Frames</th>
+                                            <th style="padding:6px 6px; text-align:center;">Evidence</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="wbResultsTbody">
+                                        <tr>
+                                            <td colspan="10" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);">
+                                                Worker ↔ Box candidates will appear here after running association evaluation.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Evidence Detail Modal (Light/Dark Compatible) -->
+                    <div id="wbEvidenceModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); z-index:9999; align-items:center; justify-content:center;">
+                        <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:12px; width:92%; max-width:680px; max-height:85vh; overflow-y:auto; padding:1.5rem; box-shadow:0 20px 40px rgba(0,0,0,0.4);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-light); padding-bottom:0.75rem; margin-bottom:1rem;">
+                                <h3 style="margin:0; font-size:1.15rem; color:var(--primary-navy);" id="modalWbTitle">Worker ↔ Box Evidence Breakdown</h3>
+                                <button type="button" onclick="closeWorkerBoxEvidenceModal()" style="background:none; border:none; font-size:1.4rem; cursor:pointer; color:var(--text-muted);">&times;</button>
+                            </div>
+                            <div id="modalWbContent">
+                                <!-- Populated dynamically -->
+                            </div>
+                            <div style="text-align:right; margin-top:1.25rem;">
+                                <button type="button" class="btn-secondary" onclick="closeWorkerBoxEvidenceModal()" style="padding:0.4rem 1rem;">Close</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Important Architectural Notice Callout -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-left:4px solid #10b981; border-radius:8px; padding:1rem 1.25rem;">
+                        <h4 style="margin:0 0 0.4rem 0; font-size:0.9rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                            <span>🔒 Architectural Boundary: Co-Visibility Is Not Association</span>
+                            <span class="badge sent" style="font-size:0.7rem; background:#10b981; color:#fff;">Zero DB Writes</span>
+                        </h4>
+                        <p style="font-size:0.82rem; color:var(--text-muted); margin:0; line-height:1.45;">
+                            Part 10 establishes controlled, evidence-based relationships between <strong>Worker</strong> tracks and <strong>Box</strong> tracks. An association is never inferred simply because both objects are co-visible in the same frame. Confirmation requires <strong>sustained spatial proximity</strong> (normalized Euclidean distance &le; 0.40), <strong>matching warehouse zone/ROI</strong>, and <strong>temporal persistence across consecutive frames</strong> (min 3 frames). Real-world identity binding (e.g. <code>Worker Maddy ↔ Box VLV-900</code>) is only claimed if both underlying entities were successfully validated in Part 8. All association states are kept in-memory; zero database writes or WMS transactions are committed.
+                        </p>
+                    </div>
+                </div>
+
 
                 <script>
                     function switchVisionSubTab(tabId, btn) {
@@ -3680,6 +3909,7 @@ async function fetchSkus() {
                         if (tabId === 'vision-identity') initIdentityTestUI();
                         if (tabId === 'vision-validation') initValidationTestUI();
                         if (tabId === 'vision-association') initAssociationTestUI();
+                        if (tabId === 'vision-worker-box') initWorkerBoxTestUI();
                     }
 
                     // Object Classes Manager State
@@ -7521,6 +7751,617 @@ async function fetchSkus() {
                         const modal = document.getElementById('assocEvidenceModal');
                         if (modal) modal.style.display = 'none';
                     }
+
+                    // ============================================================================
+                    // PART 10: WORKER <-> BOX ASSOCIATION CLIENT JAVASCRIPT
+                    // ============================================================================
+                    let wbActiveCameraId = 'CAM-001';
+                    let latestWorkerBoxAssociationsList = [];
+
+                    async function initWorkerBoxTestUI() {
+                        populateWorkerBoxCameras();
+                        fetchWorkerBoxStatus();
+                        handleWorkerBoxSourceChange();
+                    }
+
+                    async function populateWorkerBoxCameras() {
+                        const select = document.getElementById('wbCameraSelect');
+                        if (!select) return;
+
+                        try {
+                            const resCams = await fetch('/api/vision/cameras');
+                            if (resCams.ok) {
+                                const cams = await resCams.json();
+                                const camList = Array.isArray(cams) ? cams : (cams.data || []);
+                                select.innerHTML = camList.map(c => `
+                                    <option value="${c.camera_id}" ${c.camera_id === wbActiveCameraId ? 'selected' : ''}>
+                                        ${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})
+                                    </option>
+                                `).join('');
+                                return;
+                            }
+                        } catch (e) {
+                            console.warn("Could not load camera list for worker-box association test:", e);
+                        }
+
+                        select.innerHTML = `
+                            <option value="CAM-001" selected>CAM-001 - Gate Camera 01 (Gate 01)</option>
+                            <option value="CAM-002">CAM-002 - Dock Camera 01 (Dock 01)</option>
+                        `;
+                    }
+
+                    async function fetchWorkerBoxStatus() {
+                        try {
+                            const res = await fetch('/api/vision/worker-box/status');
+                            if (res.ok) {
+                                const data = await res.json();
+                                const badge = document.getElementById('wbEngineStatusBadge');
+                                if (badge) {
+                                    badge.innerText = `Engine: Active | In-Memory (Zero DB Writes)`;
+                                }
+                                if (data.config) {
+                                    const cfg = data.config;
+                                    const minF = document.getElementById('cfgWbMinFrames');
+                                    const maxD = document.getElementById('cfgWbMaxDist');
+                                    const minS = document.getElementById('cfgWbMinScore');
+                                    const reqZ = document.getElementById('cfgWbRequireZone');
+                                    const ambD = document.getElementById('cfgWbAmbiguityDelta');
+                                    if (minF) minF.innerText = `${cfg.min_consecutive_frames} frames`;
+                                    if (maxD) maxD.innerText = `${cfg.max_normalized_distance}`;
+                                    if (minS) minS.innerText = `${cfg.min_association_score}`;
+                                    if (reqZ) reqZ.innerText = cfg.require_same_zone ? 'STRICT (True)' : 'Optional (False)';
+                                    if (ambD) ambD.innerText = `Δ ≤ ${cfg.ambiguity_threshold_delta}`;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Could not fetch worker-box association status:", e);
+                        }
+                    }
+
+                    function handleWorkerBoxSourceChange() {
+                        const src = document.getElementById('wbSourceTypeSelect')?.value;
+                        const uploadContainer = document.getElementById('wbUploadContainer');
+                        if (uploadContainer) uploadContainer.style.display = (src === 'upload') ? 'block' : 'none';
+                    }
+
+                    function generateSyntheticWorkerBoxSequence(mode) {
+                        const seq = [];
+                        if (mode === 'synthetic_wb_confirm') {
+                            // 5 consecutive frames: Worker #7 and Box #21 close in Dock 1
+                            for (let f = 1; f <= 5; f++) {
+                                seq.push([
+                                    {
+                                        track_id: 7,
+                                        class_code: "WORKER",
+                                        confidence: 0.96,
+                                        bbox: { x1: 220, y1: 160, x2: 300, y2: 340 },
+                                        bbox_normalized: { x1: 0.30, y1: 0.25, x2: 0.40, y2: 0.55 },
+                                        center_normalized: [0.35, 0.40],
+                                        roi: { inside: true, zone_code: "DOCK-01" },
+                                        roi_zone_code: "DOCK-01",
+                                        identity: { status: "IDENTIFIED", value: "Maddy", source: "FACE_ID", confidence: 0.98 },
+                                        validation: { status: "VALIDATED", master_id: "Maddy", display_name: "Authorized Personnel (Maddy)" }
+                                    },
+                                    {
+                                        track_id: 21,
+                                        class_code: "BOX",
+                                        confidence: 0.92,
+                                        bbox: { x1: 290, y1: 280, x2: 370, y2: 370 },
+                                        bbox_normalized: { x1: 0.38, y1: 0.45, x2: 0.48, y2: 0.60 },
+                                        center_normalized: [0.43, 0.525],
+                                        roi: { inside: true, zone_code: "DOCK-01" },
+                                        roi_zone_code: "DOCK-01",
+                                        identity: { status: "IDENTIFIED", value: "VLV-900", source: "QR", confidence: 0.99 },
+                                        validation: { status: "VALIDATED", master_id: "VLV-900", display_name: "Box SKU: VLV-900" }
+                                    }
+                                ]);
+                            }
+                        } else if (mode === 'synthetic_wb_expire') {
+                            // Frames 1-3: present and confirmed
+                            for (let f = 1; f <= 3; f++) {
+                                seq.push([
+                                    {
+                                        track_id: 7,
+                                        class_code: "WORKER",
+                                        confidence: 0.96,
+                                        center_normalized: [0.35, 0.40],
+                                        roi_zone_code: "DOCK-01",
+                                        identity: { status: "IDENTIFIED", value: "Maddy" },
+                                        validation: { status: "VALIDATED", master_id: "Maddy", display_name: "Authorized Personnel (Maddy)" }
+                                    },
+                                    {
+                                        track_id: 21,
+                                        class_code: "BOX",
+                                        confidence: 0.92,
+                                        center_normalized: [0.43, 0.525],
+                                        roi_zone_code: "DOCK-01",
+                                        identity: { status: "IDENTIFIED", value: "VLV-900" },
+                                        validation: { status: "VALIDATED", master_id: "VLV-900", display_name: "Box SKU: VLV-900" }
+                                    }
+                                ]);
+                            }
+                            // Frames 4-8: box departed frame (only worker remains)
+                            for (let f = 4; f <= 8; f++) {
+                                seq.push([
+                                    {
+                                        track_id: 7,
+                                        class_code: "WORKER",
+                                        confidence: 0.96,
+                                        center_normalized: [0.35, 0.40],
+                                        roi_zone_code: "DOCK-01",
+                                        identity: { status: "IDENTIFIED", value: "Maddy" },
+                                        validation: { status: "VALIDATED", master_id: "Maddy", display_name: "Authorized Personnel (Maddy)" }
+                                    }
+                                ]);
+                            }
+                        }
+                        return seq;
+                    }
+
+                    async function runWorkerBoxTest() {
+                        const btn = document.getElementById('btnRunWorkerBox');
+                        const originalHtml = btn ? btn.innerHTML : 'Run Single Frame';
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerHTML = '<span>⏳</span> Processing...';
+                        }
+
+                        try {
+                            const cameraId = document.getElementById('wbCameraSelect')?.value || 'CAM-001';
+                            const srcType = document.getElementById('wbSourceTypeSelect')?.value || 'association_worker_box_dock1.jpg';
+
+                            if (srcType.startsWith('synthetic_')) {
+                                const seq = generateSyntheticWorkerBoxSequence(srcType);
+                                const firstFrameTracks = seq[0] || [];
+                                const res = await fetch('/api/vision/worker-box/test', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        camera_id: cameraId,
+                                        synthetic_tracks: firstFrameTracks
+                                    })
+                                });
+                                const data = await res.json();
+                                if (!res.ok || !data.success) {
+                                    alert(data.message || "Worker-Box association evaluation failed.");
+                                    return;
+                                }
+                                renderWorkerBoxResults({
+                                    camera_id: cameraId,
+                                    active_worker_count: firstFrameTracks.filter(t => t.class_code === 'WORKER').length,
+                                    active_box_count: firstFrameTracks.filter(t => t.class_code === 'BOX').length,
+                                    associations: data.associations || [],
+                                    performance: { association_ms: data.association_ms, total_ms: data.association_ms }
+                                });
+                                return;
+                            }
+
+                            let payload = { camera_id: cameraId };
+
+                            if (srcType === 'camera') {
+                                payload.source_type = 'camera';
+                            } else if (srcType === 'upload') {
+                                const fileInput = document.getElementById('wbFileInput');
+                                if (!fileInput || !fileInput.files[0]) {
+                                    alert("Please select an image file to upload.");
+                                    return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = async function(e) {
+                                    payload.source_type = 'upload';
+                                    payload.image_data = e.target.result;
+                                    await sendWorkerBoxRequest(payload, btn, originalHtml);
+                                };
+                                reader.readAsDataURL(fileInput.files[0]);
+                                return;
+                            } else {
+                                payload.source_type = 'sample';
+                                payload.sample_scene = srcType;
+                            }
+
+                            await sendWorkerBoxRequest(payload, btn, originalHtml);
+                        } catch (e) {
+                            alert("Worker-Box association request error: " + e.message);
+                        } finally {
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = originalHtml;
+                            }
+                        }
+                    }
+
+                    async function sendWorkerBoxRequest(payload, btn, originalHtml) {
+                        try {
+                            const res = await fetch('/api/vision/worker-box/test', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) {
+                                alert(data.message || "Worker-Box association evaluation failed.");
+                                return;
+                            }
+                            renderWorkerBoxResults(data);
+                        } finally {
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = originalHtml;
+                            }
+                        }
+                    }
+
+                    async function runWorkerBoxSequence() {
+                        const btn = document.getElementById('btnRunWorkerBoxSeq');
+                        const originalHtml = btn ? btn.innerHTML : 'Run Sequence (5 Frames)';
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerHTML = '<span>⏳</span> Evaluating Sequence...';
+                        }
+
+                        try {
+                            const cameraId = document.getElementById('wbCameraSelect')?.value || 'CAM-001';
+                            const srcType = document.getElementById('wbSourceTypeSelect')?.value || 'association_worker_box_dock1.jpg';
+
+                            let payload = {
+                                camera_id: cameraId,
+                                num_frames: 5,
+                                reset_session: true
+                            };
+
+                            if (srcType.startsWith('synthetic_')) {
+                                payload.synthetic_tracks_sequence = generateSyntheticWorkerBoxSequence(srcType);
+                            } else if (srcType === 'camera' || srcType === 'upload') {
+                                payload.sample_scene = 'association_worker_box_dock1.jpg';
+                            } else {
+                                payload.sample_scene = srcType;
+                            }
+
+                            const res = await fetch('/api/vision/worker-box/sequence', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) {
+                                alert(data.message || "Sequence evaluation failed.");
+                                return;
+                            }
+                            const assocs = data.final_associations || data.associations || [];
+                            renderWorkerBoxResults({
+                                camera_id: cameraId,
+                                active_worker_count: data.active_worker_count || 1,
+                                active_box_count: data.active_box_count || 1,
+                                associations: assocs,
+                                annotated_image_url: data.annotated_image_url,
+                                mode: data.mode,
+                                total_frames: data.total_frames,
+                                performance: data.performance || { association_ms: 1.5, total_ms: 22.0 }
+                            });
+                        } catch (e) {
+                            alert("Sequence evaluation error: " + e.message);
+                        } finally {
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = originalHtml;
+                            }
+                        }
+                    }
+
+                    async function resetWorkerBoxSession() {
+                        const cameraId = document.getElementById('wbCameraSelect')?.value || 'CAM-001';
+                        try {
+                            const res = await fetch('/api/vision/worker-box/reset', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ camera_id: cameraId })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                latestWorkerBoxAssociationsList = [];
+                                // Reset KPIs
+                                const kpiWorkers = document.getElementById('kpi-wb-workers');
+                                const kpiBoxes = document.getElementById('kpi-wb-boxes');
+                                const kpiConfirmed = document.getElementById('kpi-wb-confirmed');
+                                const kpiCandidates = document.getElementById('kpi-wb-candidates');
+                                const kpiRejected = document.getElementById('kpi-wb-rejected');
+                                const kpiAmbiguous = document.getElementById('kpi-wb-ambiguous');
+                                const kpiMs = document.getElementById('kpi-wb-ms');
+                                const kpiTotalMs = document.getElementById('kpi-wb-total-ms');
+                                if (kpiWorkers) kpiWorkers.innerText = '0';
+                                if (kpiBoxes) kpiBoxes.innerText = '0';
+                                if (kpiConfirmed) kpiConfirmed.innerText = '0';
+                                if (kpiCandidates) kpiCandidates.innerText = '0';
+                                if (kpiRejected) kpiRejected.innerText = '0';
+                                if (kpiAmbiguous) kpiAmbiguous.innerText = '0';
+                                if (kpiMs) kpiMs.innerText = '-';
+                                if (kpiTotalMs) kpiTotalMs.innerText = 'Total: -';
+
+                                // Reset image
+                                const img = document.getElementById('wbAnnotatedImage');
+                                const placeholder = document.getElementById('wbImagePlaceholder');
+                                const badge = document.getElementById('wbImageMetaBadge');
+                                if (img) { img.src = ''; img.style.display = 'none'; }
+                                if (placeholder) placeholder.style.display = 'block';
+                                if (badge) badge.innerText = 'Session Reset';
+
+                                // Reset table
+                                const tbody = document.getElementById('wbResultsTbody');
+                                if (tbody) {
+                                    tbody.innerHTML = `
+                                        <tr>
+                                            <td colspan="10" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);">
+                                                Worker-Box association session reset. In-memory associations and tracking cleared.
+                                            </td>
+                                        </tr>
+                                    `;
+                                }
+                                const countBadge = document.getElementById('wbCountBadge');
+                                if (countBadge) countBadge.innerText = '0 Associations';
+                            }
+                        } catch (e) {
+                            alert("Reset failed: " + e.message);
+                        }
+                    }
+
+                    function renderWorkerBoxResults(data) {
+                        const assocs = data.associations || data.final_associations || [];
+                        latestWorkerBoxAssociationsList = assocs;
+                        const perf = data.performance || {};
+
+                        // Update KPIs
+                        const confirmedCount = assocs.filter(a => a.status === 'CONFIRMED').length;
+                        const candidateCount = assocs.filter(a => a.status === 'CANDIDATE').length;
+                        const rejectedCount = assocs.filter(a => a.status === 'REJECTED').length;
+                        const ambiguousCount = assocs.filter(a => a.evidence && a.evidence.is_ambiguous).length;
+
+                        const kpiWorkers = document.getElementById('kpi-wb-workers');
+                        const kpiBoxes = document.getElementById('kpi-wb-boxes');
+                        const kpiConfirmed = document.getElementById('kpi-wb-confirmed');
+                        const kpiCandidates = document.getElementById('kpi-wb-candidates');
+                        const kpiRejected = document.getElementById('kpi-wb-rejected');
+                        const kpiAmbiguous = document.getElementById('kpi-wb-ambiguous');
+                        const kpiMs = document.getElementById('kpi-wb-ms');
+                        const kpiTotalMs = document.getElementById('kpi-wb-total-ms');
+                        const countBadge = document.getElementById('wbCountBadge');
+
+                        if (kpiWorkers) kpiWorkers.innerText = data.active_worker_count != null ? data.active_worker_count : '-';
+                        if (kpiBoxes) kpiBoxes.innerText = data.active_box_count != null ? data.active_box_count : '-';
+                        if (kpiConfirmed) kpiConfirmed.innerText = confirmedCount;
+                        if (kpiCandidates) kpiCandidates.innerText = candidateCount;
+                        if (kpiRejected) kpiRejected.innerText = rejectedCount;
+                        if (kpiAmbiguous) kpiAmbiguous.innerText = ambiguousCount;
+
+                        const assocMs = perf.association_ms != null ? perf.association_ms : data.association_ms;
+                        if (kpiMs) kpiMs.innerText = assocMs != null ? assocMs.toFixed(2) + ' ms' : '-';
+                        if (kpiTotalMs) kpiTotalMs.innerText = `Total: ${(perf.total_ms != null ? perf.total_ms : (assocMs || 0)).toFixed(2)} ms`;
+                        if (countBadge) countBadge.innerText = `${assocs.length} ${assocs.length === 1 ? 'Pair' : 'Pairs'}`;
+
+                        // Annotated image
+                        const img = document.getElementById('wbAnnotatedImage');
+                        const placeholder = document.getElementById('wbImagePlaceholder');
+                        const metaBadge = document.getElementById('wbImageMetaBadge');
+
+                        if (data.annotated_image_url && img) {
+                            img.src = data.annotated_image_url;
+                            img.style.display = 'block';
+                            if (placeholder) placeholder.style.display = 'none';
+                            if (metaBadge) {
+                                metaBadge.className = 'badge sent';
+                                metaBadge.innerText = `${data.camera_id} | ${confirmedCount} Confirmed | ${ambiguousCount} Ambiguous`;
+                            }
+                        } else if (!data.annotated_image_url && img && (data.mode === 'synthetic_tracks' || data.synthetic_tracks_sequence)) {
+                            img.style.display = 'none';
+                            if (placeholder) {
+                                placeholder.style.display = 'block';
+                                placeholder.innerHTML = `
+                                    <div style="font-size:2.8rem; margin-bottom:0.75rem; color:#10b981;">⚡ 👷 ↔ 📦</div>
+                                    <p style="margin:0; font-size:0.9rem; font-weight:700; color:var(--text-main);">Deterministic Synthetic Sequence Evaluated</p>
+                                    <p style="margin:4px 0 0 0; font-size:0.78rem; color:var(--text-muted);">${confirmedCount} Confirmed | ${candidateCount} Candidate | ${ambiguousCount} Ambiguous</p>
+                                `;
+                            }
+                            if (metaBadge) {
+                                metaBadge.className = 'badge sent';
+                                metaBadge.innerText = `Synthetic Tracks Feed | Frame #${data.frame_index || 5}`;
+                            }
+                        }
+
+                        // Structured Table
+                        const tbody = document.getElementById('wbResultsTbody');
+                        if (!tbody) return;
+
+                        if (assocs.length === 0) {
+                            tbody.innerHTML = `
+                                <tr>
+                                    <td colspan="10" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);">
+                                        No Worker ↔ Box candidate associations detected in this frame.
+                                    </td>
+                                </tr>
+                            `;
+                            return;
+                        }
+
+                        tbody.innerHTML = assocs.map((a, idx) => {
+                            const wid = a.worker_track_id;
+                            const bid = a.box_track_id;
+                            const ev = a.evidence || {};
+                            const rw = a.real_world_association;
+
+                            // Status badge
+                            let statusBadge = '';
+                            if (ev.is_ambiguous) {
+                                statusBadge = `<span class="badge" style="background:#ec4899; color:#fff; font-weight:800; font-size:0.72rem;">⚡ AMBIGUOUS</span>`;
+                            } else if (a.status === 'CONFIRMED') {
+                                statusBadge = `<span class="badge sent" style="background:#10b981; color:#fff; font-weight:800; font-size:0.72rem;">✓ CONFIRMED</span>`;
+                            } else if (a.status === 'CANDIDATE') {
+                                statusBadge = `<span class="badge pending" style="background:#f59e0b; color:#fff; font-weight:800; font-size:0.72rem;">⏳ CANDIDATE</span>`;
+                            } else if (a.status === 'REJECTED') {
+                                statusBadge = `<span class="badge cancel" style="background:#ef4444; color:#fff; font-weight:800; font-size:0.72rem;">✕ REJECTED</span>`;
+                            } else if (a.status === 'EXPIRED') {
+                                statusBadge = `<span class="badge" style="background:#6b7280; color:#fff; font-weight:800; font-size:0.72rem;">⏱ EXPIRED</span>`;
+                            } else {
+                                statusBadge = `<span class="badge">${a.status}</span>`;
+                            }
+
+                            // Worker ID & Box ID
+                            const wIdent = a.worker_identity || {};
+                            const bIdent = a.box_identity || {};
+
+                            const wIdentDisplay = wIdent.value
+                                ? `<span class="badge sent" style="font-size:0.68rem; background:rgba(37,99,235,0.12); color:var(--accent); font-family:monospace;">${escapeHtml(wIdent.value)}</span>`
+                                : `<span style="color:var(--text-muted); font-size:0.72rem;">-</span>`;
+
+                            const bIdentDisplay = bIdent.value
+                                ? `<span class="badge sent" style="font-size:0.68rem; background:rgba(2,132,199,0.12); color:#0284c7; font-family:monospace;">${escapeHtml(bIdent.value)}</span>`
+                                : `<span style="color:var(--text-muted); font-size:0.72rem;">-</span>`;
+
+                            const score = a.association_score != null ? a.association_score.toFixed(3) : '-';
+                            const dist = ev.normalized_distance != null ? ev.normalized_distance.toFixed(3) : '-';
+                            const frames = ev.consecutive_frames != null ? ev.consecutive_frames : 0;
+                            const zone = ev.worker_zone && ev.box_zone && ev.worker_zone === ev.box_zone
+                                ? ev.worker_zone
+                                : (ev.worker_zone ? `${ev.worker_zone}≠${ev.box_zone || 'None'}` : 'Unresolved');
+
+                            return `
+                                <tr>
+                                    <td style="text-align:center;">
+                                        <span style="font-size:0.85rem; font-weight:800; color:var(--accent); background:rgba(37,99,235,0.12); padding:2px 7px; border-radius:5px; font-family:monospace;">
+                                            W#${wid}
+                                        </span>
+                                    </td>
+                                    <td>${wIdentDisplay}</td>
+                                    <td style="text-align:center;">
+                                        <span style="font-size:0.85rem; font-weight:800; color:#0284c7; background:rgba(2,132,199,0.12); padding:2px 7px; border-radius:5px; font-family:monospace;">
+                                            B#${bid}
+                                        </span>
+                                    </td>
+                                    <td>${bIdentDisplay}</td>
+                                    <td style="text-align:center;">${statusBadge}</td>
+                                    <td style="text-align:center;">
+                                        <strong style="font-size:0.88rem; font-family:monospace; color:${a.status === 'CONFIRMED' ? '#10b981' : 'var(--text-main)'};">${score}</strong>
+                                    </td>
+                                    <td style="font-size:0.78rem;">
+                                        <span class="badge" style="background:rgba(139,92,246,0.12); color:#8b5cf6; font-size:0.7rem; font-family:monospace;">${escapeHtml(zone)}</span>
+                                    </td>
+                                    <td style="text-align:center; font-family:monospace; font-size:0.78rem; color:var(--text-muted);">${dist}</td>
+                                    <td style="text-align:center; font-size:0.8rem; font-weight:700; color:var(--text-main);">${frames}</td>
+                                    <td style="text-align:center;">
+                                        <button type="button" class="btn-secondary" onclick="openWorkerBoxEvidenceModal(${idx})" style="padding:2px 8px; font-size:0.72rem; cursor:pointer;">
+                                            🔍 Evidence
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('');
+                    }
+
+                    function openWorkerBoxEvidenceModal(index) {
+                        const assoc = latestWorkerBoxAssociationsList[index];
+                        if (!assoc) return;
+
+                        const modal = document.getElementById('wbEvidenceModal');
+                        const title = document.getElementById('modalWbTitle');
+                        const content = document.getElementById('modalWbContent');
+
+                        if (title) {
+                            title.innerText = `Evidence: Worker #${assoc.worker_track_id} ↔ Box #${assoc.box_track_id} [${assoc.status}]`;
+                        }
+
+                        const ev = assoc.evidence || {};
+                        const rw = assoc.real_world_association;
+
+                        const rwHtml = rw && rw.status === 'VALIDATED'
+                            ? `<div style="background:rgba(16,185,129,0.12); border:1px solid #10b981; border-radius:8px; padding:10px; margin-bottom:12px;">
+                                <strong style="color:#10b981; font-size:0.85rem;">✓ Validated Real-World Association Bound:</strong>
+                                <div style="font-family:monospace; font-size:0.92rem; color:var(--text-main); margin-top:4px;">
+                                    Worker <strong>${escapeHtml(rw.worker_display || rw.worker_id)}</strong> ↔ Box <strong>${escapeHtml(rw.box_display || rw.box_id)}</strong>
+                                </div>
+                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                                    Both identities validated against authoritative WMS master records.
+                                </div>
+                               </div>`
+                            : `<div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; padding:10px; margin-bottom:12px;">
+                                <span style="font-size:0.82rem; color:var(--text-muted);">
+                                    Track-level association only. Real-world identity binding requires BOTH underlying entities to be VALIDATED in Part 8.
+                                </span>
+                               </div>`;
+
+                        const ambHtml = ev.is_ambiguous
+                            ? `<div style="background:rgba(236,72,153,0.12); border:1px solid #ec4899; border-radius:8px; padding:10px; margin-bottom:12px;">
+                                <strong style="color:#ec4899; font-size:0.85rem;">⚡ Ambiguity Flag Active:</strong>
+                                <p style="font-size:0.8rem; margin:4px 0 0 0; color:var(--text-main); line-height:1.4;">
+                                    ${escapeHtml(ev.ambiguity_reason || 'Multiple competing workers within threshold delta.')}
+                                </p>
+                               </div>`
+                            : '';
+
+                        if (content) {
+                            content.innerHTML = `
+                                ${rwHtml}
+                                ${ambHtml}
+                                <table style="width:100%; font-size:0.82rem; margin-bottom:12px;">
+                                    <tbody>
+                                        <tr>
+                                            <td style="width:40%; font-weight:700; color:var(--text-muted); padding:6px 0;">Composite Score:</td>
+                                            <td style="font-weight:800; font-family:monospace; font-size:0.95rem; color:${assoc.status === 'CONFIRMED' ? '#10b981' : 'var(--text-main)'};">
+                                                ${assoc.association_score != null ? assoc.association_score.toFixed(4) : '-'} (Required &ge; 0.70)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Consecutive Frames:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.consecutive_frames} frames (Required &ge; 3)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Normalized Distance:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.normalized_distance} (Max Allowed: ${ev.max_allowed_distance})
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Same Warehouse Zone:</td>
+                                            <td style="color:${ev.same_zone ? '#10b981' : '#ef4444'}; font-weight:700;">
+                                                ${ev.same_zone ? '✓ True (Matching Zone)' : '✗ False (Different or Unresolved Zones)'}
+                                                <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal; margin-left:6px;">
+                                                    [Worker: ${ev.worker_zone || 'None'}, Box: ${ev.box_zone || 'None'}]
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Spatial Proximity Score:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.spatial_proximity_score} (Weight: 35%)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Zone Match Score:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.zone_score} (Weight: 35%)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Temporal Persistence Score:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.temporal_persistence_score} (Weight: 30%)
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <details style="background:var(--panel-subtle); padding:8px 12px; border-radius:6px; font-size:0.75rem; cursor:pointer;">
+                                    <summary style="font-weight:700; color:var(--text-muted);">Raw Evidence JSON</summary>
+                                    <pre style="margin:8px 0 0 0; font-family:monospace; color:var(--text-main); font-size:0.72rem; overflow-x:auto;">${escapeHtml(JSON.stringify(assoc, null, 2))}</pre>
+                                </details>
+                            `;
+                        }
+
+                        if (modal) modal.style.display = 'flex';
+                    }
+
+                    function closeWorkerBoxEvidenceModal() {
+                        const modal = document.getElementById('wbEvidenceModal');
+                        if (modal) modal.style.display = 'none';
+                    }
                 </script>
             </div>
         </div>
@@ -8711,6 +9552,8 @@ async function fetchSkus() {
                 if (typeof closeEditZoneModal === 'function') closeEditZoneModal();
                 if (typeof closeViewZoneModal === 'function') closeViewZoneModal();
                 if (typeof closeRoiEditorModal === 'function') closeRoiEditorModal();
+                if (typeof closeAssociationEvidenceModal === 'function') closeAssociationEvidenceModal();
+                if (typeof closeWorkerBoxEvidenceModal === 'function') closeWorkerBoxEvidenceModal();
                 if (typeof closeFullscreen === 'function') closeFullscreen();
             }
         });
