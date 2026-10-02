@@ -241,6 +241,23 @@ def generate_invoice():
     pdf.cell(200, 10, txt=f"Stored in Location: {bin_alloc}", ln=1, align='L')
     pdf.cell(200, 10, txt=f"Driver: {gp.get('driver_name')} | Plate: {gp.get('plate')}", ln=1, align='L')
     
+    # Render SKU details
+    pdf.cell(200, 10, txt="", ln=1, align='L')
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(80, 10, txt="SKU", border=1)
+    pdf.cell(60, 10, txt="Description", border=1)
+    pdf.cell(30, 10, txt="Expected", border=1, ln=1)
+    
+    pdf.set_font("Arial", size=12)
+    sheet = gp.get('unloading_sheet')
+    if sheet and isinstance(sheet, list):
+        for item in sheet:
+            pdf.cell(80, 10, txt=str(item.get('sku', '')), border=1)
+            pdf.cell(60, 10, txt=str(item.get('description', ''))[:20], border=1)
+            pdf.cell(30, 10, txt=str(item.get('expected', '')), border=1, ln=1)
+    else:
+        pdf.cell(170, 10, txt="No specific SKUs provided in PO sheet.", border=1, ln=1)
+    
     pdf_filename = f"invoice_{gp_id}.pdf"
     pdf_dir = os.path.join(os.path.dirname(__file__), "static", "invoices")
     os.makedirs(pdf_dir, exist_ok=True)
@@ -2262,13 +2279,6 @@ def unload_step(gp_id):
          
     gp = db.set_unload_qty(gp_id, total_unloaded)
     if gp:
-        # Auto-update Bin Master with Vendor Stock
-        vendor_name = gp.get('vendor', 'UNKNOWN')
-        bin_id = f"BIN-{vendor_name[:3].upper()}-100" if vendor_name else "BIN-GEN-100"
-        try:
-            db.update_bin_stock(bin_id, vendor_name, total_unloaded)
-        except Exception as e:
-            print("Failed to update bin stock:", e)
         return jsonify({"success": True, "total": gp['unloaded_qty']})
     return jsonify({"success": False, "message": "Gate pass not found."})
 
@@ -2379,7 +2389,7 @@ def generate_frames(camera_id):
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
             else:
-                time.sleep(0.1)
+                time.sleep(0.016)
         else:
             break
 
@@ -2387,5 +2397,292 @@ def generate_frames(camera_id):
 def video_feed(camera_id):
     return Response(generate_frames(camera_id), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
+@app.route('/api/alerts', methods=['GET'])
+def get_alerts():
+    try:
+        conn = db.get_db()
+        cursor = conn.cursor()
+        alerts = []
+        
+        # Check overcapacity bins
+        bins = cursor.execute("SELECT bin_id, max_volume, current_volume, max_weight, current_weight FROM bins").fetchall()
+        for b in bins:
+            if b['max_volume'] > 0 and b['current_volume'] >= b['max_volume'] * 0.95:
+                alerts.append({"type": "warning", "message": f"Bin {b['bin_id']} is critically full on volume!"})
+            if b['max_weight'] > 0 and b['current_weight'] >= b['max_weight'] * 0.95:
+                alerts.append({"type": "warning", "message": f"Bin {b['bin_id']} is critically full on weight!"})
+                
+        # Check trucks waiting too long (mock logic)
+        waiting_gate = cursor.execute("SELECT id FROM gate_passes WHERE status = 'Pending'").fetchall()
+        if len(waiting_gate) > 2:
+            alerts.append({"type": "error", "message": f"High traffic: {len(waiting_gate)} trucks pending at gate."})
+            
+        conn.close()
+        return jsonify(alerts)
+    except Exception as e:
+        print(f"Error in /api/alerts: {e}")
+        return jsonify([])
+
+
+# ==========================================
+# OUTBOUND FLOW LOGIC
+# ==========================================
+import uuid
+
+@app.route('/api/outbound', methods=['GET', 'POST'])
+def handle_outbound():
+    conn = db.get_db()
+    cursor = conn.cursor()
+    
+    if request.method == 'POST':
+        data = request.json
+        order_id = "OUT-" + str(uuid.uuid4())[:8].upper()
+        customer = data.get('customer_name', 'Unknown')
+        destination = data.get('destination', 'Unknown')
+        items = data.get('items', []) # [{"sku_id": "SKU-1", "quantity": 10}]
+        
+        cursor.execute("INSERT INTO outbound_orders (id, customer_name, destination) VALUES (?, ?, ?)",
+                       (order_id, customer, destination))
+        
+        for item in items:
+            cursor.execute("INSERT INTO outbound_items (order_id, sku_id, quantity) VALUES (?, ?, ?)",
+                           (order_id, item['sku_id'], int(item['quantity'])))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "order_id": order_id})
+        
+    else:
+        orders = cursor.execute("SELECT * FROM outbound_orders ORDER BY created_at DESC").fetchall()
+        result = []
+        for o in orders:
+            items = cursor.execute("SELECT * FROM outbound_items WHERE order_id = ?", (o['id'],)).fetchall()
+            order_dict = dict(o)
+            order_dict['items'] = [dict(i) for i in items]
+            result.append(order_dict)
+        conn.close()
+        return jsonify(result)
+
+@app.route('/api/outbound/<order_id>/pick', methods=['POST'])
+def pick_outbound(order_id):
+    conn = db.get_db()
+    cursor = conn.cursor()
+    
+    order = cursor.execute("SELECT * FROM outbound_orders WHERE id = ?", (order_id,)).fetchone()
+    if not order or order['status'] == 'Fulfilled':
+        return jsonify({"success": False, "error": "Invalid or fulfilled order"})
+        
+    items = cursor.execute("SELECT * FROM outbound_items WHERE order_id = ?", (order_id,)).fetchall()
+    
+    # Simple picking logic: just find any bin with the SKU and deduct
+    for item in items:
+        needed = item['quantity'] - item['picked_quantity']
+        if needed <= 0:
+            continue
+            
+        invs = cursor.execute("SELECT * FROM inventory WHERE sku_id = ? AND quantity > 0", (item['sku_id'],)).fetchall()
+        for inv in invs:
+            if needed <= 0:
+                break
+            
+            take = min(inv['quantity'], needed)
+            # Update inventory
+            cursor.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (take, inv['id']))
+            # Update Bin capacities
+            sku = cursor.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (item['sku_id'],)).fetchone()
+            vol_red = sku['unit_volume'] * take
+            wt_red = sku['unit_weight'] * take
+            cursor.execute("UPDATE bins SET current_volume = MAX(0, current_volume - ?), current_weight = MAX(0, current_weight - ?) WHERE bin_id = ?", (vol_red, wt_red, inv['bin_id']))
+            
+            needed -= take
+            
+        cursor.execute("UPDATE outbound_items SET picked_quantity = ? WHERE id = ?", (item['quantity'] - needed, item['id']))
+    
+    # Check if fully picked
+    all_picked = True
+    rem_items = cursor.execute("SELECT * FROM outbound_items WHERE order_id = ?", (order_id,)).fetchall()
+    for i in rem_items:
+        if i['picked_quantity'] < i['quantity']:
+            all_picked = False
+            
+    if all_picked:
+        cursor.execute("UPDATE outbound_orders SET status = 'Fulfilled' WHERE id = ?", (order_id,))
+    else:
+        cursor.execute("UPDATE outbound_orders SET status = 'Partially Picked' WHERE id = ?", (order_id,))
+        
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "status": "Fulfilled" if all_picked else "Partially Picked"})
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+@app.route('/api/cycle_count', methods=['POST'])
+def run_cycle_count():
+    data = request.json
+    bin_id = data.get('bin_id')
+    actual_qty = data.get('actual_qty')
+    
+    if bin_id is None or actual_qty is None:
+        return jsonify({"success": False, "message": "Missing bin_id or actual_qty"})
+        
+    conn = db.get_db()
+    with conn:
+        # Get expected qty
+        inv = conn.execute("SELECT quantity, sku_id, vendor FROM inventory WHERE bin_id = ?", (bin_id,)).fetchone()
+        if not inv:
+            return jsonify({"success": False, "message": f"No inventory found in bin {bin_id}"})
+            
+        expected_qty = inv['quantity']
+        discrepancy = actual_qty - expected_qty
+        
+        if discrepancy == 0:
+            msg = f"Audit complete. Count perfectly matches system (Qty: {actual_qty})."
+        else:
+            # Update the inventory to the actual audited count
+            conn.execute("UPDATE inventory SET quantity = ? WHERE bin_id = ?", (actual_qty, bin_id))
+            
+            # Log the discrepancy in a hypothetical audit log
+            conn.execute('''
+                INSERT INTO activities (timestamp, action, target, details)
+                VALUES (CURRENT_TIMESTAMP, 'CYCLE_COUNT_AUDIT', ?, ?)
+            ''', (bin_id, f"Audited Qty: {actual_qty} (Discrepancy: {discrepancy})"))
+            
+            msg = f"Audit complete. Inventory adjusted. Discrepancy of {discrepancy} units recorded."
+            
+    conn.close()
+    return jsonify({"success": True, "message": msg})
+
+
+@app.route('/api/gate/<gp_id>/manifest', methods=['GET'])
+def get_gate_manifest(gp_id):
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return "Gate pass not found", 404
+        
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt="Skandha WMS - Gate Pass Manifest", ln=1, align='C')
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=f"Gate Pass ID: {gp_id}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Vehicle Plate: {gp.get('plate')}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Driver Name: {gp.get('driver_name', 'N/A')}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Vendor: {gp.get('vendor', 'N/A')}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Status: {gp.get('status')}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Total Unloaded: {gp.get('unloaded_qty', 0)}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Allocated Bin: {gp.get('bin_allocation', 'N/A')}", ln=1, align='L')
+    
+    # Render SKU details from unloading_sheet
+    pdf.cell(200, 10, txt="", ln=1, align='L')
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(80, 10, txt="SKU", border=1)
+    pdf.cell(60, 10, txt="Description", border=1)
+    pdf.cell(30, 10, txt="Expected", border=1, ln=1)
+    
+    pdf.set_font("Arial", size=12)
+    sheet = gp.get('unloading_sheet')
+    if sheet and isinstance(sheet, list):
+        for item in sheet:
+            pdf.cell(80, 10, txt=str(item.get('sku', '')), border=1)
+            pdf.cell(60, 10, txt=str(item.get('description', ''))[:20], border=1)
+            pdf.cell(30, 10, txt=str(item.get('expected', '')), border=1, ln=1)
+    else:
+        pdf.cell(170, 10, txt="No specific SKUs provided in PO sheet.", border=1, ln=1)
+    
+    pdf_filename = f"manifest_gate_{gp_id}.pdf"
+    pdf_dir = os.path.join(os.path.dirname(__file__), "static", "manifests")
+    os.makedirs(pdf_dir, exist_ok=True)
+    pdf_path = os.path.join(pdf_dir, pdf_filename)
+    pdf.output(pdf_path)
+    
+    return jsonify({"success": True, "url": f"/static/manifests/{pdf_filename}"})
+
+@app.route('/api/outbound/<order_id>/manifest', methods=['GET'])
+def get_outbound_manifest(order_id):
+    conn = db.get_db()
+    order = conn.execute("SELECT * FROM outbound_orders WHERE id = ?", (order_id,)).fetchone()
+    items = conn.execute("SELECT * FROM outbound_items WHERE order_id = ?", (order_id,)).fetchall()
+    conn.close()
+    
+    if not order:
+        return "Order not found", 404
+        
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt="Skandha WMS - Outbound Manifest", ln=1, align='C')
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=f"Order ID: {order['id']}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Customer: {order['customer_name']}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Destination: {order['destination']}", ln=1, align='L')
+    pdf.cell(200, 10, txt=f"Status: {order['status']}", ln=1, align='L')
+    pdf.cell(200, 10, txt="", ln=1, align='L')
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(60, 10, txt="SKU", border=1)
+    pdf.cell(40, 10, txt="Required", border=1)
+    pdf.cell(40, 10, txt="Picked", border=1)
+    pdf.cell(40, 10, txt="Status", border=1, ln=1)
+    
+    pdf.set_font("Arial", size=12)
+    for item in items:
+        status = "FULFILLED" if item['picked_quantity'] >= item['quantity'] else "PENDING"
+        pdf.cell(60, 10, txt=str(item['sku_id']), border=1)
+        pdf.cell(40, 10, txt=str(item['quantity']), border=1)
+        pdf.cell(40, 10, txt=str(item['picked_quantity']), border=1)
+        pdf.cell(40, 10, txt=status, border=1, ln=1)
+        
+    pdf_filename = f"manifest_outbound_{order_id}.pdf"
+    pdf_dir = os.path.join(os.path.dirname(__file__), "static", "manifests")
+    os.makedirs(pdf_dir, exist_ok=True)
+    pdf_path = os.path.join(pdf_dir, pdf_filename)
+    pdf.output(pdf_path)
+    
+    return jsonify({"success": True, "url": f"/static/manifests/{pdf_filename}"})
+
+
+@app.route('/api/dock/suggest_bin/<gp_id>', methods=['GET'])
+def suggest_bin(gp_id):
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found"})
+        
+    vendor_name = gp.get('vendor', 'UNKNOWN')
+    sku_id = 'SKU-' + vendor_name[:3].upper() + '01' if vendor_name != 'UNKNOWN' else 'UNKNOWN-SKU'
+    import json
+    try:
+        sheet_str = gp.get('unloading_sheet')
+        sheet = json.loads(sheet_str) if isinstance(sheet_str, str) else sheet_str
+        if sheet and len(sheet) > 0 and 'sku' in sheet[0]:
+            sku_id = sheet[0]['sku']
+    except: pass
+    
+    # We don't commit the putaway yet, we just simulate the selection
+    conn = db.get_db()
+    cursor = conn.cursor()
+    
+    sku = cursor.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+    vol_per_unit = sku['unit_volume'] if sku else 1.5
+    wt_per_unit = sku['unit_weight'] if sku else 2.0
+    
+    req_vol = gp.get('unloaded_qty', 0) * vol_per_unit
+    req_wt = gp.get('unloaded_qty', 0) * wt_per_unit
+    
+    best_bin = cursor.execute('''
+        SELECT bin_id 
+        FROM bins 
+        WHERE status = 'Active' 
+          AND (max_volume - current_volume) >= ?
+          AND (max_weight - current_weight) >= ?
+        ORDER BY (max_volume - current_volume) ASC
+        LIMIT 1
+    ''', (req_vol, req_wt)).fetchone()
+    
+    conn.close()
+    
+    chosen_bin = best_bin['bin_id'] if best_bin else "BIN-OVERFLOW-NEW"
+    return jsonify({"success": True, "suggested_bin": chosen_bin})

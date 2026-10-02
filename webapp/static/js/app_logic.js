@@ -507,9 +507,25 @@
                                             </tbody>
                                         </table>
                                     </div>
-                                    <button class="btn-primary" style="width:100%; margin-bottom:4px;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>🔄 Sync AI Tracker Count</button>
+                                    <div style="display:flex; gap: 4px; margin-bottom:4px;">
+                                        <button class="btn-primary" style="flex: 1;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>🔄 Sync AI Tracker</button>
+                                        <input type="number" id="manual_add_${gp.id}" placeholder="+Qty" style="width: 60px; padding: 4px; margin: 0; background: var(--panel-bg); color: var(--text-main); border: 1px solid var(--border-light); border-radius: 4px;" ${gp.status === 'Completed' ? 'disabled' : ''}>
+                                        <button class="btn-primary" style="padding: 4px 8px; background: var(--accent);" onclick="manualAddPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Add</button>
+                                    </div>
+                                    
+                                    ${gp.status !== 'Completed' ? `
+                                        <div style="background: var(--panel-bg); border: 1px solid var(--border-light); padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+                                            <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Putaway Bin Allocation</label>
+                                            <div style="display:flex; gap: 4px; margin-top:4px;">
+                                                <input type="text" id="bin_${gp.id}" value="${gp.bin_allocation || ''}" placeholder="Assign Bin ID" style="flex:1; padding: 4px; margin: 0; background: var(--panel-subtle); color: var(--text-main); border: 1px solid var(--border-light); border-radius: 4px;">
+                                                <button class="btn-primary" style="padding: 4px 8px; font-size: 0.75rem; background: var(--accent);" onclick="suggestBin('${gp.id}')">🤖 Auto-Suggest</button>
+                                            </div>
+                                        </div>
+                                    ` : `<div style="font-size:0.85rem; margin-bottom:8px;"><strong>Allocated Bin:</strong> ${gp.bin_allocation}</div>`}
+                                    
                                     <button class="btn-danger" style="width:100%; margin-bottom:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="width:100%; background:var(--accent-hover);" onclick="sendInvoice('${gp.id}')">📧 Send Invoice to Vendor</button>` : ''}
+                                    ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--accent);" onclick="downloadGateManifest('${gp.id}')">📄 PDF Manifest</button>` : ''}
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', '${gp.plate}')">Check Out</button>` : ''}
                                 `}
                             </td>
@@ -654,6 +670,43 @@
             }
         }
 
+        
+        async function manualAddPackages(gp_id) {
+            const qtyInput = document.getElementById(`manual_add_${gp_id}`);
+            const count = parseInt(qtyInput.value) || 0;
+            if (count === 0) return;
+            
+            try {
+                const res = await fetch(`/api/dock/auto_add/${gp_id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({count: count})
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert(`Added ${count} items. Total: ${data.total}`);
+                    fetchGatePasses();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch(e) {
+                alert('Connection error');
+            }
+        }
+
+        
+        async function suggestBin(gp_id) {
+            try {
+                const res = await fetch(`/api/dock/suggest_bin/${gp_id}`);
+                const data = await res.json();
+                if(data.success) {
+                    document.getElementById(`bin_${gp_id}`).value = data.suggested_bin;
+                } else {
+                    alert(data.message);
+                }
+            } catch(e) { console.error(e); }
+        }
+    
         async function completeUnload(id) {
             const bin = document.getElementById(`bin_${id}`) ? document.getElementById(`bin_${id}`).value : "";
             await fetch(`/api/gate_passes/${id}`, {
@@ -859,6 +912,25 @@
                 }
                 if (camVendorSelect && camVendorSelect.value === 'Built-in Device') {
                     camVendorSelect.value = 'Hikvision';
+                }
+                
+                const urlLabel = document.getElementById('camUrlLabel');
+                if(camType === 'USB Webcam') {
+                    if(urlLabel) urlLabel.innerText = "USB Camera Index (or Path)";
+                    if(camUrlInput) {
+                        camUrlInput.placeholder = "Enter 0, 1, 2... or /dev/video0";
+                        if(!camUrlInput.value || camUrlInput.value.startsWith('http')) {
+                            camUrlInput.value = "0";
+                        }
+                    }
+                } else {
+                    if(urlLabel) urlLabel.innerText = "Stream URL";
+                    if(camUrlInput) {
+                        camUrlInput.placeholder = "http://192.168.x.x:8080/video";
+                        if(camUrlInput.value === "0" || camUrlInput.value === "1") {
+                            camUrlInput.value = "";
+                        }
+                    }
                 }
             }
         }
@@ -1405,3 +1477,235 @@ window.submitAddSku = async function() {
 }
 
 
+
+
+window.initDashboardAnalytics = async function() {
+    try {
+        const bRes = await fetch('/api/bins');
+        const bins = await bRes.json();
+        
+        let zones = {};
+        bins.forEach(b => {
+            if(!zones[b.zone]) zones[b.zone] = {volUsed: 0, volMax: 0};
+            zones[b.zone].volUsed += b.current_volume;
+            zones[b.zone].volMax += b.max_volume;
+        });
+        
+        const labels = Object.keys(zones);
+        const volUsedData = labels.map(z => zones[z].volUsed);
+        const volFreeData = labels.map(z => zones[z].volMax - zones[z].volUsed);
+        
+        const ctxVol = document.getElementById('chartVolume');
+        if(ctxVol && typeof Chart !== 'undefined') {
+            new Chart(ctxVol, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Used Volume (m³)', data: volUsedData, backgroundColor: '#3b82f6' },
+                        { label: 'Free Volume (m³)', data: volFreeData, backgroundColor: '#334155' }
+                    ]
+                },
+                options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true } } }
+            });
+        }
+        
+        const aRes = await fetch('/api/alerts');
+        const alerts = await aRes.json();
+        const alertBox = document.getElementById('dashboardAlerts');
+        if(alertBox) {
+            if(alerts.length === 0) {
+                alertBox.innerHTML = '<div style="color:var(--primary-teal);">✅ All systems normal. No alerts.</div>';
+            } else {
+                alertBox.innerHTML = alerts.map(a => `<div style="margin-bottom:8px; padding:10px; border-left:4px solid ${a.type==='error'?'var(--danger)':'var(--warning)'}; background:rgba(0,0,0,0.2); border-radius:4px;">${a.message}</div>`).join('');
+            }
+        }
+    } catch(e) { console.error(e); }
+};
+
+// Auto-run if on dashboard
+const origSwitchTab = window.switchTab;
+if (origSwitchTab) {
+    window.switchTab = function(tabId) {
+        origSwitchTab(tabId);
+        if(tabId === 'dashboard') {
+            setTimeout(() => window.initDashboardAnalytics(), 300);
+        }
+    };
+} else {
+    setTimeout(() => window.initDashboardAnalytics(), 1000);
+}
+
+
+// ==========================================
+// OUTBOUND LOGIC
+// ==========================================
+
+window.fetchOutboundOrders = async function() {
+    try {
+        const res = await fetch('/api/outbound');
+        const orders = await res.json();
+        const tbody = document.getElementById('outboundTableBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        
+        orders.forEach(o => {
+            const tr = document.createElement('tr');
+            let itemsStr = o.items.map(i => `${i.quantity}x ${i.sku_id} (Picked: ${i.picked_quantity})`).join('<br>');
+            
+            let actionBtn = `<button class="btn-primary" onclick="pickOutboundOrder('${o.id}')">Pick Items</button>`;
+            if (o.status === 'Fulfilled') actionBtn = '<span style="color:var(--primary-teal); font-weight:bold;">Completed</span>';
+            actionBtn += `<button class="btn-primary" style="margin-top:4px; font-size:0.75rem; width:100%; background:var(--accent);" onclick="downloadOutboundManifest('${o.id}')">📄 PDF Manifest</button>`;
+            
+            tr.innerHTML = `
+                <td><strong>${o.id}</strong></td>
+                <td>${o.customer_name}</td>
+                <td>${o.destination}</td>
+                <td style="font-size:0.8rem;">${itemsStr}</td>
+                <td><span class="badge ${o.status==='Fulfilled'?'badge-success':(o.status==='Pending'?'badge-warning':'')}">${o.status}</span></td>
+                <td>${actionBtn}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error(e); }
+}
+
+window.submitAddOutbound = async function() {
+    const data = {
+        customer_name: document.getElementById('outboundCustomer').value,
+        destination: document.getElementById('outboundDest').value,
+        items: [
+            { sku_id: document.getElementById('outboundSku').value, quantity: parseInt(document.getElementById('outboundQty').value) }
+        ]
+    };
+    try {
+        await fetch('/api/outbound', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        document.getElementById('formAddOutbound').reset();
+        window.fetchOutboundOrders();
+    } catch(e) { console.error(e); }
+}
+
+window.pickOutboundOrder = async function(orderId) {
+    try {
+        const res = await fetch(`/api/outbound/${orderId}/pick`, {method: 'POST'});
+        const data = await res.json();
+        if(data.success) {
+            alert('Order pick processed! Status: ' + data.status);
+            window.fetchOutboundOrders();
+        } else {
+            alert('Failed to pick order: ' + data.error);
+        }
+    } catch(e) { console.error(e); }
+}
+
+// Hook into tab switching
+const origSwitchTabOutbound = window.switchTab;
+if (origSwitchTabOutbound) {
+    window.switchTab = function(tabId) {
+        origSwitchTabOutbound(tabId);
+        if(tabId === 'outbound') {
+            window.fetchOutboundOrders();
+            // Populate SKUs
+            fetch('/api/skus').then(r=>r.json()).then(skus => {
+                const sel = document.getElementById('outboundSku');
+                if(sel) {
+                    sel.innerHTML = '<option value="">Select SKU...</option>' + skus.map(s => `<option value="${s.sku_id}">${s.name}</option>`).join('');
+                }
+            });
+        }
+    };
+}
+
+
+// ==========================================
+// MASTER HUB SEARCH
+// ==========================================
+window.filterMasterHub = function() {
+    const input = document.getElementById('masterHubSearch');
+    if(!input) return;
+    const filter = input.value.toLowerCase();
+    
+    // The active sub-tab has display != none
+    const activeSections = document.querySelectorAll('.sub-master-section');
+    let activeSection = null;
+    activeSections.forEach(s => {
+        if(s.style.display !== 'none') activeSection = s;
+    });
+    
+    if (!activeSection) return;
+    
+    const tbody = activeSection.querySelector('tbody');
+    if (!tbody) return;
+    
+    const trs = tbody.getElementsByTagName('tr');
+    for (let i = 0; i < trs.length; i++) {
+        let match = false;
+        const tds = trs[i].getElementsByTagName('td');
+        for (let j = 0; j < tds.length; j++) {
+            if (tds[j].innerText.toLowerCase().includes(filter)) {
+                match = true;
+                break;
+            }
+        }
+        trs[i].style.display = match ? "" : "none";
+    }
+}
+
+
+// ==========================================
+// CYCLE COUNTING & AUDIT
+// ==========================================
+async function runCycleCount(bin_id) {
+    const input = document.getElementById(`audit_qty_${bin_id}`);
+    const actual_qty = parseInt(input.value);
+    if(isNaN(actual_qty)) {
+        alert("Enter a valid quantity");
+        return;
+    }
+    try {
+        const res = await fetch('/api/cycle_count', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({bin_id: bin_id, actual_qty: actual_qty})
+        });
+        const data = await res.json();
+        if(data.success) {
+            alert(data.message);
+            fetchMasterHubData();
+        } else {
+            alert("Error: " + data.message);
+        }
+    } catch (e) {
+        alert("Connection Error");
+    }
+}
+
+// Modify bin table rendering to include cycle count inputs in the cycle count tab
+function renderCycleCountTab(bins, inventory) {
+    const tbody = document.getElementById('cycleCountBody');
+    if(!tbody) return;
+    
+    tbody.innerHTML = bins.map(b => {
+        const inv = inventory.find(i => i.bin_id === b.bin_id);
+        const expected_qty = inv ? inv.quantity : 0;
+        const sku_id = inv ? inv.sku_id : 'N/A';
+        return `
+            <tr>
+                <td>${b.bin_id}</td>
+                <td>${b.zone}</td>
+                <td>${sku_id}</td>
+                <td>${expected_qty}</td>
+                <td>
+                    <div style="display:flex; gap:10px;">
+                        <input type="number" id="audit_qty_${b.bin_id}" placeholder="Actual Qty" style="width:100px; padding:4px; margin:0;" value="${expected_qty}">
+                        <button class="btn-primary" onclick="runCycleCount('${b.bin_id}')">Audit</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}

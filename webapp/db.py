@@ -100,6 +100,27 @@ def init_db():
                 ON UPDATE CASCADE ON DELETE SET NULL
         );
 
+        
+        -- Outbound Orders
+        CREATE TABLE IF NOT EXISTS outbound_orders (
+            id TEXT PRIMARY KEY,
+            customer_name TEXT,
+            destination TEXT,
+            status TEXT DEFAULT 'Pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Outbound Items
+        CREATE TABLE IF NOT EXISTS outbound_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT,
+            sku_id TEXT,
+            quantity INTEGER DEFAULT 0,
+            picked_quantity INTEGER DEFAULT 0,
+            FOREIGN KEY(order_id) REFERENCES outbound_orders(id),
+            FOREIGN KEY(sku_id) REFERENCES skus(sku_id)
+        );
+
         -- Attempt to add columns for existing databases
         -- SQLite will error if they already exist, which is fine in exec script if we catch it, but execscript aborts on error.
         -- Better to do it via python try-except.
@@ -738,6 +759,24 @@ def update_gate_pass(gp_id, data):
             WHERE id = ?
         """, (plate, driver_name, load_desc, vendor, status, dock, expected_date,
               po_number or None, unloaded_qty, activity, bin_allocation, photo, driver_photo, sheet_str, driver_phone, vendor_email, otp, otp_verified, exit_time, gp_id))
+              
+        # Execute putaway stock update when transitioning to Completed
+        if status == 'Completed' and curr['status'] != 'Completed' and bin_allocation:
+            vendor_name = vendor or 'UNKNOWN'
+            sku_id = 'SKU-' + vendor_name[:3].upper() + '01' if vendor_name != 'UNKNOWN' else 'UNKNOWN-SKU'
+            # Look up SKU from unloading_sheet if available
+            import json
+            try:
+                sheet = json.loads(sheet_str) if isinstance(sheet_str, str) else sheet_str
+                if sheet and len(sheet) > 0 and 'sku' in sheet[0]:
+                    sku_id = sheet[0]['sku']
+            except: pass
+            
+            try:
+                update_bin_stock(bin_allocation, vendor_name, unloaded_qty or 0, sku_id)
+            except Exception as e:
+                print("Failed to update bin stock automatically on completion:", e)
+              
     conn.close()
     return get_gate_pass(gp_id)
 
@@ -1831,11 +1870,65 @@ def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (bin_id, sku_id, count, vendor))
         
+        # Look up SKU sizes dynamically
+        sku = conn.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+        vol_per_unit = sku['unit_volume'] if sku else 1.5
+        wt_per_unit = sku['unit_weight'] if sku else 2.0
+
         conn.execute('''
             UPDATE bins 
             SET current_volume = current_volume + ?,
                 current_weight = current_weight + ?,
                 last_updated = CURRENT_TIMESTAMP
             WHERE bin_id = ?
-        ''', (count * 1.5, count * 2.0, bin_id))
+        ''', (count * vol_per_unit, count * wt_per_unit, bin_id))
     conn.close()
+
+
+def intelligent_putaway(total_unloaded, vendor_name, sku_id='UNKNOWN-SKU'):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # 1. Ensure SKU exists and get its unit metrics
+    sku = cursor.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+    if not sku:
+        cursor.execute("INSERT INTO skus (sku_id, name, unit_volume, unit_weight) VALUES (?, ?, 1.5, 2.0)", (sku_id, f"Item {sku_id}"))
+        conn.commit()
+        vol_per_unit = 1.5
+        wt_per_unit = 2.0
+    else:
+        vol_per_unit = sku['unit_volume']
+        wt_per_unit = sku['unit_weight']
+        
+    req_vol = total_unloaded * vol_per_unit
+    req_wt = total_unloaded * wt_per_unit
+    
+    # 2. Find the best bin
+    # Criteria: Has enough space (vol and weight). Order by least free space first (to fill bins up).
+    best_bin = cursor.execute('''
+        SELECT bin_id 
+        FROM bins 
+        WHERE status = 'Active' 
+          AND (max_volume - current_volume) >= ?
+          AND (max_weight - current_weight) >= ?
+        ORDER BY (max_volume - current_volume) ASC
+        LIMIT 1
+    ''', (req_vol, req_wt)).fetchone()
+    
+    if best_bin:
+        chosen_bin = best_bin['bin_id']
+    else:
+        # Fallback: Create a new Overflow bin
+        import uuid
+        chosen_bin = "BIN-OVERFLOW-" + str(uuid.uuid4())[:4].upper()
+        cursor.execute('''
+            INSERT INTO bins (bin_id, zone, max_volume, max_weight) 
+            VALUES (?, 'Overflow', 500.0, 5000.0)
+        ''', (chosen_bin,))
+        conn.commit()
+        
+    conn.close()
+    
+    # 3. Perform the stock update using the chosen bin
+    update_bin_stock(chosen_bin, vendor_name, total_unloaded, sku_id)
+    return chosen_bin

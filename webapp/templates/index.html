@@ -839,6 +839,7 @@
                 <button class="tab-btn" onclick="switchTab('cameras')">Camera Junction</button>
                 <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
                 <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
+                <button class="tab-btn" onclick="switchTab('outbound')">Outbound Flow</button>
                 <!-- AI Vision Master Hidden -->
                 <button class="tab-btn" onclick="switchTab('ai-vision-master')">AI Vision &amp; Tracking Master</button>
             </div>
@@ -880,6 +881,52 @@
                         <h3>Active at Docks</h3>
                         <div class="value" id="stat-dock">0</div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        
+        <!-- OUTBOUND VIEW -->
+        <div id="outbound-view" class="view-section">
+            <div style="display:flex; gap:2rem;">
+                <aside class="glass-panel" style="flex:0 0 400px; height:fit-content;">
+                    <h3>Create Outbound Order</h3>
+                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Generate a new picking requirement.</p>
+                    <form id="formAddOutbound" onsubmit="event.preventDefault(); submitAddOutbound();">
+                        <div style="margin-bottom:1rem;">
+                            <label>Customer Name *</label>
+                            <input type="text" id="outboundCustomer" required style="width:100%; margin-bottom:0;">
+                        </div>
+                        <div style="margin-bottom:1rem;">
+                            <label>Destination *</label>
+                            <input type="text" id="outboundDest" required style="width:100%; margin-bottom:0;">
+                        </div>
+                        <div style="margin-bottom:1rem;">
+                            <label>Select SKU *</label>
+                            <select id="outboundSku" required style="width:100%; margin-bottom:0;"></select>
+                        </div>
+                        <div style="margin-bottom:1.5rem;">
+                            <label>Quantity to Pick *</label>
+                            <input type="number" id="outboundQty" required min="1" style="width:100%; margin-bottom:0;">
+                        </div>
+                        <button type="submit" class="btn-primary" style="width:100%;">Create Order</button>
+                    </form>
+                </aside>
+                <div class="glass-panel" style="flex:1;">
+                    <h3>Active Outbound Orders</h3>
+                    <table style="width:100%; margin-top:1rem;">
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Customer</th>
+                                <th>Destination</th>
+                                <th>Items</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="outboundTableBody"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -1013,7 +1060,8 @@
                         </div>
 
                         <div id="camUrlGroup" style="display:none;">
-                            <label>Stream URL</label> <input type="text" id="camUrl" placeholder="http://192.168.x.x:8080/video">
+                            <label id="camUrlLabel">Stream URL</label> 
+                            <input type="text" id="camUrl" placeholder="http://192.168.x.x:8080/video">
                         </div>
 
                         <button type="submit" id="connectCameraBtn" class="btn-primary" style="width:100%; margin-top:8px;">Connect Camera</button>
@@ -1084,13 +1132,22 @@
             <div class="glass-panel">
                 <h2>Master Data Hub</h2>
                 <p style="color:var(--text-muted); margin-bottom: 1rem;">Consolidated view of all system masters.</p>
-                <div style="display:flex; gap:10px; margin-bottom: 20px;">
-                    <button class="btn-primary sub-tab-btn active" onclick="switchSubTab('po-master', this)">PO Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)">Gate Pass Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)">Vehicle Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)">Invoice Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('bin-master', this)">Bin Master</button>
-                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('sku-master', this)">SKU Master</button>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button class="btn-primary sub-tab-btn active" onclick="switchSubTab('po-master', this)">PO Master</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)">Gate Pass Master</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)">Vehicle Master</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)">Invoice Master</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('bin-master', this)">Bin Master</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('sku-master', this)">SKU Master</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('cycle-count', this)">Cycle Count</button>
+                    </div>
+                    <div>
+                        <div style="position:relative;">
+                            <i class="fas fa-search" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted);"></i>
+                            <input type="text" id="masterHubSearch" onkeyup="filterMasterHub()" placeholder="Search..." style="padding: 8px 12px 8px 35px; border-radius: 6px; border: 1px solid var(--border-light); background: var(--panel-bg); color: var(--text-main); width: 250px; outline: none; margin-bottom:0;" onfocus="this.style.border='1px solid var(--primary-teal)'" onblur="this.style.border='1px solid var(--border-light)'">
+                        </div>
+                    </div>
                 </div>
                 
                 
