@@ -1291,6 +1291,7 @@ async function fetchSkus() {
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-worker-box', this)">Worker ↔ Box Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-box-bin', this)">Box ↔ Bin Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-events', this)">Warehouse Movement Events Test</button>
+                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-traceability', this)">Material Traceability Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-config', this)">Configuration</button>
                 </div>
 
@@ -3380,6 +3381,274 @@ async function fetchSkus() {
                             </div>
                             <div style="text-align:right; margin-top:1.25rem;">
                                 <button type="button" class="btn-secondary" onclick="closeMovementEventEvidenceModal()" style="padding:0.4rem 1rem;">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 13. MATERIAL TRACEABILITY SUB-PAGE (PART 13) -->
+                <div id="vision-traceability-sub" class="vision-sub-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                <span>📦 Material Traceability Foundation</span>
+                                <span class="badge sent" style="font-size:0.72rem; background:rgba(139,92,246,0.15); color:#8b5cf6; border:1px solid rgba(139,92,246,0.3);">Part 13 Active</span>
+                            </h3>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Material-centric movement history, observation chains, and physical interaction audit across warehouse zones and cameras.</p>
+                        </div>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.82rem; padding:6px 12px;">
+                                Strict Mode: Traceability &ne; Inventory Transaction
+                            </span>
+                            <span class="badge" style="background:#10b981; color:#fff; font-size:0.82rem; padding:6px 12px;">
+                                In-Memory / Zero DB Writes
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Telemetry KPI Dashboard Strip -->
+                    <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 1.25rem; gap:12px;">
+                        <div class="metric-card" style="padding:0.9rem; border-left:4px solid #8b5cf6;">
+                            <span class="metric-title" style="font-size:0.75rem;">Total Materials</span>
+                            <span class="metric-value" id="trcKpiTotalMaterials" style="font-size:1.6rem; color:#8b5cf6;">0</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">Unique Dossiers</span>
+                        </div>
+                        <div class="metric-card" style="padding:0.9rem; border-left:4px solid #10b981;">
+                            <span class="metric-title" style="font-size:0.75rem;">Validated Real-World</span>
+                            <span class="metric-value" id="trcKpiValidated" style="font-size:1.6rem; color:#10b981;">0</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">Master-Matched</span>
+                        </div>
+                        <div class="metric-card" style="padding:0.9rem; border-left:4px solid #3b82f6;">
+                            <span class="metric-title" style="font-size:0.75rem;">In-Transit</span>
+                            <span class="metric-value" id="trcKpiInTransit" style="font-size:1.6rem; color:#3b82f6;">0</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">Zone Traversals</span>
+                        </div>
+                        <div class="metric-card" style="padding:0.9rem; border-left:4px solid #f59e0b;">
+                            <span class="metric-title" style="font-size:0.75rem;">Destination Stored</span>
+                            <span class="metric-value" id="trcKpiDestination" style="font-size:1.6rem; color:#f59e0b;">0</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">Bin Associated</span>
+                        </div>
+                        <div class="metric-card" style="padding:0.9rem; border-left:4px solid #ec4899;">
+                            <span class="metric-title" style="font-size:0.75rem;">Timeline Events</span>
+                            <span class="metric-value" id="trcKpiTotalEvents" style="font-size:1.6rem; color:#ec4899;">0</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">Audit Stream</span>
+                        </div>
+                        <div class="metric-card" style="padding:0.9rem; border-left:4px solid #64748b;">
+                            <span class="metric-title" style="font-size:0.75rem;">Process Latency</span>
+                            <span class="metric-value" id="trcKpiLatency" style="font-size:1.6rem; color:var(--text-main);">-- ms</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">In-Memory Speed</span>
+                        </div>
+                    </div>
+
+                    <!-- Filter, Scenario & Controls Toolbar -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="font-size:0.82rem; font-weight:600; color:var(--text-muted); margin:0;">Material:</label>
+                                <select id="trcMaterialSelect" style="padding:0.4rem 0.6rem; font-size:0.82rem; border-radius:6px; border:1px solid var(--border-light); background:var(--panel-bg); color:var(--text-main);" onchange="handleTraceabilityMaterialSelect(this.value)">
+                                    <option value="">-- All Materials --</option>
+                                    <option value="B104" selected>B104 (Box SKU VLV-900)</option>
+                                </select>
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="font-size:0.82rem; font-weight:600; color:var(--text-muted); margin:0;">Scenario:</label>
+                                <select id="trcScenarioSelect" style="padding:0.4rem 0.6rem; font-size:0.82rem; border-radius:6px; border:1px solid var(--border-light); background:var(--panel-bg); color:var(--text-main);">
+                                    <option value="complete_trace" selected>⭐ Full Trace (Outside &rarr; Dock 1 &rarr; Truck &rarr; Worker &rarr; Bin Area &rarr; Bin)</option>
+                                    <option value="box_enter_dock">1. Box Enter Dock Zone</option>
+                                    <option value="box_truck_association">2. Box-Truck Confirmed Association</option>
+                                    <option value="box_worker_association">3. Box-Worker Confirmed Association</option>
+                                    <option value="box_bin_association">4. Box-Bin Confirmed Association</option>
+                                </select>
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="font-size:0.82rem; font-weight:600; color:var(--text-muted); margin:0;">Camera:</label>
+                                <select id="trcCameraSelect" style="padding:0.4rem 0.6rem; font-size:0.82rem; border-radius:6px; border:1px solid var(--border-light); background:var(--panel-bg); color:var(--text-main);">
+                                    <option value="CAM-001" selected>CAM-001 (Inbound Dock 01)</option>
+                                    <option value="CAM-002">CAM-002 (Storage Aisle 01)</option>
+                                    <option value="CAM-003">CAM-003 (Packing Station 01)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <button type="button" class="btn-primary" onclick="runTraceabilityTest()" id="trcRunTestBtn" style="padding:0.45rem 0.9rem; font-size:0.82rem; display:flex; align-items:center; gap:6px;">
+                                <span>▶ Run Test Frame</span>
+                            </button>
+                            <button type="button" class="btn-primary" onclick="runTraceabilitySequence()" id="trcRunSeqBtn" style="padding:0.45rem 0.9rem; font-size:0.82rem; background:#8b5cf6; display:flex; align-items:center; gap:6px;">
+                                <span>⚡ Run 7-Frame Sequence</span>
+                            </button>
+                            <button type="button" class="btn-secondary" onclick="resetTraceabilitySession()" id="trcResetBtn" style="padding:0.45rem 0.85rem; font-size:0.82rem;">
+                                <span>🔄 Reset Session</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Split View: Visual Observer (Left) & Material Dossier (Right) -->
+                    <div style="display:grid; grid-template-columns: minmax(360px, 1.15fr) minmax(460px, 1.45fr); gap:16px; margin-bottom:1.25rem;">
+                        <!-- Left: Visual Image Overlay & Observation Flow Graph -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <h4 style="margin:0; font-size:0.92rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                    <span>📡 Visual Traceability Observer</span>
+                                </h4>
+                                <span class="badge sent" id="trcImageMetaBadge" style="font-size:0.7rem;">Awaiting Execution</span>
+                            </div>
+
+                            <div id="trcImageContainer" style="position:relative; width:100%; min-height:280px; background:#0b1120; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center; border:1px solid #1e293b;">
+                                <img id="trcAnnotatedImage" src="" alt="Traceability Preview" style="width:100%; height:auto; display:none; border-radius:6px; object-fit:contain;">
+                                <div id="trcImagePlaceholder" style="text-align:center; padding:2rem 1rem; color:var(--text-muted);">
+                                    <div style="font-size:3rem; margin-bottom:0.75rem; color:#8b5cf6;">📦 🚚 👷 🏷️</div>
+                                    <p style="margin:0; font-size:0.92rem; font-weight:600; color:var(--text-main);">No Traceability Sequence Executed Yet</p>
+                                    <p style="margin:4px 0 0 0; font-size:0.8rem; color:var(--text-muted);">Click 'Run 7-Frame Sequence' to observe complete material lifecycle.</p>
+                                </div>
+                            </div>
+
+                            <!-- Physical Observation Flow Graph (Section 36) -->
+                            <div style="margin-top:12px; background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:0.85rem;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span style="font-size:0.78rem; font-weight:700; color:var(--primary-navy);">OBSERVATION FLOW GRAPH</span>
+                                    <span style="font-size:0.7rem; color:var(--text-muted);">Physical Interaction Chain</span>
+                                </div>
+                                <div id="trcFlowGraph" style="display:flex; align-items:center; justify-content:space-around; flex-wrap:wrap; gap:8px; font-size:0.78rem; padding:6px 0;">
+                                    <div style="text-align:center; padding:6px 10px; background:rgba(59,130,246,0.1); border:1px dashed #3b82f6; border-radius:6px;" id="graphNodeSource">
+                                        <div style="font-size:0.68rem; color:var(--text-muted);">ORIGIN / TRUCK</div>
+                                        <strong style="color:#3b82f6;" id="graphTextSource">None</strong>
+                                    </div>
+                                    <span style="color:var(--text-muted); font-size:1.1rem;">&rarr;</span>
+                                    <div style="text-align:center; padding:6px 12px; background:rgba(139,92,246,0.15); border:2px solid #8b5cf6; border-radius:6px;" id="graphNodeMaterial">
+                                        <div style="font-size:0.68rem; color:var(--text-muted);">MATERIAL</div>
+                                        <strong style="color:#8b5cf6;" id="graphTextMaterial">B104</strong>
+                                    </div>
+                                    <span style="color:var(--text-muted); font-size:1.1rem;">&rarr;</span>
+                                    <div style="text-align:center; padding:6px 10px; background:rgba(245,158,11,0.1); border:1px dashed #f59e0b; border-radius:6px;" id="graphNodeWorker">
+                                        <div style="font-size:0.68rem; color:var(--text-muted);">WORKER / ZONE</div>
+                                        <strong style="color:#f59e0b;" id="graphTextWorker">None</strong>
+                                    </div>
+                                    <span style="color:var(--text-muted); font-size:1.1rem;">&rarr;</span>
+                                    <div style="text-align:center; padding:6px 10px; background:rgba(16,185,129,0.1); border:1px dashed #10b981; border-radius:6px;" id="graphNodeDest">
+                                        <div style="font-size:0.68rem; color:var(--text-muted);">DESTINATION / BIN</div>
+                                        <strong style="color:#10b981;" id="graphTextDest">None</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Structured Material Dossier -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <h4 style="margin:0; font-size:0.92rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                    <span>Material Traceability Dossier: <strong id="trcDossierTitle" style="color:#8b5cf6;">B104</strong></span>
+                                </h4>
+                                <div style="display:flex; gap:6px;">
+                                    <span class="badge" id="trcDossierLevelBadge" style="font-size:0.7rem; background:#10b981; color:#fff;">VALIDATED_REAL_WORLD</span>
+                                    <span class="badge" id="trcDossierStatusBadge" style="font-size:0.7rem; background:rgba(139,92,246,0.2); color:#8b5cf6;">ACTIVE</span>
+                                </div>
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px;">
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px;">
+                                    <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">SOURCE / ORIGIN (TRUCK)</div>
+                                    <div style="font-size:0.92rem; font-weight:700; color:var(--text-main); margin-top:2px;" id="trcDossierSource">--</div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted);" id="trcDossierSourceNote">Derived from BOX_ASSOCIATED_WITH_TRUCK</div>
+                                </div>
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px;">
+                                    <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">DESTINATION (BIN)</div>
+                                    <div style="font-size:0.92rem; font-weight:700; color:var(--text-main); margin-top:2px;" id="trcDossierDestination">--</div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted);" id="trcDossierDestNote">Derived from BOX_ASSOCIATED_WITH_BIN</div>
+                                </div>
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px;">
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px;">
+                                    <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">CURRENT LOCATION</div>
+                                    <div style="font-size:0.88rem; font-weight:700; color:var(--text-main); margin-top:2px;" id="trcDossierLocation">--</div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted);" id="trcDossierLocationSub">Zone & Camera Observation</div>
+                                </div>
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px;">
+                                    <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">ASSOCIATED WORKER</div>
+                                    <div style="font-size:0.88rem; font-weight:700; color:var(--text-main); margin-top:2px;" id="trcDossierWorkers">--</div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted);">Observed in close proximity</div>
+                                </div>
+                            </div>
+
+                            <!-- Zone Traversal Chain -->
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px; margin-bottom:12px;">
+                                <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-bottom:4px;">ZONE TRAVERSAL HISTORY</div>
+                                <div id="trcDossierZoneHistory" style="display:flex; flex-wrap:wrap; gap:6px; font-size:0.75rem;">
+                                    <span style="color:var(--text-muted);">No zone movements recorded.</span>
+                                </div>
+                            </div>
+
+                            <!-- Camera Sightings -->
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px; flex:1;">
+                                <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-bottom:4px;">CAMERA SIGHTINGS</div>
+                                <div id="trcDossierCameras" style="display:flex; flex-wrap:wrap; gap:6px; font-size:0.75rem;">
+                                    <span style="color:var(--text-muted);">No camera observations logged.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Full-Width Chronological Event Timeline Ledger -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                            <h4 style="margin:0; font-size:0.95rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                <span>📜 Chronological Event Timeline (Material Audit Chain)</span>
+                            </h4>
+                            <span class="badge sent" id="trcTimelineCountBadge" style="font-size:0.72rem; background:rgba(139,92,246,0.15); color:#8b5cf6;">0 Events</span>
+                        </div>
+
+                        <div style="overflow-x:auto; max-height:420px;">
+                            <table style="width:100%; font-size:0.78rem;" id="trcTimelineTable">
+                                <thead>
+                                    <tr>
+                                        <th>Trace ID</th>
+                                        <th>Timestamp</th>
+                                        <th>Event ID</th>
+                                        <th>Event Type</th>
+                                        <th>Nature</th>
+                                        <th>Zone</th>
+                                        <th>Related Entity</th>
+                                        <th>Level</th>
+                                        <th>Evidence / Detail</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="trcTimelineTbody">
+                                    <tr>
+                                        <td colspan="9" style="text-align:center; padding:2rem 1rem; color:var(--text-muted);">
+                                            No traceability events recorded yet. Run a scenario or test sequence above.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Important Architectural Notice Callout -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-left:4px solid #8b5cf6; border-radius:8px; padding:1rem 1.25rem;">
+                        <h4 style="margin:0 0 0.4rem 0; font-size:0.9rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                            <span>🔒 Architectural Boundary: Traceability &ne; Inventory Transaction</span>
+                            <span class="badge sent" style="font-size:0.7rem; background:#8b5cf6; color:#fff;">Zero DB Writes</span>
+                        </h4>
+                        <p style="font-size:0.82rem; color:var(--text-muted); margin:0; line-height:1.45;">
+                            Part 13 introduces the <strong>Material Traceability Foundation</strong>. This layer reconstructs the observable lifecycle of materials (where did it come from, what did it interact with, where was it observed, and where did it go) by ingesting verified Movement Events. It distinguishes <strong>OBSERVED</strong> from <strong>VALIDATED</strong> and <strong>INFERRED</strong> records. Traceability does <strong>NOT</strong> post goods receipt, issue inventory, perform putaway, or alter any database table. Cross-camera matching is restricted strictly to verified physical identity (no visual Re-ID).
+                        </p>
+                    </div>
+
+                    <!-- Evidence Detail Modal -->
+                    <div id="trcEvidenceModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); z-index:9999; align-items:center; justify-content:center;">
+                        <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:12px; width:92%; max-width:680px; max-height:85vh; overflow-y:auto; padding:1.5rem; box-shadow:0 20px 40px rgba(0,0,0,0.4);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-light); padding-bottom:0.75rem; margin-bottom:1rem;">
+                                <h3 style="margin:0; font-size:1.15rem; color:var(--primary-navy);" id="modalTraceTitle">Material Trace Evidence Breakdown</h3>
+                                <button type="button" onclick="closeTraceEvidenceModal()" style="background:none; border:none; font-size:1.4rem; cursor:pointer; color:var(--text-muted);">&times;</button>
+                            </div>
+                            <div id="modalTraceContent">
+                                <!-- Populated dynamically -->
+                            </div>
+                            <div style="text-align:right; margin-top:1.25rem;">
+                                <button type="button" class="btn-secondary" onclick="closeTraceEvidenceModal()" style="padding:0.4rem 1rem;">Close</button>
                             </div>
                         </div>
                     </div>
