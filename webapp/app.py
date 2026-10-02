@@ -21,6 +21,7 @@ from validation_service import get_validation_service
 from association_service import get_association_service
 from worker_box_association_service import get_worker_box_association_service
 from box_bin_association_service import get_box_bin_association_service
+from movement_event_service import get_movement_event_service
 
 # Initialize SQLite database schema
 db.init_db()
@@ -1885,6 +1886,209 @@ def api_box_bin_camera_single(camera_id):
 def api_box_bin_camera_annotated_jpg(camera_id):
     """Return annotated binary JPEG with box/bin bounding boxes, connecting lines, and status pills."""
     service = get_box_bin_association_service()
+    frame, _ = get_camera_frame_for_detection(camera_id)
+    if frame is None:
+        return Response("Camera unavailable", status=404)
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+
+    jpeg_bytes = service.get_annotated_jpeg(camera_id)
+    if jpeg_bytes is None:
+        return Response("Annotation rendering failed", status=500)
+    return Response(jpeg_bytes, mimetype='image/jpeg')
+
+
+# ============================================================================
+# PART 12: WAREHOUSE MOVEMENT EVENT DETECTION FOUNDATION ROUTES
+# ============================================================================
+
+@app.route('/api/vision/events/status', methods=['GET'])
+def api_vision_events_status():
+    """Return operational status, active sessions, and movement event configuration."""
+    service = get_movement_event_service()
+    return jsonify(service.get_status())
+
+
+@app.route('/api/vision/events/reset', methods=['POST'])
+def api_vision_events_reset():
+    """Reset in-memory movement event sessions for a specific camera or all cameras."""
+    service = get_movement_event_service()
+    data = request.get_json(silent=True) or {}
+    camera_id = data.get('camera_id')
+
+    if camera_id and camera_id.upper() != 'ALL':
+        res = service.reset_session(camera_id)
+        return jsonify(res)
+    else:
+        res = service.reset_all()
+        return jsonify(res)
+
+
+@app.route('/api/vision/events/test', methods=['POST'])
+def api_vision_events_test():
+    """
+    Execute full perception & event pipeline (Parts 5 -> 6 -> 7 -> 8 -> 9/10/11 -> 12)
+    on a test frame (sample scene, uploaded image, or live camera snapshot), or on synthetic tracks/assocs.
+    """
+    service = get_movement_event_service()
+    data = request.get_json(silent=True) or {}
+
+    camera_id = data.get('camera_id', 'CAM-001')
+    source_type = data.get('source_type', 'sample')
+    sample_scene = data.get('sample_scene') or data.get('sample_name') or 'association_box_bin_dock1.jpg'
+    conf_threshold = data.get('conf_threshold')
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    # Handle synthetic scenario or synthetic tracks & associations directly if supplied
+    scenario = data.get('scenario')
+    synthetic_tracks = data.get('synthetic_tracks')
+    if scenario or synthetic_tracks is not None:
+        if scenario == 'box_enter':
+            tracks = [
+                {"track_id": 104, "class_code": "BOX", "center": [0.60, 0.50], "bbox": [0.55, 0.45, 0.65, 0.55], "identity_id": "B104", "validation_status": "VALIDATED"}
+            ]
+            res, latency = service.process_events(tracks=tracks, camera_id=camera_id)
+        else:
+            camera_zones = service._load_camera_zones(camera_id)
+            res, latency = service.process_events(
+                tracks=synthetic_tracks or [],
+                truck_box_assocs=data.get('truck_box_assocs', []),
+                worker_box_assocs=data.get('worker_box_assocs', []),
+                box_bin_assocs=data.get('box_bin_assocs', []),
+                camera_id=camera_id,
+                frame_index=data.get('frame_index'),
+                camera_zones=camera_zones
+            )
+        return jsonify({
+            'success': True,
+            'synthetic': True,
+            'mode': 'synthetic_events',
+            'scenario': scenario,
+            'camera_id': camera_id,
+            'result': res,
+            'latency_ms': latency,
+            'active_events': res.get('active_events', []),
+            'current_frame_events': res.get('current_events', []),
+            'active_events_count': res.get('active_events_count', 0)
+        })
+
+    frame = None
+    if source_type == 'sample':
+        safe_name = os.path.basename(sample_scene)
+        sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", safe_name)
+        if not os.path.exists(sample_path):
+            sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "association_box_bin_dock1.jpg")
+            if not os.path.exists(sample_path):
+                sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "association_truck_box_dock1.jpg")
+        frame = cv2.imread(sample_path)
+        if frame is None:
+            return jsonify({'success': False, 'message': f"Sample scene '{sample_scene}' could not be loaded."}), 400
+
+    elif source_type == 'upload':
+        image_data = data.get('image_data') or data.get('image_base64')
+        if not image_data:
+            return jsonify({'success': False, 'message': "No image_data provided for upload test."}), 400
+        frame, err = service.validation_service.identity_service.detection_engine._parse_image(image_data)
+        if err or frame is None:
+            return jsonify({'success': False, 'message': err or "Invalid uploaded image format."}), 400
+
+    elif source_type == 'camera':
+        frame, feed_mode = get_camera_frame_for_detection(camera_id)
+        if frame is None:
+            return jsonify({'success': False, 'message': f"Camera '{camera_id}' preview is unavailable."}), 404
+
+    else:
+        sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "association_box_bin_dock1.jpg")
+        frame = cv2.imread(sample_path)
+
+    result = service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        conf_threshold=conf_threshold,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+    return jsonify(result)
+
+
+@app.route('/api/vision/events/sequence', methods=['POST'])
+def api_vision_events_sequence():
+    """
+    Run multi-frame movement event sequence to verify state transitions, deduplication, and expiration.
+    Supports either camera frame sequence or synthetic sequence.
+    """
+    service = get_movement_event_service()
+    data = request.get_json(silent=True) or {}
+
+    camera_id = data.get('camera_id', 'CAM-001')
+    sequence_name = data.get('sequence_name')
+    if sequence_name:
+        seq_res = service.run_synthetic_sequence(camera_id=camera_id, sequence_name=sequence_name)
+        return jsonify(seq_res)
+    num_frames = int(data.get('num_frames', 5))
+    sample_scene = data.get('sample_scene') or 'association_box_bin_dock1.jpg'
+    conf_threshold = data.get('conf_threshold')
+    should_reset = data.get('reset_session', True)
+
+    if should_reset:
+        service.reset_session(camera_id)
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    synthetic_seq = data.get('synthetic_sequence')
+
+    result = service.run_sequence(
+        camera_id=camera_id,
+        num_frames=num_frames,
+        sample_scene=sample_scene,
+        conf_threshold=conf_threshold,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code,
+        synthetic_sequence=synthetic_seq
+    )
+    return jsonify(result)
+
+
+@app.route('/api/vision/events/cameras/<camera_id>', methods=['GET'])
+def api_vision_events_camera_single(camera_id):
+    """Run full movement event detection pipeline on a single snapshot from the specified camera."""
+    service = get_movement_event_service()
+    frame, feed_mode = get_camera_frame_for_detection(camera_id)
+    if frame is None:
+        return jsonify({'success': False, 'message': f"Camera '{camera_id}' preview is unavailable."}), 404
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    result = service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+    result['feed_mode'] = feed_mode
+    return jsonify(result)
+
+
+@app.route('/api/vision/events/cameras/<camera_id>/annotated.jpg', methods=['GET'])
+def api_vision_events_camera_annotated_jpg(camera_id):
+    """Return annotated binary JPEG with bounding boxes, event header banner, and badges."""
+    service = get_movement_event_service()
     frame, _ = get_camera_frame_for_detection(camera_id)
     if frame is None:
         return Response("Camera unavailable", status=404)
