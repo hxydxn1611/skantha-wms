@@ -273,6 +273,10 @@ def init_db():
             conn.execute("UPDATE object_classes SET updated_at = created_at WHERE updated_at IS NULL")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE cameras ADD COLUMN bin_id TEXT")
+        except sqlite3.OperationalError:
+            pass
         
         conn.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('admin', 'admin')")
 
