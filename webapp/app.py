@@ -70,6 +70,29 @@ def handle_single_delivery(po_number):
     return jsonify({"success": False, "message": "Delivery not found"}), 404
 
 
+
+@app.route('/api/bins', methods=['POST'])
+def api_add_bin():
+    data = request.get_json(force=True)
+    try:
+        db.add_bin(data['bin_id'], data.get('zone', 'General'), data.get('max_volume', 100.0), data.get('max_weight', 1000.0))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/skus', methods=['GET'])
+def api_get_skus():
+    return jsonify(db.get_all_skus())
+
+@app.route('/api/skus', methods=['POST'])
+def api_add_sku():
+    data = request.get_json(force=True)
+    try:
+        db.add_sku(data['sku_id'], data['name'], data.get('description', ''), data.get('category', ''), data.get('unit_weight', 0.0), data.get('unit_volume', 0.0))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/api/bins', methods=['GET'])
 def api_get_bins():
     return jsonify(db.get_all_bins())
