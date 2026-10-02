@@ -20,6 +20,7 @@ from identity_service import get_identity_service
 from validation_service import get_validation_service
 from association_service import get_association_service
 from worker_box_association_service import get_worker_box_association_service
+from box_bin_association_service import get_box_bin_association_service
 
 # Initialize SQLite database schema
 db.init_db()
@@ -1707,6 +1708,202 @@ def api_worker_box_camera_annotated_jpg(camera_id):
     )
     _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
+
+
+# ============================================================================
+# PART 11: BOX <-> BIN ASSOCIATION FOUNDATION APIS
+# ============================================================================
+
+@app.route('/api/vision/box-bin/status', methods=['GET'])
+def api_box_bin_status():
+    """Return operational status, active sessions, and box-bin association configuration."""
+    service = get_box_bin_association_service()
+    return jsonify(service.get_status())
+
+
+@app.route('/api/vision/box-bin/reset', methods=['POST'])
+def api_box_bin_reset():
+    """Reset in-memory box-bin association and tracking sessions for a specific camera or all cameras."""
+    service = get_box_bin_association_service()
+    data = request.get_json(silent=True) or {}
+    camera_id = data.get('camera_id')
+
+    if camera_id and camera_id.upper() != 'ALL':
+        service.reset_session(camera_id)
+        return jsonify({
+            'success': True,
+            'message': f"In-memory box-bin association session for camera '{camera_id}' reset successfully."
+        })
+    else:
+        for cam_id in list(service.sessions.keys()):
+            service.reset_session(cam_id)
+        return jsonify({
+            'success': True,
+            'message': "All in-memory box-bin association sessions reset successfully."
+        })
+
+
+@app.route('/api/vision/box-bin/test', methods=['POST'])
+def api_box_bin_test():
+    """
+    Execute full perception pipeline (Parts 5 -> 6 -> 7 -> 8 -> 11)
+    on a test frame (sample scene, uploaded image, or live camera snapshot).
+    """
+    service = get_box_bin_association_service()
+    data = request.get_json(silent=True) or {}
+
+    camera_id = data.get('camera_id', 'CAM-001')
+    source_type = data.get('source_type', 'sample')
+    sample_scene = data.get('sample_scene') or data.get('sample_name') or 'association_box_bin_dock1.jpg'
+    conf_threshold = data.get('conf_threshold')
+    enable_barcode = data.get('enable_barcode', True)
+    enable_ocr = data.get('enable_ocr', True)
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    # Handle synthetic tracks test directly if supplied
+    synthetic_tracks = data.get('synthetic_tracks')
+    if synthetic_tracks is not None:
+        assocs, assoc_ms = service.process_tracks(
+            tracks=synthetic_tracks,
+            camera_id=camera_id,
+            frame_index=data.get('frame_index')
+        )
+        return jsonify({
+            'success': True,
+            'mode': 'synthetic_tracks',
+            'camera_id': camera_id,
+            'associations': assocs,
+            'association_ms': assoc_ms,
+            'confirmed_count': sum(1 for a in assocs if a.get('status') == 'CONFIRMED'),
+            'candidate_count': sum(1 for a in assocs if a.get('status') == 'CANDIDATE'),
+            'ambiguous_count': sum(1 for a in assocs if a.get('evidence', {}).get('is_ambiguous', False)),
+            'expired_count': sum(1 for a in assocs if a.get('status') == 'EXPIRED'),
+            'rejected_count': sum(1 for a in assocs if a.get('status') == 'REJECTED')
+        })
+
+    frame = None
+    if source_type == 'sample':
+        safe_name = os.path.basename(sample_scene)
+        sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", safe_name)
+        if not os.path.exists(sample_path):
+            sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "association_box_bin_dock1.jpg")
+            if not os.path.exists(sample_path):
+                sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "association_worker_box_dock1.jpg")
+        frame = cv2.imread(sample_path)
+        if frame is None:
+            return jsonify({'success': False, 'message': f"Sample scene '{sample_scene}' could not be loaded."}), 400
+
+    elif source_type == 'upload':
+        image_data = data.get('image_data') or data.get('image_base64')
+        if not image_data:
+            return jsonify({'success': False, 'message': "No image_data provided for upload test."}), 400
+        frame, err = service.validation_service.identity_service.detection_engine._parse_image(image_data)
+        if err or frame is None:
+            return jsonify({'success': False, 'message': err or "Invalid uploaded image format."}), 400
+
+    elif source_type == 'camera':
+        frame, feed_mode = get_camera_frame_for_detection(camera_id)
+        if frame is None:
+            return jsonify({'success': False, 'message': f"Camera '{camera_id}' preview is unavailable."}), 404
+
+    else:
+        sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "association_box_bin_dock1.jpg")
+        frame = cv2.imread(sample_path)
+
+    result = service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        conf_threshold=conf_threshold,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+    return jsonify(result)
+
+
+@app.route('/api/vision/box-bin/sequence', methods=['POST'])
+def api_box_bin_sequence():
+    """
+    Run multi-frame box-bin association sequence to verify temporal accumulation and lifecycle transitions.
+    Supports either camera frame sequence or synthetic tracking sequence.
+    """
+    service = get_box_bin_association_service()
+    data = request.get_json(silent=True) or {}
+
+    camera_id = data.get('camera_id', 'CAM-001')
+    num_frames = int(data.get('num_frames', 5))
+    sample_scene = data.get('sample_scene') or 'association_box_bin_dock1.jpg'
+    conf_threshold = data.get('conf_threshold')
+    should_reset = data.get('reset_session', True)
+
+    if should_reset:
+        service.reset_session(camera_id)
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    synthetic_seq = data.get('synthetic_tracks_sequence')
+
+    result = service.run_sequence(
+        camera_id=camera_id,
+        num_frames=num_frames,
+        sample_scene=sample_scene,
+        conf_threshold=conf_threshold,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code,
+        synthetic_tracks_sequence=synthetic_seq
+    )
+    return jsonify(result)
+
+
+@app.route('/api/vision/box-bin/cameras/<camera_id>', methods=['GET'])
+def api_box_bin_camera_single(camera_id):
+    """Run full box-bin association pipeline on a single snapshot from the specified camera."""
+    service = get_box_bin_association_service()
+    frame, feed_mode = get_camera_frame_for_detection(camera_id)
+    if frame is None:
+        return jsonify({'success': False, 'message': f"Camera '{camera_id}' preview is unavailable."}), 404
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    result = service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+    result['feed_mode'] = feed_mode
+    return jsonify(result)
+
+
+@app.route('/api/vision/box-bin/cameras/<camera_id>/annotated.jpg', methods=['GET'])
+def api_box_bin_camera_annotated_jpg(camera_id):
+    """Return annotated binary JPEG with box/bin bounding boxes, connecting lines, and status pills."""
+    service = get_box_bin_association_service()
+    frame, _ = get_camera_frame_for_detection(camera_id)
+    if frame is None:
+        return Response("Camera unavailable", status=404)
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+
+    jpeg_bytes = service.get_annotated_jpeg(camera_id)
+    if jpeg_bytes is None:
+        return Response("Annotation rendering failed", status=500)
+    return Response(jpeg_bytes, mimetype='image/jpeg')
 
 
 @app.route('/api/gate_passes/<gp_id>', methods=['GET', 'PUT', 'DELETE'])

@@ -14,6 +14,7 @@
                         if (tabId === 'vision-validation') initValidationTestUI();
                         if (tabId === 'vision-association') initAssociationTestUI();
                         if (tabId === 'vision-worker-box') initWorkerBoxTestUI();
+                        if (tabId === 'vision-box-bin') initBoxBinTestUI();
                     }
 
                     // Object Classes Manager State
@@ -4464,6 +4465,547 @@
 
                     function closeWorkerBoxEvidenceModal() {
                         const modal = document.getElementById('wbEvidenceModal');
+                        if (modal) modal.style.display = 'none';
+                    }
+
+                    // ========================================================================
+                    // PART 11: BOX <-> BIN ASSOCIATION JAVASCRIPT CONTROLLER
+                    // ========================================================================
+                    let bbActiveCameraId = 'CAM-001';
+                    let latestBoxBinAssociationsList = [];
+
+                    async function initBoxBinTestUI() {
+                        populateBoxBinCameras();
+                        fetchBoxBinStatus();
+                        handleBoxBinSourceChange();
+                    }
+
+                    async function populateBoxBinCameras() {
+                        const select = document.getElementById('bbCameraSelect');
+                        if (!select) return;
+
+                        try {
+                            const resCams = await fetch('/api/vision/cameras');
+                            if (resCams.ok) {
+                                const cams = await resCams.json();
+                                const camList = Array.isArray(cams) ? cams : (cams.data || []);
+                                select.innerHTML = camList.map(c => `
+                                    <option value="${c.camera_id}" ${c.camera_id === bbActiveCameraId ? 'selected' : ''}>
+                                        ${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})
+                                    </option>
+                                `).join('');
+                                return;
+                            }
+                        } catch (e) {
+                            console.warn("Could not load camera list for box-bin association test:", e);
+                        }
+
+                        select.innerHTML = `
+                            <option value="CAM-001" selected>CAM-001 - Gate Camera 01 (Gate 01)</option>
+                            <option value="CAM-002">CAM-002 - Dock Camera 01 (Dock 01)</option>
+                        `;
+                    }
+
+                    async function fetchBoxBinStatus() {
+                        try {
+                            const res = await fetch('/api/vision/box-bin/status');
+                            if (res.ok) {
+                                const data = await res.json();
+                                const badge = document.getElementById('bbEngineStatusBadge');
+                                if (badge) {
+                                    badge.innerText = `Engine: Active | In-Memory (Zero DB Writes)`;
+                                }
+                                if (data.config) {
+                                    const cfg = data.config;
+                                    const minF = document.getElementById('cfgBbMinFrames');
+                                    const maxD = document.getElementById('cfgBbMaxDist');
+                                    const minS = document.getElementById('cfgBbMinScore');
+                                    const reqZ = document.getElementById('cfgBbRequireZone');
+                                    const ambD = document.getElementById('cfgBbAmbiguityDelta');
+                                    if (minF) minF.innerText = `${cfg.min_consecutive_frames} frames`;
+                                    if (maxD) maxD.innerText = `${cfg.max_normalized_distance}`;
+                                    if (minS) minS.innerText = `${cfg.min_association_score}`;
+                                    if (reqZ) reqZ.innerText = cfg.require_same_zone ? 'STRICT (True)' : 'Optional (False)';
+                                    if (ambD) ambD.innerText = `Δ ≤ ${cfg.ambiguity_threshold_delta}`;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Could not fetch box-bin association status:", e);
+                        }
+                    }
+
+                    function handleBoxBinSourceChange() {
+                        const src = document.getElementById('bbSourceTypeSelect')?.value;
+                        const uploadContainer = document.getElementById('bbUploadContainer');
+                        if (uploadContainer) uploadContainer.style.display = (src === 'upload') ? 'block' : 'none';
+                    }
+
+                    function generateSyntheticBoxBinSequence(mode) {
+                        const seq = [];
+                        if (mode === 'synthetic_bb_confirm') {
+                            // 5 consecutive frames: Box #21 and Bin #15 close in BIN-A
+                            for (let f = 1; f <= 5; f++) {
+                                seq.push([
+                                    {
+                                        track_id: 21,
+                                        class_code: "BOX",
+                                        confidence: 0.95,
+                                        bbox: { x1: 240, y1: 240, x2: 360, y2: 380 },
+                                        bbox_normalized: { x1: 0.375, y1: 0.50, x2: 0.562, y2: 0.792 },
+                                        roi_zone_code: "BIN-A",
+                                        identity: { value: "VLV-900", status: "IDENTIFIED", source: "QR" }
+                                    },
+                                    {
+                                        track_id: 15,
+                                        class_code: "BIN",
+                                        confidence: 0.96,
+                                        bbox: { x1: 180, y1: 220, x2: 320, y2: 400 },
+                                        bbox_normalized: { x1: 0.281, y1: 0.458, x2: 0.50, y2: 0.833 },
+                                        roi_zone_code: "BIN-A",
+                                        identity: { value: "BIN-A", status: "IDENTIFIED", source: "QR" }
+                                    }
+                                ]);
+                            }
+                        } else if (mode === 'synthetic_bb_expire') {
+                            // Frame 1-3: Confirmed Box #21 + Bin #15
+                            for (let f = 1; f <= 3; f++) {
+                                seq.push([
+                                    {
+                                        track_id: 21,
+                                        class_code: "BOX",
+                                        bbox: { x1: 240, y1: 240, x2: 360, y2: 380 },
+                                        bbox_normalized: { x1: 0.375, y1: 0.50, x2: 0.562, y2: 0.792 },
+                                        roi_zone_code: "BIN-A",
+                                        identity: { value: "VLV-900", status: "IDENTIFIED", source: "QR" }
+                                    },
+                                    {
+                                        track_id: 15,
+                                        class_code: "BIN",
+                                        bbox: { x1: 180, y1: 220, x2: 320, y2: 400 },
+                                        bbox_normalized: { x1: 0.281, y1: 0.458, x2: 0.50, y2: 0.833 },
+                                        roi_zone_code: "BIN-A",
+                                        identity: { value: "BIN-A", status: "IDENTIFIED", source: "QR" }
+                                    }
+                                ]);
+                            }
+                            // Frame 4-7: Box moved away/departed (missed_frames accumulates to 4 -> EXPIRED)
+                            for (let f = 4; f <= 7; f++) {
+                                seq.push([
+                                    {
+                                        track_id: 15,
+                                        class_code: "BIN",
+                                        bbox: { x1: 180, y1: 220, x2: 320, y2: 400 },
+                                        bbox_normalized: { x1: 0.281, y1: 0.458, x2: 0.50, y2: 0.833 },
+                                        roi_zone_code: "BIN-A",
+                                        identity: { value: "BIN-A", status: "IDENTIFIED", source: "QR" }
+                                    }
+                                ]);
+                            }
+                        }
+                        return seq;
+                    }
+
+                    async function runBoxBinTest() {
+                        const btn = document.getElementById('btnRunBoxBin');
+                        const originalHtml = btn ? btn.innerHTML : 'Run Association Test';
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerHTML = '<span>⏳</span> Processing...';
+                        }
+
+                        const srcType = document.getElementById('bbSourceTypeSelect')?.value || 'association_box_bin_dock1.jpg';
+                        const camId = document.getElementById('bbCameraSelect')?.value || 'CAM-001';
+                        bbActiveCameraId = camId;
+
+                        try {
+                            if (srcType === 'synthetic_bb_confirm' || srcType === 'synthetic_bb_expire') {
+                                await runBoxBinSequence(srcType);
+                                return;
+                            }
+
+                            let payload = {
+                                camera_id: camId,
+                                source_type: 'sample',
+                                sample_scene: srcType
+                            };
+
+                            if (srcType === 'camera') {
+                                payload.source_type = 'camera';
+                            } else if (srcType === 'upload') {
+                                const fileInput = document.getElementById('bbUploadInput');
+                                if (!fileInput || !fileInput.files[0]) {
+                                    alert("Please select an image file to upload.");
+                                    return;
+                                }
+                                const file = fileInput.files[0];
+                                const base64 = await new Promise((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onload = () => resolve(reader.result);
+                                    reader.readAsDataURL(file);
+                                });
+                                payload.source_type = 'upload';
+                                payload.image_base64 = base64;
+                            }
+
+                            const res = await fetch('/api/vision/box-bin/test', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+
+                            if (!res.ok) {
+                                const err = await res.json();
+                                alert("Association test failed: " + (err.message || res.statusText));
+                                return;
+                            }
+
+                            const data = await res.json();
+                            renderBoxBinResults(data);
+                        } catch (e) {
+                            alert("Error running Box <-> Bin test: " + e.message);
+                        } finally {
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = originalHtml;
+                            }
+                        }
+                    }
+
+                    async function runBoxBinSequence(modeOverride) {
+                        const btn = document.getElementById('btnStepBoxBin');
+                        const originalHtml = btn ? btn.innerHTML : 'Step Sequence';
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerHTML = '<span>⏳</span> Sequencer Active...';
+                        }
+
+                        const srcType = modeOverride || document.getElementById('bbSourceTypeSelect')?.value || 'association_box_bin_dock1.jpg';
+                        const camId = document.getElementById('bbCameraSelect')?.value || 'CAM-001';
+                        bbActiveCameraId = camId;
+
+                        try {
+                            let payload = {
+                                camera_id: camId,
+                                num_frames: 5,
+                                reset_session: true
+                            };
+
+                            if (srcType === 'synthetic_bb_confirm' || srcType === 'synthetic_bb_expire') {
+                                payload.synthetic_tracks_sequence = generateSyntheticBoxBinSequence(srcType);
+                            } else {
+                                payload.sample_scene = srcType;
+                            }
+
+                            const res = await fetch('/api/vision/box-bin/sequence', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+
+                            if (!res.ok) {
+                                const err = await res.json();
+                                alert("Sequence test failed: " + (err.message || res.statusText));
+                                return;
+                            }
+
+                            const data = await res.json();
+                            renderBoxBinResults(data);
+                        } catch (e) {
+                            alert("Sequence execution failed: " + e.message);
+                        } finally {
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = originalHtml;
+                            }
+                        }
+                    }
+
+                    async function resetBoxBinSession() {
+                        const camId = document.getElementById('bbCameraSelect')?.value || 'CAM-001';
+                        if (!confirm(`Reset in-memory Box <-> Bin association tracking state for camera '${camId}'?`)) return;
+
+                        try {
+                            const res = await fetch('/api/vision/box-bin/reset', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ camera_id: camId })
+                            });
+
+                            if (res.ok) {
+                                // Reset KPIs
+                                document.getElementById('kpi-bb-boxes').innerText = '-';
+                                document.getElementById('kpi-bb-bins').innerText = '-';
+                                document.getElementById('kpi-bb-confirmed').innerText = '0';
+                                document.getElementById('kpi-bb-candidates').innerText = '0';
+                                document.getElementById('kpi-bb-rejected').innerText = '0';
+                                document.getElementById('kpi-bb-ambiguous').innerText = '0';
+                                document.getElementById('kpi-bb-ms').innerText = '-';
+                                document.getElementById('kpi-bb-total-ms').innerText = 'Total: - ms';
+
+                                // Reset image
+                                const img = document.getElementById('bbAnnotatedImage');
+                                const placeholder = document.getElementById('bbImagePlaceholder');
+                                const badge = document.getElementById('bbImageMetaBadge');
+                                if (img) { img.src = ''; img.style.display = 'none'; }
+                                if (placeholder) placeholder.style.display = 'block';
+                                if (badge) badge.innerText = 'Session Reset';
+
+                                // Reset table
+                                const tbody = document.getElementById('bbResultsTbody');
+                                if (tbody) {
+                                    tbody.innerHTML = `
+                                        <tr>
+                                            <td colspan="11" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);">
+                                                Box-Bin association session reset. In-memory associations and tracking cleared.
+                                            </td>
+                                        </tr>
+                                    `;
+                                }
+                                const countBadge = document.getElementById('bbCountBadge');
+                                if (countBadge) countBadge.innerText = '0 Pairs';
+                            }
+                        } catch (e) {
+                            alert("Reset failed: " + e.message);
+                        }
+                    }
+
+                    function renderBoxBinResults(data) {
+                        const assocs = data.associations || data.final_associations || [];
+                        latestBoxBinAssociationsList = assocs;
+                        const perf = data.performance || {};
+
+                        // Update KPIs
+                        const confirmedCount = assocs.filter(a => a.status === 'CONFIRMED').length;
+                        const candidateCount = assocs.filter(a => a.status === 'CANDIDATE').length;
+                        const rejectedCount = assocs.filter(a => a.status === 'REJECTED').length;
+                        const ambiguousCount = assocs.filter(a => a.evidence && a.evidence.is_ambiguous).length;
+
+                        const kpiBoxes = document.getElementById('kpi-bb-boxes');
+                        const kpiBins = document.getElementById('kpi-bb-bins');
+                        const kpiConfirmed = document.getElementById('kpi-bb-confirmed');
+                        const kpiCandidates = document.getElementById('kpi-bb-candidates');
+                        const kpiRejected = document.getElementById('kpi-bb-rejected');
+                        const kpiAmbiguous = document.getElementById('kpi-bb-ambiguous');
+                        const kpiMs = document.getElementById('kpi-bb-ms');
+                        const kpiTotalMs = document.getElementById('kpi-bb-total-ms');
+                        const countBadge = document.getElementById('bbCountBadge');
+
+                        if (kpiBoxes) kpiBoxes.innerText = data.active_boxes != null ? data.active_boxes : '-';
+                        if (kpiBins) kpiBins.innerText = data.active_bins != null ? data.active_bins : '-';
+                        if (kpiConfirmed) kpiConfirmed.innerText = confirmedCount;
+                        if (kpiCandidates) kpiCandidates.innerText = candidateCount;
+                        if (kpiRejected) kpiRejected.innerText = rejectedCount;
+                        if (kpiAmbiguous) kpiAmbiguous.innerText = ambiguousCount;
+
+                        const assocMs = perf.association_ms != null ? perf.association_ms : data.association_ms;
+                        if (kpiMs) kpiMs.innerText = assocMs != null ? assocMs.toFixed(2) + ' ms' : '-';
+                        if (kpiTotalMs) kpiTotalMs.innerText = `Total: ${(perf.total_ms != null ? perf.total_ms : (assocMs || 0)).toFixed(2)} ms`;
+                        if (countBadge) countBadge.innerText = `${assocs.length} ${assocs.length === 1 ? 'Pair' : 'Pairs'}`;
+
+                        // Annotated image
+                        const img = document.getElementById('bbAnnotatedImage');
+                        const placeholder = document.getElementById('bbImagePlaceholder');
+                        const metaBadge = document.getElementById('bbImageMetaBadge');
+
+                        if (data.annotated_frame && img) {
+                            img.src = data.annotated_frame;
+                            img.style.display = 'block';
+                            if (placeholder) placeholder.style.display = 'none';
+                            if (metaBadge) {
+                                metaBadge.className = 'badge sent';
+                                metaBadge.innerText = `${data.camera_id} | ${confirmedCount} Confirmed | ${ambiguousCount} Ambiguous`;
+                            }
+                        } else if (!data.annotated_frame && img && (data.mode === 'synthetic_tracks' || data.mode === 'synthetic_sequence')) {
+                            img.style.display = 'none';
+                            if (placeholder) {
+                                placeholder.style.display = 'block';
+                                placeholder.innerHTML = `
+                                    <div style="font-size:2.8rem; margin-bottom:0.75rem; color:#10b981;">⚡ 📦 ↔ 📥</div>
+                                    <p style="margin:0; font-size:0.9rem; font-weight:700; color:var(--text-main);">Deterministic Synthetic Sequence Evaluated</p>
+                                    <p style="margin:4px 0 0 0; font-size:0.78rem; color:var(--text-muted);">${confirmedCount} Confirmed | ${candidateCount} Candidate | ${ambiguousCount} Ambiguous</p>
+                                `;
+                            }
+                            if (metaBadge) {
+                                metaBadge.className = 'badge sent';
+                                metaBadge.innerText = `Synthetic Sequence | ${confirmedCount} Confirmed`;
+                            }
+                        }
+
+                        // Populate Associations Table
+                        const tbody = document.getElementById('bbResultsTbody');
+                        if (!tbody) return;
+
+                        if (assocs.length === 0) {
+                            tbody.innerHTML = `
+                                <tr>
+                                    <td colspan="11" style="text-align:center; padding:2.5rem 1rem; color:var(--text-muted);">
+                                        No active Box ↔ Bin candidate pairs found in this frame. Ensure both Box and Bin are detected.
+                                    </td>
+                                </tr>
+                            `;
+                            return;
+                        }
+
+                        tbody.innerHTML = assocs.map((assoc, idx) => {
+                            const ev = assoc.evidence || {};
+                            const bId = assoc.box_identity || {};
+                            const bnId = assoc.bin_identity || {};
+                            const rw = assoc.real_world_association;
+
+                            // Badge style for status
+                            let statusBadge = '';
+                            if (assoc.status === 'CONFIRMED') {
+                                statusBadge = `<span class="badge" style="background:#10b981; color:#fff; font-weight:800;">CONFIRMED</span>`;
+                            } else if (assoc.status === 'CANDIDATE') {
+                                statusBadge = `<span class="badge" style="background:#f59e0b; color:#fff; font-weight:800;">CANDIDATE</span>`;
+                            } else if (assoc.status === 'REJECTED') {
+                                statusBadge = `<span class="badge" style="background:#ef4444; color:#fff; font-weight:800;">REJECTED</span>`;
+                            } else {
+                                statusBadge = `<span class="badge" style="background:#64748b; color:#fff; font-weight:800;">EXPIRED</span>`;
+                            }
+
+                            if (ev.is_ambiguous) {
+                                statusBadge += `<br><span class="badge" style="background:#ec4899; color:#fff; font-size:0.65rem; margin-top:2px;">AMBIGUOUS</span>`;
+                            }
+
+                            // Real-world binding column
+                            let rwHtml = '';
+                            if (rw && rw.status === 'VALIDATED') {
+                                rwHtml = `<div style="color:#10b981; font-weight:700; font-size:0.75rem;">
+                                    ✓ ${escapeHtml(rw.box_id)} ↔ ${escapeHtml(rw.bin_id)}
+                                    <div style="font-size:0.68rem; color:var(--text-muted); font-weight:400;">Validated Binding</div>
+                                </div>`;
+                            } else {
+                                rwHtml = `<span style="color:var(--text-muted); font-size:0.75rem;">None (Visual Only)</span>`;
+                            }
+
+                            // Identity labels
+                            const bLabel = bId.value ? `<code>${escapeHtml(bId.value)}</code>` : `<span style="color:var(--text-muted);">Unidentified</span>`;
+                            const bnLabel = bnId.value ? `<code>${escapeHtml(bnId.value)}</code>` : `<span style="color:var(--text-muted);">Unidentified</span>`;
+
+                            // Zone label
+                            const zoneMatch = ev.same_zone
+                                ? `<span style="color:#10b981; font-weight:700;">${escapeHtml(ev.box_zone || '-')}</span>`
+                                : `<span style="color:#ef4444;">${escapeHtml(ev.box_zone || 'None')} ≠ ${escapeHtml(ev.bin_zone || 'None')}</span>`;
+
+                            return `
+                                <tr>
+                                    <td><strong style="color:#d97706;">Box #${assoc.box_track_id}</strong></td>
+                                    <td><strong style="color:#2563eb;">Bin #${assoc.bin_track_id}</strong></td>
+                                    <td>${bLabel}</td>
+                                    <td>${bnLabel}</td>
+                                    <td>${zoneMatch}</td>
+                                    <td><code>${ev.normalized_distance != null ? ev.normalized_distance.toFixed(3) : '-'}</code></td>
+                                    <td><strong style="color:${ev.consecutive_frames >= 3 ? '#10b981' : 'var(--text-muted)'};">${ev.consecutive_frames || 1}</strong></td>
+                                    <td><strong style="font-family:monospace; color:${assoc.association_score >= 0.70 ? '#10b981' : 'var(--text-main)'};">${assoc.association_score != null ? assoc.association_score.toFixed(3) : '-'}</strong></td>
+                                    <td>${statusBadge}</td>
+                                    <td>${rwHtml}</td>
+                                    <td>
+                                        <button class="btn-primary" onclick="showBoxBinEvidence(${idx})" style="padding:2px 8px; font-size:0.72rem; background:rgba(37,99,235,0.15); color:var(--accent); border:1px solid var(--accent);">
+                                            Evidence
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('');
+                    }
+
+                    function showBoxBinEvidence(assocIndex) {
+                        const assoc = latestBoxBinAssociationsList[assocIndex];
+                        if (!assoc) return;
+
+                        const modal = document.getElementById('bbEvidenceModal');
+                        const title = document.getElementById('modalBbTitle');
+                        const content = document.getElementById('modalBbContent');
+
+                        if (title) {
+                            title.innerText = `Evidence: Box #${assoc.box_track_id} ↔ Bin #${assoc.bin_track_id} [${assoc.status}]`;
+                        }
+
+                        const ev = assoc.evidence || {};
+                        const rw = assoc.real_world_association;
+
+                        const rwHtml = rw && rw.status === 'VALIDATED'
+                            ? `<div style="background:rgba(16,185,129,0.12); border:1px solid #10b981; border-radius:8px; padding:10px; margin-bottom:12px;">
+                                <strong style="color:#10b981; font-size:0.85rem;">✓ Validated Real-World Association Bound:</strong>
+                                <div style="font-family:monospace; font-size:0.92rem; color:var(--text-main); margin-top:4px;">
+                                    Box <strong>${escapeHtml(rw.box_display || rw.box_id)}</strong> ↔ Bin <strong>${escapeHtml(rw.bin_display || rw.bin_id)}</strong>
+                                </div>
+                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                                    Both identities validated against authoritative WMS master records.
+                                </div>
+                               </div>`
+                            : `<div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; padding:10px; margin-bottom:12px;">
+                                <span style="font-size:0.82rem; color:var(--text-muted);">
+                                    Track-level association only. Real-world identity binding requires BOTH underlying entities to be VALIDATED in Part 8.
+                                </span>
+                               </div>`;
+
+                        const ambHtml = ev.is_ambiguous
+                            ? `<div style="background:rgba(236,72,153,0.12); border:1px solid #ec4899; border-radius:8px; padding:10px; margin-bottom:12px;">
+                                <strong style="color:#ec4899; font-size:0.85rem;">⚡ Ambiguity Flag Active:</strong>
+                                <p style="font-size:0.8rem; margin:4px 0 0 0; color:var(--text-main); line-height:1.4;">
+                                    ${escapeHtml(ev.ambiguity_reason || 'Multiple competing bins within threshold delta.')}
+                                </p>
+                               </div>`
+                            : '';
+
+                        if (content) {
+                            content.innerHTML = `
+                                ${rwHtml}
+                                ${ambHtml}
+                                <table style="width:100%; font-size:0.82rem; margin-bottom:12px;">
+                                    <tbody>
+                                        <tr>
+                                            <td style="width:40%; font-weight:700; color:var(--text-muted); padding:6px 0;">Composite Score:</td>
+                                            <td style="font-weight:800; font-family:monospace; font-size:0.95rem; color:${assoc.status === 'CONFIRMED' ? '#10b981' : 'var(--text-main)'};">
+                                                ${assoc.association_score != null ? assoc.association_score.toFixed(4) : '-'} (Required &ge; 0.70)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Consecutive Frames:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.consecutive_frames} frames (Required &ge; 3)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Normalized Distance:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.normalized_distance} (Max Allowed: ${ev.max_allowed_distance})
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Spatial Proximity Score:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.spatial_proximity_score} (Weight: 35%)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Zone Match Score:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.zone_score} (Weight: 35%)
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Temporal Persistence Score:</td>
+                                            <td style="font-family:monospace; color:var(--text-main);">
+                                                ${ev.temporal_persistence_score} (Weight: 30%)
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <details style="background:var(--panel-subtle); padding:8px 12px; border-radius:6px; font-size:0.75rem; cursor:pointer;">
+                                    <summary style="font-weight:700; color:var(--text-muted);">Raw Evidence JSON</summary>
+                                    <pre style="margin:8px 0 0 0; font-family:monospace; color:var(--text-main); font-size:0.72rem; overflow-x:auto;">${escapeHtml(JSON.stringify(assoc, null, 2))}</pre>
+                                </details>
+                            `;
+                        }
+
+                        if (modal) modal.style.display = 'flex';
+                    }
+
+                    function closeBoxBinEvidenceModal() {
+                        const modal = document.getElementById('bbEvidenceModal');
                         if (modal) modal.style.display = 'none';
                     }
                 

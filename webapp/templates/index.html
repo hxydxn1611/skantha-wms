@@ -1289,6 +1289,7 @@ async function fetchSkus() {
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-validation', this)">Validation Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-association', this)">Truck ↔ Box Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-worker-box', this)">Worker ↔ Box Association Test</button>
+                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-box-bin', this)">Box ↔ Bin Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-config', this)">Configuration</button>
                 </div>
 
@@ -2899,6 +2900,248 @@ async function fetchSkus() {
                         <p style="font-size:0.82rem; color:var(--text-muted); margin:0; line-height:1.45;">
                             Part 10 establishes controlled, evidence-based relationships between <strong>Worker</strong> tracks and <strong>Box</strong> tracks. An association is never inferred simply because both objects are co-visible in the same frame. Confirmation requires <strong>sustained spatial proximity</strong> (normalized Euclidean distance &le; 0.40), <strong>matching warehouse zone/ROI</strong>, and <strong>temporal persistence across consecutive frames</strong> (min 3 frames). Real-world identity binding (e.g. <code>Worker Maddy ↔ Box VLV-900</code>) is only claimed if both underlying entities were successfully validated in Part 8. All association states are kept in-memory; zero database writes or WMS transactions are committed.
                         </p>
+                    </div>
+                </div>
+
+                <!-- 11. BOX ↔ BIN ASSOCIATION TEST SUB-PAGE (Part 11) -->
+                <div id="vision-box-bin-sub" class="vision-sub-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy);">Box ↔ Bin Association Foundation — Test Bench</h3>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Controlled, evidence-based association between tracked Boxes and Storage Bins based on spatial proximity, warehouse zone/ROI, and sustained temporal persistence. Co-visibility is strictly NOT association.</p>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <span class="badge sent" id="bbEngineStatusBadge" style="font-size:0.75rem; padding:0.4rem 0.8rem; background:#10b981; color:#fff;">
+                                Engine: Active | In-Memory (Zero DB Writes)
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Box-Bin Association Configuration & Rules Diagnostic Strip -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                            <h4 style="margin:0; font-size:0.88rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                <span>⚖️ Configured Box ↔ Bin Evidence Rules</span>
+                                <span class="badge sent" style="font-size:0.68rem; background:rgba(37,99,235,0.15); color:var(--accent);">Explainable Evidence Model</span>
+                            </h4>
+                            <span style="font-size:0.75rem; color:var(--text-muted);">Configurable Thresholds (No Magic Numbers)</span>
+                        </div>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid var(--accent); border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Min Consecutive Frames</strong>
+                                    <span style="font-size:0.75rem; color:var(--accent); font-weight:800;" id="cfgBbMinFrames">3 frames</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Temporal persistence threshold</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #10b981; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Max Normalized Distance</strong>
+                                    <span style="font-size:0.75rem; color:#10b981; font-weight:800;" id="cfgBbMaxDist">0.40</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Normalized Euclidean center dist</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #f59e0b; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Min Association Score</strong>
+                                    <span style="font-size:0.75rem; color:#f59e0b; font-weight:800;" id="cfgBbMinScore">0.70</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Confirmation threshold [0.0 - 1.0]</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #6366f1; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Same Zone Requirement</strong>
+                                    <span style="font-size:0.75rem; color:#6366f1; font-weight:800;" id="cfgBbRequireZone">STRICT (True)</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Both objects must match zone</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #ec4899; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Ambiguity Delta</strong>
+                                    <span style="font-size:0.75rem; color:#ec4899; font-weight:800;" id="cfgBbAmbiguityDelta">&Delta; &le; 0.15</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Prevents arbitrary assignment</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Telemetry KPI Strip -->
+                    <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 1.25rem;">
+                        <div class="metric-card" style="padding:1rem;">
+                            <h3 style="font-size:0.78rem;">Active Boxes</h3>
+                            <div class="value" id="kpi-bb-boxes" style="color:#d97706;">-</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">Detected Packages</span>
+                        </div>
+                        <div class="metric-card" style="padding:1rem;">
+                            <h3 style="font-size:0.78rem;">Active Bins</h3>
+                            <div class="value" id="kpi-bb-bins" style="color:#2563eb;">-</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">Storage Locations</span>
+                        </div>
+                        <div class="metric-card" style="padding:1rem;">
+                            <h3 style="font-size:0.78rem;">Confirmed Pairs</h3>
+                            <div class="value" id="kpi-bb-confirmed" style="color:#10b981;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">Persistence &ge; 3 Frames</span>
+                        </div>
+                        <div class="metric-card" style="padding:1rem;">
+                            <h3 style="font-size:0.78rem;">Candidates</h3>
+                            <div class="value" id="kpi-bb-candidates" style="color:var(--accent);">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">Evidence Accumulating</span>
+                        </div>
+                        <div class="metric-card" style="padding:1rem;">
+                            <h3 style="font-size:0.78rem;">Rejected</h3>
+                            <div class="value" id="kpi-bb-rejected" style="color:#ef4444;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">Distance / Zone Fail</span>
+                        </div>
+                        <div class="metric-card" style="padding:1rem;">
+                            <h3 style="font-size:0.78rem;">Ambiguous</h3>
+                            <div class="value" id="kpi-bb-ambiguous" style="color:#ec4899;">0</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:600;">Competing Bins</span>
+                        </div>
+                        <div class="metric-card" style="padding:1rem;">
+                            <h3 style="font-size:0.78rem;">Association Latency</h3>
+                            <div class="value" id="kpi-bb-ms" style="color:var(--primary-teal); font-size:1.4rem;">-</div>
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:600;" id="kpi-bb-total-ms">Total: - ms</span>
+                        </div>
+                    </div>
+
+                    <!-- Controls & Source Toolbar -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1.1rem; margin-bottom:1.25rem;">
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px; align-items:end;">
+                            <!-- Source Selector -->
+                            <div>
+                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Test Scene / Source:</label>
+                                <select id="bbSourceTypeSelect" onchange="handleBoxBinSourceChange()" style="margin-bottom:0;">
+                                    <option value="association_box_bin_dock1.jpg" selected>Scene 1: Box VLV-900 + Bin BIN-A (Same Zone) → CONFIRMED</option>
+                                    <option value="association_box_bin_diff_zones.jpg">Scene 2: Box in Dock 1 + Bin in Far Zone → REJECTED / CANDIDATE</option>
+                                    <option value="association_two_boxes_bins.jpg">Scene 3: Two Boxes + Two Bins (Independent Pairs)</option>
+                                    <option value="association_ambiguous_two_bins.jpg">Scene 4: Ambiguous Two Bins near One Box → AMBIGUOUS</option>
+                                    <option value="synthetic_bb_confirm">Synthetic: 5-Frame Temporal Accumulation (CANDIDATE → CONFIRMED)</option>
+                                    <option value="synthetic_bb_expire">Synthetic: Track Disappearance Sequence (CONFIRMED → EXPIRED)</option>
+                                    <option value="camera">Camera Master Feed</option>
+                                    <option value="upload">Custom Image File Upload</option>
+                                </select>
+                            </div>
+
+                            <!-- Camera Node -->
+                            <div>
+                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Camera Session:</label>
+                                <select id="bbCameraSelect" style="margin-bottom:0;">
+                                    <!-- Populated dynamically -->
+                                </select>
+                            </div>
+
+                            <!-- Upload Container -->
+                            <div id="bbUploadContainer" style="display:none;">
+                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Select Image:</label>
+                                <input type="file" id="bbUploadInput" accept="image/*" style="margin-bottom:0;">
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <button class="btn-primary" id="btnRunBoxBin" onclick="runBoxBinTest()" style="padding:0.6rem 1.1rem; display:inline-flex; align-items:center; gap:6px;">
+                                    <span>▶</span> Run Association Test
+                                </button>
+                                <button class="btn-primary" id="btnStepBoxBin" onclick="runBoxBinSequence()" style="padding:0.6rem 1rem; background:linear-gradient(135deg, #2563eb, #3b82f6); display:inline-flex; align-items:center; gap:6px;">
+                                    <span>⏩</span> Step Sequence
+                                </button>
+                                <button class="btn-primary" id="btnResetBoxBin" onclick="resetBoxBinSession()" style="padding:0.6rem 0.9rem; background:#64748b; display:inline-flex; align-items:center; gap:4px;">
+                                    <span>🔄</span> Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Viewport Grid: Left = Visual Overlay, Right = Candidate Association Table -->
+                    <div style="display:grid; grid-template-columns: minmax(360px, 1.15fr) minmax(420px, 1.35fr); gap:16px; margin-bottom:1.25rem;">
+                        <!-- Left: Visual Image Overlay -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <h4 style="margin:0; font-size:0.92rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                    <span>📦 ↔ 📥 Visual Association Overlay</span>
+                                </h4>
+                                <span class="badge sent" id="bbImageMetaBadge" style="font-size:0.7rem;">Awaiting Execution</span>
+                            </div>
+
+                            <div id="bbImageContainer" style="position:relative; width:100%; min-height:360px; background:#0b1120; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center; border:1px solid #1e293b;">
+                                <img id="bbAnnotatedImage" src="" alt="Box-Bin Association Preview" style="width:100%; height:auto; display:none; border-radius:6px; object-fit:contain;">
+                                <div id="bbImagePlaceholder" style="text-align:center; padding:2rem 1rem; color:var(--text-muted);">
+                                    <div style="font-size:3rem; margin-bottom:0.75rem; color:#d97706;">📦 ↔ 📥</div>
+                                    <p style="margin:0; font-size:0.92rem; font-weight:600; color:var(--text-main);">No Association Frame Processed Yet</p>
+                                    <p style="margin:4px 0 0 0; font-size:0.8rem; color:var(--text-muted);">Select a test scene or live camera and click 'Run Association Test'</p>
+                                </div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:0.75rem; color:var(--text-muted);">
+                                <span>Legend: <strong style="color:#10b981;">● CONFIRMED</strong> | <strong style="color:#f59e0b;">● CANDIDATE</strong> | <strong style="color:#ef4444;">● REJECTED</strong></span>
+                                <span>Coordinates: Normalized [0.0 - 1.0]</span>
+                            </div>
+                        </div>
+
+                        <!-- Right: Associations Candidate Table -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <h4 style="margin:0; font-size:0.92rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                    <span>Pairwise Associations &amp; Evidence</span>
+                                </h4>
+                                <span class="badge sent" id="bbCountBadge" style="font-size:0.7rem; background:rgba(16,185,129,0.15); color:#10b981;">0 Pairs</span>
+                            </div>
+
+                            <div style="overflow-x:auto; flex:1; max-height:480px;">
+                                <table style="width:100%; font-size:0.78rem;" id="bbResultsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Box</th>
+                                            <th>Bin</th>
+                                            <th>Box ID</th>
+                                            <th>Bin ID</th>
+                                            <th>Zone</th>
+                                            <th>Dist</th>
+                                            <th>F</th>
+                                            <th>Score</th>
+                                            <th>Status</th>
+                                            <th>Real-World Binding</th>
+                                            <th>Evidence</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bbResultsTbody">
+                                        <tr>
+                                            <td colspan="11" style="text-align:center; padding:3rem 1rem; color:var(--text-muted);">
+                                                Run a test to inspect evaluated Box ↔ Bin associations and evidence calculations.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Important Architectural Notice Callout -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-left:4px solid #10b981; border-radius:8px; padding:1rem 1.25rem;">
+                        <h4 style="margin:0 0 0.4rem 0; font-size:0.9rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                            <span>🔒 Architectural Boundary: Co-Visibility Is Not Association</span>
+                            <span class="badge sent" style="font-size:0.7rem; background:#10b981; color:#fff;">Zero DB Writes</span>
+                        </h4>
+                        <p style="font-size:0.82rem; color:var(--text-muted); margin:0; line-height:1.45;">
+                            Part 11 establishes controlled, evidence-based relationships between <strong>Box</strong> tracks and <strong>Bin</strong> tracks. An association is never inferred simply because both objects are co-visible in the same frame. Confirmation requires <strong>sustained spatial proximity</strong> (normalized Euclidean distance &le; 0.40), <strong>matching warehouse zone/ROI</strong>, and <strong>temporal persistence across consecutive frames</strong> (min 3 frames). Real-world identity binding (e.g. <code>Box VLV-900 ↔ Bin BIN-A</code>) is only claimed if both underlying entities were successfully validated in Part 8. All association states are kept in-memory; zero database writes or WMS transactions are committed.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Box-Bin Transparent Evidence Details Modal -->
+                <div id="bbEvidenceModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); z-index:10000; align-items:center; justify-content:center; padding:1rem;">
+                    <div class="glass-panel" style="max-width:580px; width:100%; max-height:90vh; overflow-y:auto; padding:1.5rem; border-radius:12px; border:1px solid var(--border-light); background:var(--panel-bg); box-shadow:0 20px 40px rgba(0,0,0,0.35);">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; border-bottom:1px solid var(--border-light); padding-bottom:0.75rem;">
+                            <div>
+                                <h3 id="modalBbTitle" style="margin:0; font-size:1.15rem; color:var(--primary-navy);">Evidence Breakdown</h3>
+                                <p style="margin:2px 0 0 0; font-size:0.75rem; color:var(--text-muted);">Transparent Explainable Multi-Frame Evidence Model</p>
+                            </div>
+                            <button onclick="closeBoxBinEvidenceModal()" class="btn-primary" style="padding:4px 10px; font-size:0.85rem; background:#64748b;">✕</button>
+                        </div>
+                        <div id="modalBbContent">
+                            <!-- Populated dynamically -->
+                        </div>
+                        <div style="margin-top:1.25rem; text-align:right;">
+                            <button onclick="closeBoxBinEvidenceModal()" class="btn-primary" style="padding:0.5rem 1.25rem;">Close</button>
+                        </div>
                     </div>
                 </div>
 
