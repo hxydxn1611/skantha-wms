@@ -1320,10 +1320,26 @@
                                 <span id="cfgModalCamLocation" style="color:var(--text-main); font-weight:600;">-</span>
                             </div>
                             <div>
+                                <span style="color:var(--text-muted); font-size:0.75rem; display:block;">Associated Bin</span>
+                                <span id="cfgModalCamBinReadOnly" style="color:var(--primary-teal); font-weight:600;">-</span>
+                            </div>
+                            <div>
                                 <span style="color:var(--text-muted); font-size:0.75rem; display:block;">Camera Type</span>
                                 <span id="cfgModalCamType" style="color:var(--text-main);">-</span>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Bin Assignment Fields -->
+                    <h4 style="margin:0 0 0.85rem 0; font-size:0.95rem; color:var(--primary-navy); border-bottom:1px solid var(--border-light); padding-bottom:6px;">
+                        Bin Assignment
+                    </h4>
+                    <div style="margin-bottom:1.25rem;">
+                        <label for="cfgModalBinId">Assign Camera to Bin</label>
+                        <select id="cfgModalBinId" style="margin-bottom:0;">
+                            <option value="">-- None (General Area) --</option>
+                        </select>
+                        <p style="font-size:0.75rem; color:var(--text-muted); margin:4px 0 0 0;">Link this camera directly to a physical storage Bin to track inventory changes automatically.</p>
                     </div>
 
                     <!-- AI Configuration Fields -->
@@ -1904,24 +1920,19 @@
                             <input type="date" id="expDate" required style="width: 100%; margin-bottom: 0;">
                         </div>
 
-                        <div>
-                            <label>Expected Load *</label> 
-                            <input type="text" id="expLoad" placeholder="Electronics" required style="width: 100%; margin-bottom: 0;">
-                        </div>
-                        <div>
-                            <label>Expected Qty (Boxes) *</label> 
-                            <input type="number" id="expQty" placeholder="50" value="50" required style="width: 100%; margin-bottom: 0;">
+                        <div style="grid-column: 1 / -1; border-top: 1px solid var(--border-light); padding-top: 1rem; margin-top: 0.5rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
+                                <label style="margin:0; font-size:1rem; color:var(--primary-navy);">Inbound Manifest (Expected Items)</label>
+                                <button type="button" class="btn-secondary" onclick="addManifestLine()" style="font-size:0.75rem; padding:4px 8px;">+ Add Line</button>
+                            </div>
+                            <div id="manifestLinesContainer" style="display:flex; flex-direction:column; gap:0.5rem; max-height: 250px; overflow-y:auto; padding-right:5px;">
+                            </div>
                         </div>
 
-                        <div>
-                            <label>Vendor *</label> 
-                            <input type="text" id="expVendor" placeholder="Samsung Electronics" required style="width: 100%; margin-bottom: 0;">
-                        </div>
-                        <div>
-                            <label>Vendor Email *</label> 
+                        <div style="grid-column: 1 / -1;">
+                            <label>Primary Vendor Email (For Invoices)</label>
                             <input type="email" id="expVendorEmail" placeholder="logistics@vendor.com" required style="width: 100%; margin-bottom: 0;">
                         </div>
-
                         <div>
                             <label>Expected Plate</label> 
                             <input type="text" id="expPlate" placeholder="XYZ 123" style="width: 100%; margin-bottom: 0;">
@@ -2091,26 +2102,53 @@
                     <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)">Vehicle Master</button>
                     <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)">Invoice Master</button>
                     <button class="btn-primary sub-tab-btn" onclick="switchSubTab('bin-master', this)">Bin Master</button>
+                    <button class="btn-primary sub-tab-btn" onclick="switchSubTab('sku-master', this)">SKU Master</button>
                 </div>
                 
                 
                 <div id="bin-master-sub" class="sub-master-section" style="display:none;">
-                    <h3>Bin Master</h3>
-                    <div style="overflow-x:auto;">
-                        <table style="width:100%;">
-                            <thead>
-                                <tr>
-                                    <th>Bin ID</th>
-                                    <th>Vendor</th>
-                                    <th>Stock Count</th>
-                                    <th>Status</th>
-                                    <th>Last Updated</th>
-                                </tr>
-                            </thead>
-                            <tbody id="binMasterBody"></tbody>
-                        </table>
-                    </div>
-                </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h3>Bin Master (Capacity & Slotting)</h3>
+        <button class="btn-primary" onclick="document.getElementById('addBinModal').style.display='flex'">+ Add Bin</button>
+    </div>
+    <div style="overflow-x:auto;">
+        <table style="width:100%;">
+            <thead>
+                <tr>
+                    <th>Bin ID</th>
+                    <th>Zone</th>
+                    <th>Capacity (Vol)</th>
+                    <th>Capacity (Wt)</th>
+                    <th>Stock Count</th>
+                    <th>Vendors</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="binMasterBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="sku-master-sub" class="sub-master-section" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h3>SKU Master (Product Catalog)</h3>
+        <button class="btn-primary" onclick="document.getElementById('addSkuModal').style.display='flex'">+ Add SKU</button>
+    </div>
+    <div style="overflow-x:auto;">
+        <table style="width:100%;">
+            <thead>
+                <tr>
+                    <th>SKU ID</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Unit Vol</th>
+                    <th>Unit Wt</th>
+                </tr>
+            </thead>
+            <tbody id="skuMasterBody"></tbody>
+        </table>
+    </div>
+</div>
 <div id="po-master-sub" class="sub-master-section">
                     <h3>PO Master</h3>
                     <div style="overflow-x:auto;">
@@ -2161,23 +2199,64 @@
                 
                 <script>
                     
-                async function fetchBins() {
-                    try {
-                        const res = await fetch('/api/bins');
-                        const data = await res.json();
-                        const tbody = document.getElementById('binMasterBody');
-                        tbody.innerHTML = '';
-                        data.forEach(bin => {
-                            tbody.innerHTML += `<tr>
-                                <td>${bin.bin_id}</td>
-                                <td>${bin.vendor || 'Unknown'}</td>
-                                <td><span class="status-badge" style="background:var(--primary)">${bin.stock_count}</span></td>
-                                <td>${bin.status}</td>
-                                <td>${bin.last_updated}</td>
-                            </tr>`;
-                        });
-                    } catch(e) { console.error('Error fetching bins', e); }
-                }
+                
+async function fetchBins() {
+    try {
+        const res = await fetch('/api/bins');
+        const bins = await res.json();
+        const tbody = document.getElementById('binMasterBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        bins.forEach(b => {
+            const tr = document.createElement('tr');
+            const pctVol = b.max_volume > 0 ? ((b.current_volume/b.max_volume)*100).toFixed(1) : 0;
+            const pctWt = b.max_weight > 0 ? ((b.current_weight/b.max_weight)*100).toFixed(1) : 0;
+            tr.innerHTML = `
+                <td><strong>${b.bin_id}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${b.zone}</span></td>
+                <td>
+                    <div style="font-size:0.8rem; margin-bottom:4px;">${b.current_volume.toFixed(1)} / ${b.max_volume} m³</div>
+                    <div style="width:100%; background:#334155; height:6px; border-radius:3px;">
+                        <div style="width:${Math.min(pctVol, 100)}%; background:${pctVol>90 ? 'var(--danger)' : 'var(--primary-teal)'}; height:100%; border-radius:3px;"></div>
+                    </div>
+                </td>
+                <td>
+                    <div style="font-size:0.8rem; margin-bottom:4px;">${b.current_weight.toFixed(1)} / ${b.max_weight} kg</div>
+                    <div style="width:100%; background:#334155; height:6px; border-radius:3px;">
+                        <div style="width:${Math.min(pctWt, 100)}%; background:${pctWt>90 ? 'var(--danger)' : 'var(--accent)'}; height:100%; border-radius:3px;"></div>
+                    </div>
+                </td>
+                <td><strong style="color:var(--primary-navy); font-size:1.1rem;">${b.stock_count}</strong> Items</td>
+                <td>${b.vendor || 'Empty'}</td>
+                <td><span class="badge ${b.status==='Active'?'badge-success':'badge-warning'}">${b.status}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error(e); }
+}
+
+async function fetchSkus() {
+    try {
+        const res = await fetch('/api/skus');
+        const skus = await res.json();
+        const tbody = document.getElementById('skuMasterBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        skus.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${s.sku_id}</strong></td>
+                <td>${s.name}</td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${s.category}</span></td>
+                <td>${s.unit_volume} m³</td>
+                <td>${s.unit_weight} kg</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error(e); }
+}
+
+
 
                 function switchSubTab(tabId, btn) {
                         document.querySelectorAll('.sub-master-section').forEach(el => el.style.display = 'none');
@@ -2190,6 +2269,7 @@
                         if(typeof window.fetchVehicleLogs === 'function' && tabId === 'vehicle-master') window.fetchVehicleLogs();
                         if(typeof window.fetchInvoices === 'function' && tabId === 'invoice-master') window.fetchInvoices();
                         if(typeof window.fetchBins === 'function' && tabId === 'bin-master') window.fetchBins();
+                        if(typeof window.fetchSkus === 'function' && tabId === 'sku-master') window.fetchSkus();
                     }
                 </script>
             </div>
@@ -4261,12 +4341,32 @@
                         document.getElementById('cfgModalCamWarehouse').innerText = cam.warehouse || 'Warehouse A';
                         document.getElementById('cfgModalCamLocation').innerText = cam.location || 'General';
                         document.getElementById('cfgModalCamType').innerText = cam.camera_type || 'IP Camera';
+                        document.getElementById('cfgModalCamBinReadOnly').innerText = cam.bin_id || '-';
 
                         const statusBadge = document.getElementById('cfgModalCamStatusBadge');
                         if (statusBadge) {
                             const isOnline = (cam.camera_status || '').toLowerCase() === 'online';
                             statusBadge.className = `badge ${isOnline ? 'active-status' : 'disabled-status'}`;
                             statusBadge.innerText = cam.camera_status || 'Unknown';
+                        }
+                        
+                        // Populate Bin Dropdown
+                        const binSelect = document.getElementById('cfgModalBinId');
+                        if (binSelect) {
+                            binSelect.innerHTML = '<option value="">-- None (General Area) --</option>';
+                            try {
+                                const binRes = await fetch('/api/bins');
+                                if (binRes.ok) {
+                                    const bins = await binRes.json();
+                                    bins.forEach(b => {
+                                        const opt = document.createElement('option');
+                                        opt.value = b.bin_id;
+                                        opt.innerText = `${b.bin_id} (${b.zone})`;
+                                        binSelect.appendChild(opt);
+                                    });
+                                }
+                            } catch(e) { console.error("Error fetching bins:", e); }
+                            binSelect.value = cam.bin_id || '';
                         }
 
                         // Populate AI Configuration
@@ -4376,6 +4476,7 @@
                         }
 
                         const payload = {
+                            bin_id: document.getElementById('cfgModalBinId')?.value,
                             ai_enabled: aiEnabled,
                             detection_enabled: detectionEnabled,
                             tracking_enabled: trackingEnabled,
@@ -7588,6 +7689,25 @@
         // Deliveries
         document.getElementById('addDeliveryForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            const manifestContainer = document.getElementById('manifestLinesContainer');
+            const lines = manifestContainer.children;
+            const manifest = [];
+            for (let i = 0; i < lines.length; i++) {
+                const lineId = lines[i].id.split('_')[1];
+                const sku = document.getElementById(`manifestSku_${lineId}`).value;
+                const vendor = document.getElementById(`manifestVendor_${lineId}`).value;
+                const qty = parseInt(document.getElementById(`manifestQty_${lineId}`).value);
+                if(sku && vendor && qty > 0) {
+                    manifest.push({ sku_id: sku, vendor: vendor, expected: qty });
+                }
+            }
+
+            if (manifest.length === 0) {
+                alert("Please add at least one item to the Inbound Manifest.");
+                return;
+            }
+
             await fetch('/api/deliveries', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -7597,19 +7717,14 @@
                     plate: document.getElementById('expPlate').value,
                     driver_name: document.getElementById('expDriver').value,
                     driver_phone: document.getElementById('expDriverPhone').value,
-                    load: document.getElementById('expLoad').value,
-                    vendor: document.getElementById('expVendor').value,
                     vendor_email: document.getElementById('expVendorEmail').value,
                     activity: document.getElementById('expActivity').value,
-                    unloading_sheet: [{
-                        sku: "BOX-GENERIC",
-                        description: document.getElementById('expLoad').value,
-                        uom: "Boxes",
-                        expected: parseInt(document.getElementById('expQty').value) || 0
-                    }]
+                    unloading_sheet: manifest
                 })
             });
             e.target.reset();
+            document.getElementById('manifestLinesContainer').innerHTML = '';
+            window.addManifestLine();
             document.getElementById('expDate').valueAsDate = new Date();
             fetchDeliveries();
             pollData();
@@ -7643,7 +7758,7 @@
                         <td style="color:var(--text-muted);">${d.vendor || 'Unknown'}</td>
                         <td style="color:var(--text-muted);">${d.vendor_email || '-'}</td>
                         <td>${d.load}</td>
-                        <td style="font-weight:bold;">${d.unloading_sheet && d.unloading_sheet.length > 0 ? d.unloading_sheet[0].expected : '-'}</td>
+                        <td style="font-weight:bold;">${d.unloading_sheet && Array.isArray(d.unloading_sheet) ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0) : '-'}</td>
                         <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
                         <td>${statusBadge}</td>
                     </tr>
@@ -8632,6 +8747,269 @@
                 updateThemeButtons(currentTheme);
             } catch(e) {}
         })();
+    
+window.fetchBins = async function() {
+    try {
+        const res = await fetch('/api/bins');
+        const bins = await res.json();
+        const tbody = document.getElementById('binMasterBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        bins.forEach(b => {
+            const tr = document.createElement('tr');
+            const pctVol = b.max_volume > 0 ? ((b.current_volume/b.max_volume)*100).toFixed(1) : 0;
+            const pctWt = b.max_weight > 0 ? ((b.current_weight/b.max_weight)*100).toFixed(1) : 0;
+            tr.innerHTML = `
+                <td>
+                    <strong>${b.bin_id}</strong>
+                    <div style="margin-top:4px;"><button type="button" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" onclick="window.openInspectBinModal('${b.bin_id}')">Inspect</button></div>
+                </td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${b.zone}</span></td>
+                <td>
+                    <div style="font-size:0.8rem; margin-bottom:4px;">${b.current_volume.toFixed(1)} / ${b.max_volume} mA3</div>
+                    <div style="width:100%; background:#334155; height:6px; border-radius:3px;">
+                        <div style="width:${Math.min(pctVol, 100)}%; background:${pctVol>90 ? 'var(--danger)' : 'var(--primary-teal)'}; height:100%; border-radius:3px;"></div>
+                    </div>
+                </td>
+                <td>
+                    <div style="font-size:0.8rem; margin-bottom:4px;">${b.current_weight.toFixed(1)} / ${b.max_weight} kg</div>
+                    <div style="width:100%; background:#334155; height:6px; border-radius:3px;">
+                        <div style="width:${Math.min(pctWt, 100)}%; background:${pctWt>90 ? 'var(--danger)' : 'var(--accent)'}; height:100%; border-radius:3px;"></div>
+                    </div>
+                </td>
+                <td><strong style="color:var(--primary-navy); font-size:1.1rem;">${b.stock_count}</strong> Items</td>
+                <td>${b.vendor || 'Empty'}</td>
+                <td><span class="badge ${b.status==='Active'?'badge-success':'badge-warning'}" style="padding: 4px 8px; border-radius: 4px;">${b.status}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error(e); }
+}
+
+window.fetchSkus = async function() {
+    try {
+        const res = await fetch('/api/skus');
+        const skus = await res.json();
+        const tbody = document.getElementById('skuMasterBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        skus.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${s.sku_id}</strong></td>
+                <td>${s.name}</td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${s.category}</span></td>
+                <td>${s.unit_volume} m³</td>
+                <td>${s.unit_weight} kg</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error(e); }
+}
+
+
+window.openInspectBinModal = async function(binId) {
+    document.getElementById('inspectBinIdTitle').innerText = binId;
+    document.getElementById('inspectBinModal').style.display = 'flex';
+    
+    // Fetch Bin details from global list or re-fetch
+    try {
+        const binRes = await fetch('/api/bins');
+        if (binRes.ok) {
+            const bins = await binRes.json();
+            const bin = bins.find(b => b.bin_id === binId);
+            if (bin) {
+                document.getElementById('inspectBinZone').innerText = bin.zone;
+                document.getElementById('inspectBinVol').innerText = `${bin.current_volume.toFixed(1)} / ${bin.max_volume} mA3`;
+                document.getElementById('inspectBinWt').innerText = `${bin.current_weight.toFixed(1)} / ${bin.max_weight} kg`;
+                document.getElementById('inspectBinCount').innerText = bin.stock_count;
+            }
+        }
+        
+        // Fetch specific inventory for this bin
+        const invRes = await fetch(`/api/bins/${binId}/inventory`);
+        const tbody = document.getElementById('inspectBinTableBody');
+        tbody.innerHTML = '';
+        
+        if (invRes.ok) {
+            const inventory = await invRes.json();
+            if (inventory.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Bin is currently empty.</td></tr>';
+            } else {
+                inventory.forEach(i => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${i.sku_id}</strong></td>
+                        <td>
+                            <div>${i.sku_name || 'Unknown'}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">${i.category || '-'}</div>
+                        </td>
+                        <td>${i.vendor || '-'}</td>
+                        <td><strong>${i.quantity}</strong></td>
+                        <td style="font-size:0.85rem; color:var(--text-muted);">${new Date(i.received_date).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        } else {
+             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">Failed to load contents.</td></tr>';
+        }
+    } catch (e) {
+        console.error(e);
+        document.getElementById('inspectBinTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">Error loading contents.</td></tr>';
+    }
+}
+
+window.submitAddBin = async function() {
+    const data = {
+        bin_id: document.getElementById('newBinId').value,
+        zone: document.getElementById('newBinZone').value,
+        max_volume: parseFloat(document.getElementById('newBinVol').value),
+        max_weight: parseFloat(document.getElementById('newBinWt').value)
+    };
+    try {
+        await fetch('/api/bins', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+        document.getElementById('addBinModal').style.display='none';
+        document.getElementById('addBinForm').reset();
+        window.fetchBins();
+    } catch(e) { console.error(e); }
+}
+
+
+window.submitAddSku = async function() {
+    let skuId = document.getElementById('newSkuId').value.trim();
+    const name = document.getElementById('newSkuName').value.trim();
+    const cat = document.getElementById('newSkuCategory').value.trim();
+    
+    // Auto-generate if blank
+    if (!skuId) {
+        const catPrefix = cat ? cat.substring(0,3).toUpperCase() : 'SKU';
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        skuId = `${catPrefix}-${randomNum}`;
+    }
+
+    const data = {
+        sku_id: skuId,
+        name: name,
+        category: cat,
+        unit_volume: parseFloat(document.getElementById('newSkuVol').value),
+        unit_weight: parseFloat(document.getElementById('newSkuWt').value)
+    };
+    try {
+        const res = await fetch('/api/skus', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        document.getElementById('addSkuModal').style.display='none';
+        document.getElementById('addSkuForm').reset();
+        
+        // Refresh master tables
+        if(window.fetchSkus) window.fetchSkus();
+        
+        // If we were adding it for the manifest, we need to refresh the dropdowns!
+        // We will just alert that it was created and let them select it.
+        try {
+            const smRes = await fetch('/api/skus');
+            const skus = await smRes.json();
+            window.globalSkus = skus;
+            // Update all manifest sku dropdowns
+            const selects = document.querySelectorAll('select[id^="manifestSku_"]');
+            selects.forEach(sel => {
+                const currentVal = sel.value;
+                let skuOptions = '<option value="">Select SKU...</option>';
+                skus.forEach(s => {
+                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} - ${s.name}</option>`;
+                });
+                sel.innerHTML = skuOptions;
+                sel.value = currentVal;
+            });
+            
+            alert(`SKU created successfully: ${skuId}`);
+        } catch(e) {}
+        
+    } catch(e) { console.error(e); }
+}
+
+
+</script>
+
+    <script>
+        window.manifestLineCount = 0;
+        window.addManifestLine = async function() {
+            window.manifestLineCount++;
+            const id = window.manifestLineCount;
+            const container = document.getElementById('manifestLinesContainer');
+            
+            const lineDiv = document.createElement('div');
+            lineDiv.id = `manifestLine_${id}`;
+            lineDiv.style.cssText = "display:grid; grid-template-columns: 2fr 2fr 1fr 30px; gap:8px; align-items:center; background:var(--panel-subtle); padding:8px; border-radius:6px; border:1px solid var(--border-light);";
+            
+            let skuOptions = '<option value="">Select SKU...</option>';
+            if(window.globalSkus && window.globalSkus.length > 0) {
+                window.globalSkus.forEach(s => {
+                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} - ${s.name}</option>`;
+                });
+            } else {
+                try {
+                    const res = await fetch('/api/skus');
+                    const skus = await res.json();
+                    window.globalSkus = skus;
+                    skus.forEach(s => {
+                        skuOptions += `<option value="${s.sku_id}">${s.sku_id} - ${s.name}</option>`;
+                    });
+                } catch(e){}
+            }
+
+            lineDiv.innerHTML = `
+                <div style="display:flex; align-items:center; gap:4px;">
+                    <select id="manifestSku_${id}" required style="margin:0; padding:6px; font-size:0.8rem; flex-grow:1;" title="SKU">${skuOptions}</select>
+                    <button type="button" onclick="document.getElementById('addSkuModal').style.display='flex'" style="background:var(--primary-teal); color:white; border:none; padding:6px; border-radius:4px; cursor:pointer; font-size:0.75rem;" title="Quick Add SKU">+</button>
+                </div>
+                <input type="text" id="manifestVendor_${id}" placeholder="Vendor Name" required style="margin:0; padding:6px; font-size:0.8rem;" title="Vendor">
+                <input type="number" id="manifestQty_${id}" placeholder="Qty" required min="1" style="margin:0; padding:6px; font-size:0.8rem;" title="Expected Qty">
+                <button type="button" onclick="document.getElementById('manifestLine_${id}').remove()" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:1.2rem; padding:0;" title="Remove Line">&times;</button>
+            `;
+            container.appendChild(lineDiv);
+        };
+        
+        setTimeout(() => { if(document.getElementById('manifestLinesContainer')) window.addManifestLine(); }, 1000);
     </script>
+
+
+    <!-- Add SKU Modal -->
+    <div id="addSkuModal" class="modal-overlay" onclick="if(event.target===this) this.style.display='none'">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3>Add New SKU</h3>
+                <button type="button" class="modal-close-btn" onclick="document.getElementById('addSkuModal').style.display='none'">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addSkuForm">
+                    <label>SKU ID (Leave blank to auto-generate)</label>
+                    <input type="text" id="newSkuId" placeholder="e.g. ELEC-S23-01">
+                    <label>Product Name</label>
+                    <input type="text" id="newSkuName" placeholder="e.g. Galaxy S23" required>
+                    <label>Category</label>
+                    <input type="text" id="newSkuCategory" placeholder="e.g. Electronics" required>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                        <div>
+                            <label>Unit Volume (mA3)</label>
+                            <input type="number" id="newSkuVol" step="0.1" placeholder="0.5" required>
+                        </div>
+                        <div>
+                            <label>Unit Weight (kg)</label>
+                            <input type="number" id="newSkuWt" step="0.1" placeholder="1.2" required>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" onclick="document.getElementById('addSkuModal').style.display='none'">Cancel</button>
+                <button type="button" class="btn-primary" onclick="window.submitAddSku()">Save SKU</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

@@ -35,12 +35,41 @@ def init_db():
 
         -- Generated Gate Passes Collection
         
+        -- SKU Master
+        CREATE TABLE IF NOT EXISTS skus (
+            sku_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            category TEXT,
+            unit_weight REAL DEFAULT 0.0,
+            unit_volume REAL DEFAULT 0.0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Bin Master (Upgraded for Capacity and Slotting)
         CREATE TABLE IF NOT EXISTS bins (
             bin_id TEXT PRIMARY KEY,
-            stock_count INTEGER DEFAULT 0,
-            vendor TEXT,
+            zone TEXT DEFAULT 'General',
+            max_volume REAL DEFAULT 100.0,
+            current_volume REAL DEFAULT 0.0,
+            max_weight REAL DEFAULT 1000.0,
+            current_weight REAL DEFAULT 0.0,
             status TEXT DEFAULT 'Active',
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Inventory (Granular SKU tracking per Bin)
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bin_id TEXT,
+            sku_id TEXT,
+            quantity INTEGER DEFAULT 0,
+            batch_number TEXT,
+            expiry_date TEXT,
+            vendor TEXT,
+            received_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(bin_id) REFERENCES bins(bin_id),
+            FOREIGN KEY(sku_id) REFERENCES skus(sku_id)
         );
 
         CREATE TABLE IF NOT EXISTS gate_passes (
@@ -123,6 +152,7 @@ def init_db():
             name TEXT NOT NULL,
             warehouse TEXT DEFAULT 'Warehouse A',
             location TEXT NOT NULL,
+            bin_id TEXT,
             camera_type TEXT DEFAULT 'IP Camera',
             vendor TEXT DEFAULT 'Hikvision',
             stream_url TEXT,
@@ -495,10 +525,17 @@ def create_delivery(data):
         expected_date = data.get("expected_date") or time.strftime("%Y-%m-%d")
         plate = (data.get("plate") or "").strip().upper()
         driver_name = data.get("driver_name") or ""
-        load_desc = data.get("load") or ""
-        vendor = data.get("vendor") or ""
         activity = data.get("activity") or "Unloading"
         sheet = data.get("unloading_sheet") or []
+        
+        # Aggregate manifest data if empty
+        load_desc = data.get("load") or ""
+        vendor = data.get("vendor") or ""
+        if not load_desc and isinstance(sheet, list):
+            load_desc = ", ".join(list(set([str(item.get('sku_id', '')) for item in sheet if isinstance(item, dict)])))
+        if not vendor and isinstance(sheet, list):
+            vendor = ", ".join(list(set([str(item.get('vendor', '')) for item in sheet if isinstance(item, dict)])))
+            
         sheet_json = json.dumps(sheet) if isinstance(sheet, (list, dict)) else str(sheet)
         status = "Expected"
 
@@ -903,6 +940,7 @@ def create_or_update_camera(data):
     name = str(data.get('name') or camera_code).strip()
     warehouse = str(data.get('warehouse') or 'Warehouse A').strip()
     location = str(data.get('location') or 'Gate 01').strip()
+    bin_id = str(data.get('bin_id') or '').strip() or None
     camera_type = str(data.get('camera_type') or data.get('type') or 'IP Camera').strip()
     vendor = str(data.get('vendor') or 'Hikvision').strip()
     stream_url = str(data.get('stream_url') or data.get('url') or '').strip()
@@ -919,19 +957,20 @@ def create_or_update_camera(data):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with conn:
         conn.execute("""
-            INSERT INTO cameras (camera_id, camera_code, name, warehouse, location, camera_type, vendor, stream_url, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO cameras (camera_id, camera_code, name, warehouse, location, bin_id, camera_type, vendor, stream_url, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(camera_id) DO UPDATE SET
                 camera_code = excluded.camera_code,
                 name = excluded.name,
                 warehouse = excluded.warehouse,
                 location = excluded.location,
+                bin_id = excluded.bin_id,
                 camera_type = excluded.camera_type,
                 vendor = excluded.vendor,
                 stream_url = excluded.stream_url,
                 status = excluded.status,
                 updated_at = excluded.updated_at
-        """, (camera_id, camera_code, name, warehouse, location, camera_type, vendor, stream_url, status, now, now))
+        """, (camera_id, camera_code, name, warehouse, location, bin_id, camera_type, vendor, stream_url, status, now, now))
     conn.close()
     return get_camera(camera_id)
 
@@ -943,7 +982,7 @@ def get_all_vision_cameras(search_term=None, ai_status=None, cam_status=None):
     conn = get_db()
     query = """
         SELECT 
-            c.id, c.camera_id, c.camera_code, c.name AS camera_name, c.warehouse, c.location,
+            c.id, c.camera_id, c.camera_code, c.name AS camera_name, c.warehouse, c.location, c.bin_id,
             c.camera_type, c.vendor, c.status AS camera_status, c.created_at AS camera_created_at,
             cfg.id AS config_id, cfg.ai_enabled, cfg.detection_enabled, cfg.tracking_enabled,
             cfg.processing_fps, cfg.created_at AS config_created_at, cfg.updated_at AS config_updated_at
@@ -992,6 +1031,7 @@ def get_all_vision_cameras(search_term=None, ai_status=None, cam_status=None):
             "camera_name": d['camera_name'],
             "warehouse": d['warehouse'] or 'Warehouse A',
             "location": d['location'],
+            "bin_id": d.get('bin_id'),
             "camera_type": d['camera_type'],
             "vendor": d['vendor'],
             "camera_status": d['camera_status'],
@@ -1012,7 +1052,7 @@ def get_vision_camera(identifier):
     conn = get_db()
     row = conn.execute("""
         SELECT 
-            c.id, c.camera_id, c.camera_code, c.name AS camera_name, c.warehouse, c.location,
+            c.id, c.camera_id, c.camera_code, c.name AS camera_name, c.warehouse, c.location, c.bin_id,
             c.camera_type, c.vendor, c.status AS camera_status, c.created_at AS camera_created_at,
             cfg.id AS config_id, cfg.ai_enabled, cfg.detection_enabled, cfg.tracking_enabled,
             cfg.processing_fps, cfg.created_at AS config_created_at, cfg.updated_at AS config_updated_at
@@ -1045,6 +1085,7 @@ def get_vision_camera(identifier):
         "camera_name": d['camera_name'],
         "warehouse": d['warehouse'] or 'Warehouse A',
         "location": d['location'],
+        "bin_id": d.get('bin_id'),
         "camera_type": d['camera_type'],
         "vendor": d['vendor'],
         "camera_status": d['camera_status'],
@@ -1107,6 +1148,9 @@ def save_vision_camera_config(identifier, data):
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with conn:
+        if 'bin_id' in data:
+            conn.execute("UPDATE cameras SET bin_id = ? WHERE camera_id = ?", (data.get('bin_id'), camera_id))
+            
         conn.execute("""
             INSERT INTO vision_camera_configs (camera_id, ai_enabled, detection_enabled, tracking_enabled, processing_fps, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1710,20 +1754,84 @@ def get_zone_rois(zone_identifier):
 
 def get_all_bins():
     conn = get_db()
-    cursor = conn.execute("SELECT * FROM bins ORDER BY bin_id ASC")
+    cursor = conn.execute('''
+        SELECT b.bin_id, b.zone, b.max_volume, b.current_volume, b.max_weight, b.current_weight, b.status, 
+               COALESCE(SUM(i.quantity), 0) as stock_count,
+               GROUP_CONCAT(DISTINCT i.vendor) as vendor
+        FROM bins b
+        LEFT JOIN inventory i ON b.bin_id = i.bin_id
+        GROUP BY b.bin_id
+        ORDER BY b.bin_id ASC
+    ''')
     bins = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return bins
 
-def update_bin_stock(bin_id, vendor, count):
+
+def get_bin_inventory(bin_id):
+    conn = get_db()
+    cursor = conn.execute('''
+        SELECT i.id, i.bin_id, i.sku_id, i.quantity, i.batch_number, i.expiry_date, i.vendor, i.received_date,
+               s.name as sku_name, s.category, s.unit_volume, s.unit_weight
+        FROM inventory i
+        LEFT JOIN sku_master s ON i.sku_id = s.sku_id
+        WHERE i.bin_id = ?
+        ORDER BY i.received_date DESC
+    ''', (bin_id,))
+    inventory = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return inventory
+
+def add_bin(bin_id, zone, max_volume, max_weight):
     conn = get_db()
     with conn:
-        conn.execute("""
-            INSERT INTO bins (bin_id, vendor, stock_count, last_updated)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(bin_id) DO UPDATE SET 
-                stock_count = stock_count + ?, 
-                vendor = excluded.vendor,
+        conn.execute('''
+            INSERT INTO bins (bin_id, zone, max_volume, max_weight, status, last_updated)
+            VALUES (?, ?, ?, ?, 'Active', CURRENT_TIMESTAMP)
+        ''', (bin_id, zone, max_volume, max_weight))
+    conn.close()
+
+def get_all_skus():
+    conn = get_db()
+    cursor = conn.execute("SELECT * FROM skus ORDER BY sku_id ASC")
+    skus = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return skus
+
+def add_sku(sku_id, name, description, category, unit_weight, unit_volume):
+    conn = get_db()
+    with conn:
+        conn.execute('''
+            INSERT INTO skus (sku_id, name, description, category, unit_weight, unit_volume, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (sku_id, name, description, category, unit_weight, unit_volume))
+    conn.close()
+
+def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
+    conn = get_db()
+    with conn:
+        conn.execute('''
+            INSERT INTO bins (bin_id, status, last_updated)
+            VALUES (?, 'Active', CURRENT_TIMESTAMP)
+            ON CONFLICT(bin_id) DO NOTHING
+        ''', (bin_id,))
+        
+        conn.execute('''
+            INSERT INTO skus (sku_id, name, description)
+            VALUES (?, ?, 'Auto-generated SKU')
+            ON CONFLICT(sku_id) DO NOTHING
+        ''', (sku_id, f"Item {sku_id}"))
+
+        conn.execute('''
+            INSERT INTO inventory (bin_id, sku_id, quantity, vendor, received_date)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (bin_id, sku_id, count, vendor))
+        
+        conn.execute('''
+            UPDATE bins 
+            SET current_volume = current_volume + ?,
+                current_weight = current_weight + ?,
                 last_updated = CURRENT_TIMESTAMP
-        """, (bin_id, vendor, count, count))
+            WHERE bin_id = ?
+        ''', (count * 1.5, count * 2.0, bin_id))
     conn.close()
