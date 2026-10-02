@@ -2299,7 +2299,7 @@ async function fetchSkus() {
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-tracking', this)">Tracking Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-identity', this)">Identity Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-validation', this)">Validation Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-association', this)">Truck ↔ Box</button>
+                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-association', this)">Truck ↔ Box Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-worker-box', this)">Worker ↔ Box Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-config', this)">Configuration</button>
                 </div>
@@ -2756,8 +2756,10 @@ async function fetchSkus() {
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="dtSourceTypeSelect" onchange="handleDetectionSourceChange()" style="margin-bottom:0;">
-                                      <option value="camera" selected>Camera Master Feed / Preview</option>
-                                  </select>
+                                    <option value="camera" selected>Camera Master Feed / Preview</option>
+                                    <option value="sample">Built-in Test Scene (Static)</option>
+                                    <option value="upload">Custom Image File Upload</option>
+                                </select>
                             </div>
 
                             <!-- Camera Node (When Source is Camera) -->
@@ -2927,8 +2929,11 @@ async function fetchSkus() {
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="ttSourceTypeSelect" onchange="handleTrackingSourceChange()" style="margin-bottom:0;">
-                                      <option value="camera" selected>Camera Master Snapshot</option>
-                                  </select>
+                                    <option value="carrier_motion" selected>Sequential Motion Test (Carrier Pan)</option>
+                                    <option value="camera">Camera Master Snapshot</option>
+                                    <option value="sample">Built-in Test Scene (Static)</option>
+                                    <option value="upload">Custom Image File Upload</option>
+                                </select>
                             </div>
 
                             <!-- Camera Node -->
@@ -3093,10 +3098,15 @@ async function fetchSkus() {
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="idSourceTypeSelect" onchange="handleIdentitySourceChange()" style="margin-bottom:0;">
-                                      <option value="camera">Camera Master Feed</option>
-                                      <option value="motion">Live Feed (Motion Trigger)</option>
-                                      <option value="upload">Custom Image File Upload</option>
-                                  </select>
+                                    <option value="identity_qr_b104.jpg" selected>Sample 1: QR Code Placard [B104]</option>
+                                    <option value="identity_barcode_b105.jpg">Sample 2: 1D Barcode (Code 128) [B105]</option>
+                                    <option value="identity_ocr_b106.jpg">Sample 3: Printed Warehouse Label (OCR) [B106]</option>
+                                    <option value="identity_unidentified.jpg">Sample 4: Plain Object (Unidentified)</option>
+                                    <option value="identity_conflict.jpg">Sample 5: Conflicting Identifiers [B104 vs B109]</option>
+                                    <option value="camera">Camera Master Feed</option>
+                                    <option value="motion">Sequential Motion Test (Carrier Pan)</option>
+                                    <option value="upload">Custom Image File Upload</option>
+                                </select>
                             </div>
 
                             <!-- Camera Node -->
@@ -3317,10 +3327,16 @@ async function fetchSkus() {
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="valSourceTypeSelect" onchange="handleValidationSourceChange()" style="margin-bottom:0;">
-                                      <option value="camera">Camera Master Feed</option>
-                                      <option value="motion">Live Feed (Motion Trigger)</option>
-                                      <option value="upload">Custom Image File Upload</option>
-                                  </select>
+                                    <option value="validation_truck_gp1000.jpg" selected>Sample 1: Active Gate Pass QR [GP-1000] → VALIDATED</option>
+                                    <option value="validation_plate_mh12.jpg">Sample 2: Truck Plate Barcode [MH12AB1234] → VALIDATED</option>
+                                    <option value="validation_box_vlv900.jpg">Sample 3: Inbound Box SKU [VLV-900] → VALIDATED</option>
+                                    <option value="validation_unknown_b999.jpg">Sample 4: Unregistered Tag [B999999] → UNREGISTERED</option>
+                                    <option value="identity_qr_b104.jpg">Sample 5: Part 7 QR Placard [B104] → UNREGISTERED</option>
+                                    <option value="identity_unidentified.jpg">Sample 6: Plain Object (Unidentified) → NOT APPLICABLE</option>
+                                    <option value="identity_conflict.jpg">Sample 7: Conflicting Identifiers [B104 vs B109] → NOT APPLICABLE</option>
+                                    <option value="camera">Camera Master Feed</option>
+                                    <option value="upload">Custom Image File Upload</option>
+                                </select>
                             </div>
 
                             <!-- Camera Node -->
@@ -3516,10 +3532,15 @@ async function fetchSkus() {
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Test Scene / Source:</label>
                                 <select id="assocSourceTypeSelect" onchange="handleAssociationSourceChange()" style="margin-bottom:0;">
-                                      <option value="camera">Camera Master Feed</option>
-                                      <option value="motion">Live Feed (Motion Trigger)</option>
-                                      <option value="upload">Custom Image File Upload</option>
-                                  </select>
+                                    <option value="association_truck_box_dock1.jpg" selected>Scene 1: Truck GP-1000 + Box VLV-900 (Same Zone) → CONFIRMED</option>
+                                    <option value="association_truck_box_diff_zones.jpg">Scene 2: Truck GP-1000 + Box in Different Zones → REJECTED / CANDIDATE</option>
+                                    <option value="association_two_trucks_boxes.jpg">Scene 3: Two Trucks + Two Boxes (Independent Pairs)</option>
+                                    <option value="association_ambiguous_two_trucks.jpg">Scene 4: Ambiguous Two Trucks near One Box → AMBIGUOUS</option>
+                                    <option value="synthetic_confirm">Synthetic: 5-Frame Temporal Accumulation (CANDIDATE → CONFIRMED)</option>
+                                    <option value="synthetic_expire">Synthetic: Track Disappearance Sequence (CONFIRMED → EXPIRED)</option>
+                                    <option value="camera">Camera Master Feed</option>
+                                    <option value="upload">Custom Image File Upload</option>
+                                </select>
                             </div>
 
                             <!-- Camera Node -->
