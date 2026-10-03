@@ -1841,13 +1841,13 @@ def get_all_skus():
     conn.close()
     return skus
 
-def add_sku(sku_id, name, description, category, unit_weight, unit_volume):
+def add_sku(sku_id, name, description, category, unit_weight, unit_volume, units_per_bundle=1):
     conn = get_db()
     with conn:
         conn.execute('''
-            INSERT INTO skus (sku_id, name, description, category, unit_weight, unit_volume, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ''', (sku_id, name, description, category, unit_weight, unit_volume))
+            INSERT INTO skus (sku_id, name, description, category, unit_weight, unit_volume, units_per_bundle, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (sku_id, name, description, category, unit_weight, unit_volume, units_per_bundle))
     conn.close()
 
 def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
@@ -1860,20 +1860,28 @@ def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
         ''', (bin_id,))
         
         conn.execute('''
-            INSERT INTO skus (sku_id, name, description)
-            VALUES (?, ?, 'Auto-generated SKU')
+            INSERT INTO skus (sku_id, name, description, units_per_bundle)
+            VALUES (?, ?, 'Auto-generated SKU', 1)
             ON CONFLICT(sku_id) DO NOTHING
         ''', (sku_id, f"Item {sku_id}"))
+
+        # Look up SKU sizes and bundle info dynamically
+        sku = conn.execute("SELECT unit_volume, unit_weight, units_per_bundle FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+        vol_per_unit = sku['unit_volume'] if sku else 1.5
+        wt_per_unit = sku['unit_weight'] if sku else 2.0
+        
+        # Determine the bundle multiplier. 
+        # If the SKU has units_per_bundle, multiply the visual "bundle" count by it.
+        bundle_multiplier = 1
+        if sku and 'units_per_bundle' in sku.keys() and sku['units_per_bundle'] is not None:
+            bundle_multiplier = sku['units_per_bundle']
+            
+        actual_count = count * bundle_multiplier
 
         conn.execute('''
             INSERT INTO inventory (bin_id, sku_id, quantity, vendor, received_date)
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ''', (bin_id, sku_id, count, vendor))
-        
-        # Look up SKU sizes dynamically
-        sku = conn.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
-        vol_per_unit = sku['unit_volume'] if sku else 1.5
-        wt_per_unit = sku['unit_weight'] if sku else 2.0
+        ''', (bin_id, sku_id, actual_count, vendor))
 
         conn.execute('''
             UPDATE bins 
@@ -1881,7 +1889,7 @@ def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
                 current_weight = current_weight + ?,
                 last_updated = CURRENT_TIMESTAMP
             WHERE bin_id = ?
-        ''', (count * vol_per_unit, count * wt_per_unit, bin_id))
+        ''', (actual_count * vol_per_unit, actual_count * wt_per_unit, bin_id))
     conn.close()
 
 
