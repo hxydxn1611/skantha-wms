@@ -523,7 +523,7 @@
                 }
 
                 // Filter Active Passes for the Grid
-                const activePasses = passes.filter(p => !['Completed', 'Departed'].includes(p.status));
+                const activePasses = passes.filter(p => !['Exited', 'Departed'].includes(p.status));
 
                 if(activePasses.length === 0) {
                     gateBody.innerHTML = '<div style="grid-column: 1 / -1; text-align:center; padding: 2rem;">No active gate passes.</div>';
@@ -938,6 +938,22 @@
             }
         }
 
+        
+        async function checkoutGatePass(gp_id, plate) {
+            if(!confirm(`Verify that vehicle ${plate} is at the gate. Complete Check-Out?`)) return;
+            try {
+                const res = await fetch(`/api/gate/checkout/${gp_id}`, { method: 'POST' });
+                const data = await res.json();
+                if(data.success) {
+                    fetchGatePasses();
+                } else {
+                    alert("Checkout Failed: " + data.message);
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
         async function checkout(id, expectedPlate) {
             const plate = prompt(`Scan/Enter Plate for Check-Out (Expected: ${expectedPlate}):`);
             if(plate) {
@@ -1021,7 +1037,7 @@
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({ driver_photo: snapData.photo })
                         });
-                        alert("Face successfully snapshotted!");
+                        // alert("Face successfully snapshotted!");
                         fetchGatePasses();
                     } else {
                         alert("Failed to snap face: " + snapData.message);
