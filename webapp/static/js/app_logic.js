@@ -85,7 +85,7 @@
             }
         }
 
-        // Tab Switching
+        // Tab Switching & Cross-Module Deep Navigation (Part 14)
         function switchTab(tabId) {
             document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -101,6 +101,122 @@
             }
         }
 
+        function navigateToEntity(entityType, entityId) {
+            if (!entityType) return;
+            if (entityType === 'delivery') {
+                switchTab('deliveries');
+            } else if (entityType === 'gate_pass') {
+                switchTab('gate-passes');
+            } else if (entityType === 'dock') {
+                switchTab('docks');
+            } else if (entityType === 'camera') {
+                switchTab('cameras');
+            } else if (entityType === 'zone') {
+                switchTab('ai-vision-master');
+                if (typeof switchVisionSubTab === 'function') {
+                    const btn = document.querySelector(".vision-sub-btn[onclick*='vision-zones']");
+                    switchVisionSubTab('vision-zones', btn);
+                }
+            } else if (entityType === 'traceability' || entityType === 'material') {
+                switchTab('ai-vision-master');
+                if (typeof switchVisionSubTab === 'function') {
+                    const btn = document.querySelector(".vision-sub-btn[onclick*='vision-traceability']");
+                    switchVisionSubTab('vision-traceability', btn);
+                    if (entityId && typeof handleTraceabilityMaterialSelect === 'function') {
+                        setTimeout(() => handleTraceabilityMaterialSelect(entityId), 200);
+                    }
+                }
+            } else if (entityType === 'bin') {
+                switchTab('master-hub');
+                if (typeof switchSubTab === 'function') {
+                    const btn = document.querySelector(".sub-tab-btn[onclick*='bin-master']");
+                    switchSubTab('bin-master', btn);
+                }
+            } else if (entityType === 'sku') {
+                switchTab('master-hub');
+                if (typeof switchSubTab === 'function') {
+                    const btn = document.querySelector(".sub-tab-btn[onclick*='sku-master']");
+                    switchSubTab('sku-master', btn);
+                }
+            }
+        }
+        window.navigateToEntity = navigateToEntity;
+
+        // Part 14 Deterministic Synthetic Integration Scenario
+        async function triggerE2EScenario() {
+            const modal = document.getElementById('modalE2EScenario');
+            const body = document.getElementById('e2eModalBody');
+            if (!modal || !body) return;
+            modal.style.display = 'flex';
+            body.innerHTML = `
+                <div style="text-align:center; padding:2.5rem 1rem;">
+                    <div style="font-size:2rem; margin-bottom:1rem;">⚙️</div>
+                    <h4 style="margin:0 0 6px 0;">Executing Deterministic Inbound Integration Scenario...</h4>
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin:0;">Orchestrating Expected Delivery -> Gate Pass -> Truck -> Box -> Identity -> Validation -> Movement Events -> Material Traceability.</p>
+                </div>
+            `;
+
+            try {
+                const res = await fetch('/api/integration/e2e/test_scenario', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ po_number: 'PO-8821' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    let stepsHtml = data.steps.map(s => `
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 10px; background:var(--panel-subtle); border-radius:6px; margin-bottom:6px; border-left:3px solid var(--success); font-size:0.82rem;">
+                            <div>
+                                <strong style="color:var(--primary-navy);">Step ${s.step}: ${escapeHtml(s.name)}</strong>
+                                <div style="color:var(--text-muted); font-size:0.75rem;">${escapeHtml(s.details)}</div>
+                            </div>
+                            <span class="badge sent" style="font-size:0.7rem;">✓ ${escapeHtml(s.status)}</span>
+                        </div>
+                    `).join('');
+
+                    const gov = data.inventory_governance || {};
+
+                    body.innerHTML = `
+                        <div style="margin-bottom:1rem; padding:10px 14px; background:rgba(16,185,129,0.1); border:1px solid #10b981; border-radius:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong style="color:#059669; font-size:0.95rem;">✓ Inbound Logistics &amp; Vision Orchestration Verified</strong>
+                                <span class="badge sent" style="font-size:0.75rem;">${data.execution_time_ms} ms</span>
+                            </div>
+                            <p style="margin:4px 0 0 0; font-size:0.8rem; color:var(--text-muted);">Unified platform communication successfully verified using shared master identifiers across WMS and W.A.R.L.O.G.</p>
+                        </div>
+
+                        <!-- Inventory Governance Compliance Banner -->
+                        <div style="margin-bottom:1rem; padding:8px 12px; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.3); border-radius:8px; font-size:0.8rem;">
+                            <strong style="color:#2563eb;">🔒 Inventory Governance Boundary:</strong>
+                            <span>Ledger Rows Before: <strong>${gov.inventory_count_before}</strong> | Rows After: <strong>${gov.inventory_count_after}</strong> | Mutations: <strong style="color:#10b981;">${gov.inventory_mutations} (Strictly Zero DB Writes)</strong>.</span>
+                        </div>
+
+                        <h5 style="margin:0 0 8px 0; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Scenario Step Trace</h5>
+                        <div style="margin-bottom:1rem;">${stepsHtml}</div>
+
+                        <h5 style="margin:0 0 8px 0; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Unified Master Reference Bindings</h5>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:0.8rem; background:var(--panel-subtle); padding:10px; border-radius:6px;">
+                            <div><strong>Expected PO:</strong> ${escapeHtml(data.wms_bindings?.po_number || 'N/A')}</div>
+                            <div><strong>Gate Pass:</strong> ${escapeHtml(data.wms_bindings?.gate_pass_id || 'N/A')}</div>
+                            <div><strong>Truck Plate:</strong> ${escapeHtml(data.wms_bindings?.truck_plate || 'N/A')}</div>
+                            <div><strong>Assigned Dock:</strong> ${escapeHtml(data.wms_bindings?.assigned_dock || 'N/A')}</div>
+                            <div><strong>Vision Zone:</strong> ${escapeHtml(data.wms_bindings?.vision_zone || 'N/A')}</div>
+                            <div><strong>Observing Camera:</strong> ${escapeHtml(data.wms_bindings?.camera_id || 'N/A')}</div>
+                            <div><strong>Box Material ID:</strong> ${escapeHtml(data.wms_bindings?.material_id || 'N/A')}</div>
+                            <div><strong>Destination Bin:</strong> ${escapeHtml(data.wms_bindings?.destination_bin || 'N/A')}</div>
+                        </div>
+                    `;
+                    // Refresh main dashboard metrics
+                    if (typeof pollData === 'function') pollData();
+                } else {
+                    body.innerHTML = `<div style="padding:1.5rem; color:var(--danger); text-align:center;">Scenario Error: ${escapeHtml(data.error || 'Failed')}</div>`;
+                }
+            } catch (e) {
+                body.innerHTML = `<div style="padding:1.5rem; color:var(--danger); text-align:center;">Network Error: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+        window.triggerE2EScenario = triggerE2EScenario;
+
         // Data Polling
         let processedEvents = new Set();
         async function pollData() {
@@ -112,6 +228,81 @@
                 document.getElementById('stat-arrived').innerText = stats.total_arrived;
                 document.getElementById('stat-pending').innerText = stats.pending_dock;
                 document.getElementById('stat-dock').innerText = stats.at_dock;
+
+                // Fetch Unified Integration Overview (Part 14)
+                try {
+                    const intRes = await fetch('/api/integration/overview');
+                    if (intRes.ok) {
+                        const intData = await intRes.json();
+                        const vKpis = intData.data?.vision_kpis || {};
+                        const camEl = document.getElementById('stat-vision-cameras');
+                        const evtEl = document.getElementById('stat-vision-events');
+                        const matEl = document.getElementById('stat-vision-validated-materials');
+                        const trcEl = document.getElementById('stat-vision-traceability');
+                        if (camEl) camEl.innerText = vKpis.active_cameras ?? 0;
+                        if (evtEl) evtEl.innerText = vKpis.active_events ?? 0;
+                        if (matEl) matEl.innerText = vKpis.validated_materials ?? 0;
+                        if (trcEl) trcEl.innerText = vKpis.traceability_records ?? 0;
+
+                        // Render Unified Inbound Stream
+                        const streamBody = document.getElementById('unifiedInboundStreamBody');
+                        const stream = intData.data?.inbound_stream || [];
+                        if (streamBody) {
+                            if (stream.length === 0) {
+                                streamBody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No active inbound shipments.</td></tr>';
+                            } else {
+                                streamBody.innerHTML = stream.map(s => `
+                                    <tr>
+                                        <td>
+                                            <a href="javascript:void(0)" onclick="navigateToEntity('delivery', '${escapeHtml(s.po_number)}')" style="font-weight:700; color:var(--accent-hover); text-decoration:none;">
+                                                📦 ${escapeHtml(s.po_number)}
+                                            </a>
+                                        </td>
+                                        <td>
+                                            <a href="javascript:void(0)" onclick="navigateToEntity('gate_pass', '${escapeHtml(s.gate_pass_id)}')" style="font-weight:600; text-decoration:none; color:var(--primary-navy);">
+                                                🎫 ${escapeHtml(s.gate_pass_id)}
+                                            </a>
+                                            <div style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">${escapeHtml(s.plate)} (${escapeHtml(s.vehicle_type)})</div>
+                                        </td>
+                                        <td>${escapeHtml(s.vendor)}</td>
+                                        <td>
+                                            <a href="javascript:void(0)" onclick="navigateToEntity('dock', '${escapeHtml(s.dock)}')" style="font-weight:600; color:var(--accent-hover); text-decoration:none;">
+                                                ⚓ ${escapeHtml(s.dock)}
+                                            </a>
+                                        </td>
+                                        <td>
+                                            <span class="badge" style="background:rgba(59,130,246,0.12); color:#2563eb; font-size:0.75rem; padding:2px 6px;">
+                                                ${escapeHtml(s.zone_code || 'None')}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            ${(s.monitoring_cameras && s.monitoring_cameras.length > 0) ? s.monitoring_cameras.map(c => `
+                                                <a href="javascript:void(0)" onclick="navigateToEntity('camera', '${escapeHtml(c)}')" class="badge" style="background:rgba(16,185,129,0.12); color:#059669; font-size:0.75rem; padding:2px 6px; text-decoration:none; margin-right:3px;">
+                                                    📹 ${escapeHtml(c)}
+                                                </a>
+                                            `).join('') : '<span style="color:var(--text-muted); font-size:0.75rem;">None</span>'}
+                                        </td>
+                                        <td style="font-weight:bold; color:#8b5cf6;">
+                                            ${s.materials_observed_count} observed
+                                        </td>
+                                        <td>
+                                            <span class="badge ${s.status === 'Sent to Dock' || s.status === 'Unloading' ? 'sent' : 'pending'}" style="font-size:0.72rem;">
+                                                ${escapeHtml(s.status)}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <button class="btn-primary" style="font-size:0.75rem; padding:4px 8px; background:linear-gradient(135deg, #3b82f6, #8b5cf6);" onclick="navigateToEntity('traceability', '${escapeHtml(s.po_number)}')">
+                                                🔍 Inspect Trace
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('');
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Could not fetch integration overview:", e);
+                }
 
                 // Fetch Cameras
                 const camRes = await fetch('/api/cameras');
@@ -231,7 +422,13 @@
                         <td>${d.load}</td>
                         <td style="font-weight:bold;">${d.unloading_sheet && Array.isArray(d.unloading_sheet) ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0) : '-'}</td>
                         <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
-                        <td>${statusBadge}</td>
+                        <td>
+                            ${statusBadge}
+                            <div style="margin-top:5px; display:flex; gap:4px; flex-wrap:wrap;">
+                                ${d.linked_gate_pass_id ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px;" onclick="navigateToEntity('gate_pass', '${d.linked_gate_pass_id}')">🎫 Pass</button>` : ''}
+                                <button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${d.po_number}')">🔍 Trace</button>
+                            </div>
+                        </td>
                     </tr>
                 `;}).join('');
                 
@@ -364,12 +561,19 @@
                         
                         return `
                         <div style="background: var(--panel-bg); border: 1px solid var(--border-blue); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; position: relative; box-shadow: var(--card-shadow);">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap:wrap; gap:8px;">
                                 <div>
                                     <h3 style="margin: 0; color: var(--accent-hover); font-size: 1.2rem;">Pass ${gp.id}</h3>
                                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Arrival: ${gp.arrival_date} ${gp.time}</div>
                                 </div>
-                                <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span>
+                                <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                                    <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span>
+                                    <div style="display:flex; gap:4px; margin-top:2px;">
+                                        ${gp.po_number ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#3b82f6;" onclick="navigateToEntity('delivery', '${gp.po_number}')">📦 PO</button>` : ''}
+                                        ${(gp.dock && gp.dock !== 'Not Assigned') ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#10b981;" onclick="navigateToEntity('dock', '${gp.dock}')">⚓ Dock</button>` : ''}
+                                        <button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${gp.id}')">🔍 Trace</button>
+                                    </div>
+                                </div>
                             </div>
                             
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--panel-subtle); border: 1px solid var(--border-light); padding: 1rem; border-radius: 8px;">
@@ -481,8 +685,11 @@
                                             <span>UNLOADING SHEET (AI VERIFICATION)</span>
                                             <span style="color:var(--success);">98% Accuracy Tracker</span>
                                         </h4>
-                                        <div style="margin-bottom: 8px;">
-                                            <img src="/video_feed/07b3adfb" style="width:100%; border-radius:4px; max-height:200px; object-fit:cover;" alt="Live Dock Camera"/>
+                                        <div style="margin-bottom: 8px; position:relative;">
+                                            <img src="/video_feed/${(gp.dock === 'Dock 2') ? 'CAM-003' : 'CAM-002'}" style="width:100%; border-radius:4px; max-height:200px; object-fit:cover;" alt="Live Dock Camera" onerror="this.src='/static/test_scenes/dock01_test.jpg'"/>
+                                            <span style="position:absolute; bottom:6px; right:6px; background:rgba(0,0,0,0.7); color:#fff; font-size:0.7rem; padding:2px 6px; border-radius:4px;">
+                                                📹 ${(gp.dock === 'Dock 2') ? 'CAM-003 (Dock 02)' : 'CAM-002 (Dock 01)'}
+                                            </span>
                                         </div>
                                         <table style="margin:0; font-size:0.85rem; background:transparent;">
                                             <thead>
@@ -507,6 +714,7 @@
                                             </tbody>
                                         </table>
                                     </div>
+                                    <button class="btn-primary" style="width:100%; margin-bottom:4px; background:linear-gradient(135deg, #3b82f6, #8b5cf6);" onclick="navigateToEntity('traceability', 'B104')">🔍 View Inbound Material Traceability</button>
                                     <div style="display:flex; gap: 4px; margin-bottom:4px;">
                                         <button class="btn-primary" style="flex: 1;" onclick="scanPackages('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>🔄 Sync AI Tracker</button>
                                         <input type="number" id="manual_add_${gp.id}" placeholder="+Qty" style="width: 60px; padding: 4px; margin: 0; background: var(--panel-bg); color: var(--text-main); border: 1px solid var(--border-light); border-radius: 4px;" ${gp.status === 'Completed' ? 'disabled' : ''}>
@@ -522,7 +730,6 @@
                                             </div>
                                         </div>
                                     ` : `<div style="font-size:0.85rem; margin-bottom:8px;"><strong>Allocated Bin:</strong> ${gp.bin_allocation}</div>`}
-                                    
                                     <button class="btn-danger" style="width:100%; margin-bottom:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="width:100%; background:var(--accent-hover);" onclick="sendInvoice('${gp.id}')">📧 Send Invoice to Vendor</button>` : ''}
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--accent);" onclick="downloadGateManifest('${gp.id}')">📄 PDF Manifest</button>` : ''}

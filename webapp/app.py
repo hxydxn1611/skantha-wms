@@ -23,6 +23,7 @@ from worker_box_association_service import get_worker_box_association_service
 from box_bin_association_service import get_box_bin_association_service
 from movement_event_service import get_movement_event_service
 from material_traceability_service import get_material_traceability_service
+from integration_service import get_integration_service
 
 # Initialize SQLite database schema
 db.init_db()
@@ -2397,7 +2398,6 @@ def generate_frames(camera_id):
 def video_feed(camera_id):
     return Response(generate_frames(camera_id), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
     try:
@@ -2515,9 +2515,93 @@ def pick_outbound(order_id):
     conn.close()
     return jsonify({"success": True, "status": "Fulfilled" if all_picked else "Partially Picked"})
 
+# ============================================================================
+# PART 14 — SYSTEM INTEGRATION & ORCHESTRATION LAYER ENDPOINTS
+# ============================================================================
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+@app.route('/api/integration/overview', methods=['GET'])
+def api_integration_overview():
+    """Unified operational indicators combining WMS masters and W.A.R.L.O.G. vision perception."""
+    try:
+        overview = get_integration_service().get_unified_overview()
+        return jsonify({"success": True, "data": overview}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/integration/delivery/<po_number>', methods=['GET'])
+def api_integration_delivery(po_number):
+    """End-to-end inbound context connecting Delivery -> Gate Pass -> Dock -> Cameras -> Materials."""
+    try:
+        ctx = get_integration_service().get_delivery_context(po_number)
+        if not ctx:
+            return jsonify({"success": False, "error": f"Delivery '{po_number}' not found"}), 404
+        return jsonify({"success": True, "data": ctx}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/integration/gate_pass/<gp_id>', methods=['GET'])
+def api_integration_gate_pass(gp_id):
+    """Operational context connecting Gate Pass -> Delivery -> Vehicle -> Dock -> Cameras -> Observations."""
+    try:
+        ctx = get_integration_service().get_gate_pass_context(gp_id)
+        if not ctx:
+            return jsonify({"success": False, "error": f"Gate pass '{gp_id}' not found"}), 404
+        return jsonify({"success": True, "data": ctx}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/integration/material/<material_id>', methods=['GET'])
+def api_integration_material(material_id):
+    """Enriched material dossier binding traceability to WMS masters (SKU, PO, Gate Pass, Truck, Worker, Bin)."""
+    try:
+        dossier = get_integration_service().get_enriched_material_dossier(material_id)
+        if not dossier:
+            return jsonify({"success": False, "error": f"Material '{material_id}' not found in traceability"}), 404
+        return jsonify({"success": True, "data": dossier}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/integration/dock/<dock_name>', methods=['GET'])
+def api_integration_dock(dock_name):
+    """Dock operational context: assigned gate passes, trucks, dock zone, cameras, observed boxes."""
+    try:
+        ctx = get_integration_service().get_dock_context(dock_name)
+        return jsonify({"success": True, "data": ctx}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/integration/bin/<bin_id>', methods=['GET'])
+def api_integration_bin(bin_id):
+    """Bin operational context: physical bin, inventory ledger, vision zone, putaway evidence."""
+    try:
+        ctx = get_integration_service().get_bin_context(bin_id)
+        if not ctx:
+            return jsonify({"success": False, "error": f"Bin '{bin_id}' not found"}), 404
+        return jsonify({"success": True, "data": ctx}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/integration/camera/<camera_id>', methods=['GET'])
+def api_integration_camera(camera_id):
+    """Unified camera context: hardware + AI config + assigned zones + active perception sessions."""
+    try:
+        ctx = get_integration_service().get_camera_context(camera_id)
+        if not ctx:
+            return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
+        return jsonify({"success": True, "data": ctx}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/integration/e2e/test_scenario', methods=['POST'])
+def api_integration_e2e_test_scenario():
+    """Executes deterministic synthetic end-to-end integration scenario with zero inventory mutations."""
+    try:
+        data = request.json or {}
+        po_number = data.get("po_number", "PO-8821")
+        result = get_integration_service().run_e2e_integration_scenario(po_number)
+        return jsonify(result), 200 if result.get("success") else 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/cycle_count', methods=['POST'])

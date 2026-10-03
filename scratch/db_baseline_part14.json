@@ -1,0 +1,245 @@
+{
+  "sha256": "dc914467fbc2e72a22fbd628a717aa760e67e1f1eee891bcbddd4d86291efec4",
+  "tables": {
+    "bins": {
+      "columns": 8,
+      "col_names": [
+        "bin_id",
+        "zone",
+        "max_volume",
+        "current_volume",
+        "max_weight",
+        "current_weight",
+        "status",
+        "last_updated"
+      ],
+      "rows": 0
+    },
+    "cameras": {
+      "columns": 13,
+      "col_names": [
+        "id",
+        "camera_id",
+        "camera_code",
+        "name",
+        "warehouse",
+        "location",
+        "camera_type",
+        "vendor",
+        "stream_url",
+        "status",
+        "created_at",
+        "updated_at",
+        "bin_id"
+      ],
+      "rows": 4
+    },
+    "expected_deliveries": {
+      "columns": 12,
+      "col_names": [
+        "po_number",
+        "expected_date",
+        "activity",
+        "vendor",
+        "load_description",
+        "plate",
+        "driver_name",
+        "unloading_sheet",
+        "status",
+        "created_at",
+        "vendor_email",
+        "driver_phone"
+      ],
+      "rows": 2
+    },
+    "gate_passes": {
+      "columns": 24,
+      "col_names": [
+        "id",
+        "po_number",
+        "plate",
+        "vehicle_type",
+        "driver_name",
+        "vendor",
+        "load_description",
+        "activity",
+        "expected_date",
+        "arrival_date",
+        "arrival_time",
+        "status",
+        "dock",
+        "photo",
+        "unloaded_qty",
+        "bin_allocation",
+        "unloading_sheet",
+        "created_at",
+        "driver_phone",
+        "vendor_email",
+        "otp",
+        "exit_time",
+        "driver_photo",
+        "otp_verified"
+      ],
+      "rows": 2
+    },
+    "inventory": {
+      "columns": 8,
+      "col_names": [
+        "id",
+        "bin_id",
+        "sku_id",
+        "quantity",
+        "batch_number",
+        "expiry_date",
+        "vendor",
+        "received_date"
+      ],
+      "rows": 0
+    },
+    "invoices": {
+      "columns": 7,
+      "col_names": [
+        "id",
+        "gp_id",
+        "po_number",
+        "vendor",
+        "vendor_email",
+        "pdf_path",
+        "generated_at"
+      ],
+      "rows": 0
+    },
+    "object_classes": {
+      "columns": 7,
+      "col_names": [
+        "id",
+        "code",
+        "name",
+        "description",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": 6
+    },
+    "outbound_items": {
+      "columns": 5,
+      "col_names": [
+        "id",
+        "order_id",
+        "sku_id",
+        "quantity",
+        "picked_quantity"
+      ],
+      "rows": 0
+    },
+    "outbound_orders": {
+      "columns": 5,
+      "col_names": [
+        "id",
+        "customer_name",
+        "destination",
+        "status",
+        "created_at"
+      ],
+      "rows": 0
+    },
+    "skus": {
+      "columns": 7,
+      "col_names": [
+        "sku_id",
+        "name",
+        "description",
+        "category",
+        "unit_weight",
+        "unit_volume",
+        "created_at"
+      ],
+      "rows": 0
+    },
+    "users": {
+      "columns": 3,
+      "col_names": [
+        "id",
+        "username",
+        "password"
+      ],
+      "rows": 2
+    },
+    "vehicle_log": {
+      "columns": 7,
+      "col_names": [
+        "id",
+        "gp_id",
+        "plate",
+        "driver_name",
+        "entry_time",
+        "exit_time",
+        "status"
+      ],
+      "rows": 0
+    },
+    "vision_camera_configs": {
+      "columns": 8,
+      "col_names": [
+        "id",
+        "camera_id",
+        "ai_enabled",
+        "detection_enabled",
+        "tracking_enabled",
+        "processing_fps",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": 4
+    },
+    "vision_camera_object_classes": {
+      "columns": 4,
+      "col_names": [
+        "id",
+        "camera_id",
+        "class_code",
+        "created_at"
+      ],
+      "rows": 11
+    },
+    "vision_zone_camera_rois": {
+      "columns": 7,
+      "col_names": [
+        "id",
+        "zone_id",
+        "camera_id",
+        "shape_type",
+        "coordinates",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": 3
+    },
+    "vision_zone_cameras": {
+      "columns": 4,
+      "col_names": [
+        "id",
+        "zone_id",
+        "camera_id",
+        "created_at"
+      ],
+      "rows": 14
+    },
+    "vision_zones": {
+      "columns": 9,
+      "col_names": [
+        "id",
+        "zone_code",
+        "zone_name",
+        "zone_type",
+        "warehouse",
+        "description",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "rows": 7
+    }
+  }
+}
