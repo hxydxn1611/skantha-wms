@@ -5516,13 +5516,23 @@
 
                     async function loadTraceabilityMaterialDossier(materialId) {
                         try {
-                            const res = await fetch(`/api/vision/traceability/materials/${encodeURIComponent(materialId)}`);
+                            // Try enriched Part 14 integration endpoint first
+                            let res = await fetch(`/api/integration/material/${encodeURIComponent(materialId)}`);
+                            let mat = null;
                             if (res.ok) {
-                                const data = await res.json();
-                                if (data.material) {
-                                    globalTraceabilityCache.materials[materialId] = data.material;
-                                    renderMaterialTraceDossier(data.material);
+                                const intData = await res.json();
+                                mat = intData.data;
+                            } else {
+                                // Fallback to raw traceability endpoint
+                                res = await fetch(`/api/vision/traceability/materials/${encodeURIComponent(materialId)}`);
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    mat = data.material;
                                 }
+                            }
+                            if (mat) {
+                                globalTraceabilityCache.materials[materialId] = mat;
+                                renderMaterialTraceDossier(mat);
                             } else {
                                 clearMaterialTraceDossier(materialId);
                             }
@@ -5556,6 +5566,10 @@
 
                     function renderMaterialTraceDossier(mat) {
                         if (!mat) return;
+                        if (!mat.wms_references && mat.material_id) {
+                            loadTraceabilityMaterialDossier(mat.material_id);
+                            return;
+                        }
                         const title = document.getElementById('trcDossierTitle');
                         const levelBadge = document.getElementById('trcDossierLevelBadge');
                         const statusBadge = document.getElementById('trcDossierStatusBadge');
@@ -5652,6 +5666,62 @@
                                 `).join(' ');
                             } else {
                                 cams.innerHTML = '<span style="color:var(--text-muted);">No camera observations logged.</span>';
+                            }
+                        }
+
+                        // WMS Master References (Part 14 Integration)
+                        const wmsSection = document.getElementById('trcDossierWmsSection');
+                        const wmsDelivery = document.getElementById('trcWmsDelivery');
+                        const wmsGatePass = document.getElementById('trcWmsGatePass');
+                        const wmsSku = document.getElementById('trcWmsSku');
+                        const wmsPutaway = document.getElementById('trcWmsPutaway');
+                        const deepLinksContainer = document.getElementById('trcDossierDeepLinks');
+
+                        if (wmsSection) {
+                            const refs = mat.wms_references || {};
+                            if (wmsDelivery) {
+                                if (refs.delivery && refs.delivery.po_number) {
+                                    wmsDelivery.innerHTML = `<span style="color:var(--accent-hover); font-weight:700;">PO ${escapeHtml(refs.delivery.po_number)}</span> <span style="font-size:0.7rem; color:var(--text-muted);">(${escapeHtml(refs.delivery.vendor || 'Vendor')})</span>`;
+                                } else {
+                                    wmsDelivery.innerHTML = '<span style="color:var(--text-muted);">NOT_AVAILABLE</span>';
+                                }
+                            }
+                            if (wmsGatePass) {
+                                if (refs.gate_pass && refs.gate_pass.id) {
+                                    wmsGatePass.innerHTML = `<span style="color:#2563eb; font-weight:700;">Pass ${escapeHtml(refs.gate_pass.id)}</span> <span style="font-size:0.7rem; color:var(--text-muted);">[${escapeHtml(refs.truck_plate || refs.gate_pass.plate)}]</span>`;
+                                } else {
+                                    wmsGatePass.innerHTML = '<span style="color:var(--text-muted);">NOT_AVAILABLE</span>';
+                                }
+                            }
+                            if (wmsSku) {
+                                if (refs.sku && refs.sku.name) {
+                                    wmsSku.innerHTML = `<span style="color:#10b981; font-weight:700;">${escapeHtml(refs.sku.name)}</span>`;
+                                } else {
+                                    wmsSku.innerHTML = '<span style="color:var(--text-muted);">UNREGISTERED / NOT_AVAILABLE</span>';
+                                }
+                            }
+                            if (wmsPutaway) {
+                                const pStatus = refs.putaway_evidence?.status || 'UNVERIFIED';
+                                const pColor = (pStatus === 'OBSERVED_AT_BIN') ? '#10b981' : '#f59e0b';
+                                const binLabel = refs.bin?.bin_id ? ` (${escapeHtml(refs.bin.bin_id)})` : '';
+                                wmsPutaway.innerHTML = `<span class="badge" style="background:${pColor}20; color:${pColor}; font-size:0.7rem; padding:2px 8px;">${pStatus}${binLabel}</span>`;
+                            }
+
+                            if (deepLinksContainer) {
+                                let buttons = '';
+                                if (refs.delivery?.po_number) {
+                                    buttons += `<button type="button" class="btn-primary" style="font-size:0.7rem; padding:3px 8px; background:#3b82f6;" onclick="navigateToEntity('delivery', '${escapeHtml(refs.delivery.po_number)}')">📦 Go to PO</button>`;
+                                }
+                                if (refs.gate_pass?.id) {
+                                    buttons += `<button type="button" class="btn-primary" style="font-size:0.7rem; padding:3px 8px; background:#10b981;" onclick="navigateToEntity('gate_pass', '${escapeHtml(refs.gate_pass.id)}')">🎫 Go to Pass</button>`;
+                                }
+                                if (refs.gate_pass?.dock && refs.gate_pass.dock !== 'Not Assigned') {
+                                    buttons += `<button type="button" class="btn-primary" style="font-size:0.7rem; padding:3px 8px; background:#f59e0b;" onclick="navigateToEntity('dock', '${escapeHtml(refs.gate_pass.dock)}')">⚓ Go to Dock</button>`;
+                                }
+                                if (refs.bin?.bin_id) {
+                                    buttons += `<button type="button" class="btn-primary" style="font-size:0.7rem; padding:3px 8px; background:#8b5cf6;" onclick="navigateToEntity('bin', '${escapeHtml(refs.bin.bin_id)}')">🏷️ Go to Bin ${escapeHtml(refs.bin.bin_id)}</button>`;
+                                }
+                                deepLinksContainer.innerHTML = buttons;
                             }
                         }
 
@@ -5800,7 +5870,9 @@
                                 if (kpiDest) kpiDest.innerText = '1';
 
                                 await initMaterialTraceabilityUI();
-                                if (data.material_dossier) {
+                                if (data.material_dossier && data.material_dossier.material_id) {
+                                    await loadTraceabilityMaterialDossier(data.material_dossier.material_id);
+                                } else if (data.material_dossier) {
                                     renderMaterialTraceDossier(data.material_dossier);
                                 }
                                 updateTraceabilityImage('CAM-001');

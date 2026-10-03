@@ -862,8 +862,15 @@
         
         <!-- DASHBOARD VIEW -->
         <div id="dashboard-view" class="view-section active">
-            <div class="glass-panel">
-                <h2>Warehouse Overview</h2>
+            <!-- 1. Core WMS Metrics -->
+            <div class="glass-panel" style="margin-bottom: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+                    <div>
+                        <h2>Warehouse Inbound Operations</h2>
+                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">Authoritative WMS gate and consignment metrics.</p>
+                    </div>
+                    <span class="badge sent" style="font-size:0.75rem;">Core WMS Active</span>
+                </div>
                 <div class="metrics-grid">
                     <div class="metric-card">
                         <h3>Expected POs</h3>
@@ -881,6 +888,70 @@
                         <h3>Active at Docks</h3>
                         <div class="value" id="stat-dock">0</div>
                     </div>
+                </div>
+            </div>
+
+            <!-- 2. W.A.R.L.O.G. AI Perception & Tracking Telemetry -->
+            <div class="glass-panel" style="margin-bottom: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+                    <div>
+                        <h2 style="color:var(--accent-hover); display:flex; align-items:center; gap:8px;">
+                            <span>👁️ W.A.R.L.O.G. Perception &amp; Tracking Telemetry</span>
+                        </h2>
+                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">Real-time AI camera observation, movement events, and material traceability.</p>
+                    </div>
+                    <span class="badge" style="font-size:0.75rem; background:rgba(139,92,246,0.15); color:#8b5cf6;">Part 14 Integrated</span>
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric-card" style="border-left: 4px solid var(--accent);">
+                        <h3>Active AI Cameras</h3>
+                        <div class="value" id="stat-vision-cameras" style="color:var(--accent-hover);">0</div>
+                    </div>
+                    <div class="metric-card" style="border-left: 4px solid #3b82f6;">
+                        <h3>Active Movement Events</h3>
+                        <div class="value" id="stat-vision-events" style="color:#3b82f6;">0</div>
+                    </div>
+                    <div class="metric-card" style="border-left: 4px solid #10b981;">
+                        <h3>Validated Materials</h3>
+                        <div class="value" id="stat-vision-validated-materials" style="color:#10b981;">0</div>
+                    </div>
+                    <div class="metric-card" style="border-left: 4px solid #8b5cf6;">
+                        <h3>Traceability Dossiers</h3>
+                        <div class="value" id="stat-vision-traceability" style="color:#8b5cf6;">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Unified Inbound Logistics & Vision Stream -->
+            <div class="glass-panel">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <h3>Unified Inbound Stream (WMS + Vision)</h3>
+                        <p style="color:var(--text-muted); font-size:0.85rem; margin:0.25rem 0 0 0;">Correlating Expected Deliveries, Gate Passes, Assigned Docks, Cameras, and Observed Items.</p>
+                    </div>
+                    <button class="btn-primary" onclick="triggerE2EScenario()" style="background:linear-gradient(135deg, #3b82f6, #8b5cf6); box-shadow:0 4px 12px rgba(59,130,246,0.25);">
+                        ▶ Run E2E Integration Scenario (Part 14)
+                    </button>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th>Delivery PO</th>
+                                <th>Gate Pass &amp; Vehicle</th>
+                                <th>Vendor</th>
+                                <th>Assigned Dock</th>
+                                <th>Vision Zone</th>
+                                <th>Monitoring Cameras</th>
+                                <th>Observed Items</th>
+                                <th>Status</th>
+                                <th>Unified Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="unifiedInboundStreamBody">
+                            <tr><td colspan="9" style="text-align:center; padding:1.5rem; color:var(--text-muted);">Loading unified operational stream...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -3639,10 +3710,39 @@ async function fetchSkus() {
                             </div>
 
                             <!-- Camera Sightings -->
-                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px; flex:1;">
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px; margin-bottom:12px;">
                                 <div style="font-size:0.72rem; color:var(--text-muted); font-weight:600; margin-bottom:4px;">CAMERA SIGHTINGS</div>
                                 <div id="trcDossierCameras" style="display:flex; flex-wrap:wrap; gap:6px; font-size:0.75rem;">
                                     <span style="color:var(--text-muted);">No camera observations logged.</span>
+                                </div>
+                            </div>
+
+                            <!-- WMS Master Data Bindings & Inbound Context (Part 14) -->
+                            <div style="background:var(--panel-bg); border:1px solid rgba(59,130,246,0.35); border-radius:8px; padding:10px 12px; flex:1;" id="trcDossierWmsSection">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                    <span style="font-size:0.75rem; color:#3b82f6; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">🏢 WMS Master Data Bindings</span>
+                                    <span id="trcDossierWmsStatus" class="badge" style="font-size:0.68rem; background:rgba(59,130,246,0.15); color:#2563eb;">LINKED</span>
+                                </div>
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:0.78rem;">
+                                    <div>
+                                        <span style="color:var(--text-muted); font-size:0.7rem;">Inbound Delivery:</span>
+                                        <div id="trcWmsDelivery" style="font-weight:600;">--</div>
+                                    </div>
+                                    <div>
+                                        <span style="color:var(--text-muted); font-size:0.7rem;">Gate Pass / Plate:</span>
+                                        <div id="trcWmsGatePass" style="font-weight:600;">--</div>
+                                    </div>
+                                    <div>
+                                        <span style="color:var(--text-muted); font-size:0.7rem;">SKU Master / Catalog:</span>
+                                        <div id="trcWmsSku" style="font-weight:600;">--</div>
+                                    </div>
+                                    <div>
+                                        <span style="color:var(--text-muted); font-size:0.7rem;">Putaway Verification:</span>
+                                        <div id="trcWmsPutaway" style="font-weight:600;">--</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;" id="trcDossierDeepLinks">
+                                    <!-- Dynamic cross-module deep link buttons rendered here -->
                                 </div>
                             </div>
                         </div>
@@ -3792,6 +3892,23 @@ async function fetchSkus() {
             <div class="modal-footer">
                 <button type="button" class="btn-secondary" onclick="document.getElementById('addSkuModal').style.display='none'">Cancel</button>
                 <button type="button" class="btn-primary" onclick="window.submitAddSku()">Save SKU</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Part 14 E2E Integration Scenario Result Modal -->
+    <div id="modalE2EScenario" class="modal-overlay" onclick="if(event.target===this) this.style.display='none'">
+        <div class="modal-dialog" style="max-width:780px;">
+            <div class="modal-header">
+                <h3>Part 14 — End-to-End Logistics &amp; Vision Orchestration Audit</h3>
+                <button type="button" class="modal-close-btn" onclick="document.getElementById('modalE2EScenario').style.display='none'">&times;</button>
+            </div>
+            <div class="modal-body" id="e2eModalBody" style="max-height:75vh; overflow-y:auto;">
+                <div style="text-align:center; padding:2rem;">Running deterministic integration scenario...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modalE2EScenario').style.display='none'">Close</button>
+                <button type="button" class="btn-primary" onclick="navigateToEntity('traceability', 'B104'); document.getElementById('modalE2EScenario').style.display='none';">Inspect Material Traceability (B104)</button>
             </div>
         </div>
     </div>
