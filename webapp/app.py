@@ -101,6 +101,14 @@ def api_add_sku():
 def api_get_bins():
     return jsonify(db.get_all_bins())
 
+@app.route('/api/bins/<bin_id>/inventory', methods=['GET'])
+def api_get_bin_inventory(bin_id):
+    try:
+        inventory = db.get_bin_inventory(bin_id)
+        return jsonify(inventory), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     return jsonify(db.get_stats())
@@ -2770,3 +2778,7 @@ def suggest_bin(gp_id):
     
     chosen_bin = best_bin['bin_id'] if best_bin else "BIN-OVERFLOW-NEW"
     return jsonify({"success": True, "suggested_bin": chosen_bin})
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)

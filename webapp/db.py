@@ -1817,7 +1817,7 @@ def get_bin_inventory(bin_id):
         SELECT i.id, i.bin_id, i.sku_id, i.quantity, i.batch_number, i.expiry_date, i.vendor, i.received_date,
                s.name as sku_name, s.category, s.unit_volume, s.unit_weight
         FROM inventory i
-        LEFT JOIN sku_master s ON i.sku_id = s.sku_id
+        LEFT JOIN skus s ON i.sku_id = s.sku_id
         WHERE i.bin_id = ?
         ORDER BY i.received_date DESC
     ''', (bin_id,))
