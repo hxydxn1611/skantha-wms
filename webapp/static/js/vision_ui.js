@@ -17,6 +17,7 @@
                         if (tabId === 'vision-box-bin') initBoxBinTestUI();
                         if (tabId === 'vision-events') initMovementEventsTestUI();
                         if (tabId === 'vision-traceability') initMaterialTraceabilityUI();
+                        if (tabId === 'vision-runtime') initVisionRuntimeUI();
                     }
 
                     // Object Classes Manager State
@@ -6000,5 +6001,227 @@
                         const modal = document.getElementById('trcEvidenceModal');
                         if (modal) modal.style.display = 'none';
                     }
-                
-                
+
+                    // ============================================================================
+                    // PART 15 — VISION RUNTIME & PROCESSING ORCHESTRATOR CLIENT LOGIC
+                    // ============================================================================
+
+                    let visionRuntimePollingTimer = null;
+                    let activePreviewCameraId = null;
+
+                    function initVisionRuntimeUI() {
+                        fetchVisionRuntimeTelemetry();
+                        if (visionRuntimePollingTimer) {
+                            clearInterval(visionRuntimePollingTimer);
+                        }
+                        // Auto-refresh telemetry every 2 seconds when tab is open
+                        visionRuntimePollingTimer = setInterval(() => {
+                            const sub = document.getElementById('vision-runtime-sub');
+                            if (sub && sub.style.display !== 'none') {
+                                fetchVisionRuntimeTelemetry(true);
+                            } else {
+                                clearInterval(visionRuntimePollingTimer);
+                                visionRuntimePollingTimer = null;
+                            }
+                        }, 2000);
+                    }
+
+                    async function fetchVisionRuntimeTelemetry(isBackground = false) {
+                        try {
+                            const res = await fetch('/api/vision/runtime/status');
+                            const json = await res.json();
+                            if (json.success && json.data) {
+                                renderVisionRuntimeTelemetry(json.data);
+                            }
+                        } catch (err) {
+                            if (!isBackground) {
+                                console.error('Error fetching runtime telemetry:', err);
+                            }
+                        }
+                    }
+
+                    function renderVisionRuntimeTelemetry(data) {
+                        const summary = data.summary || {};
+                        const cameras = data.cameras || [];
+
+                        // 1. Metric Cards
+                        const activeCamsEl = document.getElementById('rtTotalActiveCams');
+                        const degradedCamsEl = document.getElementById('rtDegradedCams');
+                        const avgFpsEl = document.getElementById('rtAvgProcessingFps');
+                        const framesProcEl = document.getElementById('rtTotalFramesProc');
+                        const framesRecvEl = document.getElementById('rtTotalFramesRecv');
+                        const framesDropEl = document.getElementById('rtTotalFramesDrop');
+
+                        if (activeCamsEl) activeCamsEl.innerText = `${summary.running_cameras || 0} / ${summary.total_cameras || 0}`;
+                        if (degradedCamsEl) degradedCamsEl.innerText = `${summary.degraded_cameras || 0} Degraded · ${summary.error_cameras || 0} Errors`;
+                        if (avgFpsEl) avgFpsEl.innerText = `${(summary.average_processing_fps || 0).toFixed(1)} FPS`;
+                        if (framesProcEl) framesProcEl.innerText = (summary.total_frames_processed || 0).toLocaleString();
+                        if (framesRecvEl) framesRecvEl.innerText = `${(summary.total_frames_received || 0).toLocaleString()} Received`;
+                        if (framesDropEl) framesDropEl.innerText = (summary.total_frames_dropped || 0).toLocaleString();
+
+                        // 2. Camera Table
+                        const tbody = document.getElementById('rtCameraTableBody');
+                        if (!tbody) return;
+
+                        if (cameras.length === 0) {
+                            tbody.innerHTML = `<tr><td colspan="8" style="padding:1.5rem; text-align:center; color:var(--text-muted);">No camera sessions configured.</td></tr>`;
+                            return;
+                        }
+
+                        tbody.innerHTML = cameras.map(cam => {
+                            let badgeColor = '#6b7280';
+                            let badgeBg = 'rgba(107, 114, 128, 0.15)';
+                            if (cam.runtime_state === 'RUNNING') {
+                                badgeColor = '#10b981';
+                                badgeBg = 'rgba(16, 185, 129, 0.15)';
+                            } else if (cam.runtime_state === 'DEGRADED') {
+                                badgeColor = '#f59e0b';
+                                badgeBg = 'rgba(245, 158, 11, 0.15)';
+                            } else if (cam.runtime_state === 'ERROR') {
+                                badgeColor = '#ef4444';
+                                badgeBg = 'rgba(239, 68, 68, 0.15)';
+                            }
+
+                            const isRunning = cam.runtime_state === 'RUNNING';
+                            const lastProcMs = cam.last_inference_ms ? `${cam.last_inference_ms.toFixed(1)} ms` : '--';
+                            const lastProcTime = cam.last_processing_timestamp ? cam.last_processing_timestamp.split(' ')[1] : '--';
+                            const lastFrameTime = cam.last_frame_timestamp ? cam.last_frame_timestamp.split(' ')[1] : '--';
+                            const errText = cam.last_error ? escapeHtml(cam.last_error) : '<span style="color:var(--text-muted);">-</span>';
+
+                            return `
+                                <tr style="border-bottom:1px solid var(--border-light);">
+                                    <td style="padding:0.6rem;">
+                                        <div style="font-weight:600; color:var(--text-main);">${escapeHtml(cam.camera_code)}</div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(cam.camera_name || '')} (${escapeHtml(cam.location || '')})</div>
+                                    </td>
+                                    <td style="padding:0.6rem;">
+                                        <span style="display:inline-block; padding:0.2rem 0.5rem; border-radius:4px; font-weight:700; font-size:0.72rem; color:${badgeColor}; background:${badgeBg};">
+                                            ${escapeHtml(cam.runtime_state)}
+                                        </span>
+                                    </td>
+                                    <td style="padding:0.6rem;">
+                                        <span style="font-weight:600; color:${isRunning ? '#10b981' : 'var(--text-muted)'};">${(cam.actual_fps || 0).toFixed(1)}</span>
+                                        <span style="font-size:0.75rem; color:var(--text-muted);">/ ${cam.configured_fps} FPS</span>
+                                    </td>
+                                    <td style="padding:0.6rem;">
+                                        <span style="font-weight:600;">${cam.queue_depth || 0}</span>
+                                        <span style="font-size:0.75rem; color:var(--text-muted);">/ ${cam.queue_max || 5}</span>
+                                    </td>
+                                    <td style="padding:0.6rem; font-size:0.8rem; color:var(--text-muted);">
+                                        ${lastFrameTime}
+                                    </td>
+                                    <td style="padding:0.6rem; font-size:0.8rem;">
+                                        <div>${lastProcTime}</div>
+                                        <div style="font-size:0.72rem; color:var(--text-muted);">${lastProcMs}</div>
+                                    </td>
+                                    <td style="padding:0.6rem; font-size:0.78rem; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#ef4444;">
+                                        ${errText}
+                                    </td>
+                                    <td style="padding:0.6rem; text-align:center;">
+                                        <div style="display:inline-flex; gap:6px;">
+                                            ${isRunning ? `
+                                                <button type="button" class="btn-secondary" onclick="stopRuntimeCamera('${cam.camera_id}')" style="padding:0.25rem 0.55rem; font-size:0.75rem; color:#ef4444; border-color:#fca5a5;">
+                                                    ⏹ Stop
+                                                </button>
+                                                <button type="button" class="btn-secondary" onclick="restartRuntimeCamera('${cam.camera_id}')" style="padding:0.25rem 0.55rem; font-size:0.75rem;">
+                                                    🔄
+                                                </button>
+                                            ` : `
+                                                <button type="button" class="btn-primary" onclick="startRuntimeCamera('${cam.camera_id}')" style="padding:0.25rem 0.55rem; font-size:0.75rem; background:#10b981;">
+                                                    ▶ Start
+                                                </button>
+                                            `}
+                                            <button type="button" class="btn-secondary" onclick="testStepRuntimeCamera('${cam.camera_id}')" title="Run 1 Test Frame" style="padding:0.25rem 0.55rem; font-size:0.75rem; color:#8b5cf6; border-color:#ddd6fe;">
+                                                ⚡ Step
+                                            </button>
+                                            <button type="button" class="btn-secondary" onclick="openRuntimePreview('${cam.camera_id}')" title="Live Preview" style="padding:0.25rem 0.55rem; font-size:0.75rem;">
+                                                👁
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('');
+
+                        // If live preview is open, update its frame
+                        if (activePreviewCameraId) {
+                            const previewImg = document.getElementById('rtPreviewImg');
+                            if (previewImg) {
+                                previewImg.src = `/api/vision/runtime/cameras/${activePreviewCameraId}/preview.jpg?t=${Date.now()}`;
+                            }
+                        }
+                    }
+
+                    async function startRuntimeCamera(cameraId) {
+                        try {
+                            const res = await fetch(`/api/vision/runtime/cameras/${encodeURIComponent(cameraId)}/start`, { method: 'POST' });
+                            const json = await res.json();
+                            fetchVisionRuntimeTelemetry();
+                        } catch (e) {
+                            console.error('Failed to start camera:', e);
+                        }
+                    }
+
+                    async function stopRuntimeCamera(cameraId) {
+                        try {
+                            const res = await fetch(`/api/vision/runtime/cameras/${encodeURIComponent(cameraId)}/stop`, { method: 'POST' });
+                            const json = await res.json();
+                            fetchVisionRuntimeTelemetry();
+                        } catch (e) {
+                            console.error('Failed to stop camera:', e);
+                        }
+                    }
+
+                    async function restartRuntimeCamera(cameraId) {
+                        try {
+                            const res = await fetch(`/api/vision/runtime/cameras/${encodeURIComponent(cameraId)}/restart`, { method: 'POST' });
+                            const json = await res.json();
+                            fetchVisionRuntimeTelemetry();
+                        } catch (e) {
+                            console.error('Failed to restart camera:', e);
+                        }
+                    }
+
+                    async function testStepRuntimeCamera(cameraId) {
+                        try {
+                            const res = await fetch(`/api/vision/runtime/cameras/${encodeURIComponent(cameraId)}/test_step`, { method: 'POST' });
+                            const json = await res.json();
+                            fetchVisionRuntimeTelemetry();
+                        } catch (e) {
+                            console.error('Failed to step camera test:', e);
+                        }
+                    }
+
+                    async function startAllRuntimeCameras() {
+                        try {
+                            await fetch('/api/vision/runtime/start', { method: 'POST' });
+                            fetchVisionRuntimeTelemetry();
+                        } catch (e) {
+                            console.error('Failed to start all cameras:', e);
+                        }
+                    }
+
+                    async function stopAllRuntimeCameras() {
+                        try {
+                            await fetch('/api/vision/runtime/stop', { method: 'POST' });
+                            fetchVisionRuntimeTelemetry();
+                        } catch (e) {
+                            console.error('Failed to stop all cameras:', e);
+                        }
+                    }
+
+                    function openRuntimePreview(cameraId) {
+                        activePreviewCameraId = cameraId;
+                        const sec = document.getElementById('rtPreviewSection');
+                        const title = document.getElementById('rtPreviewTitle');
+                        const img = document.getElementById('rtPreviewImg');
+                        if (title) title.innerText = `Live Pipeline View — ${cameraId}`;
+                        if (img) img.src = `/api/vision/runtime/cameras/${encodeURIComponent(cameraId)}/preview.jpg?t=${Date.now()}`;
+                        if (sec) sec.style.display = 'block';
+                    }
+
+                    function closeRuntimePreview() {
+                        activePreviewCameraId = null;
+                        const sec = document.getElementById('rtPreviewSection');
+                        if (sec) sec.style.display = 'none';
+                    }

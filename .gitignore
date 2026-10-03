@@ -18,6 +18,8 @@ env/
 .DS_Store
 webapp/*.pt
 webapp/weights/
+*.pt
+weights/
 webapp/static/captures/
 *.db
 *.db-wal
