@@ -3862,6 +3862,61 @@ async function fetchSkus() {
     </script>
 
 
+    <!-- Inspect Bin Modal -->
+    <div id="inspectBinModal" class="modal-overlay" onclick="if(event.target===this) this.style.display='none'">
+        <div class="modal-dialog" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3 style="margin:0;">Inspect Bin: <span id="inspectBinIdTitle" style="color:var(--primary-navy);"></span></h3>
+                <button type="button" class="modal-close-btn" onclick="document.getElementById('inspectBinModal').style.display='none'" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; padding:0.85rem 1rem; margin-bottom:1rem;">
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; font-size:0.85rem;">
+                        <div>
+                            <span style="color:var(--text-muted); font-size:0.75rem; display:block;">Zone</span>
+                            <strong id="inspectBinZone" style="color:var(--text-main);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color:var(--text-muted); font-size:0.75rem; display:block;">Volume Usage</span>
+                            <span id="inspectBinVol" style="color:var(--text-main); font-weight:600;">-</span>
+                        </div>
+                        <div>
+                            <span style="color:var(--text-muted); font-size:0.75rem; display:block;">Weight Usage</span>
+                            <span id="inspectBinWt" style="color:var(--text-main); font-weight:600;">-</span>
+                        </div>
+                        <div>
+                            <span style="color:var(--text-muted); font-size:0.75rem; display:block;">Total Items</span>
+                            <span id="inspectBinCount" style="color:var(--text-main); font-weight:600;">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <h4 style="margin:0 0 0.85rem 0; font-size:0.95rem; color:var(--primary-navy); border-bottom:1px solid var(--border-light); padding-bottom:6px;">
+                    Current Contents
+                </h4>
+                <div class="table-responsive" style="max-height: 350px; overflow-y: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>SKU ID</th>
+                                <th>Name / Category</th>
+                                <th>Vendor</th>
+                                <th>Qty</th>
+                                <th>Received Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inspectBinTableBody">
+                            <tr><td colspan="5" style="text-align:center;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-primary" onclick="document.getElementById('inspectBinModal').style.display='none'">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Add SKU Modal -->
     <div id="addSkuModal" class="modal-overlay" onclick="if(event.target===this) this.style.display='none'">
         <div class="modal-dialog">
