@@ -24,6 +24,7 @@ from box_bin_association_service import get_box_bin_association_service
 from movement_event_service import get_movement_event_service
 from material_traceability_service import get_material_traceability_service
 from integration_service import get_integration_service
+from vision_runtime_service import get_vision_runtime_manager
 
 # Initialize SQLite database schema
 db.init_db()
@@ -2365,25 +2366,34 @@ def add_camera():
 
 @app.route('/api/cameras/<camera_id>/frame', methods=['POST'])
 def receive_camera_frame(camera_id):
-    if camera_id not in active_cameras:
-        return jsonify({"success": False, "message": "Camera not found"}), 404
-    
     frame_data = request.get_data()
     if not frame_data:
         return jsonify({"success": False, "message": "No frame data"}), 400
     
     np_arr = np.frombuffer(frame_data, np.uint8)
     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    if frame is not None:
+    if frame is None:
+        return jsonify({"success": False, "message": "Failed to decode frame"}), 400
+
+    runtime_handled = get_vision_runtime_manager().push_frame(camera_id, frame)
+    legacy_handled = False
+    if camera_id in active_cameras:
         active_cameras[camera_id].push_frame(frame)
+        legacy_handled = True
+
+    if runtime_handled or legacy_handled:
         return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Failed to decode frame"}), 400
+    return jsonify({"success": False, "message": "Camera session not active"}), 404
 
 @app.route('/api/cameras/<camera_id>', methods=['DELETE'])
 def delete_camera(camera_id):
     if camera_id in active_cameras:
         cam = active_cameras.pop(camera_id)
         cam.stop()
+    mgr = get_vision_runtime_manager()
+    sess = mgr.get_session(camera_id)
+    if sess:
+        sess.stop()
     conn = db.get_db()
     conn.execute("DELETE FROM cameras WHERE camera_id = ? OR camera_code = ?", (camera_id, camera_id))
     conn.commit()
@@ -2391,7 +2401,16 @@ def delete_camera(camera_id):
     return jsonify({"success": True})
 
 def generate_frames(camera_id):
+    mgr = get_vision_runtime_manager()
     while True:
+        sess = mgr.get_session(camera_id)
+        if sess and sess.runtime_state.value in ("RUNNING", "DEGRADED"):
+            jpeg = sess.get_latest_jpeg()
+            if jpeg:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
+                time.sleep(1.0 / max(1, sess.configured_fps))
+                continue
         if camera_id in active_cameras:
             frame = active_cameras[camera_id].get_frame()
             if frame:
@@ -2400,7 +2419,7 @@ def generate_frames(camera_id):
             else:
                 time.sleep(0.016)
         else:
-            break
+            time.sleep(0.1)
 
 @app.route('/video_feed/<camera_id>')
 def video_feed(camera_id):
@@ -2662,6 +2681,195 @@ def update_inventory(inv_id):
     conn.close()
     return jsonify({"success": True, "message": "Inventory updated and bin capacity recalculated"})
 
+
+
+# ============================================================================
+# PART 15 — UNIFIED W.A.R.L.O.G. VISION RUNTIME & PROCESSING ORCHESTRATOR
+# ============================================================================
+
+@app.route('/api/vision/runtime/status', methods=['GET'])
+def api_vision_runtime_status():
+    """Lightweight aggregate runtime telemetry and health status across all camera sessions."""
+    try:
+        mgr = get_vision_runtime_manager()
+        telemetry = mgr.get_telemetry()
+        return jsonify({"success": True, "data": telemetry}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/cameras', methods=['GET'])
+def api_vision_runtime_cameras():
+    """List all camera runtime sessions and per-camera telemetry."""
+    try:
+        mgr = get_vision_runtime_manager()
+        telemetry = mgr.get_telemetry()
+        return jsonify({"success": True, "cameras": telemetry.get("cameras", [])}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/cameras/<camera_id>', methods=['GET'])
+def api_vision_runtime_camera_detail(camera_id):
+    """Retrieve isolated runtime session state and metrics for a specific camera."""
+    try:
+        mgr = get_vision_runtime_manager()
+        sess = mgr.get_session(camera_id)
+        if not sess:
+            return jsonify({"success": False, "error": f"Camera session '{camera_id}' not found"}), 404
+        return jsonify({"success": True, "camera": sess.to_dict()}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/cameras/<camera_id>/start', methods=['POST'])
+def api_vision_runtime_camera_start(camera_id):
+    """Start acquisition and continuous pipeline worker for a single camera session."""
+    try:
+        mgr = get_vision_runtime_manager()
+        sess = mgr.get_session(camera_id)
+        if not sess:
+            return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
+        
+        # Check if already running to prevent duplicate threads
+        if sess.runtime_state.value in ("RUNNING", "STARTING"):
+            return jsonify({
+                "success": False, 
+                "message": f"Camera '{camera_id}' is already running.",
+                "camera": sess.to_dict()
+            }), 409
+
+        success = sess.start()
+        return jsonify({
+            "success": success,
+            "message": f"Camera '{camera_id}' started successfully." if success else f"Failed to start camera '{camera_id}'.",
+            "camera": sess.to_dict()
+        }), 200 if success else 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/cameras/<camera_id>/stop', methods=['POST'])
+def api_vision_runtime_camera_stop(camera_id):
+    """Gracefully halts threads and frame queue for a single camera session."""
+    try:
+        mgr = get_vision_runtime_manager()
+        sess = mgr.get_session(camera_id)
+        if not sess:
+            return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
+        
+        success = sess.stop()
+        return jsonify({
+            "success": success,
+            "message": f"Camera '{camera_id}' stopped successfully." if success else f"Failed to stop camera '{camera_id}'.",
+            "camera": sess.to_dict()
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/cameras/<camera_id>/restart', methods=['POST'])
+def api_vision_runtime_camera_restart(camera_id):
+    """Gracefully stops and restarts a single camera session."""
+    try:
+        mgr = get_vision_runtime_manager()
+        sess = mgr.get_session(camera_id)
+        if not sess:
+            return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
+        
+        success = sess.restart()
+        return jsonify({
+            "success": success,
+            "message": f"Camera '{camera_id}' restarted successfully." if success else f"Failed to restart camera '{camera_id}'.",
+            "camera": sess.to_dict()
+        }), 200 if success else 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/start', methods=['POST'])
+def api_vision_runtime_start_all():
+    """Starts all configured vision camera sessions."""
+    try:
+        mgr = get_vision_runtime_manager()
+        results = mgr.start_all()
+        return jsonify({"success": True, "results": results}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/stop', methods=['POST'])
+def api_vision_runtime_stop_all():
+    """Gracefully halts all camera sessions."""
+    try:
+        mgr = get_vision_runtime_manager()
+        results = mgr.stop_all()
+        return jsonify({"success": True, "results": results}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/runtime/cameras/<camera_id>/preview.jpg', methods=['GET'])
+def api_vision_runtime_camera_preview_jpg(camera_id):
+    """Returns the latest annotated JPEG frame bytes from the runtime pipeline."""
+    mgr = get_vision_runtime_manager()
+    sess = mgr.get_session(camera_id)
+    if not sess:
+        return Response("Camera not found", status=404)
+    jpeg = sess.get_latest_jpeg()
+    if not jpeg:
+        return Response("No frame available yet", status=404)
+    return Response(jpeg, mimetype='image/jpeg')
+
+
+@app.route('/api/vision/runtime/cameras/<camera_id>/test_step', methods=['POST'])
+def api_vision_runtime_camera_test_step(camera_id):
+    """Executes a single test frame through the camera's pipeline for deterministic testing."""
+    try:
+        mgr = get_vision_runtime_manager()
+        sess = mgr.get_session(camera_id)
+        if not sess:
+            return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
+        
+        # Step synthetic frame source
+        from vision_runtime_service import TestSyntheticFrameSource
+        test_source = TestSyntheticFrameSource(sess.camera_id, sess.location)
+        frame = test_source.read_frame()
+        if frame is None:
+            return jsonify({"success": False, "error": "Failed to generate test frame"}), 500
+        
+        result = sess.pipeline_executor.execute_pipeline(
+            raw_frame=frame,
+            camera_id=sess.camera_id,
+            camera_meta={"code": sess.camera_code, "name": sess.name, "location": sess.location}
+        )
+        with sess.lock:
+            sess.frames_processed += 1
+            sess.last_context = {
+                "frame_index": result.get("frame_index"),
+                "timestamp": result.get("timestamp"),
+                "detections_count": result.get("detections_count"),
+                "tracks_count": result.get("tracks_count"),
+                "events_count": result.get("events_count"),
+                "timing": result.get("timing")
+            }
+        return jsonify({
+            "success": True,
+            "camera_id": camera_id,
+            "pipeline_result": {
+                "frame_index": result.get("frame_index"),
+                "timestamp": result.get("timestamp"),
+                "detections_count": result.get("detections_count"),
+                "tracks_count": result.get("tracks_count"),
+                "events_count": result.get("events_count"),
+                "truck_box_assocs_count": result.get("truck_box_assocs_count"),
+                "worker_box_assocs_count": result.get("worker_box_assocs_count"),
+                "box_bin_assocs_count": result.get("box_bin_assocs_count"),
+                "timing": result.get("timing")
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/cycle_count', methods=['POST'])

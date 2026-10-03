@@ -1448,6 +1448,7 @@ async function fetchSkus() {
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-box-bin', this)">Box ↔ Bin Association Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-events', this)">Warehouse Movement Events Test</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-traceability', this)">Material Traceability Test</button>
+                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-runtime', this)" id="btnVisionRuntimeTab" style="background:#0ea5e9;">⚡ Runtime Orchestrator</button>
                     <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-config', this)">Configuration</button>
                 </div>
 
@@ -3835,6 +3836,97 @@ async function fetchSkus() {
                             <div style="text-align:right; margin-top:1.25rem;">
                                 <button type="button" class="btn-secondary" onclick="closeTraceEvidenceModal()" style="padding:0.4rem 1rem;">Close</button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 14. VISION RUNTIME & PROCESSING ORCHESTRATOR SUB-PAGE (PART 15) -->
+                <div id="vision-runtime-sub" class="vision-sub-section" style="display:none;">
+                    <div style="background:var(--panel-bg); border-radius:8px; border:1px solid var(--border-light); padding:1.25rem; margin-bottom:1.5rem; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                            <div>
+                                <h3 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px;">
+                                    <span>⚡ W.A.R.L.O.G. Vision Runtime &amp; Processing Orchestrator</span>
+                                </h3>
+                                <p style="margin:0.25rem 0 0 0; font-size:0.85rem; color:var(--text-muted);">
+                                    Continuous multi-camera ingestion and canonical perception pipeline orchestration (Parts 5–14).
+                                </p>
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <button type="button" class="btn-primary" onclick="startAllRuntimeCameras()" id="btnStartAllCameras" style="padding:0.45rem 0.9rem; font-size:0.82rem; background:#10b981; display:flex; align-items:center; gap:6px;">
+                                    <span>▶</span> Start All
+                                </button>
+                                <button type="button" class="btn-secondary" onclick="stopAllRuntimeCameras()" id="btnStopAllCameras" style="padding:0.45rem 0.9rem; font-size:0.82rem; color:#ef4444; border-color:#fca5a5; display:flex; align-items:center; gap:6px;">
+                                    <span>⏹</span> Stop All
+                                </button>
+                                <button type="button" class="btn-secondary" onclick="fetchVisionRuntimeTelemetry()" id="btnRefreshRuntime" style="padding:0.45rem 0.85rem; font-size:0.82rem;">
+                                    🔄 Refresh
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Runtime Telemetry Summary Cards -->
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:1.25rem;">
+                            <div style="background:var(--bg-main); padding:1rem; border-radius:6px; border:1px solid var(--border-light);">
+                                <span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:600;">Active Cameras</span>
+                                <div id="rtTotalActiveCams" style="font-size:1.6rem; font-weight:700; color:#10b981; margin-top:0.25rem;">0 / 0</div>
+                                <span id="rtDegradedCams" style="font-size:0.75rem; color:var(--text-muted);">0 Degraded · 0 Errors</span>
+                            </div>
+                            <div style="background:var(--bg-main); padding:1rem; border-radius:6px; border:1px solid var(--border-light);">
+                                <span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:600;">Average Processing FPS</span>
+                                <div id="rtAvgProcessingFps" style="font-size:1.6rem; font-weight:700; color:#0ea5e9; margin-top:0.25rem;">0.0 FPS</div>
+                                <span style="font-size:0.75rem; color:var(--text-muted);">Configured: 2 - 10 FPS</span>
+                            </div>
+                            <div style="background:var(--bg-main); padding:1rem; border-radius:6px; border:1px solid var(--border-light);">
+                                <span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:600;">Frames Processed</span>
+                                <div id="rtTotalFramesProc" style="font-size:1.6rem; font-weight:700; color:#8b5cf6; margin-top:0.25rem;">0</div>
+                                <span id="rtTotalFramesRecv" style="font-size:0.75rem; color:var(--text-muted);">0 Received</span>
+                            </div>
+                            <div style="background:var(--bg-main); padding:1rem; border-radius:6px; border:1px solid var(--border-light);">
+                                <span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:600;">Frames Dropped</span>
+                                <div id="rtTotalFramesDrop" style="font-size:1.6rem; font-weight:700; color:#f59e0b; margin-top:0.25rem;">0</div>
+                                <span style="font-size:0.75rem; color:var(--text-muted);">Bounded Queue (Max 5)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Per-Camera Runtime Sessions Table -->
+                    <div style="background:var(--panel-bg); border-radius:8px; border:1px solid var(--border-light); padding:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,0.05); margin-bottom:1.5rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                            <h4 style="margin:0; font-size:1rem; color:var(--text-main);">Camera Sessions &amp; Pipeline Telemetry</h4>
+                            <span style="font-size:0.78rem; color:var(--text-muted);" id="rtAutoRefreshStatus">Auto-refresh: Active (2.0s)</span>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;" id="tblVisionRuntimeCameras">
+                                <thead>
+                                    <tr style="border-bottom:2px solid var(--border-light); text-align:left; color:var(--text-muted); font-size:0.78rem; text-transform:uppercase;">
+                                        <th style="padding:0.6rem;">Camera</th>
+                                        <th style="padding:0.6rem;">State</th>
+                                        <th style="padding:0.6rem;">Processing FPS</th>
+                                        <th style="padding:0.6rem;">Queue</th>
+                                        <th style="padding:0.6rem;">Last Frame</th>
+                                        <th style="padding:0.6rem;">Last Processing</th>
+                                        <th style="padding:0.6rem;">Error</th>
+                                        <th style="padding:0.6rem; text-align:center;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rtCameraTableBody">
+                                    <tr>
+                                        <td colspan="8" style="padding:1.5rem; text-align:center; color:var(--text-muted);">Loading runtime camera sessions...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Live Frame Observer Modal / Preview Section -->
+                    <div id="rtPreviewSection" style="display:none; background:var(--panel-bg); border-radius:8px; border:1px solid var(--border-light); padding:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                            <h4 style="margin:0; font-size:0.95rem; color:var(--text-main);" id="rtPreviewTitle">Live Camera Pipeline View</h4>
+                            <button type="button" class="btn-secondary" onclick="closeRuntimePreview()" style="padding:0.25rem 0.6rem; font-size:0.8rem;">✕ Close Preview</button>
+                        </div>
+                        <div style="text-align:center; background:#000; border-radius:6px; overflow:hidden; max-height:480px;">
+                            <img id="rtPreviewImg" src="" alt="Runtime Feed" style="max-width:100%; max-height:480px; object-fit:contain;">
                         </div>
                     </div>
                 </div>
