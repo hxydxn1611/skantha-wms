@@ -536,24 +536,39 @@ class MultiObjectIdentityService:
 
             crop = frame_bgr[crop_y1:crop_y2, crop_x1:crop_x2]
 
+            cls_code = t.get("class_code", "").upper()
+            enable_bc_local = enable_barcode_qr
+            enable_ocr_local = enable_ocr
+            
+            if cls_code in ["WORKER", "PERSON"]:
+                enable_bc_local = False
+                enable_ocr_local = False
+            elif cls_code == "LICENSE_PLATE":
+                enable_bc_local = False
+
+            track_identity = session.get_track_identity(track_id)
             candidates: List[Dict[str, Any]] = []
 
-            # 1. Barcode & QR code scanning
-            if enable_barcode_qr and crop.size > 0:
+            # 1. Barcode & QR code scanning (Throttle to improve speed)
+            throttle_bc = (frame_index % 3 == 0) if not track_identity.best_identity else (frame_index % 10 == 0)
+            if enable_bc_local and crop.size > 0 and throttle_bc:
                 t_bc_start = time.perf_counter()
                 bc_results = self.barcode_decoder.decode(crop)
                 total_bc_ms += (time.perf_counter() - t_bc_start) * 1000
                 candidates.extend(bc_results)
 
-            # 2. OCR text recognition
-            if enable_ocr and crop.size > 0:
+            # 2. OCR text recognition (Throttle heavily to improve ANPR speed by 300%+)
+            throttle_ocr = (frame_index % 5 == 0) if not track_identity.best_identity else (frame_index % 15 == 0)
+            if cls_code == "LICENSE_PLATE":
+                throttle_ocr = (frame_index % 2 == 0) # Run OCR more often on isolated license plates because they are small!
+                
+            if enable_ocr_local and crop.size > 0 and throttle_ocr:
                 t_ocr_start = time.perf_counter()
                 ocr_results = self.ocr_adapter.recognize(crop, min_confidence=0.40)
                 total_ocr_ms += (time.perf_counter() - t_ocr_start) * 1000
                 candidates.extend(ocr_results)
 
             # 3. Update track-level in-memory identity state
-            track_identity = session.get_track_identity(track_id)
             track_identity.update(new_candidates=candidates, frame_index=frame_index)
 
             # 4. Attach identity structure to track output

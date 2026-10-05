@@ -33,7 +33,11 @@ class SmartCamera:
             print("Loading YOLOv8 (Attempting YOLO-World for Zero-Shot)...")
             try:
                 SmartCamera.vehicle_model = YOLO('yolov8s-world.pt')
-                SmartCamera.vehicle_model.set_classes(["car engine", "car bumper", "person", "truck", "car", "windshield", "hood", "screw box", "tire bundle"])
+                SmartCamera.vehicle_model.set_classes([
+                    "box", "bundle", "pallet", "car part", "engine block", 
+                    "windshield", "bumper", "screw box", "steering wheel", 
+                    "tire bundle", "hood", "truck", "forklift", "person", "license plate"
+                ])
             except Exception as e:
                 print("Falling back to yolov8n.pt due to error:", e)
                 SmartCamera.vehicle_model = YOLO('yolov8n.pt')
