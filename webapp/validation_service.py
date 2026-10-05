@@ -508,7 +508,7 @@ class WarehouseMasterValidator:
             }
 
         # 5. Object-class-aware routing
-        if norm_class in ("TRUCK", "CARRIER", "VEHICLE"):
+        if norm_class in ("TRUCK", "CARRIER", "VEHICLE", "LICENSE_PLATE", "LICENSE PLATE"):
             return self.validate_truck(identity_value)
         elif norm_class in ("BOX", "CARTON", "PACKAGE"):
             return self.validate_box(identity_value)

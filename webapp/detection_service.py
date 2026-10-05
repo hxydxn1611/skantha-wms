@@ -42,10 +42,18 @@ DEFAULT_CLASS_MAPPING = {
     "backpack": "BOX",
     # Custom warehouse taxonomy classes if custom model weights are loaded
     "box": "BOX",
-    "worker": "WORKER",
+    "bundle": "BUNDLE",
     "pallet": "PALLET",
+    "engine block": "ENGINE_BLOCK",
+    "windshield": "WINDSHIELD",
+    "bumper": "BUMPER",
+    "screw box": "SCREW_BOX",
+    "steering wheel": "STEERING_WHEEL",
+    "tire bundle": "TIRE_BUNDLE",
+    "hood": "HOOD",
     "forklift": "FORKLIFT",
-    "bin": "BIN"
+    "worker": "WORKER",
+    "license plate": "LICENSE_PLATE"
 }
 
 # Fallback human-readable class names if database is not queried
@@ -55,7 +63,16 @@ FALLBACK_CLASS_NAMES = {
     "TRUCK": "Truck / Carrier",
     "PALLET": "Storage Pallet",
     "FORKLIFT": "Forklift / Vehicle",
-    "BIN": "Storage Bin / Tote"
+    "BIN": "Storage Bin / Tote",
+    "BUNDLE": "Bundle",
+    "ENGINE_BLOCK": "Engine Block",
+    "WINDSHIELD": "Windshield",
+    "BUMPER": "Bumper",
+    "SCREW_BOX": "Screw Box",
+    "STEERING_WHEEL": "Steering Wheel",
+    "TIRE_BUNDLE": "Tire Bundle",
+    "HOOD": "Hood",
+    "LICENSE_PLATE": "License Plate"
 }
 
 # Model limitations documentation for report and UI notice
@@ -113,7 +130,7 @@ class ObjectDetectionEngine:
     Maintains clean separation from HTTP routes and data persistence.
     """
 
-    def __init__(self, model_name: str = "yolov8n.pt", device: str = "auto", conf_threshold: float = 0.25):
+    def __init__(self, model_name: str = "yolov8s-world.pt", device: str = "auto", conf_threshold: float = 0.25):
         self.model_name = model_name
         self.device_preference = device
         self.conf_threshold = conf_threshold
@@ -165,6 +182,17 @@ class ObjectDetectionEngine:
                     model_path = webapp_path
 
             self.model = YOLO(model_path)
+            
+            # If using YOLO-World, set zero-shot custom classes
+            if 'world' in self.model_name.lower():
+                custom_classes = [
+                    "box", "bundle", "pallet", "engine block", 
+                    "windshield", "bumper", "screw box", "steering wheel", 
+                    "tire bundle", "hood", "truck", "forklift", "person", "license plate"
+                ]
+                self.model.set_classes(custom_classes)
+                logger.info(f"YOLO-World zero-shot classes set: {custom_classes}")
+                
             self.is_loaded = True
             self.last_load_error = None
             logger.info(f"Loaded YOLO model '{self.model_name}' on device '{self.active_device}'")
