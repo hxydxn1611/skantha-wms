@@ -376,6 +376,75 @@ class TrackIdentityState:
 
 
 # ============================================================================
+# 3.5 SPATIAL LOGISTICS ANALYZER (WARLOG ENGINE LAYER)
+# ============================================================================
+class SpatialAnalyzer:
+    """
+    Analyzes spatial relationships between tracked objects to determine logistics state.
+    E.g., Parts inside Boxes, Parts on Pallets, Bundles.
+    """
+    @staticmethod
+    def calculate_intersection_area(box1: Dict[str, float], box2: Dict[str, float]) -> float:
+        ix1 = max(box1.get('x1', 0), box2.get('x1', 0))
+        iy1 = max(box1.get('y1', 0), box2.get('y1', 0))
+        ix2 = min(box1.get('x2', 0), box2.get('x2', 0))
+        iy2 = min(box1.get('y2', 0), box2.get('y2', 0))
+        iw = max(0, ix2 - ix1)
+        ih = max(0, iy2 - iy1)
+        return iw * ih
+
+    @staticmethod
+    def calculate_area(box: Dict[str, float]) -> float:
+        return max(0, box.get('x2', 0) - box.get('x1', 0)) * max(0, box.get('y2', 0) - box.get('y1', 0))
+
+    @staticmethod
+    def analyze_storage_state(tracks: List[Dict[str, Any]]) -> None:
+        """
+        Enhances track dictionaries in-place with a 'storage_state' attribute based on spatial overlap.
+        """
+        logistics_classes = {"PALLET", "BOX", "CRATE", "TOTE"}
+        containers = [t for t in tracks if t.get("class_code", "").upper() in logistics_classes]
+        parts = [t for t in tracks if t.get("class_code", "").upper() not in logistics_classes]
+
+        for part in parts:
+            part_bbox = part.get("bbox", {})
+            part_area = SpatialAnalyzer.calculate_area(part_bbox)
+            if part_area == 0:
+                part["storage_state"] = "INDIVIDUAL"
+                continue
+
+            best_state = "INDIVIDUAL"
+            best_container = None
+            max_coverage = 0.0
+
+            for container in containers:
+                container_bbox = container.get("bbox", {})
+                inter_area = SpatialAnalyzer.calculate_intersection_area(part_bbox, container_bbox)
+                coverage = inter_area / part_area
+
+                if coverage > 0.5 and coverage > max_coverage:
+                    max_coverage = coverage
+                    ctype = container.get("class_code", "").upper()
+                    if ctype == "PALLET":
+                        best_state = "PALLETIZED"
+                    else:
+                        best_state = f"IN_{ctype}"
+                    best_container = container.get("track_id")
+
+            part["storage_state"] = best_state
+            part["storage_container_id"] = best_container
+            
+            if best_state == "INDIVIDUAL":
+                bundle_count = sum(1 for p in parts if p != part and p.get("class_code") == part.get("class_code") and 
+                                   (SpatialAnalyzer.calculate_intersection_area(part_bbox, p.get("bbox", {})) / part_area) > 0.1)
+                if bundle_count > 0:
+                    part["storage_state"] = "BUNDLE"
+
+        for container in containers:
+            container["storage_state"] = "CONTAINER"
+
+
+# ============================================================================
 # 4. CAMERA-SPECIFIC IDENTITY SESSION
 # ============================================================================
 class CameraIdentitySession:
@@ -550,7 +619,7 @@ class MultiObjectIdentityService:
             candidates: List[Dict[str, Any]] = []
 
             # 1. Barcode & QR code scanning (Throttle to improve speed)
-            throttle_bc = (frame_index % 3 == 0) if not track_identity.best_identity else (frame_index % 10 == 0)
+            throttle_bc = (frame_index % 3 == 0) if not track_identity.value else (frame_index % 10 == 0)
             if enable_bc_local and crop.size > 0 and throttle_bc:
                 t_bc_start = time.perf_counter()
                 bc_results = self.barcode_decoder.decode(crop)
@@ -558,7 +627,7 @@ class MultiObjectIdentityService:
                 candidates.extend(bc_results)
 
             # 2. OCR text recognition (Throttle heavily to improve ANPR speed by 300%+)
-            throttle_ocr = (frame_index % 5 == 0) if not track_identity.best_identity else (frame_index % 15 == 0)
+            throttle_ocr = (frame_index % 5 == 0) if not track_identity.value else (frame_index % 15 == 0)
             if cls_code == "LICENSE_PLATE":
                 throttle_ocr = (frame_index % 2 == 0) # Run OCR more often on isolated license plates because they are small!
                 
@@ -651,6 +720,10 @@ class MultiObjectIdentityService:
             crop_padding=crop_padding
         )
         ident_ms = round(bc_ms + ocr_ms, 2)
+        
+        # Step 3.5: Spatial Storage Analysis (WARLOG Engine)
+        SpatialAnalyzer.analyze_storage_state(enriched_tracks)
+        
         total_ms = round((time.perf_counter() - t_total_start) * 1000, 2)
 
         # Step 4: Render Visual Annotation with Identity Overlay
@@ -814,7 +887,9 @@ class MultiObjectIdentityService:
             # Build multi-line pill header:
             # Line 1: Track #17 | TRUCK (TEMPORARY VISUAL TRACK)
             # Line 2: ID: B104 [BARCODE] 98% (REAL-WORLD IDENTIFIER)
-            line1 = f"Track #{tid} | {cls_code}"
+            storage = t.get("storage_state", "")
+            storage_str = f" [{storage}]" if storage and storage not in ["CONTAINER", "INDIVIDUAL"] else ""
+            line1 = f"Track #{tid} | {cls_code}{storage_str}"
             line2 = status_label
 
             font = cv2.FONT_HERSHEY_SIMPLEX

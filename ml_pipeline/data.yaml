@@ -1,0 +1,27 @@
+path: ./dataset # root dir
+train: images/train
+val: images/val
+test: images/test
+
+# Classes for Automotive Warehouse
+names:
+  0: PALLET
+  1: BOX
+  2: CRATE
+  3: TOTE
+  4: TIRE
+  5: WHEEL
+  6: BUMPER
+  7: DOOR
+  8: BONNET
+  9: HEADLAMP
+  10: TAIL_LAMP
+  11: SEAT
+  12: BATTERY
+  13: ENGINE
+  14: TRANSMISSION
+  15: BRAKE_DISC
+  16: BRAKE_CALIPER
+  17: CONTROL_ARM
+  18: SHOCK_ABSORBER
+  19: EXHAUST_COMPONENT
