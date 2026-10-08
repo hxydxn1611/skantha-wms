@@ -1,0 +1,33 @@
+python-interpreter-path = "C:\\Python314\\python.exe"
+site-package-path = [
+    "D:\\skandha-wms\\webapp",
+    "C:\\Users\\HAI\\AppData\\Roaming\\Python\\Python314\\site-packages",
+    "C:\\Python314\\Lib\\site-packages"
+]
+
+[errors]
+missing-import = "ignore"
+unsupported-operation = "ignore"
+missing-attribute = "ignore"
+bad-argument-type = "ignore"
+bad-assignment = "ignore"
+no-matching-overload = "ignore"
+bad-return = "ignore"
+unknown-name = "ignore"
+bad-argument-count = "ignore"
+bad-override = "ignore"
+invalid-annotation = "ignore"
+bad-index = "ignore"
+bad-keyword-argument = "ignore"
+invalid-argument = "ignore"
+missing-argument = "ignore"
+not-iterable = "ignore"
+not-callable = "ignore"
+unannotated-parameter = "ignore"
+unexpected-keyword = "ignore"
+redefinition = "ignore"
+bad-override-mutable-attribute = "ignore"
+unannotated-attribute = "ignore"
+unbound-name = "ignore"
+bad-override-param-name = "ignore"
+bad-param-name-override = "ignore"

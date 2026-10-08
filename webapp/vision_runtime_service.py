@@ -19,7 +19,6 @@ Key Principles:
 import os
 import sys
 import time
-import uuid
 import queue
 import logging
 import threading
@@ -34,7 +33,7 @@ import numpy as np
 # Ensure local imports work regardless of execution directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from db import get_db, get_camera, get_vision_camera, get_all_vision_cameras, get_camera_rois
+from db import get_all_vision_cameras, get_camera_rois
 from detection_service import get_detection_engine, ObjectDetectionEngine
 from tracking_service import get_tracking_service, MultiObjectTrackingService
 from identity_service import get_identity_service, MultiObjectIdentityService
@@ -42,6 +41,7 @@ from validation_service import get_validation_service, MultiObjectValidationServ
 from association_service import get_association_service, MultiObjectAssociationService
 from worker_box_association_service import get_worker_box_association_service, MultiObjectWorkerBoxAssociationService
 from box_bin_association_service import get_box_bin_association_service, MultiObjectBoxBinAssociationService
+from material_association_service import get_material_association_service, MultiObjectMaterialAssociationService
 from movement_event_service import get_movement_event_service, MultiObjectMovementEventService
 from material_traceability_service import get_material_traceability_service, MaterialTraceabilityService
 
@@ -75,6 +75,7 @@ class SourceType(str, Enum):
     USB_WEBCAM = "USB_WEBCAM"
     PUSH_DEVICE = "PUSH_DEVICE"
     TEST_SYNTHETIC = "TEST_SYNTHETIC"
+    SHARED_BUS = "SHARED_BUS"
 
 
 # ============================================================================
@@ -199,6 +200,8 @@ class OpenCVStreamFrameSource(BaseFrameSource):
             try:
                 if self.cap is not None:
                     self.cap.release()
+                if isinstance(self.device_id, str) and (self.device_id.startswith("rtsp://") or self.device_id.startswith("http://")):
+                    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;2000000"
                 self.cap = cv2.VideoCapture(self.device_id)
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 self.is_connected = self.cap.isOpened()
@@ -322,6 +325,209 @@ class TestSyntheticFrameSource(BaseFrameSource):
 
 
 # ============================================================================
+# 3b. UNIFIED SHARED FRAME BUS (PART 6)
+# ============================================================================
+
+class SharedFrameBus:
+    """
+    Part 6: Unified Shared Frame Bus coordinating physical camera frame acquisition.
+    Ensures exactly ONE capture source per physical camera feeds:
+      1) Camera Junction live preview / MJPEG stream / snapshots
+      2) W.A.R.L.O.G. Vision Runtime pipeline (Detection -> Tracking -> Identity -> Events)
+    Thread-safe, decoupled FPS, stale-frame detection, and non-blocking multi-consumer access.
+    """
+    _instance: Optional["SharedFrameBus"] = None
+    _global_lock = threading.Lock()
+
+    def __init__(self):
+        self._buffers: Dict[str, Dict[str, Any]] = {}
+        self._locks: Dict[str, threading.Lock] = {}
+
+    @classmethod
+    def get_instance(cls) -> "SharedFrameBus":
+        with cls._global_lock:
+            if cls._instance is None:
+                cls._instance = SharedFrameBus()
+            return cls._instance
+
+    def _get_lock(self, camera_id: str) -> threading.Lock:
+        with self._global_lock:
+            if camera_id not in self._locks:
+                self._locks[camera_id] = threading.Lock()
+            return self._locks[camera_id]
+
+    def publish_frame(
+        self,
+        camera_id: str,
+        frame: np.ndarray,
+        source_type: str = "STREAM",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Thread-safe publication of newly acquired physical frame to the bus.
+        Called by the single physical capture loop or push endpoint.
+        """
+        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+            return False
+
+        if frame.shape[1] != 640 or frame.shape[0] != 480:
+            frame = cv2.resize(frame, (640, 480))
+
+        lock = self._get_lock(camera_id)
+        now = time.time()
+        with lock:
+            buf = self._buffers.get(camera_id)
+            if buf is None:
+                buf = {
+                    "camera_id": camera_id,
+                    "frame_index": 0,
+                    "latest_frame": None,
+                    "last_timestamp": 0.0,
+                    "is_connected": True,
+                    "source_type": source_type,
+                    "metadata": {}
+                }
+                self._buffers[camera_id] = buf
+
+            buf["frame_index"] += 1
+            buf["latest_frame"] = frame
+            buf["last_timestamp"] = now
+            buf["is_connected"] = True
+            buf["source_type"] = source_type
+            if metadata:
+                buf["metadata"].update(metadata)
+        return True
+
+    def get_latest_frame(
+        self,
+        camera_id: str,
+        copy: bool = True,
+        max_age_seconds: float = 5.0
+    ) -> Optional[np.ndarray]:
+        """
+        Thread-safe retrieval of latest frame by any consumer.
+        Non-blocking: Returns None if no frame or frame is stale.
+        """
+        lock = self._get_lock(camera_id)
+        with lock:
+            buf = self._buffers.get(camera_id)
+            if not buf:
+                return None
+
+            if max_age_seconds > 0 and (time.time() - buf["last_timestamp"]) > max_age_seconds:
+                buf["is_connected"] = False
+                return None
+
+            frame = buf.get("latest_frame")
+            if frame is None:
+                return None
+            return frame.copy() if copy else frame
+
+    def mark_disconnected(self, camera_id: str, reason: str = ""):
+        """Flags camera feed as disconnected without clearing metadata."""
+        lock = self._get_lock(camera_id)
+        with lock:
+            if camera_id in self._buffers:
+                self._buffers[camera_id]["is_connected"] = False
+                self._buffers[camera_id]["latest_frame"] = None
+
+    def get_buffer_status(self, camera_id: str) -> Dict[str, Any]:
+        """Returns diagnostic health of the shared frame buffer for a camera."""
+        lock = self._get_lock(camera_id)
+        with lock:
+            buf = self._buffers.get(camera_id)
+            if not buf:
+                return {
+                    "camera_id": camera_id,
+                    "has_frame": False,
+                    "is_connected": False,
+                    "frame_index": 0,
+                    "age_seconds": None,
+                    "source_type": "NONE"
+                }
+            now = time.time()
+            age = round(now - buf["last_timestamp"], 3) if buf["last_timestamp"] > 0 else None
+            is_fresh = age is not None and age <= 5.0
+            return {
+                "camera_id": camera_id,
+                "has_frame": buf["latest_frame"] is not None and is_fresh,
+                "is_connected": buf["is_connected"] and is_fresh,
+                "frame_index": buf["frame_index"],
+                "age_seconds": age,
+                "source_type": buf["source_type"]
+            }
+
+    def clear(self, camera_id: Optional[str] = None):
+        """Clears buffer state for a camera or all cameras."""
+        with self._global_lock:
+            if camera_id:
+                if camera_id in self._buffers:
+                    del self._buffers[camera_id]
+            else:
+                self._buffers.clear()
+
+
+def get_shared_frame_bus() -> SharedFrameBus:
+    """Global accessor for the unified SharedFrameBus."""
+    return SharedFrameBus.get_instance()
+
+
+class SharedBusFrameSource(BaseFrameSource):
+    """
+    Part 6: Frame source connecting VisionRuntimeSession to the SharedFrameBus.
+    Avoids opening duplicate OpenCV/RTSP captures when camera capture already exists.
+    """
+    def __init__(self, camera_id: str, fallback_source: Optional[BaseFrameSource] = None):
+        super().__init__(camera_id)
+        self.source_type = SourceType.SHARED_BUS
+        self.bus = get_shared_frame_bus()
+        self.fallback_source = fallback_source
+        self.is_connected = True
+
+    def read_frame(self) -> Optional[np.ndarray]:
+        # 1. Primary: Read from SharedFrameBus
+        frame = self.bus.get_latest_frame(self.camera_id, copy=True, max_age_seconds=5.0)
+        if frame is not None:
+            self.last_capture_time = time.time()
+            self.is_connected = True
+            return frame
+
+        # 2. Check active_cameras (Camera Junction SmartCamera in-memory registry)
+        try:
+            from app import active_cameras
+            cam = active_cameras.get(self.camera_id)
+            if cam and getattr(cam, "raw_frame", None) is not None:
+                raw = cam.raw_frame
+                self.bus.publish_frame(self.camera_id, raw, source_type="SMART_CAMERA")
+                self.last_capture_time = time.time()
+                self.is_connected = True
+                return raw.copy()
+        except Exception:
+            pass
+
+        # 3. Fallback source if configured
+        if self.fallback_source:
+            fb_frame = self.fallback_source.read_frame()
+            if fb_frame is not None:
+                self.bus.publish_frame(self.camera_id, fb_frame, source_type="FALLBACK_STREAM")
+                self.last_capture_time = time.time()
+                self.is_connected = True
+                return fb_frame
+
+        self.is_connected = False
+        return None
+
+    def close(self):
+        if self.fallback_source:
+            try:
+                self.fallback_source.close()
+            except Exception:
+                pass
+            self.fallback_source = None
+        self.is_connected = False
+
+
+# ============================================================================
 # 4. CANONICAL W.A.R.L.O.G. PIPELINE EXECUTOR
 # ============================================================================
 
@@ -339,6 +545,7 @@ class VisionPipelineExecutor:
         self.truck_box_service: MultiObjectAssociationService = get_association_service()
         self.worker_box_service: MultiObjectWorkerBoxAssociationService = get_worker_box_association_service()
         self.box_bin_service: MultiObjectBoxBinAssociationService = get_box_bin_association_service()
+        self.material_assoc_service: MultiObjectMaterialAssociationService = get_material_association_service()
         self.movement_event_service: MultiObjectMovementEventService = get_movement_event_service()
         self.traceability_service: MaterialTraceabilityService = get_material_traceability_service()
 
@@ -448,6 +655,9 @@ class VisionPipelineExecutor:
         bb_assocs, _ = self.box_bin_service.process_tracks(
             validated_tracks, camera_id=camera_id, frame_index=track_session.frame_index, camera_zones=camera_zones
         )
+        mat_assocs, _ = self.material_assoc_service.process_tracks(
+            validated_tracks, camera_id=camera_id, frame_index=track_session.frame_index, camera_zones=camera_zones
+        )
         timing["association_ms"] = round((time.perf_counter() - t_step) * 1000, 2)
 
         # 6. Movement Event Detection (Part 12)
@@ -457,18 +667,19 @@ class VisionPipelineExecutor:
             truck_box_assocs=tb_assocs,
             worker_box_assocs=wb_assocs,
             box_bin_assocs=bb_assocs,
+            material_assocs=mat_assocs,
             camera_id=camera_id,
             frame_index=track_session.frame_index,
             camera_zones=camera_zones
         )
-        events = events_result.get("events", [])
+        # process_events() returns 'current_events' (no 'events' key); traceability dedups by event_id.
+        events = events_result.get("events") or events_result.get("current_events", [])
         timing["events_ms"] = round((time.perf_counter() - t_step) * 1000, 2)
 
         # 7. Material Traceability Ingestion (Part 13)
         t_step = time.perf_counter()
-        trace_events = []
         if events:
-            trace_events = self.traceability_service.ingest_events(events)
+            self.traceability_service.ingest_events(events)
         timing["traceability_ms"] = round((time.perf_counter() - t_step) * 1000, 2)
 
         total_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -499,6 +710,7 @@ class VisionPipelineExecutor:
             "truck_box_assocs_count": len(tb_assocs),
             "worker_box_assocs_count": len(wb_assocs),
             "box_bin_assocs_count": len(bb_assocs),
+            "material_assocs_count": sum(len(v) for v in mat_assocs.values()) if isinstance(mat_assocs, dict) else len(mat_assocs),
             "timing": timing,
             "tracks": validated_tracks,
             "events": events,
@@ -618,18 +830,46 @@ class CameraRuntimeSession:
         self.latest_raw_frame: Optional[np.ndarray] = None
         self.latest_annotated_jpeg: Optional[bytes] = None
         self.last_context: Dict[str, Any] = {}
+        self.last_frame_time: Optional[float] = None
+
+    @property
+    def is_running(self) -> bool:
+        return self.runtime_state == RuntimeState.RUNNING
+
+    @is_running.setter
+    def is_running(self, val: bool):
+        self.runtime_state = RuntimeState.RUNNING if val else RuntimeState.STOPPED
 
     def _init_source(self):
-        """Initializes appropriate frame source based on configuration."""
+        """
+        Part 6: Initializes single shared frame source to eliminate duplicate physical capture.
+        Connects to SharedFrameBus / existing SmartCamera capture without duplicate VideoCapture.
+        """
         if self.test_mode or not self.stream_url:
             self.frame_source = TestSyntheticFrameSource(self.camera_id, self.location)
             self.source_state = "TEST_SYNTHETIC"
         elif self.stream_url.lower().startswith("push") or self.stream_url == "client":
-            self.frame_source = PushedFrameSource(self.camera_id)
-            self.source_state = "PUSH_DEVICE"
+            self.frame_source = SharedBusFrameSource(self.camera_id)
+            self.source_state = "SHARED_BUS_PUSH"
         else:
-            self.frame_source = OpenCVStreamFrameSource(self.camera_id, self.stream_url)
-            self.source_state = "RTSP_CONNECTED" if self.frame_source.is_connected else "RECONNECTING"
+            # Check if Camera Junction active_cameras already captures this physical camera
+            has_active_cam = False
+            try:
+                from app import active_cameras
+                has_active_cam = self.camera_id in active_cameras
+            except Exception:
+                pass
+
+            if has_active_cam:
+                # Reuse existing physical capture via SharedBusFrameSource - NO SECOND VideoCapture!
+                self.frame_source = SharedBusFrameSource(self.camera_id)
+                self.source_state = "SHARED_BUS_REUSED"
+            else:
+                # If Camera Junction has not opened this stream, initialize single OpenCVStreamFrameSource
+                # and attach to SharedBusFrameSource so Camera Junction can also read from it
+                stream_src = OpenCVStreamFrameSource(self.camera_id, self.stream_url)
+                self.frame_source = SharedBusFrameSource(self.camera_id, fallback_source=stream_src)
+                self.source_state = "SHARED_BUS_STREAM" if stream_src.is_connected else "RECONNECTING"
 
     def start(self) -> bool:
         """Starts acquisition and processing worker threads."""
@@ -696,9 +936,10 @@ class CameraRuntimeSession:
         return self.start()
 
     def push_frame(self, frame: np.ndarray) -> bool:
-        """Injects external frame (e.g. from mobile client camera)."""
+        """Injects external frame into SharedFrameBus and bounded queue."""
         if self.runtime_state != RuntimeState.RUNNING:
             return False
+        get_shared_frame_bus().publish_frame(self.camera_id, frame, source_type="PUSH_DEVICE")
         if isinstance(self.frame_source, PushedFrameSource):
             self.frame_source.push(frame)
         return self.frame_queue.put_frame(frame)
@@ -758,7 +999,6 @@ class CameraRuntimeSession:
 
             # Process frame through canonical pipeline
             try:
-                t0 = time.time()
                 result = self.pipeline_executor.execute_pipeline(
                     raw_frame=frame,
                     camera_id=self.camera_id,
@@ -767,7 +1007,6 @@ class CameraRuntimeSession:
                     primary_roi=primary_roi,
                     primary_zone_code=primary_zone_code
                 )
-                proc_time = time.time() - t0
                 last_process_time = time.time()
 
                 with self.lock:
@@ -784,7 +1023,21 @@ class CameraRuntimeSession:
                         "truck_box_assocs": result.get("truck_box_assocs_count"),
                         "worker_box_assocs": result.get("worker_box_assocs_count"),
                         "box_bin_assocs": result.get("box_bin_assocs_count"),
-                        "timing": result.get("timing")
+                        "material_assocs": result.get("material_assocs_count"),
+                        "timing": result.get("timing"),
+                        "tracks": [
+                            {
+                                "track_id": t.get("track_id"),
+                                "class_code": t.get("class_code"),
+                                "confidence": round(float(t.get("confidence", 0.0)), 2),
+                                "bbox": t.get("bbox"),
+                                "identity": t.get("identity"),
+                                "validation": t.get("validation"),
+                                "zone": t.get("zone"),
+                                "material_id": (t.get("identity") or {}).get("value")
+                            }
+                            for t in (result.get("tracks") or [])[:20]
+                        ]
                     }
                     self.consecutive_failures = 0
                     if self.runtime_state == RuntimeState.DEGRADED:
@@ -868,11 +1121,16 @@ class VisionRuntimeManager:
         with self.lock:
             try:
                 cams = get_all_vision_cameras()
+                valid_cids = set()
                 for c in cams:
                     cid = c.get("camera_id") or c.get("camera_code")
-                    if cid and cid not in self.sessions:
-                        fps = c.get("ai_config", {}).get("processing_fps", 5) if c.get("ai_config") else 5
-                        stream_url = c.get("stream_url", "")
+                    if not cid:
+                        continue
+                    valid_cids.add(cid)
+                    fps = c.get("ai_config", {}).get("processing_fps", 5) if c.get("ai_config") else 5
+                    stream_url = c.get("stream_url", "")
+                    is_test = (os.environ.get("WARLOG_TEST_MODE", "").lower() in ("1", "true") or not bool(stream_url))
+                    if cid not in self.sessions:
                         sess = CameraRuntimeSession(
                             camera_id=cid,
                             camera_code=c.get("camera_code", cid),
@@ -880,9 +1138,23 @@ class VisionRuntimeManager:
                             location=c.get("location", "General"),
                             stream_url=stream_url,
                             configured_fps=fps,
-                            test_mode=not bool(stream_url)
+                            test_mode=is_test
                         )
                         self.sessions[cid] = sess
+                    else:
+                        existing = self.sessions[cid]
+                        existing.stream_url = stream_url
+                        existing.configured_fps = fps
+                        existing.test_mode = is_test
+                        existing.location = c.get("location", "General")
+                        existing.name = c.get("camera_name", f"Camera {cid}")
+                
+                # Prune sessions for cameras deleted from authoritative DB
+                for stale_cid in list(self.sessions.keys()):
+                    if stale_cid not in valid_cids:
+                        stale_sess = self.sessions.pop(stale_cid)
+                        stale_sess.stop()
+
                 self.is_initialized = True
                 logger.info(f"VisionRuntimeManager initialized with {len(self.sessions)} camera sessions.")
             except Exception as e:

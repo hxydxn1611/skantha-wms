@@ -1,4 +1,16 @@
 
+        // HTML escaping utility for XSS safety
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+        if (typeof window.escapeHtml !== 'function') window.escapeHtml = escapeHtml;
+
         // Store deliveries globally in frontend so we can use them in the Gate Passes table
         let globalDeliveries = [];
 
@@ -94,12 +106,26 @@
             const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick')?.includes(`'${tabId}'`));
             if (targetBtn) targetBtn.classList.add('active');
 
-            if (tabId === 'ai-vision-master') {
+            if (tabId === 'deliveries') {
+                if (typeof fetchDeliveries === 'function') fetchDeliveries();
+            } else if (tabId === 'gate-passes' || tabId === 'docks') {
+                if (typeof fetchGatePasses === 'function') fetchGatePasses();
+            } else if (tabId === 'cameras') {
+                if (typeof pollData === 'function') pollData();
+            } else if (tabId === 'master-hub') {
+                if (typeof fetchDeliveries === 'function') fetchDeliveries();
+                if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                if (typeof fetchBins === 'function') fetchBins();
+                if (typeof fetchSkus === 'function') fetchSkus();
+            } else if (tabId === 'outbound') {
+                if (typeof window.fetchOutboundOrders === 'function') window.fetchOutboundOrders();
+            } else if (tabId === 'ai-vision-master') {
                 if (typeof fetchObjectClasses === 'function') fetchObjectClasses();
                 if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
                 if (typeof fetchVisionZones === 'function') fetchVisionZones();
             }
         }
+        window.switchTab = switchTab;
 
         function navigateToEntity(entityType, entityId) {
             if (!entityType) return;
@@ -111,6 +137,12 @@
                 switchTab('docks');
             } else if (entityType === 'camera') {
                 switchTab('cameras');
+            } else if (entityType === 'camera_sources' || entityType === 'vision_cameras') {
+                switchTab('ai-vision-master');
+                if (typeof switchVisionSubTab === 'function') {
+                    const btn = document.querySelector(".vision-sub-btn[onclick*='vision-cameras']");
+                    switchVisionSubTab('vision-cameras', btn);
+                }
             } else if (entityType === 'zone') {
                 switchTab('ai-vision-master');
                 if (typeof switchVisionSubTab === 'function') {
@@ -125,6 +157,18 @@
                     if (entityId && typeof handleTraceabilityMaterialSelect === 'function') {
                         setTimeout(() => handleTraceabilityMaterialSelect(entityId), 200);
                     }
+                }
+            } else if (entityType === 'po_viewer') {
+                switchTab('master-hub');
+                if (typeof switchSubTab === 'function') {
+                    const btn = document.querySelector(".sub-tab-btn[onclick*='po-master']");
+                    switchSubTab('po-master', btn);
+                }
+            } else if (entityType === 'gate_pass_viewer') {
+                switchTab('master-hub');
+                if (typeof switchSubTab === 'function') {
+                    const btn = document.querySelector(".sub-tab-btn[onclick*='gate-pass-master']");
+                    switchSubTab('gate-pass-master', btn);
                 }
             } else if (entityType === 'bin') {
                 switchTab('master-hub');
@@ -325,25 +369,8 @@
                             }
                         });
                     }
-                    if(cam.location === 'Dock' && cam.events) {
-                        cam.events.forEach(async (ev) => {
-                            const eventKey = "auto_" + ev.time + ev.track_id;
-                            if(!processedEvents.has(eventKey) && ev.type === 'Package_Tracked') {
-                                processedEvents.add(eventKey);
-                                
-                                const gpRes = await fetch('/api/gate_passes');
-                                const gpList = await gpRes.json();
-                                const activeDock = gpList.find(p => p.status === 'Sent to Dock' || p.status === 'Unloading');
-                                if(activeDock) {
-                                    // With the new API, we just trigger an unload step update to sync total_unloaded
-                                    await fetch(`/api/dock/unload_step/${activeDock.id}`, {
-                                        method: 'POST'
-                                    });
-                                    fetchGatePasses();
-                                }
-                            }
-                        });
-                    }
+                    // Part 5: Automatic WMS unload mutations from legacy camera events are RETIRED.
+                    // Dock unloading requires explicit operator confirmation via W.A.R.L.O.G. evidence sync.
                 });
             } catch(e) {}
         }
@@ -400,40 +427,76 @@
                 const tbody = document.getElementById('expectedTableBody');
                 const pBody = document.getElementById('poMasterBody');
                 if(globalDeliveries.length === 0) {
-                    const emptyMsg = '<tr><td colspan="8" style="text-align:center;">No expected deliveries registered.</td></tr>';
-                    tbody.innerHTML = emptyMsg;
-                    if(pBody) pBody.innerHTML = emptyMsg;
+                    const emptyMsg = '<tr><td colspan="9" style="text-align:center;">No expected deliveries registered.</td></tr>';
+                    if(tbody) tbody.innerHTML = emptyMsg;
+                    if(pBody) pBody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No Purchase Orders / Expected Deliveries registered.</td></tr>';
                     return;
                 }
                 const rowsHtml = globalDeliveries.map(d => {
                     let statusBadge = '<span class="badge pending" style="font-size:0.75rem;">Awaiting Gate</span>';
                     if (d.linked_gate_pass_id) {
-                        statusBadge = `<span class="badge sent" style="font-size:0.75rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🔗 Pass ${d.linked_gate_pass_id} (${d.status})</span>`;
+                        statusBadge = `<span class="badge sent" style="font-size:0.75rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🔗 Pass ${escapeHtml(d.linked_gate_pass_id)} (${escapeHtml(d.status)})</span>`;
                     } else if (d.status === 'Arrived') {
                         statusBadge = `<span class="badge sent" style="font-size:0.75rem;">Arrived</span>`;
                     }
                     return `
                     <tr>
-                        <td style="font-weight:bold; color:var(--accent-hover);">${d.po_number}</td>
-                        <td>${d.expected_date}</td>
-                        <td>${d.activity || 'Loading'}</td>
-                        <td style="color:var(--text-muted);">${d.vendor || 'Unknown'}</td>
-                        <td style="color:var(--text-muted);">${d.vendor_email || '-'}</td>
-                        <td>${d.load}</td>
+                        <td style="font-weight:bold; color:var(--accent-hover);">${escapeHtml(d.po_number)}</td>
+                        <td>${escapeHtml(d.expected_date)}</td>
+                        <td>${escapeHtml(d.activity || 'Loading')}</td>
+                        <td style="color:var(--text-muted);">${escapeHtml(d.vendor || 'Unknown')}</td>
+                        <td style="color:var(--text-muted);">${escapeHtml(d.vendor_email || '-')}</td>
+                        <td>${escapeHtml(d.load)}</td>
                         <td style="font-weight:bold;">${d.unloading_sheet && Array.isArray(d.unloading_sheet) ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0) : '-'}</td>
-                        <td style="font-family:monospace;">${d.plate || '<span style="color:#64748b; font-family:sans-serif;">Unknown / Not Provided</span>'}</td>
+                        <td style="font-family:monospace;">${escapeHtml(d.plate || 'Unknown / Not Provided')}</td>
                         <td>
                             ${statusBadge}
                             <div style="margin-top:5px; display:flex; gap:4px; flex-wrap:wrap;">
-                                ${d.linked_gate_pass_id ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px;" onclick="navigateToEntity('gate_pass', '${d.linked_gate_pass_id}')">🎫 Pass</button>` : ''}
-                                <button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${d.po_number}')">🔍 Trace</button>
+                                ${d.linked_gate_pass_id ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px;" onclick="navigateToEntity('gate_pass', '${escapeHtml(d.linked_gate_pass_id)}')">🎫 Pass</button>` : ''}
+                                <button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${escapeHtml(d.po_number)}')">🔍 Trace</button>
                             </div>
                         </td>
                     </tr>
                 `;}).join('');
                 
-                tbody.innerHTML = rowsHtml;
-                if(pBody) pBody.innerHTML = rowsHtml;
+                if(tbody) tbody.innerHTML = rowsHtml;
+                
+                // Authoritative Read-Only PO Viewer Table
+                if(pBody) {
+                    pBody.innerHTML = globalDeliveries.map(d => {
+                        let statusBadge = '<span class="badge pending" style="font-size:0.72rem;">Awaiting Gate</span>';
+                        if (d.linked_gate_pass_id) {
+                            statusBadge = `<span class="badge sent" style="font-size:0.72rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🔗 Pass ${escapeHtml(d.linked_gate_pass_id)} (${escapeHtml(d.status)})</span>`;
+                        } else if (d.status === 'Arrived') {
+                            statusBadge = `<span class="badge sent" style="font-size:0.72rem;">Arrived</span>`;
+                        }
+                        const totalQty = d.unloading_sheet && Array.isArray(d.unloading_sheet) ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0) : '-';
+                        return `
+                        <tr>
+                            <td style="font-weight:bold; color:var(--accent-hover);">${escapeHtml(d.po_number)}</td>
+                            <td>${escapeHtml(d.expected_date)}</td>
+                            <td>${escapeHtml(d.activity || 'Loading')}</td>
+                            <td style="color:var(--text-muted);">${escapeHtml(d.vendor || 'Unknown')}</td>
+                            <td style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(d.vendor_email || '-')}</td>
+                            <td>${escapeHtml(d.load || '-')}</td>
+                            <td style="font-weight:bold;">${totalQty}</td>
+                            <td style="font-family:monospace;">${escapeHtml(d.plate || 'Unknown / Not Provided')}</td>
+                            <td>
+                                <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                                    <span class="badge" style="background:#f1f5f9; color:#475569; font-size:0.7rem; border:1px solid #cbd5e1;">READ-ONLY</span>
+                                    ${statusBadge}
+                                </div>
+                            </td>
+                            <td>
+                                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                    <button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:var(--accent);" onclick="switchTab('deliveries')">Open in Pre-Registration &rarr;</button>
+                                    <button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${escapeHtml(d.po_number)}')">🔍 Trace</button>
+                                </div>
+                            </td>
+                        </tr>
+                        `;
+                    }).join('');
+                }
                 
                 fetchGatePasses();
             } catch(e) {}
@@ -492,34 +555,49 @@
                 document.getElementById('gate-badge').style.display = pendingCount > 0 ? 'inline-block' : 'none';
                 document.getElementById('dock-badge').style.display = activeDockCount > 0 ? 'inline-block' : 'none';
                 
-                // Render Master Table
+                // Render Master Hub Gate Pass Viewer Table (Read-Only)
                 if(masterBody) {
-                    masterBody.innerHTML = passes.map(gp => {
-                        let dateStatusHtml = '<span style="color:var(--text-muted)">Unmatched</span>';
-                        if (gp.expected_date && gp.arrival_date) {
-                            if (gp.arrival_date === gp.expected_date) {
-                                dateStatusHtml = '<span class="status-ontime">On Time</span>';
-                            } else if (gp.arrival_date > gp.expected_date) {
-                                dateStatusHtml = '<span class="status-delayed">Delayed</span>';
-                            } else {
-                                dateStatusHtml = '<span class="status-early">Early</span>';
+                    if (passes.length === 0) {
+                        masterBody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No Gate Pass records registered.</td></tr>';
+                    } else {
+                        masterBody.innerHTML = passes.map(gp => {
+                            let dateStatusHtml = '<span style="color:var(--text-muted)">Unmatched</span>';
+                            if (gp.expected_date && gp.arrival_date) {
+                                if (gp.arrival_date === gp.expected_date) {
+                                    dateStatusHtml = '<span class="status-ontime">On Time</span>';
+                                } else if (gp.arrival_date > gp.expected_date) {
+                                    dateStatusHtml = '<span class="status-delayed">Delayed</span>';
+                                } else {
+                                    dateStatusHtml = '<span class="status-early">Early</span>';
+                                }
                             }
-                        }
-                        
-                        return `
-                        <tr>
-                            <td>${gp.id}</td>
-                            <td>${gp.po_number || '-'}</td>
-                            <td>${gp.plate}</td>
-                            <td>${gp.driver_name || '-'}</td>
-                            <td><span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span></td>
-                            <td>${gp.dock || '-'}</td>
-                            <td>${gp.arrival_date} ${gp.time}</td>
-                            <td>${dateStatusHtml}</td>
-                            <td>${gp.exit_time || '-'}</td>
-                        </tr>
-                        `;
-                    }).join('');
+                            
+                            return `
+                            <tr>
+                                <td style="font-weight:700; color:var(--accent-hover);">${escapeHtml(gp.id)}</td>
+                                <td>${gp.po_number ? `<a href="javascript:void(0)" onclick="navigateToEntity('traceability', '${escapeHtml(gp.po_number)}')" style="color:var(--accent); font-weight:600; text-decoration:underline;">${escapeHtml(gp.po_number)}</a>` : '-'}</td>
+                                <td style="font-family:monospace; font-weight:700;">${escapeHtml(gp.plate)}</td>
+                                <td>${escapeHtml(gp.driver_name || '-')}</td>
+                                <td>
+                                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                                        <span class="badge" style="background:#f1f5f9; color:#475569; font-size:0.7rem; border:1px solid #cbd5e1;">READ-ONLY</span>
+                                        <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${escapeHtml(gp.status)}</span>
+                                    </div>
+                                </td>
+                                <td><strong>${escapeHtml(gp.dock || '-')}</strong></td>
+                                <td>${escapeHtml(gp.arrival_date || '')} ${escapeHtml(gp.time || '')}</td>
+                                <td>${dateStatusHtml}</td>
+                                <td>${escapeHtml(gp.exit_time || '-')}</td>
+                                <td>
+                                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                        <button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:var(--accent);" onclick="switchTab('gate-passes')">Open in Gate Management &rarr;</button>
+                                        ${gp.po_number ? `<button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${escapeHtml(gp.po_number)}')">🔍 Trace</button>` : ''}
+                                    </div>
+                                </td>
+                            </tr>
+                            `;
+                        }).join('');
+                    }
                 }
 
                 // Filter Active Passes for the Grid
@@ -681,9 +759,9 @@
                                     <button class="btn-danger" style="width:100%;" onclick="updateDockStatus('${gp.id}', 'Rejected')">Reject</button>
                                     ` : `
                                     <div style="background: var(--panel-subtle); border: 1px solid var(--border-light); padding: 12px; border-radius: 8px; margin-bottom: 8px;">
-                                        <h4 style="margin:0 0 8px 0; color:var(--text-muted); font-size:0.85rem; display:flex; justify-content:space-between;">
-                                            <span>UNLOADING SHEET (AI VERIFICATION)</span>
-                                            <span style="color:var(--success);">98% Accuracy Tracker</span>
+                                        <h4 style="margin:0 0 8px 0; color:var(--text-muted); font-size:0.85rem; display:flex; justify-content:space-between; align-items:center;">
+                                            <span>VISION UNLOADING EVIDENCE (W.A.R.L.O.G.)</span>
+                                            <span>${gp.vision_verification_status ? `<span style="font-size:0.7rem; padding:2px 6px; border-radius:4px; background:rgba(59,130,246,0.15); color:var(--accent-hover); border:1px solid var(--accent);">${gp.vision_verification_status}</span>` : `<span style="color:var(--success);">AI Perception</span>`}</span>
                                         </h4>
                                         <div style="margin-bottom: 8px; position:relative;">
                                             <img src="/video_feed/${(gp.dock === 'Dock 2') ? 'CAM-003' : 'CAM-002'}" style="width:100%; border-radius:4px; max-height:200px; object-fit:cover;" alt="Live Dock Camera" onerror="this.src='/static/test_scenes/dock01_test.jpg'"/>
@@ -691,9 +769,13 @@
                                                 📹 ${(gp.dock === 'Dock 2') ? 'CAM-003 (Dock 02)' : 'CAM-002 (Dock 01)'}
                                             </span>
                                         </div>
+                                        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.25); padding:6px 8px; border-radius:4px; margin-bottom:8px; font-size:0.78rem;">
+                                            <div>👁️ Perception Evidence: <strong style="color:var(--accent-hover);">${gp.vision_unloaded_count !== undefined ? gp.vision_unloaded_count : 0} verified</strong> ${gp.vision_candidate_count ? `<span style="color:var(--warning); font-size:0.7rem;">(${gp.vision_candidate_count} cand.)</span>` : ''}</div>
+                                            <div>📦 WMS Recorded Qty: <strong style="color:var(--text-main);">${gp.unloaded_qty || 0}</strong></div>
+                                        </div>
                                         <table style="margin:0; font-size:0.85rem; background:transparent;">
                                             <thead>
-                                                <tr><th style="padding:4px;">SKU / Desc</th><th style="padding:4px;">Expected</th><th style="padding:4px;">AI Count</th><th style="padding:4px;">Match</th></tr>
+                                                <tr><th style="padding:4px;">SKU / Desc</th><th style="padding:4px;">Expected</th><th style="padding:4px;">WMS Qty</th><th style="padding:4px;">Match</th></tr>
                                             </thead>
                                             <tbody>
                                                 ${(gp.unloading_sheet && gp.unloading_sheet.length > 0) ? gp.unloading_sheet.map(item => {
@@ -702,7 +784,7 @@
                                                     return `
                                                     <tr>
                                                         <td style="padding:4px;">
-                                                            <div style="font-family:monospace; color:var(--text-main);">${item.sku}</div>
+                                                             <div style="font-family:monospace; color:var(--text-main);">${item.sku}</div>
                                                             <div style="font-size:0.75rem; color:var(--text-muted);">${item.description}</div>
                                                         </td>
                                                         <td style="padding:4px; font-weight:bold;">${item.expected} ${item.uom}</td>
@@ -713,6 +795,9 @@
                                                 }).join('') : `<tr><td colspan="4" style="text-align:center; padding:4px;">No PO Sheet Linked</td></tr>`}
                                             </tbody>
                                         </table>
+                                        <div style="font-size:0.68rem; color:var(--text-muted); margin-top:6px; font-style:italic;">
+                                            * W.A.R.L.O.G. provides structured perception evidence. WMS quantity is updated upon explicit "Sync AI Tracker".
+                                        </div>
                                     </div>
                                     <button class="btn-primary" style="width:100%; margin-bottom:4px; background:linear-gradient(135deg, #3b82f6, #8b5cf6);" onclick="navigateToEntity('traceability', 'B104')">🔍 View Inbound Material Traceability</button>
                                     <div style="display:flex; gap: 4px; margin-bottom:4px;">
@@ -1880,55 +1965,302 @@ window.filterMasterHub = function() {
 
 
 // ==========================================
-// CYCLE COUNTING & AUDIT
+// CYCLE COUNTING & W.A.R.L.O.G. AI AUDITING
 // ==========================================
-async function runCycleCount(bin_id) {
-    const input = document.getElementById(`audit_qty_${bin_id}`);
-    const actual_qty = parseInt(input.value);
-    if(isNaN(actual_qty)) {
-        alert("Enter a valid quantity");
-        return;
-    }
+
+let ccCachedBins = [];
+let ccCurrentAuditResult = null;
+
+async function fetchCycleCountData() {
     try {
-        const res = await fetch('/api/cycle_count', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({bin_id: bin_id, actual_qty: actual_qty})
-        });
-        const data = await res.json();
-        if(data.success) {
-            alert(data.message);
-            fetchMasterHubData();
-        } else {
-            alert("Error: " + data.message);
-        }
+        const res = await fetch('/api/bins');
+        ccCachedBins = await res.json();
+        renderCycleCountTable(ccCachedBins);
+        populateCycleCountBinSelect(ccCachedBins);
+        fetchCycleCountActivities();
     } catch (e) {
-        alert("Connection Error");
+        console.error("Failed to fetch bins for cycle count:", e);
     }
 }
+window.fetchCycleCountData = fetchCycleCountData;
 
-// Modify bin table rendering to include cycle count inputs in the cycle count tab
-function renderCycleCountTab(bins, inventory) {
+function populateCycleCountBinSelect(bins) {
+    const select = document.getElementById('ccSelectedBinSelect');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">-- Choose Storage Bin --</option>' + 
+        bins.map(b => `<option value="${b.bin_id}" ${b.bin_id === currentVal ? 'selected' : ''}>${b.bin_id} (${b.zone || 'General'}) - ${b.stock_count || 0} items</option>`).join('');
+}
+
+function renderCycleCountTable(bins) {
     const tbody = document.getElementById('cycleCountBody');
-    if(!tbody) return;
-    
+    if (!tbody) return;
+
+    if (!bins || bins.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No storage bins registered in warehouse.</td></tr>`;
+        return;
+    }
+
     tbody.innerHTML = bins.map(b => {
-        const inv = inventory.find(i => i.bin_id === b.bin_id);
-        const expected_qty = inv ? inv.quantity : 0;
-        const sku_id = inv ? inv.sku_id : 'N/A';
+        const stockCount = b.stock_count || 0;
+        const vendorText = b.vendor || 'Empty';
         return `
             <tr>
-                <td>${b.bin_id}</td>
-                <td>${b.zone}</td>
-                <td>${sku_id}</td>
-                <td>${expected_qty}</td>
+                <td><strong>${b.bin_id}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${b.zone || 'General'}</span></td>
+                <td><span style="font-family:monospace; font-size:0.85rem;">${vendorText}</span></td>
+                <td><strong style="color:var(--accent); font-size:1.05rem;">${stockCount}</strong> Units</td>
+                <td><span class="badge ${stockCount > 0 ? 'badge-success' : 'badge-warning'}">${stockCount > 0 ? 'Stocked' : 'Empty'}</span></td>
                 <td>
-                    <div style="display:flex; gap:10px;">
-                        <input type="number" id="audit_qty_${b.bin_id}" placeholder="Actual Qty" style="width:100px; padding:4px; margin:0;" value="${expected_qty}">
-                        <button class="btn-primary" onclick="runCycleCount('${b.bin_id}')">Audit</button>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-primary btn-sm" onclick="selectAndInspectBin('${b.bin_id}')" style="display:inline-flex; align-items:center; gap:4px;">
+                            <span>👁️</span> Inspect AI
+                        </button>
                     </div>
                 </td>
             </tr>
         `;
     }).join('');
 }
+
+function onCycleCountBinSelected() {
+    const select = document.getElementById('ccSelectedBinSelect');
+    if (!select || !select.value) {
+        const panel = document.getElementById('ccInspectionResultsPanel');
+        if (panel) panel.style.display = 'none';
+        return;
+    }
+    inspectSelectedBinAi();
+}
+window.onCycleCountBinSelected = onCycleCountBinSelected;
+
+function selectAndInspectBin(binId) {
+    const select = document.getElementById('ccSelectedBinSelect');
+    if (select) {
+        select.value = binId;
+    }
+    inspectSelectedBinAi(binId);
+    // Scroll to workbench
+    const sub = document.getElementById('cycle-count-sub');
+    if (sub) sub.scrollIntoView({ behavior: 'smooth' });
+}
+window.selectAndInspectBin = selectAndInspectBin;
+
+async function inspectSelectedBinAi(overrideBinId) {
+    const select = document.getElementById('ccSelectedBinSelect');
+    const binId = overrideBinId || (select ? select.value : "");
+    if (!binId) {
+        alert("Please select a storage bin first.");
+        return;
+    }
+
+    const btn = document.getElementById('btnInspectBinAi');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span>⏳</span> Evaluating...`;
+    }
+
+    try {
+        const res = await fetch(`/api/cycle_count/audit/${encodeURIComponent(binId)}`);
+        const data = await res.json();
+        if (!data.success) {
+            alert("Error auditing bin: " + (data.error || "Unknown error"));
+            return;
+        }
+
+        ccCurrentAuditResult = data;
+        renderInspectionResults(data);
+    } catch (e) {
+        console.error("Failed to inspect bin with AI:", e);
+        alert("Connection error inspecting bin.");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<span>👁️</span> Inspect with W.A.R.L.O.G. AI`;
+        }
+    }
+}
+window.inspectSelectedBinAi = inspectSelectedBinAi;
+
+function renderInspectionResults(data) {
+    const panel = document.getElementById('ccInspectionResultsPanel');
+    if (!panel) return;
+    panel.style.display = 'block';
+
+    const wms = data.wms_inventory || {};
+    const vision = data.vision_evidence || {};
+    const disc = data.discrepancy || {};
+
+    // 1. WMS Ledger Context
+    document.getElementById('ccWmsBinId').innerText = data.bin_id;
+    document.getElementById('ccWmsZone').innerText = wms.bin_details?.zone || 'General';
+    document.getElementById('ccWmsExpectedQty').innerText = `${wms.total_quantity || 0} Units`;
+    document.getElementById('ccWmsSkus').innerText = (wms.distinct_skus && wms.distinct_skus.length > 0) ? wms.distinct_skus.join(', ') : 'None (Empty)';
+
+    const itemsDiv = document.getElementById('ccWmsItemsList');
+    if (itemsDiv) {
+        if (wms.items && wms.items.length > 0) {
+            itemsDiv.innerHTML = wms.items.map(it => `<div>• <strong>${it.sku_id}</strong> (${it.sku_name || 'Component'}): ${it.quantity} units</div>`).join('');
+        } else {
+            itemsDiv.innerHTML = `<em>No inventory records in ledger for this bin.</em>`;
+        }
+    }
+
+    // 2. Vision Observation
+    const hasVision = vision.has_vision_evidence;
+    const obsQty = vision.total_observed_qty ?? 0;
+    document.getElementById('ccObservedQty').innerText = hasVision ? `${obsQty} Units` : 'N/A';
+    document.getElementById('ccObservedSkus').innerText = (vision.validated_skus && vision.validated_skus.length > 0) ? vision.validated_skus.join(', ') : (hasVision ? 'Unidentified' : 'No Coverage');
+    
+    const obsMats = vision.observed_materials || [];
+    const matTypes = Array.from(new Set(obsMats.map(m => m.material_type || 'Component')));
+    document.getElementById('ccObservedType').innerText = matTypes.length > 0 ? matTypes.join(', ') : 'None';
+
+    const cams = vision.monitoring_cameras || [];
+    document.getElementById('ccMonitoringCams').innerText = cams.length > 0 ? cams.join(', ') : 'None';
+
+    const covBadge = document.getElementById('ccVisionCoverageBadge');
+    if (covBadge) {
+        covBadge.className = `badge ${hasVision ? 'badge-success' : 'badge-warning'}`;
+        covBadge.innerText = hasVision ? 'Vision Active' : 'No Coverage';
+    }
+
+    const obsDetailDiv = document.getElementById('ccObservedItemsDetail');
+    if (obsDetailDiv) {
+        if (obsMats.length > 0) {
+            obsDetailDiv.innerHTML = obsMats.map(m => `<div>• [${m.material_type}] ${m.matched_sku || m.observed_id || 'Item'}: ${m.quantity} ${m.uom} (${m.identity_status})</div>`).join('');
+        } else {
+            obsDetailDiv.innerHTML = `<em>${hasVision ? 'No physical materials detected in bin area.' : 'No vision telemetry available.'}</em>`;
+        }
+    }
+
+    // 3. Discrepancy & Recommendation Banner
+    const badge = document.getElementById('ccDiscrepancyBadge');
+    const recTitle = document.getElementById('ccRecommendationTitle');
+    const expText = document.getElementById('ccExplanationText');
+    const qtyInput = document.getElementById('ccAuditedQtyInput');
+    const banner = document.getElementById('ccDiscrepancyBanner');
+
+    const dType = disc.type || 'NO_VISION_EVIDENCE';
+    badge.innerText = dType.replace(/_/g, ' ');
+    recTitle.innerText = disc.recommendation ? disc.recommendation.replace(/_/g, ' ') : 'Review Required';
+    expText.innerText = disc.explanation || '';
+
+    // Color code banner and badge
+    if (dType === 'MATCH') {
+        badge.style.background = '#10b981';
+        badge.style.color = '#fff';
+        banner.style.background = 'rgba(16, 185, 129, 0.08)';
+        banner.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+    } else if (dType === 'SHORTAGE' || dType === 'EMPTY_BIN') {
+        badge.style.background = '#ef4444';
+        badge.style.color = '#fff';
+        banner.style.background = 'rgba(239, 68, 68, 0.08)';
+        banner.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+    } else if (dType === 'EXCESS' || dType === 'MULTIPLE_MATERIALS') {
+        badge.style.background = '#f59e0b';
+        badge.style.color = '#fff';
+        banner.style.background = 'rgba(245, 158, 11, 0.08)';
+        banner.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+    } else {
+        badge.style.background = '#64748b';
+        badge.style.color = '#fff';
+        banner.style.background = 'rgba(100, 116, 139, 0.08)';
+        banner.style.borderColor = 'rgba(100, 116, 139, 0.3)';
+    }
+
+    // Suggest quantity in input
+    if (disc.suggested_cycle_count_qty !== null && disc.suggested_cycle_count_qty !== undefined) {
+        qtyInput.value = disc.suggested_cycle_count_qty;
+    } else {
+        qtyInput.value = wms.total_quantity || 0;
+    }
+}
+
+async function commitSelectedCycleCount() {
+    if (!ccCurrentAuditResult) {
+        alert("Please inspect a storage bin first.");
+        return;
+    }
+
+    const binId = ccCurrentAuditResult.bin_id;
+    const qtyInput = document.getElementById('ccAuditedQtyInput');
+    const actualQty = parseInt(qtyInput.value, 10);
+    if (isNaN(actualQty) || actualQty < 0) {
+        alert("Please enter a valid non-negative actual quantity.");
+        return;
+    }
+
+    const btn = document.getElementById('btnCommitCycleCount');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "Applying...";
+    }
+
+    try {
+        const payload = {
+            bin_id: binId,
+            actual_qty: actualQty,
+            notes: `AI-Assisted Cycle Count Audit (${ccCurrentAuditResult.discrepancy?.type || 'MANUAL'})`
+        };
+
+        const res = await fetch('/api/cycle_count', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            alert(data.message);
+            // Refresh data
+            fetchCycleCountData();
+            // Re-inspect with updated WMS state
+            inspectSelectedBinAi(binId);
+        } else {
+            alert("Error: " + (data.message || "Could not apply cycle count."));
+        }
+    } catch (e) {
+        console.error("Failed to commit cycle count:", e);
+        alert("Connection error applying cycle count.");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = "✍ Apply Cycle Count";
+        }
+    }
+}
+window.commitSelectedCycleCount = commitSelectedCycleCount;
+
+async function fetchCycleCountActivities() {
+    try {
+        const res = await fetch('/api/cycle_count/activities?limit=15');
+        const data = await res.json();
+        const tbody = document.getElementById('ccActivitiesBody');
+        if (!tbody) return;
+
+        const activities = data.activities || [];
+        if (activities.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:1rem; color:var(--text-muted);">No audit activity recorded yet.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = activities.map(a => `
+            <tr>
+                <td style="font-family:monospace; font-size:0.8rem; color:var(--text-muted);">${a.timestamp || '-'}</td>
+                <td><span class="badge" style="background:rgba(59,130,246,0.15); color:#3b82f6;">${a.action || 'AUDIT'}</span></td>
+                <td><strong>${a.target || '-'}</strong></td>
+                <td style="font-size:0.85rem;">${a.details || '-'}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error("Failed to fetch cycle count activities:", e);
+    }
+}
+window.fetchCycleCountActivities = fetchCycleCountActivities;
+
+async function runCycleCount(bin_id) {
+    selectAndInspectBin(bin_id);
+}
+window.runCycleCount = runCycleCount;
+

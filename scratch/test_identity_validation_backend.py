@@ -11,6 +11,8 @@ import sqlite3
 import cv2
 import numpy as np
 
+os.environ["WARLOG_TEST_MODE"] = "1"
+
 # Ensure webapp directory is in python path
 WEBAPP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'webapp')
 sys.path.insert(0, WEBAPP_DIR)

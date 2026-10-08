@@ -1,5 +1,3 @@
-import re
-
 with open('webapp/templates/index.html', 'r', encoding='utf-8') as f:
     html = f.read()
 

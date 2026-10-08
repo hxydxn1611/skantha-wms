@@ -306,7 +306,7 @@ class CameraWorkerBoxAssociationSession:
             cls_code = str(t.get("class_code", "")).upper()
             if cls_code in ("WORKER", "PERSON", "OPERATOR"):
                 workers.append(t)
-            elif cls_code in ("BOX", "CARTON", "PACKAGE"):
+            elif cls_code in ("BOX", "CARTON", "PACKAGE", "CONTAINER", "CARDBOARD BOX", "MATERIAL", "GLASS", "ROD", "PART", "COMPONENT", "FASTENER", "SKU"):
                 boxes.append(t)
 
         # 2. Enrich tracks with resolved warehouse zones
@@ -905,9 +905,12 @@ class MultiObjectWorkerBoxAssociationService:
             if cls_code in ("WORKER", "PERSON", "OPERATOR"):
                 box_color = (220, 50, 180) # BGR: Magenta / Purple
                 label_prefix = f"WORKER #{t_id}"
-            elif cls_code in ("BOX", "CARTON", "PACKAGE"):
+            elif cls_code in ("BOX", "CARTON", "PACKAGE", "CONTAINER", "CARDBOARD BOX"):
                 box_color = (0, 165, 255) # BGR: Warm Orange
                 label_prefix = f"BOX #{t_id}"
+            elif cls_code in ("MATERIAL", "GLASS", "ROD", "PART", "COMPONENT", "FASTENER", "SKU"):
+                box_color = (0, 200, 255) # BGR
+                label_prefix = f"{cls_code} #{t_id}"
             elif cls_code in ("TRUCK", "CARRIER"):
                 box_color = (255, 140, 0)
                 label_prefix = f"TRUCK #{t_id}"

@@ -229,7 +229,7 @@ class TrackIdentityState:
 
     def __init__(self, track_id: int):
         self.track_id = track_id
-        self.status = "UNIDENTIFIED"  # "IDENTIFIED", "UNIDENTIFIED", "CONFLICT"
+        self.status = "UNIDENTIFIED"  # "IDENTIFIED", "UNIDENTIFIED", "AMBIGUOUS", "CONFLICT"
         self.value: Optional[str] = None
         self.source: Optional[str] = None
         self.format: Optional[str] = None
@@ -238,6 +238,40 @@ class TrackIdentityState:
         self.first_identified_frame: Optional[int] = None
         self.last_identified_frame: Optional[int] = None
         self.candidates: List[Dict[str, Any]] = []
+        self.raw_evidence: Dict[str, Any] = {
+            "barcode_or_qr": None,
+            "barcode_format": None,
+            "ocr_text": None,
+            "source_camera": None,
+            "timestamp": None,
+            "confidence": 0.0,
+            "status": "UNIDENTIFIED",
+            "candidates": []
+        }
+
+    def _update_raw_evidence(
+        self,
+        candidates: List[Dict[str, Any]],
+        camera_id: Optional[str] = None,
+        timestamp: Optional[str] = None
+    ):
+        bc_qrs = [c for c in candidates if c.get("source") in ("QR", "BARCODE")]
+        ocrs = [c for c in candidates if c.get("source") == "OCR"]
+        
+        bc_val = bc_qrs[0]["value"] if bc_qrs else None
+        bc_fmt = bc_qrs[0].get("format") if bc_qrs else None
+        ocr_vals = [c["value"] for c in ocrs] if ocrs else None
+
+        self.raw_evidence = {
+            "barcode_or_qr": bc_val,
+            "barcode_format": bc_fmt,
+            "ocr_text": ocr_vals,
+            "source_camera": camera_id or self.raw_evidence.get("source_camera") or "CAM-001",
+            "timestamp": timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "confidence": round(float(self.confidence), 4),
+            "status": self.status,
+            "candidates": [dict(c) for c in candidates]
+        }
 
     def _filter_candidates(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Filter raw candidate detections to distinguish genuine identifiers from low-confidence noise."""
@@ -245,9 +279,9 @@ class TrackIdentityState:
             return []
 
         # 1. Look for high-confidence Barcodes / QRs (validated optical symbologies)
-        bc_qrs = [c for c in candidates if c.get("source") in ("QR", "BARCODE") and c.get("confidence", 0) >= 0.85]
-        # 2. Look for strong OCR candidates (conf >= 0.80)
-        strong_ocrs = [c for c in candidates if c.get("source") == "OCR" and c.get("confidence", 0) >= 0.80]
+        bc_qrs = [c for c in candidates if c.get("source") in ("QR", "BARCODE") and c.get("confidence", 0) >= 0.80]
+        # 2. Look for strong OCR candidates (conf >= 0.70)
+        strong_ocrs = [c for c in candidates if c.get("source") == "OCR" and c.get("confidence", 0) >= 0.70]
 
         if bc_qrs:
             # If a high-confidence OCR directly contradicts the Barcode/QR (e.g. B104 vs B109)
@@ -267,45 +301,109 @@ class TrackIdentityState:
         top_cand = max(candidates, key=lambda c: c.get("confidence", 0))
         return [top_cand] if top_cand.get("confidence", 0) >= 0.50 else []
 
-    def update(self, new_candidates: List[Dict[str, Any]], frame_index: int):
+    def update(
+        self,
+        new_candidates: List[Dict[str, Any]],
+        frame_index: int,
+        camera_id: Optional[str] = None,
+        timestamp: Optional[str] = None
+    ):
         """
         Update identity state based on newly recognized visual candidates in current frame.
+        Distinguishes: IDENTIFIED, UNIDENTIFIED, AMBIGUOUS, CONFLICT.
+        Never guesses a SKU from visual appearance alone.
+        Preserves raw evidence for traceability and auditing.
         """
+        # 0. Check for explicitly ambiguous candidates
+        if any(c.get("status") == "AMBIGUOUS" or c.get("is_ambiguous") for c in new_candidates):
+            self.status = "AMBIGUOUS"
+            self.value = None
+            self.source = None
+            self.format = None
+            self.confidence = 0.0
+            self.candidates = new_candidates
+            self.last_identified_frame = frame_index
+            self._update_raw_evidence(new_candidates, camera_id, timestamp)
+            return
+
         filtered_candidates = self._filter_candidates(new_candidates)
 
         if not filtered_candidates:
             # If no identifier found in current frame, but track was previously confirmed
             # as IDENTIFIED, retain its stable identity (handles momentary blur or angle changes).
             if self.status == "IDENTIFIED" and self.value:
+                self._update_raw_evidence(new_candidates, camera_id, timestamp)
                 return
-            if self.status != "CONFLICT":
+            if self.status not in ("CONFLICT", "AMBIGUOUS"):
                 self.status = "UNIDENTIFIED"
                 self.value = None
                 self.source = None
                 self.format = None
                 self.confidence = 0.0
+            self._update_raw_evidence(new_candidates, camera_id, timestamp)
             return
 
-        # 1. Check for internal conflicts within the current frame's candidates
-        unique_values = {c["value"] for c in filtered_candidates}
-        if len(unique_values) > 1:
-            # Multiple differing values in same frame -> CONFLICT
-            self.status = "CONFLICT"
-            self.value = None
-            self.source = None
-            self.format = None
-            self.confidence = 0.0
-            self.candidates = filtered_candidates
-            self.last_identified_frame = frame_index
-            return
+        # 1. Separate Barcode/QR vs OCR candidates
+        bc_qrs = [c for c in filtered_candidates if c.get("source") in ("QR", "BARCODE")]
+        ocr_cands = [c for c in filtered_candidates if c.get("source") == "OCR"]
 
-        # 2. Single consistent candidate found in this frame
-        cand = filtered_candidates[0]
-        # Prefer higher-confidence barcode/QR over OCR if multiple decoders read same value
-        for c in filtered_candidates:
-            if c.get("source") in ("QR", "BARCODE") and c.get("confidence", 0) >= cand.get("confidence", 0):
-                cand = c
-                break
+        # Check internal barcode conflict
+        if bc_qrs:
+            unique_bc_vals = {c["value"] for c in bc_qrs}
+            if len(unique_bc_vals) > 1:
+                self.status = "CONFLICT"
+                self.value = None
+                self.source = None
+                self.format = None
+                self.confidence = 0.0
+                self.candidates = filtered_candidates
+                self.last_identified_frame = frame_index
+                self._update_raw_evidence(new_candidates, camera_id, timestamp)
+                return
+
+            # Check if strong OCR directly contradicts Barcode/QR
+            top_bc = max(bc_qrs, key=lambda c: c.get("confidence", 0))
+            contradicting_ocr = [c for c in ocr_cands if c.get("confidence", 0) >= 0.70 and c["value"] != top_bc["value"]]
+            if contradicting_ocr:
+                self.status = "CONFLICT"
+                self.value = None
+                self.source = None
+                self.format = None
+                self.confidence = 0.0
+                self.candidates = [top_bc] + contradicting_ocr
+                self.last_identified_frame = frame_index
+                self._update_raw_evidence(new_candidates, camera_id, timestamp)
+                return
+
+            # Barcode/QR wins and OCR supports
+            cand = top_bc
+            if any(c["value"] == top_bc["value"] for c in ocr_cands):
+                cand["confidence"] = max(cand["confidence"], 0.99)
+        elif ocr_cands:
+            # Only OCR candidates present: check for ambiguity among competing candidates
+            distinct_ocrs = []
+            seen = set()
+            for oc in sorted(ocr_cands, key=lambda c: c.get("confidence", 0), reverse=True):
+                if oc["value"] not in seen:
+                    seen.add(oc["value"])
+                    distinct_ocrs.append(oc)
+
+            if len(distinct_ocrs) >= 2:
+                # If top two candidates have close confidence scores (< 0.15 delta)
+                if abs(distinct_ocrs[0]["confidence"] - distinct_ocrs[1]["confidence"]) < 0.15:
+                    self.status = "AMBIGUOUS"
+                    self.value = None
+                    self.source = "OCR"
+                    self.format = distinct_ocrs[0].get("format")
+                    self.confidence = 0.0
+                    self.candidates = distinct_ocrs
+                    self.last_identified_frame = frame_index
+                    self._update_raw_evidence(new_candidates, camera_id, timestamp)
+                    return
+
+            cand = distinct_ocrs[0]
+        else:
+            cand = filtered_candidates[0]
 
         cand_val = cand["value"]
 
@@ -318,7 +416,6 @@ class TrackIdentityState:
                 self.last_identified_frame = frame_index
             else:
                 # Contradicting observation in later frame: DO NOT silently overwrite!
-                # Mark as CONFLICT and expose both candidates for future resolution.
                 self.status = "CONFLICT"
                 self.candidates = [
                     {
@@ -341,12 +438,14 @@ class TrackIdentityState:
                 self.format = None
                 self.confidence = 0.0
                 self.last_identified_frame = frame_index
+            self._update_raw_evidence(new_candidates, camera_id, timestamp)
             return
 
         if self.status == "CONFLICT":
             # If already in conflict, record candidate
             if not any(c.get("value") == cand_val for c in self.candidates):
                 self.candidates.append(cand)
+            self._update_raw_evidence(new_candidates, camera_id, timestamp)
             return
 
         # 4. First successful identification
@@ -359,6 +458,7 @@ class TrackIdentityState:
         self.first_identified_frame = frame_index
         self.last_identified_frame = frame_index
         self.candidates = []
+        self._update_raw_evidence(new_candidates, camera_id, timestamp)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize identity state to JSON-compatible dictionary."""
@@ -371,7 +471,8 @@ class TrackIdentityState:
             "read_count": self.read_count,
             "first_identified_frame": self.first_identified_frame,
             "last_identified_frame": self.last_identified_frame,
-            "candidates": self.candidates
+            "candidates": self.candidates,
+            "raw_evidence": self.raw_evidence
         }
 
 
@@ -569,7 +670,8 @@ class MultiObjectIdentityService:
         frame_index: int = 1,
         enable_barcode_qr: bool = True,
         enable_ocr: bool = True,
-        crop_padding: float = 0.05
+        crop_padding: float = 0.05,
+        enable_throttling: bool = False
     ) -> Tuple[List[Dict[str, Any]], float, float]:
         """
         Enrich a list of Part 6 tracked objects with visual identity recognition results.
@@ -618,18 +720,18 @@ class MultiObjectIdentityService:
             track_identity = session.get_track_identity(track_id)
             candidates: List[Dict[str, Any]] = []
 
-            # 1. Barcode & QR code scanning (Throttle to improve speed)
-            throttle_bc = (frame_index % 3 == 0) if not track_identity.value else (frame_index % 10 == 0)
+            # 1. Barcode & QR code scanning (Throttle to improve speed if enabled)
+            throttle_bc = (not enable_throttling) or ((frame_index % 3 == 0) if not track_identity.value else (frame_index % 10 == 0))
             if enable_bc_local and crop.size > 0 and throttle_bc:
                 t_bc_start = time.perf_counter()
                 bc_results = self.barcode_decoder.decode(crop)
                 total_bc_ms += (time.perf_counter() - t_bc_start) * 1000
                 candidates.extend(bc_results)
 
-            # 2. OCR text recognition (Throttle heavily to improve ANPR speed by 300%+)
-            throttle_ocr = (frame_index % 5 == 0) if not track_identity.value else (frame_index % 15 == 0)
-            if cls_code == "LICENSE_PLATE":
-                throttle_ocr = (frame_index % 2 == 0) # Run OCR more often on isolated license plates because they are small!
+            # 2. OCR text recognition (Throttle heavily if enabled)
+            throttle_ocr = (not enable_throttling) or ((frame_index % 5 == 0) if not track_identity.value else (frame_index % 15 == 0))
+            if cls_code == "LICENSE_PLATE" and enable_throttling:
+                throttle_ocr = (frame_index % 2 == 0)
                 
             if enable_ocr_local and crop.size > 0 and throttle_ocr:
                 t_ocr_start = time.perf_counter()
@@ -638,7 +740,12 @@ class MultiObjectIdentityService:
                 candidates.extend(ocr_results)
 
             # 3. Update track-level in-memory identity state
-            track_identity.update(new_candidates=candidates, frame_index=frame_index)
+            track_identity.update(
+                new_candidates=candidates,
+                frame_index=frame_index,
+                camera_id=camera_id,
+                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
 
             # 4. Attach identity structure to track output
             t["identity"] = track_identity.to_dict()
@@ -654,7 +761,8 @@ class MultiObjectIdentityService:
         roi_zone_code: Optional[str] = None,
         enable_barcode_qr: bool = True,
         enable_ocr: bool = True,
-        crop_padding: float = 0.05
+        crop_padding: float = 0.05,
+        enable_throttling: bool = False
     ) -> Dict[str, Any]:
         """
         End-to-End Part 7 Pipeline:
@@ -717,7 +825,8 @@ class MultiObjectIdentityService:
             frame_index=tracking_session.frame_index,
             enable_barcode_qr=enable_barcode_qr,
             enable_ocr=enable_ocr,
-            crop_padding=crop_padding
+            crop_padding=crop_padding,
+            enable_throttling=enable_throttling
         )
         ident_ms = round(bc_ms + ocr_ms, 2)
         
@@ -869,8 +978,11 @@ class MultiObjectIdentityService:
             if status == "IDENTIFIED":
                 box_color = (34, 197, 94)      # Emerald Green
                 status_label = f"ID: {val} [{source}] {int(conf * 100)}%"
+            elif status == "AMBIGUOUS":
+                box_color = (0, 165, 255)      # Orange
+                status_label = f"ID: AMBIGUOUS ({len(ident.get('candidates', []))} reads)"
             elif status == "CONFLICT":
-                box_color = (30, 144, 255)     # Amber / Orange
+                box_color = (68, 68, 239)      # Bright Red
                 status_label = f"ID: CONFLICT ({len(ident.get('candidates', []))} candidates)"
             else:
                 box_color = (180, 180, 180)    # Neutral Gray / Blue

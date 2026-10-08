@@ -105,7 +105,6 @@
 
                     
                     </div>
-                </div>
                 
                 <!-- SIGN UP FORM -->
                 <div class="login-card" id="form-signup" style="display: none;">
@@ -135,9 +134,6 @@
                 </div>
             </div>
         </div>
-
-
-    </div>
 
     <!-- FULLSCREEN CAMERA -->
     <div id="fsOverlay" class="fullscreen-overlay" onclick="closeFullscreen()">
@@ -1070,9 +1066,29 @@
 
         <!-- CAMERA VIEW -->
         <div id="cameras-view" class="view-section">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:12px; background:var(--panel-subtle); padding:1rem 1.25rem; border-radius:10px; border:1px solid var(--border-light);">
+                <div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <h2 style="margin:0; font-size:1.35rem;">Operational Camera Junction</h2>
+                        <span class="badge" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; font-size:0.72rem; font-weight:700;">MONITORING &amp; JUNCTION VIEW</span>
+                    </div>
+                    <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.85rem;">
+                        Operational camera monitoring matrix and live video feeds. Authoritative camera hardware registration, AI perception models, and spatial ROI zoning are configured in <strong>AI Vision &rarr; Camera Sources</strong>.
+                    </p>
+                </div>
+                <button type="button" class="btn-primary" style="background:#0ea5e9; font-size:0.82rem; padding:8px 14px;" onclick="navigateToEntity('camera_sources')">
+                    ⚙️ Configure Cameras &amp; AI in Camera Sources &rarr;
+                </button>
+            </div>
             <div style="display: flex; gap: 2rem;">
                 <aside class="glass-panel" style="width: 300px; height: fit-content;">
-                    <h3>Add Camera</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <h3 style="margin:0;">Quick Connect Node</h3>
+                        <span style="font-size:0.7rem; color:var(--text-muted);">Stream Feed</span>
+                    </div>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0; margin-bottom:12px;">
+                        Connect or stream a local/IP video feed into junction monitoring.
+                    </p>
                     <form id="addCameraForm">
                         <label>Name</label> <input type="text" id="camName" placeholder="Main Gate" required>
                         <label>Location</label> 
@@ -1205,8 +1221,8 @@
                 <p style="color:var(--text-muted); margin-bottom: 1rem;">Consolidated view of all system masters.</p>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px; flex-wrap:wrap; gap:10px;">
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                        <button class="btn-primary sub-tab-btn active" onclick="switchSubTab('po-master', this)">PO Master</button>
-                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)">Gate Pass Master</button>
+                        <button class="btn-primary sub-tab-btn active" onclick="switchSubTab('po-master', this)">PO Viewer</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('gate-pass-master', this)">Gate Pass Viewer</button>
                         <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vehicle-master', this)">Vehicle Master</button>
                         <button class="btn-primary sub-tab-btn" onclick="switchSubTab('invoice-master', this)">Invoice Master</button>
                         <button class="btn-primary sub-tab-btn" onclick="switchSubTab('bin-master', this)">Bin Master</button>
@@ -1294,22 +1310,70 @@
     </div>
 </div>
 <div id="po-master-sub" class="sub-master-section">
-                    <h3>PO Master</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem; flex-wrap:wrap; gap:10px; background:var(--panel-subtle); padding:0.85rem 1rem; border-radius:8px; border:1px solid var(--border-light);">
+                        <div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <h3 style="margin:0;">PO Viewer</h3>
+                                <span class="badge" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; font-size:0.72rem; font-weight:700;">READ-ONLY REFERENCE</span>
+                            </div>
+                            <p style="font-size:0.8rem; color:var(--text-muted); margin:4px 0 0 0;">
+                                Centralized reference view of registered Purchase Orders &amp; Expected Deliveries. Operational entry and updates are owned by <a href="javascript:void(0)" onclick="switchTab('deliveries')" style="color:var(--accent-hover); font-weight:600; text-decoration:underline;">Pre-Registration</a>.
+                            </p>
+                        </div>
+                        <button type="button" class="btn-primary" style="font-size:0.8rem; padding:6px 12px;" onclick="switchTab('deliveries')">
+                            Open in Pre-Registration &rarr;
+                        </button>
+                    </div>
                     <div style="overflow-x:auto;">
                         <table style="width:100%;">
-                            <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Vendor Email</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th></tr></thead>
+                            <thead>
+                                <tr>
+                                    <th>PO Number</th>
+                                    <th>Expected Date</th>
+                                    <th>Activity</th>
+                                    <th>Vendor</th>
+                                    <th>Vendor Email</th>
+                                    <th>Expected Load</th>
+                                    <th>Qty</th>
+                                    <th>Plate (If Known)</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
                             <tbody id="poMasterBody"></tbody>
                         </table>
                     </div>
                 </div>
 
                 <div id="gate-pass-master-sub" class="sub-master-section" style="display:none;">
-                    <h3>Gate Pass Master</h3>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem; flex-wrap:wrap; gap:10px; background:var(--panel-subtle); padding:0.85rem 1rem; border-radius:8px; border:1px solid var(--border-light);">
+                        <div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <h3 style="margin:0;">Gate Pass Viewer</h3>
+                                <span class="badge" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; font-size:0.72rem; font-weight:700;">READ-ONLY REFERENCE</span>
+                            </div>
+                            <p style="font-size:0.8rem; color:var(--text-muted); margin:4px 0 0 0;">
+                                Centralized reference view of active and historical Gate Passes. Vehicle arrival, gate entry, dock dispatch, and check-out are owned by <a href="javascript:void(0)" onclick="switchTab('gate-passes')" style="color:var(--accent-hover); font-weight:600; text-decoration:underline;">Gate Management</a>.
+                            </p>
+                        </div>
+                        <button type="button" class="btn-primary" style="font-size:0.8rem; padding:6px 12px;" onclick="switchTab('gate-passes')">
+                            Open in Gate Management &rarr;
+                        </button>
+                    </div>
                     <div style="overflow-x:auto;">
                         <table style="width:100%;">
                             <thead>
                                 <tr>
-                                    <th>Gate Pass ID</th><th>PO Num</th><th>Plate</th><th>Driver</th><th>Status</th><th>Dock</th><th>Arrival Time</th><th>Schedule Status</th><th>Exit Time</th>
+                                    <th>Gate Pass ID</th>
+                                    <th>PO Num</th>
+                                    <th>Plate</th>
+                                    <th>Driver</th>
+                                    <th>Status</th>
+                                    <th>Dock</th>
+                                    <th>Arrival Time</th>
+                                    <th>Schedule Status</th>
+                                    <th>Exit Time</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="gatePassMasterBody"></tbody>
@@ -1339,6 +1403,147 @@
                         </thead>
                         <tbody id="invoicesBody"></tbody>
                     </table>
+                </div>
+
+                <div id="cycle-count-sub" class="sub-master-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:10px;">
+                        <div>
+                            <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+                                <span>⚖️</span> Cycle Count &amp; AI Discrepancy Auditing
+                            </h3>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">
+                                Material-agnostic physical inventory verification comparing W.A.R.L.O.G. vision evidence against authoritative WMS records.
+                            </p>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn-secondary btn-sm" onclick="fetchCycleCountData()" title="Reload bins and recent activities">
+                                🔄 Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- AI INSPECTION WORKBENCH CARD -->
+                    <div class="glass-panel" style="margin-bottom:1.5rem; background:var(--panel-subtle); border:1px solid var(--border-light); padding:1.25rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <label for="ccSelectedBinSelect" style="font-weight:700; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase; margin-bottom:0;">Select Bin:</label>
+                                <select id="ccSelectedBinSelect" style="padding:6px 12px; border-radius:6px; background:var(--panel-bg); color:var(--text-main); border:1px solid var(--border-light); font-weight:600; margin-bottom:0;" onchange="onCycleCountBinSelected()">
+                                    <option value="">-- Choose Storage Bin --</option>
+                                </select>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <button class="btn-primary" id="btnInspectBinAi" onclick="inspectSelectedBinAi()" style="display:inline-flex; align-items:center; gap:6px;">
+                                    <span>👁️</span> Inspect with W.A.R.L.O.G. AI
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- INSPECTION RESULTS CONTAINER -->
+                        <div id="ccInspectionResultsPanel" style="display:none;">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:15px; margin-bottom:1rem;">
+                                <!-- WMS Authoritative Ledger -->
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:1rem;">
+                                    <div style="font-size:0.75rem; text-transform:uppercase; font-weight:700; color:var(--text-muted); margin-bottom:8px;">
+                                        Authoritative WMS Ledger (Read-Only)
+                                    </div>
+                                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.88rem;">
+                                        <div>Bin ID: <strong id="ccWmsBinId">-</strong></div>
+                                        <div>Zone: <span id="ccWmsZone" class="badge">-</span></div>
+                                        <div>Expected Qty: <strong id="ccWmsExpectedQty" style="font-size:1.1rem; color:var(--accent);">-</strong></div>
+                                        <div>SKU(s): <span id="ccWmsSkus" style="font-family:monospace; font-weight:700;">-</span></div>
+                                    </div>
+                                    <div id="ccWmsItemsList" style="margin-top:8px; font-size:0.8rem; color:var(--text-muted); max-height:80px; overflow-y:auto;"></div>
+                                </div>
+
+                                <!-- W.A.R.L.O.G. Physical Observation -->
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:1rem;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                        <span style="font-size:0.75rem; text-transform:uppercase; font-weight:700; color:var(--text-muted);">
+                                            W.A.R.L.O.G. Physical Observation
+                                        </span>
+                                        <span id="ccVisionCoverageBadge" class="badge">-</span>
+                                    </div>
+                                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.88rem;">
+                                        <div>Observed Qty: <strong id="ccObservedQty" style="font-size:1.1rem; color:var(--primary-navy);">-</strong></div>
+                                        <div>Identified SKUs: <span id="ccObservedSkus" style="font-family:monospace; font-weight:700;">-</span></div>
+                                        <div>Material Class: <span id="ccObservedType" style="color:var(--text-muted);">-</span></div>
+                                        <div>Cameras: <span id="ccMonitoringCams" style="font-family:monospace; font-size:0.8rem;">-</span></div>
+                                    </div>
+                                    <div id="ccObservedItemsDetail" style="margin-top:8px; font-size:0.8rem; color:var(--text-muted); max-height:80px; overflow-y:auto;"></div>
+                                </div>
+                            </div>
+
+                            <!-- DISCREPANCY & RECOMMENDATION BANNER -->
+                            <div id="ccDiscrepancyBanner" style="padding:1rem 1.25rem; border-radius:8px; margin-bottom:1.25rem; border:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <span id="ccDiscrepancyBadge" class="badge" style="font-size:0.9rem; padding:6px 12px;">-</span>
+                                    <div>
+                                        <div id="ccRecommendationTitle" style="font-weight:700; font-size:0.95rem;">-</div>
+                                        <div id="ccExplanationText" style="font-size:0.85rem; color:var(--text-muted); margin-top:2px;">-</div>
+                                    </div>
+                                </div>
+                                <div id="ccActionContainer" style="display:flex; align-items:center; gap:8px;">
+                                    <input type="number" id="ccAuditedQtyInput" min="0" placeholder="Audited Qty" style="width:110px; padding:6px 10px; margin-bottom:0;" value="0">
+                                    <button class="btn-primary" id="btnCommitCycleCount" onclick="commitSelectedCycleCount()" style="white-space:nowrap;">
+                                        ✍ Apply Cycle Count
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STORAGE BINS AUDIT TABLE -->
+                    <div class="glass-panel">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                            <h4 style="margin:0;">Storage Bins Overview</h4>
+                            <span style="font-size:0.8rem; color:var(--text-muted);">Operator initiates cycle count adjustments explicitly.</span>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>Bin ID</th>
+                                        <th>Zone</th>
+                                        <th>Registered SKU(s)</th>
+                                        <th>WMS Expected Qty</th>
+                                        <th>Stock Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cycleCountBody">
+                                    <tr>
+                                        <td colspan="6" style="text-align:center; padding:1.5rem; color:var(--text-muted);">
+                                            Loading storage bins...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- RECENT ACTIVITIES & CYCLE COUNT AUDIT LOG -->
+                    <div class="glass-panel" style="margin-top:1.5rem;">
+                        <h4 style="margin:0 0 0.85rem 0;">Recent Cycle Count Audit Trail (Activities Ledger)</h4>
+                        <div style="overflow-x:auto; max-height:240px;">
+                            <table style="width:100%;">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Action</th>
+                                        <th>Bin / Target</th>
+                                        <th>Audit Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ccActivitiesBody">
+                                    <tr>
+                                        <td colspan="4" style="text-align:center; padding:1rem; color:var(--text-muted);">
+                                            No audit activity recorded yet.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
                 
                 <script>
@@ -1400,21 +1605,25 @@ async function fetchSkus() {
     } catch(e) { console.error(e); }
 }
 
+window.fetchBins = fetchBins;
+window.fetchSkus = fetchSkus;
 
-
-                function switchSubTab(tabId, btn) {
-                        document.querySelectorAll('.sub-master-section').forEach(el => el.style.display = 'none');
-                        document.querySelectorAll('.sub-tab-btn').forEach(el => el.classList.remove('active'));
-                        document.getElementById(tabId + '-sub').style.display = 'block';
-                        btn.classList.add('active');
-                        
-                        if(typeof window.fetchDeliveries === 'function' && tabId === 'po-master') window.fetchDeliveries();
-                        if(typeof window.fetchGatePasses === 'function' && tabId === 'gate-pass-master') window.fetchGatePasses();
-                        if(typeof window.fetchVehicleLogs === 'function' && tabId === 'vehicle-master') window.fetchVehicleLogs();
-                        if(typeof window.fetchInvoices === 'function' && tabId === 'invoice-master') window.fetchInvoices();
-                        if(typeof window.fetchBins === 'function' && tabId === 'bin-master') window.fetchBins();
-                        if(typeof window.fetchSkus === 'function' && tabId === 'sku-master') window.fetchSkus();
-                    }
+function switchSubTab(tabId, btn) {
+    document.querySelectorAll('.sub-master-section').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.sub-tab-btn').forEach(el => el.classList.remove('active'));
+    const target = document.getElementById(tabId + '-sub');
+    if (target) target.style.display = 'block';
+    if (btn) btn.classList.add('active');
+    
+    if(typeof window.fetchDeliveries === 'function' && tabId === 'po-master') window.fetchDeliveries();
+    if(typeof window.fetchGatePasses === 'function' && tabId === 'gate-pass-master') window.fetchGatePasses();
+    if(typeof window.fetchVehicleLogs === 'function' && tabId === 'vehicle-master') window.fetchVehicleLogs();
+    if(typeof window.fetchInvoices === 'function' && tabId === 'invoice-master') window.fetchInvoices();
+    if(typeof window.fetchBins === 'function' && tabId === 'bin-master') window.fetchBins();
+    if(typeof window.fetchSkus === 'function' && tabId === 'sku-master') window.fetchSkus();
+    if(typeof window.fetchCycleCountData === 'function' && tabId === 'cycle-count') window.fetchCycleCountData();
+}
+window.switchSubTab = switchSubTab;
                 </script>
             </div>
         </div>
@@ -1433,118 +1642,395 @@ async function fetchSkus() {
                     </span>
                 </div>
 
-                <!-- Sub-tab Navigation (Consistent with Master Hub) -->
-                <div style="display:flex; gap:10px; margin-bottom: 20px; flex-wrap:wrap;">
-                    <button class="btn-primary sub-tab-btn vision-sub-btn active" onclick="switchVisionSubTab('vision-dashboard', this)">Dashboard</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-objects', this)">Object Classes</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-cameras', this)">Camera Sources</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-zones', this)">Warehouse Zones</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-detection', this)">Detection Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-tracking', this)">Tracking Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-identity', this)">Identity Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-validation', this)">Validation Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-association', this)">Truck ↔ Box Association Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-worker-box', this)">Worker ↔ Box Association Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-box-bin', this)">Box ↔ Bin Association Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-events', this)">Warehouse Movement Events Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-traceability', this)">Material Traceability Test</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-runtime', this)" id="btnVisionRuntimeTab" style="background:#0ea5e9;">⚡ Runtime Orchestrator</button>
-                    <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-config', this)">Configuration</button>
+                <!-- Sub-tab Navigation: 5-Group Target Architecture -->
+                <div class="vision-navigation-container" style="display:flex; flex-direction:column; gap:8px; margin-bottom: 22px;">
+                    <!-- Overview & Live Runtime -->
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 12px; background:var(--panel-subtle); border-radius:8px; border:1px solid var(--border-light);">
+                        <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); min-width:95px; letter-spacing:0.5px;">Overview:</span>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn active" onclick="switchVisionSubTab('vision-dashboard', this)">Dashboard</button>
+                        <span style="height:16px; width:1px; background:var(--border-light); margin:0 4px;"></span>
+                        <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:#0ea5e9; letter-spacing:0.5px;">Live Runtime:</span>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-runtime', this)" id="btnVisionRuntimeTab" style="background:#0ea5e9; font-weight:700;">⚡ Runtime Orchestrator</button>
+                    </div>
+
+                    <!-- Group 1: Configuration -->
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 12px; background:var(--panel-subtle); border-radius:8px; border:1px solid var(--border-light);">
+                        <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); min-width:95px; letter-spacing:0.5px;">Configuration:</span>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-objects', this)">Object Classes</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-cameras', this)">Camera Sources</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-zones', this)">Warehouse Zones &amp; ROI</button>
+                    </div>
+
+                    <!-- Group 2: Intelligence -->
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 12px; background:var(--panel-subtle); border-radius:8px; border:1px solid var(--border-light);">
+                        <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); min-width:95px; letter-spacing:0.5px;">Intelligence:</span>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-identity', this)">Identity</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-validation', this)">Validation</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-association', this)">Truck ↔ Box Association</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-worker-box', this)">Worker ↔ Box Association</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-box-bin', this)">Box ↔ Bin Association</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-material-association', this)" id="btnMaterialAssocTab" style="background:#0284c7; font-weight:700;">Material Association</button>
+                    </div>
+
+                    <!-- Group 3: Events & Traceability -->
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 12px; background:var(--panel-subtle); border-radius:8px; border:1px solid var(--border-light);">
+                        <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); min-width:95px; letter-spacing:0.5px;">Traceability:</span>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-events', this)">Movement Events</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-traceability', this)">Material Traceability</button>
+                    </div>
+
+                    <!-- Group 4: Diagnostics -->
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 12px; background:var(--panel-subtle); border-radius:8px; border:1px solid var(--border-light);">
+                        <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); min-width:95px; letter-spacing:0.5px;">Diagnostics:</span>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-detection', this)">Detection Test</button>
+                        <button class="btn-primary sub-tab-btn vision-sub-btn" onclick="switchVisionSubTab('vision-tracking', this)">Tracking Test</button>
+                    </div>
                 </div>
 
-                <!-- 1. AI VISION DASHBOARD SUB-PAGE -->
+                <!-- 1. AI VISION DASHBOARD SUB-PAGE (Part 12 - Live Vision Dashboard) -->
                 <div id="vision-dashboard-sub" class="vision-sub-section">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                        <h3 style="margin:0;">AI Vision Perception Overview</h3>
-                        <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Telemetric Status: Standby</span>
+                    <!-- Top Operational Bar: Title, Health Indicator & Master Controls -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                    <span>W.A.R.L.O.G. Live Vision Dashboard</span>
+                                </h3>
+                                <span id="dashRuntimeStatusBadge" class="badge" style="background:var(--panel-subtle); color:var(--text-muted); border:1px solid var(--border-light); font-size:0.75rem; padding:4px 10px; display:inline-flex; align-items:center; gap:6px;">
+                                    <span id="dashRuntimeDot" style="width:8px; height:8px; border-radius:50%; background:#64748b; display:inline-block;"></span>
+                                    <span id="dashRuntimeText">INITIALIZING</span>
+                                </span>
+                            </div>
+                            <p style="font-size:0.83rem; color:var(--text-muted); margin:4px 0 0 0;">
+                                Unified real-time operational perception, spatial tracking, physical identity validation, movement events, and material traceability.
+                            </p>
+                        </div>
+
+                        <!-- Runtime Control Actions -->
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <button type="button" class="btn-primary" id="btnDashStartAll" onclick="handleDashboardStartAll()" style="background:#10b981; border-color:#10b981; font-size:0.8rem; padding:6px 14px; display:inline-flex; align-items:center; gap:6px;">
+                                <span>▶</span> Start Runtime
+                            </button>
+                            <button type="button" class="btn-secondary" id="btnDashStopAll" onclick="handleDashboardStopAll()" style="color:#ef4444; border-color:#ef4444; font-size:0.8rem; padding:6px 14px; display:inline-flex; align-items:center; gap:6px;">
+                                <span>⏹</span> Stop Runtime
+                            </button>
+                            <button type="button" class="btn-secondary" id="btnDashRestartCam" onclick="handleDashboardRestartCurrentCamera()" style="font-size:0.8rem; padding:6px 12px;" title="Restart selected camera session">
+                                ↺ Restart Cam
+                            </button>
+                            <button type="button" class="btn-secondary" id="btnDashTestStep" onclick="handleDashboardTestStep()" style="font-size:0.8rem; padding:6px 12px; background:var(--panel-subtle);" title="Execute single synthetic pipeline step">
+                                ⚡ Test Step
+                            </button>
+                            <button type="button" class="btn-secondary" onclick="loadLiveVisionDashboard(true)" style="font-size:0.8rem; padding:6px 10px;" title="Manual Refresh">
+                                ↻
+                            </button>
+                        </div>
                     </div>
 
-                    <!-- Placeholder KPI Cards: Active Cameras, Active Objects, Active Trucks, Active Workers, Active Boxes -->
-                    <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 2rem;">
+                    <!-- Telemetry KPI Metrics Banner -->
+                    <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 1.5rem; gap:12px;">
+                        <div class="metric-card" style="padding:1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                <div>
+                                    <h3 style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin:0;">Active Cameras</h3>
+                                    <div class="value" id="kpi-dash-active-cams" style="color:var(--accent); font-size:1.6rem; margin:4px 0;">0 / 0</div>
+                                </div>
+                                <span style="font-size:1.2rem;">📹</span>
+                            </div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-dash-active-cams-sub">AI Pipeline Nodes</span>
+                        </div>
+
+                        <div class="metric-card" style="padding:1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                <div>
+                                    <h3 style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin:0;">Processing Speed</h3>
+                                    <div class="value" id="kpi-dash-fps" style="color:#10b981; font-size:1.6rem; margin:4px 0;">0.0 FPS</div>
+                                </div>
+                                <span style="font-size:1.2rem;">⚡</span>
+                            </div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-dash-fps-sub">Shared Bus Throughput</span>
+                        </div>
+
+                        <div class="metric-card" style="padding:1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                <div>
+                                    <h3 style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin:0;">Tracked Objects</h3>
+                                    <div class="value" id="kpi-dash-tracks" style="color:var(--primary-navy); font-size:1.6rem; margin:4px 0;">0</div>
+                                </div>
+                                <span style="font-size:1.2rem;">🎯</span>
+                            </div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);">Spatial Track IDs</span>
+                        </div>
+
+                        <div class="metric-card" style="padding:1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                <div>
+                                    <h3 style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin:0;">Active Materials</h3>
+                                    <div class="value" id="kpi-dash-materials" style="color:#8b5cf6; font-size:1.6rem; margin:4px 0;">0</div>
+                                </div>
+                                <span style="font-size:1.2rem;">📦</span>
+                            </div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);">Verified Traced Entities</span>
+                        </div>
+
+                        <div class="metric-card" style="padding:1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                <div>
+                                    <h3 style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin:0;">Occupied Zones</h3>
+                                    <div class="value" id="kpi-dash-zones" style="color:#f59e0b; font-size:1.6rem; margin:4px 0;">0</div>
+                                </div>
+                                <span style="font-size:1.2rem;">📍</span>
+                            </div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);">Active ROIs</span>
+                        </div>
+
+                        <div class="metric-card" style="padding:1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                <div>
+                                    <h3 style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); margin:0;">Active Exceptions</h3>
+                                    <div class="value" id="kpi-dash-alerts" style="color:#ef4444; font-size:1.6rem; margin:4px 0;">0</div>
+                                </div>
+                                <span style="font-size:1.2rem;">⚠️</span>
+                            </div>
+                            <span style="font-size:0.72rem; color:var(--text-muted);">Conflicts & Anomalies</span>
+                        </div>
+                    </div>
+
+                    <!-- Main Section: Left = Camera Live Stream + Detection Overlay, Right = Traced Materials Panel -->
+                    <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:1.25rem; margin-bottom:1.5rem;" id="dashMainGrid">
                         
-                    <script>
-                        setInterval(async () => {
-                            if(document.getElementById('vision-dashboard-sub')?.style.display !== 'none') {
-                                try {
-                                    // 1. Cameras from Master Hub
-                                    const camRes = await fetch('/api/cameras');
-                                    const cams = await camRes.json();
-                                    document.getElementById('kpi-vision-cameras').innerText = cams.length || 0;
+                        <!-- Left Column: Camera Perception Node -->
+                        <div style="display:flex; flex-direction:column; gap:1rem;">
+                            <!-- Camera Selector Pills -->
+                            <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:8px 12px; display:flex; align-items:center; gap:8px; overflow-x:auto;" id="dashCamPillsContainer">
+                                <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); white-space:nowrap;">Camera Node:</span>
+                                <div id="dashCamPills" style="display:flex; gap:6px; align-items:center; flex-wrap:nowrap;">
+                                    <!-- Dynamic Camera Buttons generated by JS -->
+                                    <button class="btn-primary" style="font-size:0.75rem; padding:4px 10px;">Loading...</button>
+                                </div>
+                            </div>
+
+                            <!-- Live Camera View Card -->
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:12px; overflow:hidden; position:relative; box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+                                <!-- Live Stream Header Overlay -->
+                                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:var(--panel-subtle); border-bottom:1px solid var(--border-light);">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <strong id="dashCamTitle" style="font-size:0.9rem; color:var(--text-main);">CAM-001 (Dock 01)</strong>
+                                        <span id="dashCamStateBadge" class="badge" style="background:#10b981; color:#fff; font-size:0.68rem; padding:2px 6px;">RUNNING</span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:8px; font-size:0.72rem; color:var(--text-muted);">
+                                        <span id="dashCamSourceType" style="background:rgba(2,132,199,0.1); color:#0284c7; padding:2px 6px; border-radius:4px; font-weight:600;">SHARED BUS</span>
+                                        <span id="dashCamFpsTag">8.0 FPS</span>
+                                    </div>
+                                </div>
+
+                                <!-- Camera Image / Video Container -->
+                                <div style="position:relative; width:100%; height:380px; background:#0b1120; display:flex; align-items:center; justify-content:center; overflow:hidden;" id="dashPreviewContainer">
+                                    <img id="dashPreviewImg" src="" alt="Live Video Preview" style="width:100%; height:100%; object-fit:contain; display:block;" onerror="handleDashPreviewError()" onload="handleDashPreviewSuccess()">
                                     
-                                    // 2. Active Trucks from Gate Management Master
-                                    const gpRes = await fetch('/api/gate_passes');
-                                    const gps = await gpRes.json();
-                                    const activeTrucks = gps.filter(p => p.status !== 'Completed').length;
-                                    document.getElementById('kpi-vision-trucks').innerText = activeTrucks || 0;
-                                    
-                                    // 3. Active Boxes from Bin Master
-                                    const binRes = await fetch('/api/bins');
-                                    const bins = await binRes.json();
-                                    const totalBoxes = bins.reduce((sum, b) => sum + (b.stock_count || 0), 0);
-                                    document.getElementById('kpi-vision-boxes').innerText = totalBoxes || 0;
-                                    
-                                    // 4. Object Classes
-                                    const objRes = await fetch('/api/object_classes');
-                                    const objs = await objRes.json();
-                                    document.getElementById('kpi-vision-objects').innerText = objs.length || 0;
-                                    
-                                    // 5. Workers (None in WMS Master currently, so 0)
-                                    document.getElementById('kpi-vision-workers').innerText = 0;
-                                } catch(e) {}
-                            }
-                        }, 2000);
-                    </script>
-                    <div class="metric-card">
-                            <h3>Active Cameras</h3>
-                            <div class="value" id="kpi-vision-cameras" style="color:var(--accent);">2</div>
-                            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Sensor Nodes</span>
+                                    <!-- Fallback Display when camera is stopped or disconnected -->
+                                    <div id="dashPreviewFallback" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#64748b; text-align:center; padding:2rem;">
+                                        <span style="font-size:2.5rem;">📷</span>
+                                        <strong style="color:#94a3b8; font-size:0.95rem;" id="dashFallbackMsg">Camera Stream Standby</strong>
+                                        <p style="font-size:0.78rem; max-width:280px; margin:0;" id="dashFallbackSub">Click "Start Runtime" or "Test Step" to acquire live video frames via SharedFrameBus.</p>
+                                    </div>
+
+                                    <!-- Top-Right Live Pulse Badge -->
+                                    <div id="dashLiveOverlayBadge" style="position:absolute; top:12px; right:12px; background:rgba(15,23,42,0.85); backdrop-filter:blur(4px); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:4px 8px; display:flex; align-items:center; gap:6px; font-size:0.72rem; color:#fff;">
+                                        <span id="dashLivePulseDot" style="width:7px; height:7px; border-radius:50%; background:#10b981; box-shadow:0 0 8px #10b981;"></span>
+                                        <span id="dashLiveOverlayText">LIVE FEED</span>
+                                    </div>
+
+                                    <!-- Bottom-Left Metadata HUD -->
+                                    <div style="position:absolute; bottom:12px; left:12px; background:rgba(15,23,42,0.85); backdrop-filter:blur(4px); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:4px 10px; font-size:0.72rem; color:#cbd5e1; display:flex; gap:12px;" id="dashHudStrip">
+                                        <span>📍 <span id="dashHudZone">Zone: DOCK-01</span></span>
+                                        <span>⏱ <span id="dashHudLatency">Latency: 14ms</span></span>
+                                        <span>🎯 <span id="dashHudObjects">Objects: 0</span></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Live Detection & Tracking Inspector Table -->
+                            <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:12px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <h4 style="margin:0; font-size:0.85rem; color:var(--primary-navy); display:flex; align-items:center; gap:6px;">
+                                        <span>🎯 Spatial Detections & Active Tracks in View</span>
+                                    </h4>
+                                    <span style="font-size:0.72rem; color:var(--text-muted);" id="dashTracksCountBadge">0 Entities</span>
+                                </div>
+                                <div style="overflow-x:auto; max-height:160px; overflow-y:auto; background:var(--panel-bg); border-radius:6px; border:1px solid var(--border-light);">
+                                    <table style="width:100%; font-size:0.75rem; margin:0;">
+                                        <thead>
+                                            <tr style="border-bottom:1px solid var(--border-light); background:var(--panel-subtle);">
+                                                <th style="padding:6px 8px; text-align:left;">Track ID</th>
+                                                <th style="padding:6px 8px; text-align:left;">Class</th>
+                                                <th style="padding:6px 8px; text-align:left;">Confidence</th>
+                                                <th style="padding:6px 8px; text-align:left;">Physical Identity</th>
+                                                <th style="padding:6px 8px; text-align:left;">Validation State</th>
+                                                <th style="padding:6px 8px; text-align:left;">Zone ROI</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="dashDetectionsTableBody">
+                                            <tr>
+                                                <td colspan="6" style="padding:16px; text-align:center; color:var(--text-muted);">No active objects detected in selected camera.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
-                        <div class="metric-card">
-                            <h3>Active Objects</h3>
-                            <div class="value" id="kpi-vision-objects" style="color:var(--primary-navy);">0</div>
-                            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Tracked Spatial Entities</span>
-                        </div>
-                        <div class="metric-card">
-                            <h3>Active Trucks</h3>
-                            <div class="value" id="kpi-vision-trucks" style="color:var(--warning);">0</div>
-                            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Gate &amp; Yard Carriers</span>
-                        </div>
-                        <div class="metric-card">
-                            <h3>Active Workers</h3>
-                            <div class="value" id="kpi-vision-workers" style="color:var(--success);">0</div>
-                            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Floor &amp; Dock Personnel</span>
-                        </div>
-                        <div class="metric-card">
-                            <h3>Active Boxes</h3>
-                            <div class="value" id="kpi-vision-boxes" style="color:#0284c7;">0</div>
-                            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Cartons &amp; Bundles</span>
+
+                        <!-- Right Column: Active Materials Panel (Part 11 Integration) -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:12px; padding:1rem; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                                <h4 style="margin:0; font-size:0.95rem; color:var(--primary-navy); display:flex; align-items:center; gap:6px;">
+                                    <span>📦 Active Traced Materials</span>
+                                </h4>
+                                <span id="dashMaterialCountBadge" class="badge" style="background:#8b5cf6; color:#fff; font-size:0.7rem; padding:2px 8px;">0 Traced</span>
+                            </div>
+
+                            <!-- Search Filter -->
+                            <div style="margin-bottom:10px;">
+                                <input type="text" id="dashMaterialSearch" placeholder="🔍 Search material ID, SKU, container..." style="font-size:0.78rem; padding:6px 10px; margin:0;" oninput="filterDashboardMaterials()">
+                            </div>
+
+                            <!-- Materials Cards List (Scrollable) -->
+                            <div style="flex:1; overflow-y:auto; max-height:560px; display:flex; flex-direction:column; gap:8px;" id="dashMaterialsList">
+                                <div style="padding:2rem; text-align:center; color:var(--text-muted); font-size:0.8rem;">
+                                    No materials currently tracked. Ingest events or start runtime.
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Vision Engine Shell Status Container -->
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1.5rem;">
-                        <h4 style="margin:0 0 0.75rem 0; font-size:1rem; color:var(--primary-navy); display:flex; justify-content:space-between; align-items:center;">
-                            <span>Vision Engine Shell Readiness</span>
-                            <span class="badge pending">Phase 1: Shell</span>
-                        </h4>
-                        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">
-                            This module shell establishes standard classification codes, tracking configurations, and telemetry monitors. Real-time inference models, tensor trackers, and event listeners will bind directly to these controls in subsequent stages without modifying the core WMS architecture.
-                        </p>
-                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:1rem;">
-                            <div style="background:var(--panel-bg); padding:1rem; border-radius:8px; border:1px solid var(--border-light);">
-                                <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Detection Architecture</div>
-                                <div style="font-size:0.95rem; font-weight:700; color:var(--text-main); margin-top:4px;">Object Classifier Shell</div>
-                                <div style="font-size:0.75rem; color:var(--accent); margin-top:3px;">● 6 Initial Taxonomy Classes</div>
+                    <!-- Bottom Operational Grid: 4 Dynamic Telemetry Panels -->
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:1.25rem;">
+                        
+                        <!-- Panel 1: Warehouse Zone Occupancy Matrix -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:12px; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <h4 style="margin:0; font-size:0.85rem; color:var(--primary-navy); display:flex; align-items:center; gap:6px;">
+                                    <span>📍 Zone Occupancy Matrix</span>
+                                </h4>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">Real-Time Spatial Distribution</span>
                             </div>
-                            <div style="background:var(--panel-bg); padding:1rem; border-radius:8px; border:1px solid var(--border-light);">
-                                <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Spatial Association</div>
-                                <div style="font-size:0.95rem; font-weight:700; color:var(--text-main); margin-top:4px;">Multi-Object Tracking Shell</div>
-                                <div style="font-size:0.75rem; color:var(--success); margin-top:3px;">● Profile Shell Configured</div>
+                            <div style="overflow-y:auto; max-height:240px; display:flex; flex-direction:column; gap:6px;" id="dashZoneMatrix">
+                                <div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem;">Loading zones...</div>
                             </div>
-                            <div style="background:var(--panel-bg); padding:1rem; border-radius:8px; border:1px solid var(--border-light);">
-                                <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Sensor Feed Bus</div>
-                                <div style="font-size:0.95rem; font-weight:700; color:var(--text-main); margin-top:4px;">Warehouse Node Sync</div>
-                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px;">● Ready for Video Pipelines</div>
+                        </div>
+
+                        <!-- Panel 2: Real-Time Movement Event Stream -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:12px; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <h4 style="margin:0; font-size:0.85rem; color:var(--primary-navy); display:flex; align-items:center; gap:6px;">
+                                    <span>⚡ Movement Event Stream</span>
+                                </h4>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">Chronological Feed</span>
+                            </div>
+                            <div style="overflow-y:auto; max-height:240px; display:flex; flex-direction:column; gap:6px;" id="dashEventStream">
+                                <div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem;">No recent events recorded.</div>
+                            </div>
+                        </div>
+
+                        <!-- Panel 3: Active & Candidate Associations -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:12px; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <h4 style="margin:0; font-size:0.85rem; color:var(--primary-navy); display:flex; align-items:center; gap:6px;">
+                                    <span>🔗 Active &amp; Candidate Associations</span>
+                                </h4>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">Explainable Proximity Rules</span>
+                            </div>
+                            <div style="overflow-y:auto; max-height:240px; display:flex; flex-direction:column; gap:6px;" id="dashAssociationsList">
+                                <div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem;">No active associations.</div>
+                            </div>
+                        </div>
+
+                        <!-- Panel 4: Operational Alerts & Exceptions -->
+                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:12px; display:flex; flex-direction:column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <h4 style="margin:0; font-size:0.85rem; color:var(--primary-navy); display:flex; align-items:center; gap:6px;">
+                                    <span>⚠️ Operational Exceptions</span>
+                                </h4>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">Conflicts &amp; Anomalies</span>
+                            </div>
+                            <div style="overflow-y:auto; max-height:240px; display:flex; flex-direction:column; gap:6px;" id="dashAlertsList">
+                                <div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem;">All systems operating nominally.</div>
+                            </div>
+                        </div>
+
+                        <!-- Panel 5 (Part 13): Controlled Actions & WMS Authorization -->
+                        <div style="grid-column: 1 / -1; background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:14px; display:flex; flex-direction:column; margin-top:4px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                                <div>
+                                    <h4 style="margin:0; font-size:0.95rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                        <span>⚡ AI Controlled Actions &amp; WMS Transactions</span>
+                                        <span class="badge" id="ctrlActionCountBadge" style="background:#0284c7; color:#fff; font-size:0.7rem;">0 PENDING</span>
+                                    </h4>
+                                    <p style="margin:2px 0 0 0; font-size:0.75rem; color:var(--text-muted);">
+                                        Read-only perception recommendations awaiting explicit operator validation and authoritative WMS commitment.
+                                    </p>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <button type="button" class="btn-secondary" onclick="refreshControlledActions()" style="font-size:0.78rem; padding:4px 10px;">
+                                        ↺ Refresh Actions
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Recommendations Container -->
+                            <div id="dashControlledActionsList" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px; max-height:300px; overflow-y:auto;">
+                                <div style="padding:1.5rem; text-align:center; color:var(--text-muted); font-size:0.8rem; grid-column:1/-1;">
+                                    No pending action recommendations. Physical operations operating nominally.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Material Dossier Quick Inspection Modal (Reuses Part 11 Material Dossier & Timeline) -->
+                    <div id="dashMaterialModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); z-index:9999; justify-content:center; align-items:center; backdrop-filter:blur(3px);">
+                        <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:12px; width:90%; max-width:850px; max-height:85vh; overflow-y:auto; padding:1.5rem; position:relative; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                                <div>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <h3 style="margin:0; font-size:1.15rem; color:var(--primary-navy);" id="dashModalMatTitle">Material Dossier</h3>
+                                        <span class="badge" id="dashModalMatLevelBadge" style="background:#10b981; color:#fff; font-size:0.7rem;">VALIDATED_REAL_WORLD</span>
+                                    </div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;" id="dashModalMatSubtitle">Explainable Material Traceability History</div>
+                                </div>
+                                <button type="button" onclick="closeDashboardMaterialModal()" style="background:none; border:none; font-size:1.5rem; color:var(--text-muted); cursor:pointer; line-height:1;">&times;</button>
+                            </div>
+                            <div id="dashModalContent">
+                                <!-- Populated dynamically by renderDashboardMaterialModal() -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Part 13: Controlled Action Preview & Authorization Modal -->
+                    <div id="dashControlledActionModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center; backdrop-filter:blur(4px);">
+                        <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:12px; width:92%; max-width:880px; max-height:88vh; overflow-y:auto; padding:1.5rem; position:relative; box-shadow:0 12px 40px rgba(0,0,0,0.35);">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                                <div>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <h3 style="margin:0; font-size:1.2rem; color:var(--primary-navy);" id="ctrlModalTitle">Controlled Action Preview</h3>
+                                        <span class="badge" id="ctrlModalStateBadge" style="background:#f59e0b; color:#fff; font-size:0.75rem;">READY_FOR_APPROVAL</span>
+                                    </div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px;">
+                                        Governance Pipeline: Evidence &rarr; Validation Gates &rarr; Operator Authorization &rarr; WMS Transaction
+                                    </div>
+                                </div>
+                                <button type="button" onclick="closeControlledActionModal()" style="background:none; border:none; font-size:1.6rem; color:var(--text-muted); cursor:pointer; line-height:1;">&times;</button>
+                            </div>
+
+                            <!-- Strict Architectural Disclaimer Banner -->
+                            <div style="background:rgba(239, 68, 68, 0.08); border-left:4px solid #ef4444; border-radius:6px; padding:10px 14px; margin-bottom:1.2rem; font-size:0.8rem; color:var(--text-main); display:flex; align-items:center; gap:10px;">
+                                <span style="font-size:1.2rem;">⚠️</span>
+                                <div>
+                                    <strong>Architectural Governance Invariant:</strong>
+                                    <span style="color:var(--text-muted); margin-left:4px;">AI recommendation / perception evidence &ne; completed WMS transaction. Authoritative warehouse state and inventory ledgers will strictly NOT mutate until an authorized operator explicitly approves.</span>
+                                </div>
+                            </div>
+
+                            <div id="ctrlModalContent">
+                                <!-- Dynamically populated by renderControlledActionPreview() -->
                             </div>
                         </div>
                     </div>
@@ -1628,6 +2114,9 @@ async function fetchSkus() {
                             <span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.82rem; padding:6px 12px;">
                                 Camera Master: Authoritative Source
                             </span>
+                            <button type="button" class="btn-primary" style="font-size:0.82rem; padding:6px 14px; background:var(--primary-navy);" onclick="navigateToEntity('camera')">
+                                📹 Manage Camera Hardware &rarr; Camera Junction
+                            </button>
                         </div>
                     </div>
 
@@ -1702,7 +2191,7 @@ async function fetchSkus() {
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
                         <div>
                             <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy);">Warehouse Zones</h3>
-                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Define physical and logical warehouse spatial zones, operational topology, and associated camera feeds.</p>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Define camera observation regions, operational spatial topology, and camera ROI boundaries. (For physical inventory storage locations, see Master Hub &rarr; Bin Master).</p>
                         </div>
                         <button class="btn-primary" onclick="openAddZoneModal()" style="display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; padding:0.6rem 1.1rem;">
                             <span style="font-size:1.1rem; line-height:1;">+</span> Add Zone
@@ -1787,8 +2276,15 @@ async function fetchSkus() {
                     </div>
                 </div>
 
-                <!-- 5. CONFIGURATION SUB-PAGE -->
+                <!-- 5. CONFIGURATION SUB-PAGE (LEGACY / INFORMATIONAL) -->
                 <div id="vision-config-sub" class="vision-sub-section" style="display:none;">
+                    <div style="background:#fffbeb; border:1px solid #fef3c7; color:#92400e; padding:12px 16px; border-radius:8px; margin-bottom:1.25rem; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                        <div>
+                            <strong>ℹ️ Configuration Architecture Notice:</strong> Authoritative camera perception configuration, inference parameters, and object taxonomy filtering are managed per-camera under <strong>AI Vision &rarr; Camera Sources</strong> (backed by <code>vision_camera_configs</code> and <code>vision_camera_object_classes</code>). The controls below are client-side localStorage test parameters and are not consumed by the live AI Runtime Orchestrator.
+                        </div>
+                        <button type="button" class="btn-primary" style="background:#d97706; font-size:0.8rem; padding:6px 12px;" onclick="const btn = Array.from(document.querySelectorAll('.vision-sub-btn')).find(b => b.getAttribute('onclick')?.includes('vision-cameras')); if(typeof switchVisionSubTab==='function') switchVisionSubTab('vision-cameras', btn);">Go to Camera Sources &rarr;</button>
+                    </div>
+
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem;">
                         <div>
                             <h3 style="margin:0;">Vision &amp; Tracking Configuration</h3>
@@ -2446,8 +2942,16 @@ async function fetchSkus() {
                                     <strong style="font-size:0.82rem; color:var(--text-main);">BIN</strong>
                                     <span style="font-size:0.68rem; color:#10b981; font-weight:700;">AVAILABLE</span>
                                 </div>
-                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">vision_zones (location master)</div>
-                                <div style="font-size:0.68rem; color:var(--accent); font-family:monospace; margin-top:2px;">zone_code</div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">bins (storage master)</div>
+                                <div style="font-size:0.68rem; color:var(--accent); font-family:monospace; margin-top:2px;">bin_id, zone</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #10b981; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">MATERIAL / SKU</strong>
+                                    <span style="font-size:0.68rem; color:#10b981; font-weight:700;">AVAILABLE</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">skus (glass, rods, parts, fasteners)</div>
+                                <div style="font-size:0.68rem; color:var(--accent); font-family:monospace; margin-top:2px;">sku_id, name, category</div>
                             </div>
                             <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #64748b; border-radius:6px; padding:8px 10px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3251,8 +3755,8 @@ async function fetchSkus() {
                                             <th>Box</th>
                                             <th>Bin</th>
                                             <th>Box ID</th>
-                                            <th>Bin ID</th>
-                                            <th>Zone</th>
+                                            <th>WMS Bin ID</th>
+                                            <th>Vision Zone</th>
                                             <th>Dist</th>
                                             <th>F</th>
                                             <th>Score</th>
@@ -3280,7 +3784,7 @@ async function fetchSkus() {
                             <span class="badge sent" style="font-size:0.7rem; background:#10b981; color:#fff;">Zero DB Writes</span>
                         </h4>
                         <p style="font-size:0.82rem; color:var(--text-muted); margin:0; line-height:1.45;">
-                            Part 11 establishes controlled, evidence-based relationships between <strong>Box</strong> tracks and <strong>Bin</strong> tracks. An association is never inferred simply because both objects are co-visible in the same frame. Confirmation requires <strong>sustained spatial proximity</strong> (normalized Euclidean distance &le; 0.40), <strong>matching warehouse zone/ROI</strong>, and <strong>temporal persistence across consecutive frames</strong> (min 3 frames). Real-world identity binding (e.g. <code>Box VLV-900 ↔ Bin BIN-A</code>) is only claimed if both underlying entities were successfully validated in Part 8. All association states are kept in-memory; zero database writes or WMS transactions are committed.
+                            Part 11 establishes controlled, evidence-based relationships between <strong>Box</strong> tracks and <strong>Bin</strong> tracks. An association is never inferred simply because both objects are co-visible in the same frame. Confirmation requires <strong>sustained spatial proximity</strong> (normalized Euclidean distance &le; 0.40), <strong>matching warehouse zone/ROI</strong>, and <strong>temporal persistence across consecutive frames</strong> (min 3 frames). Real-world identity binding (e.g. <code>Box VLV-900 ↔ Bin BIN-01</code>) is only claimed if both underlying entities were successfully validated in Part 8. All association states are kept in-memory; zero database writes or WMS transactions are committed.
                         </p>
                     </div>
                 </div>
@@ -3305,7 +3809,223 @@ async function fetchSkus() {
                 </div>
             </div>
 
-            <!-- 12. WAREHOUSE MOVEMENT EVENT DETECTION FOUNDATION SUB-PAGE (PART 12) -->
+                <!-- MATERIAL ASSOCIATION ENGINE SUB-PAGE (PART 9) -->
+                <div id="vision-material-association-sub" class="vision-sub-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy);">Material Association Engine — Test Bench</h3>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Material-agnostic, evidence-based association layer for automotive warehouses (Truck ↔ Material, Truck ↔ Container, Worker ↔ Material, Material ↔ Bin, Material ↔ Container). Co-visibility is strictly NOT association.</p>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <span class="badge sent" id="matAssocEngineStatusBadge" style="font-size:0.75rem; padding:0.4rem 0.8rem; background:#0284c7; color:#fff;">
+                                Engine: Active | Multi-Object Automotive | Zero DB Writes
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Association Configuration & Rules Diagnostic Strip -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                            <h4 style="margin:0; font-size:0.88rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                                <span>⚖️ Material Association Evidence Model</span>
+                                <span class="badge sent" style="font-size:0.68rem; background:rgba(2,132,199,0.15); color:#0284c7;">5 Supported Association Types</span>
+                            </h4>
+                            <span style="font-size:0.75rem; color:var(--text-muted);">Configurable Thresholds &amp; Multi-Frame Persistence</span>
+                        </div>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px;">
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #0284c7; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Min Frames</strong>
+                                    <span style="font-size:0.75rem; color:#0284c7; font-weight:800;" id="cfgMatMinFrames">3 frames</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Temporal persistence</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #10b981; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Max Distance</strong>
+                                    <span style="font-size:0.75rem; color:#10b981; font-weight:800;" id="cfgMatMaxDist">0.40</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Normalized Euclidean dist</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #f59e0b; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Min Score</strong>
+                                    <span style="font-size:0.75rem; color:#f59e0b; font-weight:800;" id="cfgMatMinScore">0.70</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Confirmation cutoff</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #ec4899; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Ambiguity Delta</strong>
+                                    <span style="font-size:0.75rem; color:#ec4899; font-weight:800;" id="cfgMatAmbDelta">&le; 0.15</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Holds in CANDIDATE</div>
+                            </div>
+                            <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #8b5cf6; border-radius:6px; padding:8px 10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong style="font-size:0.82rem; color:var(--text-main);">Same Zone</strong>
+                                    <span style="font-size:0.75rem; color:#8b5cf6; font-weight:800;">STRICT</span>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">Matching warehouse ROI</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Controls and Scenario Runner -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem;">
+                        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                            <div style="min-width:140px;">
+                                <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:4px;">Camera Node</label>
+                                <select id="matAssocCameraSelect" style="margin-bottom:0; width:100%;">
+                                    <option value="CAM-001" selected>CAM-001 (Dock 1 / Unloading)</option>
+                                    <option value="CAM-002">CAM-002 (Storage Bay A)</option>
+                                    <option value="CAM-003">CAM-003 (Packaging Line)</option>
+                                </select>
+                            </div>
+                            <div style="flex:1; min-width:280px;">
+                                <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:4px;">Automotive Scenario / Test Fixture</label>
+                                <select id="matAssocScenarioSelect" style="margin-bottom:0; width:100%;">
+                                    <option value="scenario_material_truck" selected>1. Truck GP-1000 ↔ Material AUTO-GLASS-01 (Same Zone) → CONFIRMED</option>
+                                    <option value="scenario_material_worker">2. Worker (Maddy) ↔ Material AUTO-ROD-01 (Handling) → CONFIRMED</option>
+                                    <option value="scenario_material_bin">3. Material AUTO-BOLT-01 ↔ Bin BIN-01 (Storage Slot) → CONFIRMED</option>
+                                    <option value="scenario_container_material">4. Container BOX-101 ↔ Material AUTO-GLASS-01 (Container Distinction) → CONFIRMED</option>
+                                    <option value="scenario_single_frame">5. Single-Frame Proximity (Frame 1 only) → CANDIDATE (No False Confirmation)</option>
+                                    <option value="scenario_diff_zones">6. Material in DOCK-01 ↔ Truck in STORAGE-01 → REJECTED (Zone Mismatch)</option>
+                                    <option value="scenario_ambiguous_trucks">7. Two Competing Trucks near One Material → AMBIGUOUS CANDIDATE</option>
+                                    <option value="scenario_unidentified_mat">8. Truck GP-1000 + UNIDENTIFIED Material → CANDIDATE (No Real-World Promotion)</option>
+                                    <option value="scenario_conflicted_mat">9. Truck GP-1000 + CONFLICT Identity → CANDIDATE (No Real-World Promotion)</option>
+                                </select>
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:flex-end;">
+                                <button type="button" class="btn-primary" id="btnRunMatAssoc" onclick="runMaterialAssociationTest()" style="padding:0.55rem 1.1rem; font-size:0.82rem; background:#0284c7;">
+                                    <span>▶</span> Run Single Frame
+                                </button>
+                                <button type="button" class="btn-secondary" id="btnRunMatAssocSeq" onclick="runMaterialAssociationSequence()" style="padding:0.55rem 1.1rem; font-size:0.82rem;">
+                                    <span>⏩</span> Run Sequence (3 Frames)
+                                </button>
+                                <button type="button" class="btn-secondary" onclick="resetMaterialAssociationSession()" style="padding:0.55rem 0.9rem; font-size:0.82rem;">
+                                    <span>↺</span> Reset Session
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Cross-Camera Physical Identity Query Bar -->
+                        <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border-light); display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <span style="font-size:0.78rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Cross-Camera Continuity:</span>
+                            <input type="text" id="matCrossCamInput" placeholder="Enter SKU / Material ID (e.g. AUTO-GLASS-01)" style="flex:1; min-width:200px; padding:0.4rem 0.75rem; font-size:0.82rem; margin-bottom:0;" value="AUTO-GLASS-01">
+                            <button type="button" class="btn-secondary" onclick="searchMaterialCrossCamera()" style="padding:0.4rem 0.9rem; font-size:0.8rem;">
+                                🔍 Query Physical Material Across Cameras
+                            </button>
+                            <span class="badge" style="font-size:0.7rem; background:rgba(16,185,129,0.12); color:#10b981;">No Visual Re-ID | Validated SKU Master Only</span>
+                        </div>
+                    </div>
+
+                    <!-- Material Association KPI Cards -->
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:1.25rem;">
+                        <div class="glass-panel" style="padding:0.85rem; border-radius:8px; border-left:4px solid var(--accent); background:var(--panel-bg);">
+                            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Total Associations</div>
+                            <div id="matKpiTotal" style="font-size:1.5rem; font-weight:800; color:var(--text-main); margin-top:2px;">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding:0.85rem; border-radius:8px; border-left:4px solid #10b981; background:var(--panel-bg);">
+                            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Confirmed</div>
+                            <div id="matKpiConfirmed" style="font-size:1.5rem; font-weight:800; color:#10b981; margin-top:2px;">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding:0.85rem; border-radius:8px; border-left:4px solid #f59e0b; background:var(--panel-bg);">
+                            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Candidate</div>
+                            <div id="matKpiCandidate" style="font-size:1.5rem; font-weight:800; color:#f59e0b; margin-top:2px;">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding:0.85rem; border-radius:8px; border-left:4px solid #ec4899; background:var(--panel-bg);">
+                            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Ambiguous</div>
+                            <div id="matKpiAmbiguous" style="font-size:1.5rem; font-weight:800; color:#ec4899; margin-top:2px;">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding:0.85rem; border-radius:8px; border-left:4px solid #ef4444; background:var(--panel-bg);">
+                            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Rejected / Expired</div>
+                            <div id="matKpiRejected" style="font-size:1.5rem; font-weight:800; color:#ef4444; margin-top:2px;">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding:0.85rem; border-radius:8px; border-left:4px solid #8b5cf6; background:var(--panel-bg);">
+                            <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Association Latency</div>
+                            <div id="matKpiLatency" style="font-size:1.5rem; font-weight:800; color:#8b5cf6; margin-top:2px;">0.0 ms</div>
+                        </div>
+                    </div>
+
+                    <!-- Main Split View: Visual Overlay (Left) + Associations Table (Right) -->
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:1.5rem; align-items:start;">
+                        <!-- Left: Visual Overlay Preview -->
+                        <div class="glass-panel" style="padding:1rem; border-radius:10px; background:var(--panel-bg); border:1px solid var(--border-light);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <strong style="font-size:0.85rem; color:var(--text-main);">Visual Material Association Overlay</strong>
+                                <span class="badge" id="matAssocFrameBadge" style="font-size:0.7rem; background:rgba(2,132,199,0.12); color:#0284c7;">Frame #0</span>
+                            </div>
+                            <div id="matAssocEmptyOverlay" style="min-height:300px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.15); border-radius:8px; border:2px dashed var(--border-light); color:var(--text-muted); text-align:center; padding:1.5rem;">
+                                <div style="font-size:2.2rem; margin-bottom:8px;">📦 ↔ 🚛</div>
+                                <p style="margin:0; font-size:0.9rem; font-weight:600;">No Material Association Frame Loaded</p>
+                                <p style="margin:4px 0 0 0; font-size:0.78rem;">Click 'Run Single Frame' or 'Run Sequence' to evaluate automotive associations.</p>
+                            </div>
+                            <img id="matAssocAnnotatedImage" src="" alt="Material Association Preview" style="width:100%; height:auto; display:none; object-fit:contain; max-height:480px; border-radius:6px;">
+                        </div>
+
+                        <!-- Right: Structured Associations Table -->
+                        <div class="glass-panel" style="padding:1rem; border-radius:10px; background:var(--panel-bg); border:1px solid var(--border-light);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <strong style="font-size:0.85rem; color:var(--text-main);">Evaluated Association Pairs</strong>
+                                <span class="badge" id="matAssocCountBadge" style="font-size:0.7rem; background:rgba(2,132,199,0.12); color:#0284c7;">0 Pairs</span>
+                            </div>
+                            <div style="max-height:440px; overflow-y:auto; border:1px solid var(--border-light); border-radius:6px;">
+                                <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+                                    <thead style="background:var(--panel-subtle); position:sticky; top:0; z-index:1;">
+                                        <tr style="border-bottom:1px solid var(--border-light); text-align:left;">
+                                            <th style="padding:6px 8px;">Type</th>
+                                            <th style="padding:6px 8px;">Primary ↔ Secondary</th>
+                                            <th style="padding:6px 8px;">Physical Master Binding</th>
+                                            <th style="padding:6px 8px;">Score</th>
+                                            <th style="padding:6px 8px;">Status</th>
+                                            <th style="padding:6px 8px; text-align:center;">Evidence</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="matAssocTableBody">
+                                        <tr>
+                                            <td colspan="6" style="padding:2rem 1rem; text-align:center; color:var(--text-muted);">
+                                                Association candidates will appear here after evaluation.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Material Evidence Breakdown Modal -->
+                    <div id="matEvidenceModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); z-index:10000; align-items:center; justify-content:center; padding:1rem;">
+                        <div class="glass-panel" style="max-width:620px; width:100%; max-height:90vh; overflow-y:auto; padding:1.5rem; border-radius:12px; border:1px solid var(--border-light); background:var(--panel-bg); box-shadow:0 20px 40px rgba(0,0,0,0.35);">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; border-bottom:1px solid var(--border-light); padding-bottom:0.75rem;">
+                                <div>
+                                    <h3 id="modalMatTitle" style="margin:0; font-size:1.15rem; color:var(--primary-navy);">Material Association Evidence</h3>
+                                    <p style="margin:2px 0 0 0; font-size:0.75rem; color:var(--text-muted);">Explainable Multi-Signal Evidence Breakdown</p>
+                                </div>
+                                <button onclick="closeMaterialEvidenceModal()" class="btn-primary" style="padding:4px 10px; font-size:0.85rem; background:#64748b;">✕</button>
+                            </div>
+                            <div id="modalMatContent">
+                                <!-- Populated dynamically -->
+                            </div>
+                            <div style="margin-top:1.25rem; text-align:right;">
+                                <button onclick="closeMaterialEvidenceModal()" class="btn-primary" style="padding:0.5rem 1.25rem;">Close</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Important Architectural Boundary Callout -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-left:4px solid #0284c7; border-radius:8px; padding:1rem 1.25rem;">
+                        <h4 style="margin:0 0 0.4rem 0; font-size:0.9rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                            <span>🔒 Architectural Boundary: Material Association Engine (Part 9)</span>
+                            <span class="badge sent" style="font-size:0.7rem; background:#0284c7; color:#fff;">Zero DB Writes</span>
+                        </h4>
+                        <p style="font-size:0.82rem; color:var(--text-muted); margin:0; line-height:1.45;">
+                            Part 9 establishes controlled, evidence-based relationships between <strong>Trucks</strong>, <strong>Workers</strong>, <strong>Storage Bins</strong>, <strong>Containers/Boxes</strong>, and automotive <strong>Materials</strong> (<code>GLASS</code>, <code>ROD</code>, <code>FASTENER</code>, <code>PART</code>, <code>COMPONENT</code>, <code>SKU</code>). Confirmation requires <strong>sustained spatial proximity</strong> (normalized Euclidean distance &le; 0.40 across &ge; 3 consecutive frames), <strong>matching warehouse zone/ROI</strong>, and composite score &ge; 0.70. Container identity (e.g. <code>BOX-101</code>) is strictly distinguished from contained material SKU (e.g. <code>AUTO-GLASS-01</code>). Cross-camera continuity occurs strictly through validated physical master identity without visual Re-ID. All association states are kept in-memory; zero database writes or inventory modifications are committed.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 12. WAREHOUSE MOVEMENT EVENT DETECTION FOUNDATION SUB-PAGE (PART 12) -->
                 <div id="vision-events-sub" class="vision-sub-section" style="display:none;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
                         <div>
@@ -3413,7 +4133,8 @@ async function fetchSkus() {
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Test Scenario / Source:</label>
                                 <select id="evtSourceSelect" onchange="handleMovementEventSourceChange()" style="margin-bottom:0;">
-                                    <option value="dock_loading" selected>Sequence: 8-Frame Dock Loading (Enter &rarr; Truck &rarr; Worker &rarr; Bin &rarr; Exit)</option>
+                                    <option value="automotive_warehouse_flow" selected>Sequence: 18-Frame Automotive Flow (Dock &rarr; Truck &rarr; Worker &rarr; Sorting &rarr; Staging &rarr; Bin &rarr; Dispatch)</option>
+                                    <option value="dock_loading">Sequence: 8-Frame Dock Loading (Legacy Box)</option>
                                     <option value="box_enter">Scenario 1: Box Enters Dock 1 (BOX_ENTERED_ZONE)</option>
                                     <option value="truck_assoc">Scenario 2: Box Associated with Truck GP-1000</option>
                                     <option value="worker_assoc">Scenario 3: Box Associated with Worker W-RAJESH</option>
@@ -3445,7 +4166,10 @@ async function fetchSkus() {
                                     <span>▶</span> Run Test Frame
                                 </button>
                                 <button class="btn-primary" id="btnRunEventSeq" onclick="runMovementEventsSequence()" style="padding:0.6rem 1rem; background:linear-gradient(135deg, #10b981, #059669); display:inline-flex; align-items:center; gap:6px;">
-                                    <span>⏩</span> Run 8-Frame Sequence
+                                    <span>⏩</span> Run Sequence
+                                </button>
+                                <button class="btn-primary" id="btnQueryTimeline" onclick="queryMovementEventTimeline()" style="padding:0.6rem 0.9rem; background:linear-gradient(135deg, #6366f1, #4f46e5); display:inline-flex; align-items:center; gap:4px;">
+                                    <span>🕒</span> Material Timeline
                                 </button>
                                 <button class="btn-primary" id="btnResetEventSession" onclick="resetMovementEventsSession()" style="padding:0.6rem 0.9rem; background:#64748b; display:inline-flex; align-items:center; gap:4px;">
                                     <span>🔄</span> Reset
@@ -3933,7 +4657,6 @@ async function fetchSkus() {
 
                 <script src="{{ url_for('static', filename='js/vision_ui.js') }}"></script>
             </div>
-        </div>
 
     </main>
     </div> <!-- End #app-layout -->

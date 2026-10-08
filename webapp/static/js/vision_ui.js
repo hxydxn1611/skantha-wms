@@ -5,6 +5,11 @@
                         const target = document.getElementById(tabId + '-sub');
                         if (target) target.style.display = 'block';
                         if (btn) btn.classList.add('active');
+                        if (tabId === 'vision-dashboard') {
+                            if (typeof initLiveVisionDashboard === 'function') initLiveVisionDashboard();
+                        } else {
+                            if (typeof stopLiveVisionDashboardPolling === 'function') stopLiveVisionDashboardPolling();
+                        }
                         if (tabId === 'vision-objects') fetchObjectClasses();
                         if (tabId === 'vision-cameras') fetchVisionCameras();
                         if (tabId === 'vision-zones') fetchVisionZones();
@@ -15,6 +20,7 @@
                         if (tabId === 'vision-association') initAssociationTestUI();
                         if (tabId === 'vision-worker-box') initWorkerBoxTestUI();
                         if (tabId === 'vision-box-bin') initBoxBinTestUI();
+                        if (tabId === 'vision-material-association') initMaterialAssociationTestUI();
                         if (tabId === 'vision-events') initMovementEventsTestUI();
                         if (tabId === 'vision-traceability') initMaterialTraceabilityUI();
                         if (tabId === 'vision-runtime') initVisionRuntimeUI();
@@ -4984,7 +4990,7 @@
                                             </td>
                                         </tr>
                                         <tr>
-                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Zone Match Score:</td>
+                                            <td style="font-weight:700; color:var(--text-muted); padding:6px 0;">Vision Zone Match Score:</td>
                                             <td style="font-family:monospace; color:var(--text-main);">
                                                 ${ev.zone_score} (Weight: 35%)
                                             </td>
@@ -5117,11 +5123,13 @@
                     async function runMovementEventsSequence() {
                         const btn = document.getElementById('btnRunEventSeq');
                         const camSelect = document.getElementById('evtCameraSelect');
+                        const srcSelect = document.getElementById('evtSourceSelect');
                         const camera_id = camSelect ? camSelect.value : 'CAM-001';
+                        const seqName = (srcSelect && srcSelect.value === 'dock_loading') ? 'dock_loading' : 'automotive_warehouse_flow';
 
                         if (btn) {
                             btn.disabled = true;
-                            btn.innerHTML = `<span>⏳</span> Running 8 Frames...`;
+                            btn.innerHTML = `<span>⏳</span> Running ${seqName === 'dock_loading' ? '8' : '18'} Frames...`;
                         }
 
                         try {
@@ -5130,7 +5138,7 @@
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                     camera_id: camera_id,
-                                    sequence_name: 'dock_loading'
+                                    sequence_name: seqName
                                 })
                             });
                             const data = await res.json();
@@ -5141,7 +5149,7 @@
                         } finally {
                             if (btn) {
                                 btn.disabled = false;
-                                btn.innerHTML = `<span>⏩</span> Run 8-Frame Sequence`;
+                                btn.innerHTML = `<span>⏩</span> Run Sequence`;
                             }
                         }
                     }
@@ -5444,6 +5452,71 @@
                         if (modal) modal.style.display = 'none';
                     }
 
+                    async function queryMovementEventTimeline(matId) {
+                        const targetId = matId || prompt("Enter physical Material/SKU ID to query cross-camera movement timeline (e.g. ROD-STEEL-4140-A, B104, GLS-WND-88):", "ROD-STEEL-4140-A");
+                        if (!targetId) return;
+
+                        try {
+                            const res = await fetch(`/api/vision/events/timeline/${encodeURIComponent(targetId)}?include_candidates=true`);
+                            const data = await res.json();
+                            if (!data.success) {
+                                alert("Failed to fetch timeline: " + (data.message || "Unknown error"));
+                                return;
+                            }
+
+                            const modal = document.getElementById('evtEvidenceModal');
+                            const title = document.getElementById('modalEvtTitle');
+                            const content = document.getElementById('modalEvtContent');
+
+                            if (title) title.innerText = `Cross-Camera Physical Timeline: ${targetId}`;
+                            if (content) {
+                                const eventsHtml = (data.timeline || []).map(ev => `
+                                    <div style="background:var(--panel-subtle); border-left:3px solid var(--accent); padding:10px 12px; margin-bottom:10px; border-radius:4px;">
+                                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                                            <strong style="color:var(--primary-navy); font-size:0.85rem;">${escapeHtml(ev.event_type)}</strong>
+                                            <span class="badge" style="background:#10b981; color:#fff; font-size:0.68rem;">${escapeHtml(ev.status)}</span>
+                                        </div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
+                                            Camera: <strong>${escapeHtml(ev.camera_id)}</strong> | Stage: <strong>${escapeHtml(ev.stage || 'N/A')}</strong> | Zone: <strong>${escapeHtml(ev.zone ? ev.zone.zone_code : 'N/A')}</strong> | Frame: #${ev.metrics ? ev.metrics.created_frame : 1}
+                                        </div>
+                                        <div style="font-size:0.72rem; color:var(--text-main); margin-top:4px; font-family:monospace;">
+                                            Evidence: ${escapeHtml(JSON.stringify(ev.evidence || {}))}
+                                        </div>
+                                    </div>
+                                `).join('');
+
+                                const conflictsHtml = (data.conflicting_events_isolated || []).length > 0 ? `
+                                    <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); padding:8px 12px; border-radius:6px; margin-bottom:12px;">
+                                        <strong style="color:#ef4444; font-size:0.8rem;">⚠️ Quarantined Conflicting / Ambiguous Observations (${data.conflicting_events_isolated.length})</strong>
+                                        <p style="font-size:0.75rem; color:var(--text-muted); margin:4px 0 0 0;">Isolated from physical timeline to prevent false movement history.</p>
+                                    </div>
+                                ` : '';
+
+                                content.innerHTML = `
+                                    <div style="margin-bottom:12px; font-size:0.82rem; color:var(--text-muted);">
+                                        Method: <strong>${escapeHtml(data.cross_camera_continuity_method)}</strong> (Zero Visual Re-ID) | Visited Cameras: <strong>${escapeHtml((data.observed_cameras || []).join(', ') || 'None')}</strong>
+                                    </div>
+                                    ${conflictsHtml}
+                                    <div style="max-height:360px; overflow-y:auto;">
+                                        ${eventsHtml || '<p style="color:var(--text-muted); text-align:center; padding:1.5rem;">No timeline records found for this physical identity.</p>'}
+                                    </div>
+                                `;
+                            }
+
+                            if (modal) modal.style.display = 'flex';
+                        } catch (e) {
+                            console.error("Timeline query error:", e);
+                            alert("Failed to query material timeline: " + e.message);
+                        }
+                    }
+
+                    window.queryMovementEventTimeline = queryMovementEventTimeline;
+                    window.closeMovementEventEvidenceModal = closeMovementEventEvidenceModal;
+                    window.runMovementEventsSequence = runMovementEventsSequence;
+                    window.runMovementEventsTest = runMovementEventsTest;
+                    window.resetMovementEventsSession = resetMovementEventsSession;
+                    window.showMovementEventEvidence = showMovementEventEvidence;
+
                     // ==========================================
                     // PART 13: MATERIAL TRACEABILITY JAVASCRIPT
                     // ==========================================
@@ -5583,7 +5656,22 @@
                         const zones = document.getElementById('trcDossierZoneHistory');
                         const cams = document.getElementById('trcDossierCameras');
 
-                        if (title) title.innerText = mat.material_id || 'Unknown';
+                        if (title) {
+                            let titleHtml = escapeHtml(mat.material_id || 'Unknown');
+                            if (mat.sku_id) {
+                                titleHtml += ` <span style="font-size:0.8rem; font-weight:normal; color:#10b981;">[SKU: ${escapeHtml(mat.sku_id)}]</span>`;
+                            }
+                            if (mat.physical_identifier) {
+                                titleHtml += ` <span style="font-size:0.75rem; font-weight:normal; color:#8b5cf6;">(${escapeHtml(mat.physical_identity_type || 'ID')}: ${escapeHtml(mat.physical_identifier)})</span>`;
+                            }
+                            if (mat.container_id) {
+                                titleHtml += ` <span style="font-size:0.75rem; font-weight:normal; color:#f59e0b;">📦 Cont: ${escapeHtml(mat.container_id)}</span>`;
+                            }
+                            if (mat.has_conflicts || (mat.conflicts && mat.conflicts.length > 0)) {
+                                titleHtml += ` <span style="font-size:0.75rem; background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid #ef4444; padding:2px 6px; border-radius:4px;">⚠️ CONFLICT</span>`;
+                            }
+                            title.innerHTML = titleHtml;
+                        }
                         if (levelBadge) {
                             levelBadge.innerText = mat.traceability_level || 'TRACK_LEVEL';
                             levelBadge.style.background = mat.traceability_level === 'VALIDATED_REAL_WORLD' ? '#10b981' : (mat.traceability_level === 'IDENTIFIED' ? '#3b82f6' : '#64748b');
@@ -5616,13 +5704,18 @@
                             }
                         }
 
-                        // Current Location
+                        // Current Location & Last Verified Location
                         if (loc) {
+                            let locHtml = '';
                             if (mat.current_location && mat.current_location.zone_code) {
-                                loc.innerHTML = `📍 <strong>${escapeHtml(mat.current_location.zone_code)}</strong> <span style="font-size:0.75rem; color:var(--text-muted);">(${escapeHtml(mat.current_location.camera_id || 'CAM-001')})</span>`;
+                                locHtml += `📍 <strong>${escapeHtml(mat.current_location.zone_code)}</strong> <span style="font-size:0.75rem; color:var(--text-muted);">(${escapeHtml(mat.current_location.camera_id || 'CAM-001')})</span>`;
                             } else {
-                                loc.innerHTML = '<span style="color:var(--text-muted);">Outside / Unknown Zone</span>';
+                                locHtml += '<span style="color:var(--text-muted);">Outside / Unknown Zone</span>';
                             }
+                            if (mat.last_verified_location && mat.last_verified_location.zone_code) {
+                                locHtml += `<br><span style="font-size:0.72rem; color:#10b981;">Verified: ${escapeHtml(mat.last_verified_location.zone_code)} (${escapeHtml(mat.last_verified_location.verification_method || 'CONFIRMED')})</span>`;
+                            }
+                            loc.innerHTML = locHtml;
                         }
 
                         // Associated Workers
@@ -6224,4 +6317,1512 @@
                         activePreviewCameraId = null;
                         const sec = document.getElementById('rtPreviewSection');
                         if (sec) sec.style.display = 'none';
-                    }
+                    }
+
+                    // ============================================================================
+                    // MATERIAL ASSOCIATION ENGINE UI (PART 9)
+                    // ============================================================================
+                    let currentMaterialAssociations = [];
+
+                    function initMaterialAssociationTestUI() {
+                        fetchMaterialAssociationStatus();
+                    }
+
+                    async function fetchMaterialAssociationStatus() {
+                        try {
+                            const res = await fetch('/api/vision/material-association/status');
+                            if (!res.ok) return;
+                            const data = await res.json();
+                            const cfg = data.config || {};
+                            if (document.getElementById('cfgMatMinFrames')) document.getElementById('cfgMatMinFrames').innerText = `${cfg.min_consecutive_frames || 3} frames`;
+                            if (document.getElementById('cfgMatMaxDist')) document.getElementById('cfgMatMaxDist').innerText = `${cfg.max_normalized_distance || 0.40}`;
+                            if (document.getElementById('cfgMatMinScore')) document.getElementById('cfgMatMinScore').innerText = `${cfg.min_association_score || 0.70}`;
+                            if (document.getElementById('cfgMatAmbDelta')) document.getElementById('cfgMatAmbDelta').innerText = `≤ ${cfg.ambiguity_threshold_delta || 0.15}`;
+                        } catch (e) {
+                            console.error('Failed to fetch material association status:', e);
+                        }
+                    }
+
+                    function generateMaterialSyntheticScenario(scenarioName, frameIdx = 1) {
+                        if (scenarioName === 'scenario_material_truck') {
+                            return [
+                                {
+                                    track_id: 10,
+                                    class_code: "TRUCK",
+                                    confidence: 0.95,
+                                    bbox: { x1: 180, y1: 160, x2: 420, y2: 390 },
+                                    center_normalized: [0.30, 0.45],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "GP-1000", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "TRUCK", master_id: "GP-1000", display_name: "Truck GP-1000" }
+                                },
+                                {
+                                    track_id: 21,
+                                    class_code: "GLASS",
+                                    confidence: 0.93,
+                                    bbox: { x1: 390, y1: 310, x2: 480, y2: 410 },
+                                    center_normalized: [0.36, 0.50],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "AUTO-GLASS-01", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "MATERIAL", master_id: "AUTO-GLASS-01", display_name: "Front Windshield (Glass)" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_material_worker') {
+                            return [
+                                {
+                                    track_id: 5,
+                                    class_code: "WORKER",
+                                    confidence: 0.94,
+                                    bbox: { x1: 200, y1: 150, x2: 320, y2: 420 },
+                                    center_normalized: [0.26, 0.38],
+                                    roi: { inside: true, zone_code: "AISLE-01" },
+                                    identity: { status: "IDENTIFIED", value: "admin", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "WORKER", master_id: "admin", display_name: "Operator Admin" }
+                                },
+                                {
+                                    track_id: 22,
+                                    class_code: "ROD",
+                                    confidence: 0.92,
+                                    bbox: { x1: 270, y1: 280, x2: 380, y2: 360 },
+                                    center_normalized: [0.32, 0.42],
+                                    roi: { inside: true, zone_code: "AISLE-01" },
+                                    identity: { status: "IDENTIFIED", value: "AUTO-ROD-01", source: "OCR" },
+                                    validation: { status: "VALIDATED", master_type: "MATERIAL", master_id: "AUTO-ROD-01", display_name: "Steering Tie Rod" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_material_bin') {
+                            return [
+                                {
+                                    track_id: 23,
+                                    class_code: "FASTENER",
+                                    confidence: 0.91,
+                                    bbox: { x1: 400, y1: 300, x2: 480, y2: 380 },
+                                    center_normalized: [0.44, 0.44],
+                                    roi: { inside: true, zone_code: "STORAGE-01" },
+                                    identity: { status: "IDENTIFIED", value: "AUTO-BOLT-01", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "MATERIAL", master_id: "AUTO-BOLT-01", display_name: "Flange Bolt 10.9" }
+                                },
+                                {
+                                    track_id: 40,
+                                    class_code: "BIN",
+                                    confidence: 0.96,
+                                    bbox: { x1: 380, y1: 260, x2: 520, y2: 430 },
+                                    center_normalized: [0.45, 0.45],
+                                    roi: { inside: true, zone_code: "STORAGE-01" },
+                                    identity: { status: "IDENTIFIED", value: "BIN-01", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "BIN", master_id: "BIN-01", display_name: "Bin BIN-01" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_container_material') {
+                            return [
+                                {
+                                    track_id: 15,
+                                    class_code: "CONTAINER",
+                                    confidence: 0.93,
+                                    bbox: { x1: 300, y1: 250, x2: 500, y2: 450 },
+                                    center_normalized: [0.40, 0.45],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "BOX-101", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "CONTAINER", master_id: "BOX-101", display_name: "Container BOX-101" }
+                                },
+                                {
+                                    track_id: 24,
+                                    class_code: "GLASS",
+                                    confidence: 0.92,
+                                    bbox: { x1: 320, y1: 270, x2: 480, y2: 430 },
+                                    center_normalized: [0.40, 0.45],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "AUTO-GLASS-01", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "MATERIAL", master_id: "AUTO-GLASS-01", display_name: "Front Windshield (Glass)" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_single_frame') {
+                            return [
+                                {
+                                    track_id: 10,
+                                    class_code: "TRUCK",
+                                    confidence: 0.95,
+                                    center_normalized: [0.30, 0.45],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "GP-1000", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "TRUCK", master_id: "GP-1000" }
+                                },
+                                {
+                                    track_id: 25,
+                                    class_code: "PART",
+                                    confidence: 0.90,
+                                    center_normalized: [0.34, 0.48],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "SKU-001", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "MATERIAL", master_id: "SKU-001" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_diff_zones') {
+                            return [
+                                {
+                                    track_id: 10,
+                                    class_code: "TRUCK",
+                                    center_normalized: [0.20, 0.30],
+                                    roi: { inside: true, zone_code: "STORAGE-01" },
+                                    identity: { status: "IDENTIFIED", value: "GP-1000", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "TRUCK", master_id: "GP-1000" }
+                                },
+                                {
+                                    track_id: 26,
+                                    class_code: "GLASS",
+                                    center_normalized: [0.25, 0.35],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "AUTO-GLASS-01", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "MATERIAL", master_id: "AUTO-GLASS-01" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_ambiguous_trucks') {
+                            return [
+                                {
+                                    track_id: 11,
+                                    class_code: "TRUCK",
+                                    center_normalized: [0.25, 0.50],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "GP-1000", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "TRUCK", master_id: "GP-1000" }
+                                },
+                                {
+                                    track_id: 12,
+                                    class_code: "TRUCK",
+                                    center_normalized: [0.35, 0.50],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "GP-2000", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "TRUCK", master_id: "GP-2000" }
+                                },
+                                {
+                                    track_id: 27,
+                                    class_code: "COMPONENT",
+                                    center_normalized: [0.30, 0.50],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "AUTO-GLASS-01", source: "BARCODE" },
+                                    validation: { status: "VALIDATED", master_type: "MATERIAL", master_id: "AUTO-GLASS-01" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_unidentified_mat') {
+                            return [
+                                {
+                                    track_id: 10,
+                                    class_code: "TRUCK",
+                                    center_normalized: [0.30, 0.45],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "GP-1000", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "TRUCK", master_id: "GP-1000" }
+                                },
+                                {
+                                    track_id: 28,
+                                    class_code: "MATERIAL",
+                                    center_normalized: [0.35, 0.48],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "UNIDENTIFIED", value: null },
+                                    validation: { status: "NOT_APPLICABLE" }
+                                }
+                            ];
+                        }
+                        if (scenarioName === 'scenario_conflicted_mat') {
+                            return [
+                                {
+                                    track_id: 10,
+                                    class_code: "TRUCK",
+                                    center_normalized: [0.30, 0.45],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "IDENTIFIED", value: "GP-1000", source: "QR" },
+                                    validation: { status: "VALIDATED", master_type: "TRUCK", master_id: "GP-1000" }
+                                },
+                                {
+                                    track_id: 29,
+                                    class_code: "MATERIAL",
+                                    center_normalized: [0.35, 0.48],
+                                    roi: { inside: true, zone_code: "DOCK-01" },
+                                    identity: { status: "CONFLICT", value: "AUTO-GLASS-01" },
+                                    validation: { status: "NOT_APPLICABLE" }
+                                }
+                            ];
+                        }
+                        return [];
+                    }
+
+                    async function runMaterialAssociationTest() {
+                        const btn = document.getElementById('btnRunMatAssoc');
+                        const origText = btn ? btn.innerHTML : 'Run Single Frame';
+                        if (btn) { btn.disabled = true; btn.innerHTML = '<span>⏳</span> Processing...'; }
+
+                        try {
+                            const cameraId = document.getElementById('matAssocCameraSelect')?.value || 'CAM-001';
+                            const scenarioName = document.getElementById('matAssocScenarioSelect')?.value || 'scenario_material_truck';
+                            const tracks = generateMaterialSyntheticScenario(scenarioName, 1);
+
+                            const res = await fetch('/api/vision/material-association/test', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    camera_id: cameraId,
+                                    synthetic_tracks: tracks
+                                })
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) {
+                                alert(data.message || "Material association test failed.");
+                                return;
+                            }
+                            renderMaterialAssociationResults(data);
+                        } catch (e) {
+                            alert("API error: " + e.message);
+                        } finally {
+                            if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+                        }
+                    }
+
+                    async function runMaterialAssociationSequence() {
+                        const btn = document.getElementById('btnRunMatAssocSeq');
+                        const origText = btn ? btn.innerHTML : 'Run Sequence';
+                        if (btn) { btn.disabled = true; btn.innerHTML = '<span>⏩</span> Running 3 Frames...'; }
+
+                        try {
+                            const cameraId = document.getElementById('matAssocCameraSelect')?.value || 'CAM-001';
+                            const scenarioName = document.getElementById('matAssocScenarioSelect')?.value || 'scenario_material_truck';
+                            const baseTracks = generateMaterialSyntheticScenario(scenarioName, 1);
+
+                            const frames = [baseTracks, baseTracks, baseTracks];
+
+                            const res = await fetch('/api/vision/material-association/sequence', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    camera_id: cameraId,
+                                    frames: frames
+                                })
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) {
+                                alert(data.message || "Sequence failed.");
+                                return;
+                            }
+                            const lastFrameAssocs = data.sequence[data.sequence.length - 1]?.associations || [];
+                            renderMaterialAssociationResults({
+                                camera_id: cameraId,
+                                associations: lastFrameAssocs,
+                                association_ms: 2.5
+                            });
+                        } catch (e) {
+                            alert("Sequence API error: " + e.message);
+                        } finally {
+                            if (btn) { btn.disabled = false; btn.innerHTML = origText; }
+                        }
+                    }
+
+                    async function resetMaterialAssociationSession() {
+                        try {
+                            const cameraId = document.getElementById('matAssocCameraSelect')?.value || 'CAM-001';
+                            const res = await fetch('/api/vision/material-association/reset', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ camera_id: cameraId })
+                            });
+                            const data = await res.json();
+                            alert(data.message || "Material association session reset.");
+                            currentMaterialAssociations = [];
+                            renderMaterialAssociationResults({ camera_id: cameraId, associations: [] });
+                        } catch (e) {
+                            alert("Reset failed: " + e.message);
+                        }
+                    }
+
+                    async function searchMaterialCrossCamera() {
+                        const input = document.getElementById('matCrossCamInput');
+                        const sku = input ? input.value.trim() : '';
+                        if (!sku) { alert("Please enter a SKU or Material ID."); return; }
+
+                        try {
+                            const res = await fetch(`/api/vision/material-association/materials/${encodeURIComponent(sku)}`);
+                            const data = await res.json();
+                            const found = data.total_associations_found || 0;
+                            let msg = `Cross-Camera Search for '${sku}':\nFound ${found} associations across active camera sessions.\nMethod: ${data.cross_camera_continuity_method}`;
+                            alert(msg);
+                            if (found > 0) {
+                                renderMaterialAssociationResults({ associations: data.associations });
+                            }
+                        } catch (e) {
+                            alert("Cross-camera search error: " + e.message);
+                        }
+                    }
+
+                    function renderMaterialAssociationResults(data) {
+                        const assocs = data.associations || [];
+                        currentMaterialAssociations = assocs;
+
+                        const total = assocs.length;
+                        const confirmed = assocs.filter(a => a.status === 'CONFIRMED').length;
+                        const candidate = assocs.filter(a => a.status === 'CANDIDATE').length;
+                        const ambiguous = assocs.filter(a => a.evidence?.is_ambiguous).length;
+                        const rejected = assocs.filter(a => a.status === 'REJECTED' || a.status === 'EXPIRED').length;
+                        const ms = data.association_ms || data.performance?.association_ms || 0.0;
+
+                        if (document.getElementById('matKpiTotal')) document.getElementById('matKpiTotal').innerText = total;
+                        if (document.getElementById('matKpiConfirmed')) document.getElementById('matKpiConfirmed').innerText = confirmed;
+                        if (document.getElementById('matKpiCandidate')) document.getElementById('matKpiCandidate').innerText = candidate;
+                        if (document.getElementById('matKpiAmbiguous')) document.getElementById('matKpiAmbiguous').innerText = ambiguous;
+                        if (document.getElementById('matKpiRejected')) document.getElementById('matKpiRejected').innerText = rejected;
+                        if (document.getElementById('matKpiLatency')) document.getElementById('matKpiLatency').innerText = `${ms} ms`;
+                        if (document.getElementById('matAssocCountBadge')) document.getElementById('matAssocCountBadge').innerText = `${total} Pairs`;
+
+                        const tbody = document.getElementById('matAssocTableBody');
+                        if (!tbody) return;
+
+                        if (assocs.length === 0) {
+                            tbody.innerHTML = `<tr><td colspan="6" style="padding:2rem 1rem; text-align:center; color:var(--text-muted);">No association candidates active in current session.</td></tr>`;
+                            return;
+                        }
+
+                        let html = '';
+                        assocs.forEach((a, idx) => {
+                            const type = a.association_type || 'ASSOCIATION';
+                            const pId = a.primary_track_id;
+                            const sId = a.secondary_track_id;
+                            const pCls = a.primary_class;
+                            const sCls = a.secondary_class;
+                            const status = a.status || 'CANDIDATE';
+                            const score = (a.association_score || 0).toFixed(2);
+                            const rwa = a.real_world_association;
+
+                            let statusColor = '#f59e0b';
+                            if (status === 'CONFIRMED') statusColor = '#10b981';
+                            else if (status === 'REJECTED') statusColor = '#ef4444';
+                            else if (status === 'EXPIRED') statusColor = '#6b7280';
+
+                            let rwaText = '<span style="color:var(--text-muted); font-style:italic;">None (Track Only)</span>';
+                            if (rwa) {
+                                if (type === 'TRUCK_MATERIAL') {
+                                    rwaText = `<strong style="color:#0284c7;">${escapeHtml(rwa.truck_id)}</strong> ↔ <strong style="color:#10b981;">${escapeHtml(rwa.material_sku)}</strong>`;
+                                } else if (type === 'TRUCK_CONTAINER') {
+                                    rwaText = `<strong style="color:#0284c7;">${escapeHtml(rwa.truck_id)}</strong> ↔ <strong style="color:#f59e0b;">${escapeHtml(rwa.container_id)}</strong>`;
+                                } else if (type === 'WORKER_MATERIAL') {
+                                    rwaText = `<strong style="color:#ec4899;">${escapeHtml(rwa.worker_id)}</strong> ↔ <strong style="color:#10b981;">${escapeHtml(rwa.material_sku)}</strong>`;
+                                } else if (type === 'MATERIAL_BIN') {
+                                    rwaText = `<strong style="color:#10b981;">${escapeHtml(rwa.material_sku)}</strong> ↔ <strong style="color:#8b5cf6;">${escapeHtml(rwa.bin_id)}</strong>`;
+                                } else if (type === 'MATERIAL_CONTAINER') {
+                                    rwaText = `Container <strong style="color:#f59e0b;">${escapeHtml(rwa.container_id)}</strong> holds Material <strong style="color:#10b981;">${escapeHtml(rwa.material_sku)}</strong>`;
+                                }
+                            }
+
+                            html += `
+                                <tr style="border-bottom:1px solid var(--border-light);">
+                                    <td style="padding:6px 8px; font-weight:700; font-size:0.75rem; color:#0284c7;">${escapeHtml(type)}</td>
+                                    <td style="padding:6px 8px;">${escapeHtml(pCls)} #${pId} ↔ ${escapeHtml(sCls)} #${sId}</td>
+                                    <td style="padding:6px 8px;">${rwaText}</td>
+                                    <td style="padding:6px 8px; font-weight:700;">${score}</td>
+                                    <td style="padding:6px 8px;"><span class="badge" style="background:${statusColor}; color:#fff; font-size:0.7rem;">${status}</span></td>
+                                    <td style="padding:6px 8px; text-align:center;">
+                                        <button class="btn-secondary" onclick="openMaterialEvidenceModal(${idx})" style="padding:2px 8px; font-size:0.72rem;">Evidence</button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                        tbody.innerHTML = html;
+                    }
+
+                    function openMaterialEvidenceModal(idx) {
+                        const assoc = currentMaterialAssociations[idx];
+                        if (!assoc) return;
+                        const modal = document.getElementById('matEvidenceModal');
+                        const content = document.getElementById('modalMatContent');
+                        const ev = assoc.evidence || {};
+
+                        let explanation = ev.explanation || 'No detail available.';
+                        let ambiguityHtml = '';
+                        if (ev.is_ambiguous) {
+                            ambiguityHtml = `<div style="background:rgba(236,72,153,0.1); border:1px solid #ec4899; border-radius:6px; padding:8px 10px; margin-bottom:10px; color:#ec4899; font-size:0.8rem;">
+                                <strong>⚠️ Ambiguous Competitors Detected:</strong> ${escapeHtml(ev.ambiguity_reason || '')}
+                            </div>`;
+                        }
+
+                        content.innerHTML = `
+                            ${ambiguityHtml}
+                            <div style="background:var(--panel-subtle); border-radius:8px; padding:10px; margin-bottom:10px;">
+                                <div style="font-weight:700; color:var(--text-main); font-size:0.85rem; margin-bottom:4px;">Rule Decision:</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(explanation)}</div>
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:0.78rem;">
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Association Type:</strong> ${escapeHtml(assoc.association_type)}
+                                </div>
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Status:</strong> ${escapeHtml(assoc.status)}
+                                </div>
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Same Camera:</strong> ${ev.same_camera ? '✓ True' : '✗ False'}
+                                </div>
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Same Zone:</strong> ${ev.same_zone ? `✓ Match (${escapeHtml(ev.primary_zone || '')})` : `✗ Mismatch (${escapeHtml(ev.primary_zone || 'None')} vs ${escapeHtml(ev.secondary_zone || 'None')})`}
+                                </div>
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Distance:</strong> ${ev.normalized_distance} (max: ${ev.max_allowed_distance})
+                                </div>
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Consecutive Frames:</strong> ${ev.consecutive_frames} / 3 min
+                                </div>
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Movement Score:</strong> ${ev.movement_consistency_score}
+                                </div>
+                                <div style="background:var(--panel-bg); padding:8px; border:1px solid var(--border-light); border-radius:6px;">
+                                    <strong>Physical Master Identity:</strong> ${ev.validated_physical_identity ? '✓ VALIDATED' : '✗ Unvalidated/None'}
+                                </div>
+                            </div>
+                        `;
+                        modal.style.display = 'flex';
+                    }
+
+                    function closeMaterialEvidenceModal() {
+                        const modal = document.getElementById('matEvidenceModal');
+                        if (modal) modal.style.display = 'none';
+                    }
+
+                    // ============================================================================
+                    // PART 12: W.A.R.L.O.G. LIVE VISION DASHBOARD ENHANCEMENT
+                    // ============================================================================
+                    let dashSelectedCameraId = null;
+                    let dashPollTimer = null;
+                    let dashIsPolling = false;
+                    let dashLatestData = null;
+                    let dashMaterialSearchTerm = '';
+                    let dashImgFailCount = 0;
+
+                    function initLiveVisionDashboard() {
+                        if (dashPollTimer) {
+                            clearInterval(dashPollTimer);
+                            dashPollTimer = null;
+                        }
+                        dashIsPolling = true;
+                        loadLiveVisionDashboard(false);
+                        dashPollTimer = setInterval(() => {
+                            const sub = document.getElementById('vision-dashboard-sub');
+                            if (sub && sub.style.display !== 'none') {
+                                loadLiveVisionDashboard(false);
+                            } else {
+                                stopLiveVisionDashboardPolling();
+                            }
+                        }, 2500);
+                    }
+
+                    function stopLiveVisionDashboardPolling() {
+                        if (dashPollTimer) {
+                            clearInterval(dashPollTimer);
+                            dashPollTimer = null;
+                        }
+                        dashIsPolling = false;
+                    }
+
+                    async function loadLiveVisionDashboard(isManual = false) {
+                        try {
+                            const url = `/api/vision/dashboard/live` + (dashSelectedCameraId ? `?camera_id=${encodeURIComponent(dashSelectedCameraId)}` : '');
+                            const res = await fetch(url);
+                            if (!res.ok) {
+                                console.warn('[Dash] Live dashboard fetch failed:', res.status);
+                                return;
+                            }
+                            const data = await res.json();
+                            dashLatestData = data;
+
+                            // 1. Telemetry KPIs
+                            const totalCams = data.total_cameras || 0;
+                            const activeCams = data.active_cameras || 0;
+                            const elActiveCams = document.getElementById('kpi-dash-active-cams');
+                            if (elActiveCams) elActiveCams.innerText = `${activeCams} / ${totalCams}`;
+
+                            const elFps = document.getElementById('kpi-dash-fps');
+                            if (elFps) elFps.innerText = `${(data.aggregate_fps || 0).toFixed(1)} FPS`;
+
+                            const elTracks = document.getElementById('kpi-dash-tracks');
+                            if (elTracks) elTracks.innerText = String(data.tracked_objects || 0);
+
+                            const elMaterials = document.getElementById('kpi-dash-materials');
+                            if (elMaterials) elMaterials.innerText = String(data.active_materials_count || 0);
+
+                            const elZones = document.getElementById('kpi-dash-zones');
+                            if (elZones) elZones.innerText = String(data.occupied_zones || 0);
+
+                            const elAlerts = document.getElementById('kpi-dash-alerts');
+                            if (elAlerts) elAlerts.innerText = String(data.operational_alerts ? data.operational_alerts.length : 0);
+
+                            // 2. Master Runtime Status Indicator
+                            const rtBadge = document.getElementById('dashRuntimeStatusBadge');
+                            const rtDot = document.getElementById('dashRuntimeDot');
+                            const rtText = document.getElementById('dashRuntimeText');
+                            if (data.runtime_active) {
+                                if (rtDot) {
+                                    rtDot.style.background = '#10b981';
+                                    rtDot.style.boxShadow = '0 0 8px #10b981';
+                                }
+                                if (rtText) rtText.innerText = 'RUNTIME RUNNING';
+                                if (rtBadge) {
+                                    rtBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+                                    rtBadge.style.color = '#10b981';
+                                    rtBadge.style.borderColor = '#10b981';
+                                }
+                            } else {
+                                if (rtDot) {
+                                    rtDot.style.background = '#64748b';
+                                    rtDot.style.boxShadow = 'none';
+                                }
+                                if (rtText) rtText.innerText = 'RUNTIME STOPPED';
+                                if (rtBadge) {
+                                    rtBadge.style.background = 'var(--panel-subtle)';
+                                    rtBadge.style.color = 'var(--text-muted)';
+                                    rtBadge.style.borderColor = 'var(--border-light)';
+                                }
+                            }
+
+                            // 3. Camera Selector Pills
+                            renderDashboardCameraPills(data.cameras || [], data.selected_camera);
+
+                            // 4. Live Camera Perception Node
+                            renderDashboardLiveCamera(data.selected_camera, data.selected_camera_tracks || []);
+
+                            // 5. Active Traced Materials (Part 11)
+                            renderDashboardMaterials(data.active_materials || []);
+
+                            // 6. Zone Occupancy Matrix
+                            renderDashboardZoneMatrix(data.zone_occupancy || []);
+
+                            // 7. Movement Event Stream (Part 10)
+                            renderDashboardEventStream(data.movement_events || []);
+
+                            // 8. Active & Candidate Associations (Part 9)
+                            renderDashboardAssociations(data.associations || []);
+
+                            // 9. Operational Alerts & Exceptions
+                            renderDashboardAlerts(data.operational_alerts || []);
+
+                            // 10. Part 13: Controlled Actions & WMS Transactions
+                            renderControlledActions(data.controlled_action_recommendations || []);
+
+                        } catch (err) {
+                            console.error('[Dash] loadLiveVisionDashboard error:', err);
+                        }
+                    }
+
+                    function renderDashboardCameraPills(cameras, selectedCam) {
+                        const container = document.getElementById('dashCamPills');
+                        if (!container) return;
+
+                        if (!dashSelectedCameraId && selectedCam) {
+                            dashSelectedCameraId = selectedCam.id;
+                        }
+
+                        if (cameras.length === 0) {
+                            container.innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted);">No camera sources configured</span>`;
+                            return;
+                        }
+
+                        let html = '';
+                        cameras.forEach(cam => {
+                            const isSelected = (cam.id === dashSelectedCameraId) || (!dashSelectedCameraId && selectedCam && selectedCam.id === cam.id);
+                            const activeColor = cam.is_active ? '#10b981' : '#64748b';
+                            const bg = isSelected ? 'var(--primary-navy)' : 'var(--panel-bg)';
+                            const color = isSelected ? '#ffffff' : 'var(--text-main)';
+                            const border = isSelected ? 'var(--accent)' : 'var(--border-light)';
+
+                            html += `
+                                <button type="button" onclick="selectDashboardCamera('${escapeHtml(cam.id)}')"
+                                    style="background:${bg}; color:${color}; border:1px solid ${border}; border-radius:6px; padding:4px 10px; font-size:0.75rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; transition:all 0.15s ease;">
+                                    <span style="width:7px; height:7px; border-radius:50%; background:${activeColor};"></span>
+                                    <span>${escapeHtml(cam.name || cam.id)}</span>
+                                    ${cam.is_active ? `<span style="font-size:0.68rem; opacity:0.8;">(${cam.fps.toFixed(1)} FPS)</span>` : ''}
+                                </button>
+                            `;
+                        });
+                        container.innerHTML = html;
+                    }
+
+                    function selectDashboardCamera(camId) {
+                        dashSelectedCameraId = camId;
+                        loadLiveVisionDashboard(true);
+                    }
+
+                    function renderDashboardLiveCamera(cam, tracks) {
+                        const titleEl = document.getElementById('dashCamTitle');
+                        const badgeEl = document.getElementById('dashCamStateBadge');
+                        const srcTypeEl = document.getElementById('dashCamSourceType');
+                        const fpsTagEl = document.getElementById('dashCamFpsTag');
+                        const imgEl = document.getElementById('dashPreviewImg');
+                        const fallbackEl = document.getElementById('dashPreviewFallback');
+                        const pulseDot = document.getElementById('dashLivePulseDot');
+                        const liveText = document.getElementById('dashLiveOverlayText');
+                        const hudZone = document.getElementById('dashHudZone');
+                        const hudObjects = document.getElementById('dashHudObjects');
+                        const tracksCountBadge = document.getElementById('dashTracksCountBadge');
+                        const detectionsTbody = document.getElementById('dashDetectionsTableBody');
+
+                        if (!cam) {
+                            if (titleEl) titleEl.innerText = 'No Camera Selected';
+                            if (badgeEl) { badgeEl.innerText = 'IDLE'; badgeEl.style.background = '#64748b'; }
+                            if (imgEl) imgEl.style.display = 'none';
+                            if (fallbackEl) fallbackEl.style.display = 'flex';
+                            if (tracksCountBadge) tracksCountBadge.innerText = '0 Entities';
+                            if (detectionsTbody) detectionsTbody.innerHTML = `<tr><td colspan="6" style="padding:16px; text-align:center; color:var(--text-muted);">No camera selected.</td></tr>`;
+                            return;
+                        }
+
+                        if (titleEl) titleEl.innerText = `${cam.name || cam.id} (${cam.zone || 'Global'})`;
+                        if (badgeEl) {
+                            badgeEl.innerText = cam.status;
+                            badgeEl.style.background = cam.status === 'RUNNING' ? '#10b981' : (cam.status === 'ERROR' ? '#ef4444' : '#64748b');
+                        }
+                        if (srcTypeEl) srcTypeEl.innerText = cam.source_type || 'SHARED BUS';
+                        if (fpsTagEl) fpsTagEl.innerText = `${(cam.fps || 0).toFixed(1)} FPS`;
+                        if (hudZone) hudZone.innerText = `Zone: ${cam.zone || 'None'}`;
+                        if (hudObjects) hudObjects.innerText = `Objects: ${tracks.length}`;
+
+                        // Live Feed Preview Image
+                        if (imgEl && fallbackEl) {
+                            if (cam.status === 'RUNNING' || cam.status === 'STOPPED' || cam.status === 'STANDBY') {
+                                const previewUrl = `/preview.jpg?source=${encodeURIComponent(cam.source || '')}&camera_id=${encodeURIComponent(cam.id)}&t=${Date.now()}`;
+                                imgEl.src = previewUrl;
+                                imgEl.style.display = 'block';
+                                fallbackEl.style.display = 'none';
+                            } else {
+                                imgEl.style.display = 'none';
+                                fallbackEl.style.display = 'flex';
+                            }
+                        }
+
+                        if (pulseDot) {
+                            pulseDot.style.background = cam.status === 'RUNNING' ? '#10b981' : '#64748b';
+                            pulseDot.style.boxShadow = cam.status === 'RUNNING' ? '0 0 8px #10b981' : 'none';
+                        }
+                        if (liveText) {
+                            liveText.innerText = cam.status === 'RUNNING' ? 'LIVE FEED' : 'STANDBY';
+                        }
+
+                        // Detections & Active Tracks Inspector Table
+                        if (tracksCountBadge) tracksCountBadge.innerText = `${tracks.length} Entities`;
+                        if (detectionsTbody) {
+                            if (tracks.length === 0) {
+                                detectionsTbody.innerHTML = `<tr><td colspan="6" style="padding:16px; text-align:center; color:var(--text-muted);">No active objects detected in ${escapeHtml(cam.name || cam.id)}.</td></tr>`;
+                            } else {
+                                let rowHtml = '';
+                                tracks.forEach(tr => {
+                                    const trId = tr.track_id;
+                                    const cls = tr.class_name || 'UNKNOWN';
+                                    const conf = ((tr.confidence || 0) * 100).toFixed(0);
+                                    const tag = tr.identity_value || 'UNIDENTIFIED';
+                                    const valState = tr.validation_status || 'NOT_APPLICABLE';
+                                    const zone = tr.zone || 'None';
+
+                                    let valColor = '#64748b';
+                                    if (valState === 'VALIDATED') valColor = '#10b981';
+                                    else if (valState === 'UNREGISTERED') valColor = '#0284c7';
+                                    else if (valState === 'AMBIGUOUS' || valState === 'CONFLICT') valColor = '#ef4444';
+
+                                    let clsColor = '#0284c7';
+                                    if (['BOX', 'PALLET', 'CONTAINER', 'TRAY', 'CRATE'].includes(cls)) clsColor = '#8b5cf6';
+                                    else if (['GLASS', 'ROD', 'FASTENER', 'PART', 'COMPONENT', 'MATERIAL', 'SKU'].includes(cls)) clsColor = '#10b981';
+                                    else if (['WORKER', 'PERSON'].includes(cls)) clsColor = '#ec4899';
+                                    else if (['TRUCK', 'FORKLIFT', 'VEHICLE'].includes(cls)) clsColor = '#f59e0b';
+
+                                    rowHtml += `
+                                        <tr style="border-bottom:1px solid var(--border-light);">
+                                            <td style="padding:6px 8px; font-weight:700; color:var(--primary-navy);">#${escapeHtml(String(trId))}</td>
+                                            <td style="padding:6px 8px;">
+                                                <span class="badge" style="background:${clsColor}; color:#fff; font-size:0.68rem; padding:2px 6px;">${escapeHtml(cls)}</span>
+                                            </td>
+                                            <td style="padding:6px 8px; font-weight:600;">${conf}%</td>
+                                            <td style="padding:6px 8px; font-family:monospace; font-size:0.75rem;">${escapeHtml(tag)}</td>
+                                            <td style="padding:6px 8px;">
+                                                <span class="badge" style="background:${valColor}; color:#fff; font-size:0.68rem; padding:2px 6px;">${escapeHtml(valState)}</span>
+                                            </td>
+                                            <td style="padding:6px 8px; font-size:0.72rem; color:var(--text-muted);">${escapeHtml(zone)}</td>
+                                        </tr>
+                                    `;
+                                });
+                                detectionsTbody.innerHTML = rowHtml;
+                            }
+                        }
+                    }
+
+                    function handleDashPreviewError() {
+                        dashImgFailCount++;
+                        const imgEl = document.getElementById('dashPreviewImg');
+                        const fallbackEl = document.getElementById('dashPreviewFallback');
+                        if (dashImgFailCount > 2) {
+                            if (imgEl) imgEl.style.display = 'none';
+                            if (fallbackEl) fallbackEl.style.display = 'flex';
+                        }
+                    }
+
+                    function handleDashPreviewSuccess() {
+                        dashImgFailCount = 0;
+                        const imgEl = document.getElementById('dashPreviewImg');
+                        const fallbackEl = document.getElementById('dashPreviewFallback');
+                        if (imgEl) imgEl.style.display = 'block';
+                        if (fallbackEl) fallbackEl.style.display = 'none';
+                    }
+
+                    function renderDashboardMaterials(materials) {
+                        const listEl = document.getElementById('dashMaterialsList');
+                        const badgeEl = document.getElementById('dashMaterialCountBadge');
+                        if (!listEl) return;
+
+                        const filterTerm = (dashMaterialSearchTerm || '').toLowerCase().trim();
+                        const filtered = materials.filter(m => {
+                            if (!filterTerm) return true;
+                            const text = `${m.material_id} ${m.sku_id || ''} ${m.current_container_id || ''} ${m.current_zone || ''} ${m.status || ''}`.toLowerCase();
+                            return text.includes(filterTerm);
+                        });
+
+                        if (badgeEl) badgeEl.innerText = `${materials.length} Traced`;
+
+                        if (filtered.length === 0) {
+                            listEl.innerHTML = `
+                                <div style="padding:2rem; text-align:center; color:var(--text-muted); font-size:0.8rem;">
+                                    ${filterTerm ? 'No materials match filter.' : 'No materials currently tracked. Start runtime or ingest movement events.'}
+                                </div>
+                            `;
+                            return;
+                        }
+
+                        let html = '';
+                        filtered.forEach(mat => {
+                            let confColor = '#10b981';
+                            if (mat.confidence_level === 'INFERRED_PROXIMITY') confColor = '#f59e0b';
+                            else if (mat.confidence_level === 'AMBIGUOUS' || mat.confidence_level === 'CONFLICTED') confColor = '#ef4444';
+
+                            const statusColor = mat.status === 'STATIONARY' ? '#10b981' : (mat.status === 'IN_TRANSIT' ? '#0284c7' : '#8b5cf6');
+
+                            html += `
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:10px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                                    <div style="display:flex; flex-direction:column; gap:3px; min-width:0; flex:1;">
+                                        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                            <strong style="color:var(--primary-navy); font-size:0.85rem;">${escapeHtml(mat.material_id)}</strong>
+                                            <span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; padding:1px 5px;">${escapeHtml(mat.sku_id || 'UNKNOWN_SKU')}</span>
+                                            <span class="badge" style="background:${statusColor}; color:#fff; font-size:0.65rem; padding:1px 5px;">${escapeHtml(mat.status || 'UNKNOWN')}</span>
+                                        </div>
+                                        <div style="font-size:0.73rem; color:var(--text-muted); display:flex; gap:10px; flex-wrap:wrap;">
+                                            <span>📍 ${escapeHtml(mat.current_zone || mat.current_location || 'Unknown')}</span>
+                                            <span>📦 ${escapeHtml(mat.current_container_id || 'No Container')}</span>
+                                            <span>📹 ${escapeHtml(mat.last_camera_id || 'N/A')}</span>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                                        <span class="badge" style="background:${confColor}; color:#fff; font-size:0.62rem; padding:2px 6px;">${escapeHtml(mat.confidence_level || 'DETECTED')}</span>
+                                        <button type="button" class="btn-secondary" onclick="openDashboardMaterialDossier('${escapeHtml(mat.material_id)}')" style="font-size:0.72rem; padding:2px 8px;">Dossier</button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        listEl.innerHTML = html;
+                    }
+
+                    function filterDashboardMaterials() {
+                        const input = document.getElementById('dashMaterialSearch');
+                        if (input) {
+                            dashMaterialSearchTerm = input.value;
+                            if (dashLatestData && dashLatestData.active_materials) {
+                                renderDashboardMaterials(dashLatestData.active_materials);
+                            }
+                        }
+                    }
+
+                    function renderDashboardZoneMatrix(zones) {
+                        const container = document.getElementById('dashZoneMatrix');
+                        if (!container) return;
+
+                        if (zones.length === 0) {
+                            container.innerHTML = `<div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem;">No zones configured. Add zones in Warehouse Zones & ROI.</div>`;
+                            return;
+                        }
+
+                        let html = '';
+                        zones.forEach(z => {
+                            const isOccupied = z.is_occupied;
+                            const occColor = isOccupied ? '#10b981' : '#64748b';
+                            const bg = isOccupied ? 'rgba(16, 185, 129, 0.08)' : 'var(--panel-bg)';
+                            const border = isOccupied ? '#10b981' : 'var(--border-light)';
+
+                            html += `
+                                <div style="background:${bg}; border:1px solid ${border}; border-radius:8px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center;">
+                                    <div>
+                                        <div style="display:flex; align-items:center; gap:6px;">
+                                            <span style="width:7px; height:7px; border-radius:50%; background:${occColor};"></span>
+                                            <strong style="font-size:0.8rem; color:var(--text-main);">${escapeHtml(z.name || z.zone_code)}</strong>
+                                            <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase;">(${escapeHtml(z.type || 'ROI')})</span>
+                                        </div>
+                                        <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">
+                                            ${z.track_count || 0} tracked objects &bull; ${z.materials ? z.materials.length : 0} materials
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="badge" style="background:${occColor}; color:#fff; font-size:0.65rem; padding:2px 6px;">
+                                            ${isOccupied ? `OCCUPIED (${z.track_count})` : 'CLEAR'}
+                                        </span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        container.innerHTML = html;
+                    }
+
+                    function renderDashboardEventStream(events) {
+                        const container = document.getElementById('dashEventStream');
+                        if (!container) return;
+
+                        if (events.length === 0) {
+                            container.innerHTML = `<div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem;">No recent movement events recorded.</div>`;
+                            return;
+                        }
+
+                        let html = '';
+                        events.slice(0, 15).forEach(ev => {
+                            let typeColor = '#0284c7';
+                            if (ev.event_type === 'ZONE_ENTER') typeColor = '#10b981';
+                            else if (ev.event_type === 'ZONE_EXIT') typeColor = '#f59e0b';
+                            else if (ev.event_type === 'DWELL_DETECTED') typeColor = '#8b5cf6';
+                            else if (ev.event_type === 'CROSS_CAMERA_HANDOFF') typeColor = '#ec4899';
+                            else if (ev.event_type === 'ANOMALOUS_SPEED') typeColor = '#ef4444';
+
+                            const tsStr = ev.timestamp ? new Date(ev.timestamp * 1000).toLocaleTimeString() : '';
+
+                            html += `
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:6px; padding:6px 10px; font-size:0.75rem;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                                        <span class="badge" style="background:${typeColor}; color:#fff; font-size:0.65rem; padding:1px 5px;">${escapeHtml(ev.event_type)}</span>
+                                        <span style="font-size:0.68rem; color:var(--text-muted);">${escapeHtml(tsStr)}</span>
+                                    </div>
+                                    <div style="color:var(--text-main); font-weight:600;">
+                                        ${escapeHtml(ev.primary_class || 'OBJECT')} #${escapeHtml(String(ev.primary_track_id || ''))}
+                                        ${ev.zone ? `<span style="font-weight:normal; color:var(--text-muted);"> in <strong>${escapeHtml(ev.zone)}</strong></span>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        container.innerHTML = html;
+                    }
+
+                    function renderDashboardAssociations(assocs) {
+                        const container = document.getElementById('dashAssociationsList');
+                        if (!container) return;
+
+                        if (assocs.length === 0) {
+                            container.innerHTML = `<div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem;">No active associations formed.</div>`;
+                            return;
+                        }
+
+                        let html = '';
+                        assocs.slice(0, 15).forEach(a => {
+                            let statusColor = '#10b981';
+                            if (a.status === 'CANDIDATE') statusColor = '#0284c7';
+                            else if (a.status === 'AMBIGUOUS' || a.status === 'BROKEN') statusColor = '#ef4444';
+
+                            const pCls = a.primary_class || 'PRIMARY';
+                            const sCls = a.secondary_class || 'SECONDARY';
+                            const pId = a.primary_track_id;
+                            const sId = a.secondary_track_id;
+
+                            html += `
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:6px; padding:6px 10px; font-size:0.75rem; display:flex; justify-content:space-between; align-items:center;">
+                                    <div>
+                                        <div style="display:flex; align-items:center; gap:6px;">
+                                            <strong style="color:#0284c7; font-size:0.72rem;">${escapeHtml(a.association_type || 'ASSOC')}</strong>
+                                            <span class="badge" style="background:${statusColor}; color:#fff; font-size:0.62rem; padding:1px 4px;">${escapeHtml(a.status)}</span>
+                                        </div>
+                                        <div style="color:var(--text-main); margin-top:2px;">
+                                            ${escapeHtml(pCls)} #${pId} ↔ ${escapeHtml(sCls)} #${sId}
+                                        </div>
+                                    </div>
+                                    <div style="text-align:right; font-size:0.7rem; color:var(--text-muted);">
+                                        <div>Conf: ${(a.confidence_score !== undefined ? a.confidence_score : 1.0).toFixed(2)}</div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        container.innerHTML = html;
+                    }
+
+                    function renderDashboardAlerts(alerts) {
+                        const container = document.getElementById('dashAlertsList');
+                        if (!container) return;
+
+                        if (alerts.length === 0) {
+                            container.innerHTML = `
+                                <div style="padding:1rem; text-align:center; color:var(--text-muted); font-size:0.75rem; display:flex; align-items:center; justify-content:center; gap:6px;">
+                                    <span style="color:#10b981;">✓</span> All vision systems operating nominally.
+                                </div>
+                            `;
+                            return;
+                        }
+
+                        let html = '';
+                        alerts.forEach(al => {
+                            let border = '#f59e0b';
+                            let bg = 'rgba(245, 158, 11, 0.08)';
+                            let tagColor = '#f59e0b';
+                            if (al.severity === 'DANGER' || al.severity === 'ERROR') {
+                                border = '#ef4444';
+                                bg = 'rgba(239, 68, 68, 0.08)';
+                                tagColor = '#ef4444';
+                            } else if (al.severity === 'INFO') {
+                                border = '#0284c7';
+                                bg = 'rgba(2, 132, 199, 0.08)';
+                                tagColor = '#0284c7';
+                            }
+
+                            html += `
+                                <div style="background:${bg}; border-left:3px solid ${border}; border-top:1px solid var(--border-light); border-right:1px solid var(--border-light); border-bottom:1px solid var(--border-light); border-radius:4px; padding:6px 10px; font-size:0.75rem;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                                        <strong style="color:${tagColor}; font-size:0.72rem;">${escapeHtml(al.code || al.title || 'ALERT')}</strong>
+                                        <span style="font-size:0.65rem; color:var(--text-muted);">${escapeHtml(al.camera_id || '')}</span>
+                                    </div>
+                                    <div style="color:var(--text-main);">${escapeHtml(al.message || '')}</div>
+                                </div>
+                            `;
+                        });
+                        container.innerHTML = html;
+                    }
+
+                    // Master Runtime Button Action Handlers
+                    async function handleDashboardStartAll() {
+                        try {
+                            const btn = document.getElementById('btnDashStartAll');
+                            if (btn) btn.disabled = true;
+                            const res = await fetch('/api/vision/runtime/start_all', { method: 'POST' });
+                            const json = await res.json();
+                            if (json.success) {
+                                await loadLiveVisionDashboard(true);
+                            } else {
+                                alert('Failed to start vision runtime: ' + (json.error || 'Unknown error'));
+                            }
+                        } catch (e) {
+                            console.error(e);
+                        } finally {
+                            const btn = document.getElementById('btnDashStartAll');
+                            if (btn) btn.disabled = false;
+                        }
+                    }
+
+                    async function handleDashboardStopAll() {
+                        try {
+                            const btn = document.getElementById('btnDashStopAll');
+                            if (btn) btn.disabled = true;
+                            const res = await fetch('/api/vision/runtime/stop_all', { method: 'POST' });
+                            const json = await res.json();
+                            if (json.success) {
+                                await loadLiveVisionDashboard(true);
+                            } else {
+                                alert('Failed to stop vision runtime: ' + (json.error || 'Unknown error'));
+                            }
+                        } catch (e) {
+                            console.error(e);
+                        } finally {
+                            const btn = document.getElementById('btnDashStopAll');
+                            if (btn) btn.disabled = false;
+                        }
+                    }
+
+                    async function handleDashboardRestartCurrentCamera() {
+                        if (!dashSelectedCameraId) {
+                            alert('Please select a camera node first.');
+                            return;
+                        }
+                        try {
+                            await fetch('/api/vision/runtime/stop', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({ camera_id: dashSelectedCameraId })
+                            });
+                            await fetch('/api/vision/runtime/start', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({ camera_id: dashSelectedCameraId })
+                            });
+                            await loadLiveVisionDashboard(true);
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    }
+
+                    async function handleDashboardTestStep() {
+                        try {
+                            const btn = document.getElementById('btnDashTestStep');
+                            if (btn) btn.disabled = true;
+                            const payload = dashSelectedCameraId ? { camera_id: dashSelectedCameraId } : {};
+                            const res = await fetch('/api/vision/runtime/test_step', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(payload)
+                            });
+                            const json = await res.json();
+                            if (json.success) {
+                                await loadLiveVisionDashboard(true);
+                            } else {
+                                alert('Test step failed: ' + (json.error || 'Unknown error'));
+                            }
+                        } catch (e) {
+                            console.error(e);
+                        } finally {
+                            const btn = document.getElementById('btnDashTestStep');
+                            if (btn) btn.disabled = false;
+                        }
+                    }
+
+                    // Material Dossier In-Place Modal Handlers
+                    async function openDashboardMaterialDossier(materialId) {
+                        const modal = document.getElementById('dashMaterialModal');
+                        const content = document.getElementById('dashModalContent');
+                        const titleEl = document.getElementById('dashModalMatTitle');
+                        const badgeEl = document.getElementById('dashModalMatLevelBadge');
+                        if (!modal || !content) return;
+
+                        if (titleEl) titleEl.innerText = `Material Dossier: ${materialId}`;
+                        content.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--text-muted);">Loading material dossier...</div>`;
+                        modal.style.display = 'flex';
+
+                        try {
+                            const res = await fetch(`/api/vision/traceability/${encodeURIComponent(materialId)}`);
+                            if (!res.ok) {
+                                content.innerHTML = `<div style="padding:2rem; text-align:center; color:#ef4444;">Failed to load dossier for material ${escapeHtml(materialId)}.</div>`;
+                                return;
+                            }
+                            const data = await res.json();
+                            const mat = data.material || {};
+                            const events = data.timeline || [];
+                            const custody = data.custody_chain || [];
+
+                            if (badgeEl) {
+                                badgeEl.innerText = mat.confidence_level || 'DETECTED';
+                                let bColor = '#10b981';
+                                if (mat.confidence_level === 'INFERRED_PROXIMITY') bColor = '#f59e0b';
+                                else if (mat.confidence_level === 'AMBIGUOUS' || mat.confidence_level === 'CONFLICTED') bColor = '#ef4444';
+                                badgeEl.style.background = bColor;
+                            }
+
+                            let custodyHtml = '';
+                            if (custody.length > 0) {
+                                custody.forEach(c => {
+                                    custodyHtml += `<span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.75rem; padding:4px 8px;">${escapeHtml(c.holder_type)}: <strong>${escapeHtml(c.holder_id)}</strong></span>`;
+                                });
+                            } else {
+                                custodyHtml = `<span style="color:var(--text-muted); font-size:0.75rem;">Direct custody / standalone</span>`;
+                            }
+
+                            let eventsHtml = '';
+                            if (events.length > 0) {
+                                events.forEach(ev => {
+                                    const tsStr = ev.timestamp ? new Date(ev.timestamp * 1000).toLocaleTimeString() : '';
+                                    eventsHtml += `
+                                        <div style="background:var(--panel-subtle); border-left:3px solid #0284c7; padding:8px 12px; border-radius:4px; font-size:0.78rem;">
+                                            <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                                                <strong style="color:var(--primary-navy);">${escapeHtml(ev.event_type)}</strong>
+                                                <span style="color:var(--text-muted);">${escapeHtml(tsStr)}</span>
+                                            </div>
+                                            <div style="color:var(--text-muted);">
+                                                Zone: <strong>${escapeHtml(ev.zone || 'None')}</strong> &bull; Camera: <strong>${escapeHtml(ev.camera_id || 'N/A')}</strong>
+                                            </div>
+                                            ${ev.notes ? `<div style="margin-top:2px; font-style:italic; color:var(--text-main);">${escapeHtml(ev.notes)}</div>` : ''}
+                                        </div>
+                                    `;
+                                });
+                            } else {
+                                eventsHtml = `<div style="color:var(--text-muted); font-size:0.75rem;">No lifecycle events recorded.</div>`;
+                            }
+
+                            content.innerHTML = `
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:1rem; font-size:0.8rem;">
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">SKU Identifier</div>
+                                        <div style="font-size:1rem; font-weight:700; color:var(--primary-navy);">${escapeHtml(mat.sku_id || 'UNKNOWN_SKU')}</div>
+                                    </div>
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">Operational Status</div>
+                                        <div style="font-size:1rem; font-weight:700; color:#10b981;">${escapeHtml(mat.status || 'UNKNOWN')}</div>
+                                    </div>
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">Current Zone & Location</div>
+                                        <div style="font-size:0.9rem; font-weight:600; color:var(--text-main);">${escapeHtml(mat.current_zone || mat.current_location || 'Unknown')}</div>
+                                    </div>
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">Current Container</div>
+                                        <div style="font-size:0.9rem; font-weight:600; color:var(--text-main);">${escapeHtml(mat.current_container_id || 'No Container')}</div>
+                                    </div>
+                                </div>
+
+                                <div style="margin-bottom:1rem;">
+                                    <div style="font-weight:700; font-size:0.82rem; color:var(--primary-navy); margin-bottom:6px;">Custody Chain:</div>
+                                    <div style="display:flex; gap:6px; flex-wrap:wrap;">${custodyHtml}</div>
+                                </div>
+
+                                <div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                        <span style="font-weight:700; font-size:0.82rem; color:var(--primary-navy);">Movement Timeline:</span>
+                                        <button type="button" class="btn-secondary" onclick="jumpToTraceabilitySubTab('${escapeHtml(materialId)}')" style="font-size:0.72rem; padding:2px 8px;">Open Full Traceability Tab &rarr;</button>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto;">${eventsHtml}</div>
+                                </div>
+                            `;
+                        } catch (e) {
+                            console.error(e);
+                            content.innerHTML = `<div style="padding:2rem; text-align:center; color:#ef4444;">Error loading dossier: ${escapeHtml(e.message)}</div>`;
+                        }
+                    }
+
+                    function closeDashboardMaterialModal() {
+                        const modal = document.getElementById('dashMaterialModal');
+                        if (modal) modal.style.display = 'none';
+                    }
+
+                    function jumpToTraceabilitySubTab(materialId) {
+                        closeDashboardMaterialModal();
+                        const btn = document.querySelector(".vision-sub-btn[onclick*='vision-traceability']");
+                        switchVisionSubTab('vision-traceability', btn);
+                        if (typeof handleTraceabilityMaterialSelect === 'function') {
+                            setTimeout(() => handleTraceabilityMaterialSelect(materialId), 200);
+                        }
+                    }
+
+                    // ========================================================================
+                    // PART 13 — CONTROLLED ACTIONS FRONTEND LOGIC
+                    // ========================================================================
+
+                    let ctrlCurrentPreview = null;
+
+                    function renderControlledActions(recommendations) {
+                        const container = document.getElementById('dashControlledActionsList');
+                        const badge = document.getElementById('ctrlActionCountBadge');
+                        if (!container) return;
+
+                        if (badge) {
+                            badge.innerText = `${recommendations.length} PENDING`;
+                            badge.style.background = recommendations.length > 0 ? '#f59e0b' : '#0284c7';
+                        }
+
+                        if (!recommendations || recommendations.length === 0) {
+                            container.innerHTML = `
+                                <div style="padding:1.5rem; text-align:center; color:var(--text-muted); font-size:0.8rem; grid-column:1/-1;">
+                                    No pending action recommendations. Physical operations operating nominally.
+                                </div>
+                            `;
+                            return;
+                        }
+
+                        let html = '';
+                        recommendations.forEach((r, idx) => {
+                            let typeColor = '#0284c7';
+                            if (r.action_type === 'PUTAWAY') typeColor = '#10b981';
+                            else if (r.action_type === 'CYCLE_COUNT') typeColor = '#f59e0b';
+                            else if (r.action_type === 'DISPATCH') typeColor = '#8b5cf6';
+
+                            const stateColor = r.state === 'READY_FOR_APPROVAL' ? '#f59e0b' : '#06b6d4';
+
+                            html += `
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                                    <div>
+                                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                            <span class="badge" style="background:${typeColor}; color:#fff; font-size:0.7rem; font-weight:700;">${escapeHtml(r.action_type)}</span>
+                                            <span class="badge" style="background:${stateColor}; color:#fff; font-size:0.68rem;">${escapeHtml(r.state)}</span>
+                                        </div>
+                                        <div style="font-weight:700; font-size:0.85rem; color:var(--primary-navy); margin-bottom:4px;">
+                                            ${escapeHtml(r.title || r.entity_id)}
+                                        </div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:6px;">
+                                            SKU: <strong style="color:var(--text-main);">${escapeHtml(r.material_sku || 'N/A')}</strong> &bull; Qty: <strong style="color:var(--text-main);">${escapeHtml(String(r.recommended_quantity || 1))}</strong>
+                                        </div>
+                                        <div style="font-size:0.74rem; color:var(--text-muted); margin-bottom:6px;">
+                                            Src: ${escapeHtml(r.source || 'N/A')} &rarr; Dst: ${escapeHtml(r.destination || 'N/A')}
+                                        </div>
+                                        <div style="background:var(--panel-subtle); border-left:3px solid ${typeColor}; padding:5px 8px; border-radius:4px; font-size:0.72rem; color:var(--text-main); margin-bottom:10px;">
+                                            ✓ ${escapeHtml(r.evidence_summary || 'Evidence verified')}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <button type="button" class="btn-primary" style="width:100%; font-size:0.78rem; padding:6px 10px; display:flex; justify-content:center; align-items:center; gap:6px;"
+                                            onclick='openControlledActionPreview(${JSON.stringify(r.action_type)}, ${JSON.stringify(r.entity_id)}, ${JSON.stringify(r)})'>
+                                            <span>🔍 Inspect &amp; Authorize</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        container.innerHTML = html;
+                    }
+
+                    async function refreshControlledActions() {
+                        try {
+                            const res = await fetch('/api/wms/controlled_actions/recommendations');
+                            if (!res.ok) return;
+                            const data = await res.json();
+                            renderControlledActions(data.recommendations || []);
+                        } catch (e) {
+                            console.error('[ControlledActions] Refresh failed:', e);
+                        }
+                    }
+
+                    async function openControlledActionPreview(actionType, entityId, initialParams) {
+                        const modal = document.getElementById('dashControlledActionModal');
+                        const content = document.getElementById('ctrlModalContent');
+                        const titleEl = document.getElementById('ctrlModalTitle');
+                        const stateBadge = document.getElementById('ctrlModalStateBadge');
+                        if (!modal || !content) return;
+
+                        if (titleEl) titleEl.innerText = `Controlled Action Preview: ${actionType} (${entityId})`;
+                        if (stateBadge) {
+                            stateBadge.innerText = 'EVALUATING';
+                            stateBadge.style.background = '#64748b';
+                        }
+
+                        content.innerHTML = `<div style="padding:2.5rem; text-align:center; color:var(--text-muted);">Evaluating authoritative WMS validation gates and evidence...</div>`;
+                        modal.style.display = 'flex';
+
+                        try {
+                            const payload = {
+                                action_type: actionType,
+                                entity_id: entityId,
+                                params: initialParams || {}
+                            };
+                            const res = await fetch('/api/wms/controlled_actions/preview', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) {
+                                content.innerHTML = `<div style="padding:2rem; text-align:center; color:#ef4444;">Preview generation failed: ${escapeHtml(data.error || 'Server error')}</div>`;
+                                return;
+                            }
+
+                            const preview = data.preview || {};
+                            ctrlCurrentPreview = preview;
+
+                            if (stateBadge) {
+                                stateBadge.innerText = preview.state || 'READY_FOR_APPROVAL';
+                                stateBadge.style.background = preview.state === 'READY_FOR_APPROVAL' ? '#10b981' : (preview.state === 'FAILED' ? '#ef4444' : '#f59e0b');
+                            }
+
+                            const gates = preview.validation_gates || {};
+                            const canAuth = gates.can_authorize;
+                            const errors = gates.errors || [];
+                            const warnings = gates.warnings || [];
+
+                            let gateItemsHtml = `
+                                <div style="display:flex; flex-direction:column; gap:4px; font-size:0.78rem;">
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <span style="color:${canAuth ? '#10b981' : '#ef4444'}; font-weight:700;">${canAuth ? '✓' : '✗'}</span>
+                                        <span>Master Data Identity Validation: <strong>${canAuth ? 'PASSED' : 'FAILED'}</strong></span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <span style="color:${errors.length === 0 ? '#10b981' : '#ef4444'}; font-weight:700;">${errors.length === 0 ? '✓' : '✗'}</span>
+                                        <span>Capacity &amp; Boundary Constraints: <strong>${errors.length === 0 ? 'CLEAR' : 'ERROR'}</strong></span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <span style="color:#10b981; font-weight:700;">✓</span>
+                                        <span>Authoritative WMS Transaction Bound: <strong>COMPATIBLE</strong></span>
+                                    </div>
+                                </div>
+                            `;
+
+                            let alertsHtml = '';
+                            if (errors.length > 0) {
+                                alertsHtml += `<div style="background:rgba(239, 68, 68, 0.1); border-left:4px solid #ef4444; padding:8px 12px; border-radius:4px; font-size:0.78rem; color:#ef4444; margin-bottom:10px;"><strong>Validation Errors:</strong> ${escapeHtml(errors.join(', '))}</div>`;
+                            }
+                            if (warnings.length > 0) {
+                                alertsHtml += `<div style="background:rgba(245, 158, 11, 0.1); border-left:4px solid #f59e0b; padding:8px 12px; border-radius:4px; font-size:0.78rem; color:#f59e0b; margin-bottom:10px;"><strong>Operational Warnings:</strong> ${escapeHtml(warnings.join(', '))}</div>`;
+                            }
+
+                            content.innerHTML = `
+                                ${alertsHtml}
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:1rem; font-size:0.8rem;">
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">Material / SKU</div>
+                                        <div style="font-size:1.05rem; font-weight:700; color:var(--primary-navy);">${escapeHtml(preview.material_sku || 'N/A')}</div>
+                                    </div>
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">Quantity &amp; UoM</div>
+                                        <div style="font-size:1.05rem; font-weight:700; color:#10b981;">${escapeHtml(String(preview.quantity))} ${escapeHtml(preview.uom || 'Units')}</div>
+                                    </div>
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">Origin / Source</div>
+                                        <div style="font-size:0.88rem; font-weight:600; color:var(--text-main);">${escapeHtml(preview.source || 'N/A')}</div>
+                                    </div>
+                                    <div style="background:var(--panel-subtle); padding:10px; border-radius:8px; border:1px solid var(--border-light);">
+                                        <div style="color:var(--text-muted); font-size:0.72rem; text-transform:uppercase;">Target Destination</div>
+                                        <div style="font-size:0.88rem; font-weight:600; color:var(--text-main);">${escapeHtml(preview.destination || 'N/A')}</div>
+                                    </div>
+                                </div>
+
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:1rem;">
+                                    <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:10px;">
+                                        <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:6px;">Current Expected WMS State:</div>
+                                        <pre style="background:var(--panel-subtle); padding:8px; border-radius:4px; font-size:0.72rem; margin:0; overflow-x:auto;">${escapeHtml(JSON.stringify(preview.expected_wms_state, null, 2))}</pre>
+                                    </div>
+                                    <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:8px; padding:10px;">
+                                        <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:#10b981; margin-bottom:6px;">Projected Resulting WMS State:</div>
+                                        <pre style="background:var(--panel-subtle); padding:8px; border-radius:4px; font-size:0.72rem; margin:0; overflow-x:auto;">${escapeHtml(JSON.stringify(preview.projected_wms_state, null, 2))}</pre>
+                                    </div>
+                                </div>
+
+                                <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; padding:10px; margin-bottom:1rem;">
+                                    <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:6px;">Validation Gates Evaluation:</div>
+                                    ${gateItemsHtml}
+                                </div>
+
+                                <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; padding:10px; margin-bottom:1.2rem;">
+                                    <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px;">Authoritative Core WMS Transaction Call:</div>
+                                    <code style="font-family:monospace; font-size:0.8rem; color:#0284c7; font-weight:600;">${escapeHtml(preview.exact_wms_operation || 'None')}</code>
+                                </div>
+
+                                <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-light); padding-top:1rem; flex-wrap:wrap; gap:10px;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <label style="font-size:0.78rem; font-weight:700; color:var(--text-muted); margin:0;">Operator ID:</label>
+                                        <input type="text" id="ctrlOperatorInput" value="operator_admin" style="font-size:0.78rem; padding:4px 8px; width:130px; margin:0;" />
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <button type="button" class="btn-secondary" onclick="rejectControlledAction('${escapeHtml(actionType)}', '${escapeHtml(entityId)}')" style="font-size:0.8rem; padding:6px 12px; color:#ef4444;">
+                                            ✕ Reject Action
+                                        </button>
+                                        <button type="button" class="btn-primary" id="btnCommitCtrlAction" onclick="commitControlledAction('${escapeHtml(actionType)}', '${escapeHtml(entityId)}')" ${canAuth ? '' : 'disabled'} style="font-size:0.8rem; padding:6px 16px; background:#10b981; border-color:#10b981;">
+                                            ✓ Authorize &amp; Commit WMS Transaction
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        } catch (e) {
+                            console.error('[ControlledActions] Preview error:', e);
+                            content.innerHTML = `<div style="padding:2rem; text-align:center; color:#ef4444;">Error generating preview: ${escapeHtml(e.message)}</div>`;
+                        }
+                    }
+
+                    function closeControlledActionModal() {
+                        const modal = document.getElementById('dashControlledActionModal');
+                        if (modal) modal.style.display = 'none';
+                    }
+
+                    async function commitControlledAction(actionType, entityId) {
+                        const btn = document.getElementById('btnCommitCtrlAction');
+                        const opInput = document.getElementById('ctrlOperatorInput');
+                        const opId = opInput ? (opInput.value.trim() || 'operator_admin') : 'operator_admin';
+                        const content = document.getElementById('ctrlModalContent');
+                        const stateBadge = document.getElementById('ctrlModalStateBadge');
+
+                        if (btn) btn.disabled = true;
+
+                        try {
+                            const idempotencyKey = `ACT-${actionType}-${entityId}-${Date.now()}`;
+                            const payload = {
+                                action_type: actionType,
+                                entity_id: entityId,
+                                params: (ctrlCurrentPreview && ctrlCurrentPreview.params) || {},
+                                operator_id: opId,
+                                idempotency_key: idempotencyKey
+                            };
+
+                            const res = await fetch('/api/wms/controlled_actions/execute', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const data = await res.json();
+
+                            if (stateBadge) {
+                                stateBadge.innerText = data.status || 'EXECUTED';
+                                stateBadge.style.background = data.success ? '#10b981' : '#ef4444';
+                            }
+
+                            if (data.success) {
+                                content.innerHTML = `
+                                    <div style="padding:1.5rem; text-align:center;">
+                                        <div style="font-size:2.5rem; color:#10b981; margin-bottom:8px;">✓</div>
+                                        <h3 style="margin:0 0 6px 0; color:var(--primary-navy);">WMS Transaction Committed Successfully</h3>
+                                        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+                                            ${escapeHtml(data.message || 'Inventory updated by authoritative WMS database function.')}
+                                        </p>
+                                        <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; padding:12px; text-align:left; font-size:0.75rem; margin-bottom:1.5rem;">
+                                            <div><strong>Operation:</strong> ${escapeHtml((data.wms_transaction || {}).operation || 'Completed')}</div>
+                                            <div><strong>Authorized By:</strong> ${escapeHtml(data.operator_id || opId)}</div>
+                                            <div><strong>Idempotency Key:</strong> ${escapeHtml(data.idempotency_key || idempotencyKey)}</div>
+                                            <div><strong>Executed At:</strong> ${escapeHtml(data.executed_at || 'Now')}</div>
+                                        </div>
+                                        <button type="button" class="btn-primary" onclick="closeControlledActionModal(); refreshControlledActions(); loadLiveVisionDashboard(true);" style="font-size:0.85rem; padding:8px 20px;">
+                                            Done
+                                        </button>
+                                    </div>
+                                `;
+                            } else {
+                                content.innerHTML = `
+                                    <div style="padding:1.5rem; text-align:center;">
+                                        <div style="font-size:2.5rem; color:#ef4444; margin-bottom:8px;">✕</div>
+                                        <h3 style="margin:0 0 6px 0; color:#ef4444;">Transaction Authorization Failed</h3>
+                                        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.5rem;">
+                                            ${escapeHtml(data.message || 'Validation gate failed or unauthorized action.')}
+                                        </p>
+                                        <button type="button" class="btn-secondary" onclick="closeControlledActionModal();" style="font-size:0.85rem; padding:8px 20px;">
+                                            Close
+                                        </button>
+                                    </div>
+                                `;
+                            }
+                        } catch (e) {
+                            console.error('[ControlledActions] Execution error:', e);
+                            if (content) content.innerHTML = `<div style="padding:2rem; text-align:center; color:#ef4444;">Execution error: ${escapeHtml(e.message)}</div>`;
+                        }
+                    }
+
+                    async function rejectControlledAction(actionType, entityId) {
+                        const reason = prompt("Please provide a reason for rejecting this AI recommendation:", "Operator visual discrepancy override");
+                        if (reason === null) return; // User cancelled prompt
+
+                        const opInput = document.getElementById('ctrlOperatorInput');
+                        const opId = opInput ? (opInput.value.trim() || 'operator_admin') : 'operator_admin';
+                        const content = document.getElementById('ctrlModalContent');
+                        const stateBadge = document.getElementById('ctrlModalStateBadge');
+
+                        try {
+                            const res = await fetch('/api/wms/controlled_actions/reject', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    action_type: actionType,
+                                    entity_id: entityId,
+                                    reason: reason,
+                                    operator_id: opId
+                                })
+                            });
+                            const data = await res.json();
+                            if (stateBadge) {
+                                stateBadge.innerText = 'REJECTED';
+                                stateBadge.style.background = '#64748b';
+                            }
+                            if (content) {
+                                content.innerHTML = `
+                                    <div style="padding:1.5rem; text-align:center;">
+                                        <div style="font-size:2rem; color:#64748b; margin-bottom:8px;">🚫</div>
+                                        <h3 style="margin:0 0 6px 0; color:var(--primary-navy);">Action Explicitly Rejected</h3>
+                                        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+                                            Rejection recorded in authoritative audit trail with reason: "${escapeHtml(reason)}"
+                                        </p>
+                                        <button type="button" class="btn-secondary" onclick="closeControlledActionModal(); refreshControlledActions();" style="font-size:0.85rem; padding:8px 20px;">
+                                            Close
+                                        </button>
+                                    </div>
+                                `;
+                            }
+                        } catch (e) {
+                            console.error('[ControlledActions] Rejection error:', e);
+                        }
+                    }
+
+                    // Auto-initialize dashboard when page loads if dashboard tab is active
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const dashSub = document.getElementById('vision-dashboard-sub');
+                        if (dashSub && dashSub.style.display !== 'none') {
+                            initLiveVisionDashboard();
+                        }
+                    });
