@@ -1,5 +1,3 @@
-import re
-
 with open('webapp/db.py', 'r') as f:
     db_code = f.read()
 

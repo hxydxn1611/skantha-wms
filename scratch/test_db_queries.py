@@ -217,8 +217,9 @@ def validate_bin(identity_val):
     raw_val = str(identity_val).strip()
     conn = get_db()
     row = conn.execute("""
-        SELECT id, zone_code, zone_name, zone_type, warehouse FROM vision_zones
-        WHERE UPPER(zone_code) = ?
+        SELECT bin_id, zone, max_volume, current_volume, max_weight, current_weight, status, last_updated
+        FROM bins
+        WHERE UPPER(bin_id) = ?
     """, (raw_val.upper(),)).fetchone()
     conn.close()
 
@@ -226,16 +227,18 @@ def validate_bin(identity_val):
         return {
             "status": "VALIDATED",
             "master_type": "BIN",
-            "master_id": row['zone_code'],
-            "display_name": f"{row['zone_name']} ({row['zone_code']})",
-            "matched_field": "zone_code",
-            "message": f"Identity matched warehouse zone/bin '{row['zone_code']}'.",
+            "master_id": row['bin_id'],
+            "display_name": f"Bin {row['bin_id']} (Zone: {row['zone'] or 'General'})",
+            "matched_field": "bin_id",
+            "message": f"Identity matched registered WMS physical storage bin '{row['bin_id']}'.",
             "master_record": {
-                "zone_id": row['id'],
-                "zone_code": row['zone_code'],
-                "zone_name": row['zone_name'],
-                "zone_type": row['zone_type'],
-                "warehouse": row['warehouse']
+                "bin_id": row['bin_id'],
+                "zone": row['zone'],
+                "max_volume": row['max_volume'],
+                "current_volume": row['current_volume'],
+                "max_weight": row['max_weight'],
+                "current_weight": row['current_weight'],
+                "status": row['status']
             }
         }
 
@@ -245,7 +248,7 @@ def validate_bin(identity_val):
         "master_id": None,
         "display_name": None,
         "matched_field": None,
-        "message": f"Visual identity '{raw_val}' was recognized but no matching warehouse zone/bin was found."
+        "message": f"Visual identity '{raw_val}' was recognized but no matching physical storage bin was found in WMS Bin Master."
     }
 
 # Run tests
@@ -258,6 +261,6 @@ print("Testing BOX 'B104' (Unregistered box):", validate_box('B104')['status'])
 print("Testing WORKER 'Maddy':", validate_worker('Maddy')['status'])
 print("Testing WORKER 'admin':", validate_worker('admin')['status'])
 print("Testing WORKER 'W07' (Unregistered worker):", validate_worker('W07')['status'])
-print("Testing BIN 'BIN-A':", validate_bin('BIN-A')['status'])
-print("Testing BIN 'DOCK-01':", validate_bin('DOCK-01')['status'])
+print("Testing BIN 'BIN-A' (Vision Zone code, not in bins table):", validate_bin('BIN-A')['status'])
+print("Testing BIN 'DOCK-01' (Vision Zone code, not in bins table):", validate_bin('DOCK-01')['status'])
 print("Testing BIN 'UNKNOWN-BIN':", validate_bin('UNKNOWN-BIN')['status'])

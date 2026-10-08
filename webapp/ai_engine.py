@@ -1,7 +1,7 @@
+import os
 import cv2
 import threading
 import time
-import re
 import copy
 import numpy as np
 from ultralytics import YOLO
@@ -23,6 +23,8 @@ class SmartCamera:
         self.consecutive_zeros = 0
         self.seen_package_ids = set()
         self.total_unloaded = 0
+        self.tripwire_y = 240  # Legacy attribute preserved for compatibility
+        self.tracked_centroids = {}
         
         # Thread-safe frame passing
         self.raw_frame = None
@@ -41,8 +43,11 @@ class SmartCamera:
             except Exception as e:
                 print("Falling back to yolov8n.pt due to error:", e)
                 SmartCamera.vehicle_model = YOLO('yolov8n.pt')
-            print("Loading EasyOCR...")
-            SmartCamera.ocr_reader = easyocr.Reader(['en'], gpu=False)
+            if os.environ.get("WARLOG_TEST_MODE") == "1":
+                SmartCamera.ocr_reader = None
+            else:
+                print("Loading EasyOCR...")
+                SmartCamera.ocr_reader = easyocr.Reader(['en'], gpu=False)
 
     def start(self):
         self.is_running = True
@@ -65,20 +70,37 @@ class SmartCamera:
                 frame = cv2.resize(frame, (640, 480))
             with self.lock:
                 self.raw_frame = frame
+            # Part 6: Publish to SharedFrameBus
+            try:
+                from vision_runtime_service import get_shared_frame_bus
+                get_shared_frame_bus().publish_frame(self.camera_id, frame, source_type="PUSH_DEVICE")
+            except Exception:
+                pass
 
     def stop(self):
         self.is_running = False
+        try:
+            from vision_runtime_service import get_shared_frame_bus
+            get_shared_frame_bus().mark_disconnected(self.camera_id, reason="Camera stopped")
+        except Exception:
+            pass
 
     def _capture_loop(self):
         # Support integer source for USB webcams (e.g. "0")
         cap_source = self.url
         if isinstance(cap_source, str) and cap_source.strip().isdigit():
             cap_source = int(cap_source.strip())
+        elif isinstance(cap_source, str) and (cap_source.startswith("rtsp://") or cap_source.startswith("http://")):
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;2000000"
         cap = cv2.VideoCapture(cap_source)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Reduce video lag by minimizing buffer
         while self.is_running:
-            ret, frame = cap.read()
-            if not ret:
+            read_res = cap.read()
+            if not isinstance(read_res, tuple) or len(read_res) != 2:
+                time.sleep(1)
+                continue
+            ret, frame = read_res
+            if not ret or frame is None:
                 time.sleep(1)
                 cap = cv2.VideoCapture(cap_source)
                 continue
@@ -88,6 +110,13 @@ class SmartCamera:
             # Save the latest raw frame safely
             with self.lock:
                 self.raw_frame = frame
+
+            # Part 6: Publish to SharedFrameBus
+            try:
+                from vision_runtime_service import get_shared_frame_bus
+                get_shared_frame_bus().publish_frame(self.camera_id, frame, source_type="CAMERA_JUNCTION_CAPTURE")
+            except Exception:
+                pass
         cap.release()
 
     def _ai_loop(self):
@@ -109,7 +138,7 @@ class SmartCamera:
             
             try:
                 results = SmartCamera.vehicle_model.track(ai_frame, persist=True, conf=0.1, iou=0.4, verbose=False)
-            except Exception as e:
+            except Exception:
                 results = SmartCamera.vehicle_model(ai_frame, conf=0.1, iou=0.4, verbose=False)
                 
             new_boxes = []
@@ -153,7 +182,7 @@ class SmartCamera:
                                                         "camera": cam_name
                                                     }
                                                     events.insert(0, event)
-                                except Exception as e:
+                                except Exception:
                                     pass
                             
                             threading.Thread(target=run_ocr, args=(ai_frame.copy(), self.camera_id, self.name, vehicle_type, self.events)).start()
@@ -163,36 +192,12 @@ class SmartCamera:
                         vehicle_type = "Car Part"
                         package_count += 1
                         
-                        # --- OMNIDIRECTIONAL COUNTING LOGIC ---
+                        # Part 5: Legacy tripwire / SmartCamera package counting is RETIRED.
+                        # W.A.R.L.O.G. BOX_UNLOADED_AT_DOCK is the sole authoritative perception source.
+                        # Centroids tracked only for visual preview if needed; no unload events or counters mutated.
                         if track_id is not None:
                             cx = int((x1 + x2) / 2)
                             cy = int((y1 + y2) / 2)
-                            
-                            if track_id in self.tracked_centroids:
-                                # We count the item as soon as it is reliably tracked, regardless of orientation or line
-                                if track_id not in self.seen_package_ids:
-                                    self.seen_package_ids.add(track_id)
-                                    self.total_unloaded += 1
-                                    
-                                    # TRIGGER KEYFRAME AUDIT
-                                    import random
-                                    audit_val = random.choice([48, 50, 48, 48, 500, 10])
-                                    self.active_audits[track_id] = {
-                                        "time": time.time(),
-                                        "count": audit_val
-                                    }
-                                    
-                                    if self.location == "Dock":
-                                        event = {
-                                            "time": time.strftime("%H:%M:%S"),
-                                            "type": "Part_Counted_Audited",
-                                            "count": f"{self.total_unloaded} (Audit: {audit_val} sub-items)",
-                                            "camera": self.name
-                                        }
-                                        self.events.insert(0, event)
-                                        self.events = self.events[:20]
-                            
-                            # Update centroid memory
                             self.tracked_centroids[track_id] = (cx, cy)
                         
                     label = vehicle_type if track_id is None else f"{vehicle_type} #{track_id}"
@@ -229,8 +234,7 @@ class SmartCamera:
 
         if self.location == "Dock":
             # High-tech HUD info
-            cv2.rectangle(display_frame, (10, 10), (450, 60), (0,0,0), -1)
-            cv2.putText(display_frame, f"VISIBLE: {self.visible_packages} | COUNTED: {self.total_unloaded}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 150, 0), 2)
+            cv2.putText(display_frame, f"VISIBLE: {self.visible_packages} | W.A.R.L.O.G. ACTIVE", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 150), 2)
 
         ret, buffer = cv2.imencode('.jpg', display_frame)
         return buffer.tobytes()

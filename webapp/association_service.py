@@ -26,7 +26,6 @@ Zero Database Writes:
 import os
 import math
 import time
-import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -41,7 +40,6 @@ from validation_service import (
     MultiObjectValidationService
 )
 from detection_service import is_point_in_polygon
-from db import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -306,7 +304,7 @@ class CameraAssociationSession:
             cls_code = str(t.get("class_code", "")).upper()
             if cls_code in ("TRUCK", "CARRIER", "VEHICLE"):
                 trucks.append(t)
-            elif cls_code in ("BOX", "CARTON", "PACKAGE"):
+            elif cls_code in ("BOX", "CARTON", "PACKAGE", "CONTAINER", "CARDBOARD BOX", "MATERIAL", "GLASS", "ROD", "PART", "COMPONENT", "FASTENER", "SKU"):
                 boxes.append(t)
 
         # 2. Enrich tracks with resolved warehouse zones
@@ -843,6 +841,7 @@ class MultiObjectAssociationService:
         if frame is None:
             return {"success": False, "message": f"Sample scene '{sample_scene}' could not be loaded."}
 
+        final_result: Dict[str, Any] = {"success": True}
         for idx in range(1, num_frames + 1):
             res = self.process_frame(
                 frame_input=frame,
@@ -899,12 +898,15 @@ class MultiObjectAssociationService:
                 continue
 
             # Color scheme: TRUCK = Bright Cyan/Blue, BOX = Warm Amber/Orange
-            if cls_code in ("TRUCK", "CARRIER"):
+            if cls_code in ("TRUCK", "CARRIER", "VEHICLE"):
                 box_color = (255, 140, 0) # BGR
                 label_prefix = f"TRUCK #{t_id}"
-            elif cls_code in ("BOX", "CARTON"):
+            elif cls_code in ("BOX", "CARTON", "PACKAGE", "CONTAINER", "CARDBOARD BOX"):
                 box_color = (0, 165, 255) # BGR
                 label_prefix = f"BOX #{t_id}"
+            elif cls_code in ("MATERIAL", "GLASS", "ROD", "PART", "COMPONENT", "FASTENER", "SKU"):
+                box_color = (0, 200, 255) # BGR
+                label_prefix = f"{cls_code} #{t_id}"
             else:
                 box_color = (180, 180, 180)
                 label_prefix = f"{cls_code} #{t_id}"

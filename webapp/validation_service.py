@@ -18,19 +18,17 @@ Core Validation Statuses:
 
 Strict Behavioral Rules:
   - READ-ONLY: Never perform INSERT, UPDATE, DELETE, or modify inventory / gate passes.
-  - NO DUPLICATE TABLES: Reuse existing WMS tables (gate_passes, expected_deliveries, users, vision_zones).
+  - NO DUPLICATE TABLES: Reuse existing WMS tables (gate_passes, expected_deliveries, users, bins, vision_zones).
   - NO SCHEMA CHANGES: Zero database schema modifications.
   - OBJECT-CLASS AWARE: A truck plate must never match a box; a box SKU must never match a truck.
   - PRESERVE PART 7: Never mutate or overwrite identity.value, source, confidence, status, or candidates.
   - SQL INJECTION SAFE: All queries use parameterized statements (?).
 """
 
-import os
 import re
 import time
 import json
 import logging
-from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Union
 
 import cv2
@@ -64,9 +62,51 @@ class MasterDataRegistry:
         },
         "BOX": {
             "available": True,
-            "tables": ["expected_deliveries", "gate_passes"],
-            "fields": ["unloading_sheet (sku)", "po_number"],
+            "tables": ["expected_deliveries", "gate_passes", "skus"],
+            "fields": ["unloading_sheet (sku)", "po_number", "sku_id"],
             "description": "Inbound consignment item lines, packaging cartons, and bill-of-lading SKUs"
+        },
+        "MATERIAL": {
+            "available": True,
+            "tables": ["skus", "expected_deliveries", "gate_passes"],
+            "fields": ["sku_id", "name", "category"],
+            "description": "Authoritative WMS material and SKU master catalog"
+        },
+        "GLASS": {
+            "available": True,
+            "tables": ["skus"],
+            "fields": ["sku_id", "name", "category"],
+            "description": "Automotive glass, windshields, side/rear windows in SKU master"
+        },
+        "ROD": {
+            "available": True,
+            "tables": ["skus"],
+            "fields": ["sku_id", "name", "category"],
+            "description": "High-tensile rods, steering tubes, structural shafts in SKU master"
+        },
+        "PART": {
+            "available": True,
+            "tables": ["skus"],
+            "fields": ["sku_id", "name", "category"],
+            "description": "Automotive mechanical and electrical parts in SKU master"
+        },
+        "COMPONENT": {
+            "available": True,
+            "tables": ["skus"],
+            "fields": ["sku_id", "name", "category"],
+            "description": "Sub-assemblies and modular automotive components in SKU master"
+        },
+        "FASTENER": {
+            "available": True,
+            "tables": ["skus"],
+            "fields": ["sku_id", "name", "category"],
+            "description": "Grade 10.9 flange bolts, fasteners, hardware in SKU master"
+        },
+        "SKU": {
+            "available": True,
+            "tables": ["skus"],
+            "fields": ["sku_id", "name", "category"],
+            "description": "Authoritative SKU master entities"
         },
         "WORKER": {
             "available": True,
@@ -76,9 +116,9 @@ class MasterDataRegistry:
         },
         "BIN": {
             "available": True,
-            "tables": ["vision_zones"],
-            "fields": ["zone_code"],
-            "description": "Configured warehouse storage bins, staging areas, and dock bays"
+            "tables": ["bins"],
+            "fields": ["bin_id", "zone"],
+            "description": "Authoritative WMS physical storage bins and rack locations (Master Hub: Bin Master)"
         },
         "FORKLIFT": {
             "available": False,
@@ -347,6 +387,21 @@ class WarehouseMasterValidator:
                     }
                 }
 
+            # 4. Check authoritative SKU Master table directly (Material-agnostic: glass, rods, parts, etc.)
+            sku_row = conn.execute("""
+                SELECT sku_id, name, description, category, unit_weight, unit_volume FROM skus WHERE UPPER(sku_id) = ?
+            """, (raw_val.upper(),)).fetchone()
+            if sku_row:
+                return {
+                    "status": "VALIDATED",
+                    "master_type": "SKU",
+                    "master_id": sku_row["sku_id"],
+                    "display_name": f"Material SKU: {sku_row['sku_id']} ({sku_row['name']})",
+                    "matched_field": "sku_id",
+                    "message": f"Identity matched authoritative SKU master '{sku_row['sku_id']}'.",
+                    "master_record": dict(sku_row)
+                }
+
             # Not found in box / SKU catalog
             return {
                 "status": "UNREGISTERED",
@@ -355,6 +410,187 @@ class WarehouseMasterValidator:
                 "display_name": None,
                 "matched_field": None,
                 "message": f"Visual identity '{raw_val}' was recognized but no matching WMS master record was found in Box / SKU catalog.",
+                "master_record": None
+            }
+        finally:
+            conn.close()
+
+    def validate_material(self, identity_val: str, object_class: str = "MATERIAL") -> Dict[str, Any]:
+        """
+        Validate automotive material / SKU visual identity against authoritative WMS SKU master (skus table)
+        and consignment deliveries.
+        Supports classes: MATERIAL, GLASS, ROD, PART, COMPONENT, FASTENER, SKU.
+        Distinguishes: VALIDATED, UNREGISTERED, AMBIGUOUS.
+        Never guesses SKU from visual appearance alone.
+        """
+        raw_val = self._safe_str(identity_val)
+        if not raw_val:
+            return {
+                "status": "NOT_APPLICABLE",
+                "master_type": None,
+                "master_id": None,
+                "display_name": None,
+                "matched_field": None,
+                "message": "Visual identity value is missing or empty.",
+                "master_record": None
+            }
+
+        conn = get_db()
+        try:
+            # 1. Exact match on sku_id
+            sku_rows = conn.execute("""
+                SELECT sku_id, name, description, category, unit_weight, unit_volume
+                FROM skus
+                WHERE UPPER(sku_id) = ?
+            """, (raw_val.upper(),)).fetchall()
+
+            # 2. If no exact match on sku_id, check if exact name match
+            if not sku_rows:
+                sku_rows = conn.execute("""
+                    SELECT sku_id, name, description, category, unit_weight, unit_volume
+                    FROM skus
+                    WHERE UPPER(name) = ?
+                """, (raw_val.upper(),)).fetchall()
+
+            # 3. Check for ambiguous pattern (e.g. wildcard or partial matching multiple SKUs)
+            if not sku_rows and ('%' in raw_val or '*' in raw_val):
+                wildcard = raw_val.replace('*', '%')
+                like_rows = conn.execute("""
+                    SELECT sku_id, name, description, category, unit_weight, unit_volume
+                    FROM skus
+                    WHERE UPPER(sku_id) LIKE ? OR UPPER(name) LIKE ?
+                """, (f"{wildcard.upper()}%", f"{wildcard.upper()}%")).fetchall()
+                if len(like_rows) > 1:
+                    return {
+                        "status": "AMBIGUOUS",
+                        "master_type": "SKU",
+                        "master_id": None,
+                        "display_name": None,
+                        "matched_field": "sku_id",
+                        "message": f"Multiple authoritative SKUs ({len(like_rows)}) matched ambiguous identifier '{raw_val}'.",
+                        "master_record": None
+                    }
+                elif len(like_rows) == 1:
+                    sku_rows = like_rows
+
+            if len(sku_rows) > 1:
+                return {
+                    "status": "AMBIGUOUS",
+                    "master_type": "SKU",
+                    "master_id": None,
+                    "display_name": None,
+                    "matched_field": "sku_id",
+                    "message": f"Multiple authoritative SKUs ({len(sku_rows)}) matched identifier '{raw_val}'.",
+                    "master_record": None
+                }
+
+            if sku_rows:
+                r = dict(sku_rows[0])
+                cls_display = object_class.capitalize() if object_class else "Material"
+                return {
+                    "status": "VALIDATED",
+                    "master_type": "SKU",
+                    "master_id": r["sku_id"],
+                    "display_name": f"{cls_display} SKU: {r['sku_id']} ({r['name']})",
+                    "matched_field": "sku_id" if r["sku_id"].upper() == raw_val.upper() else "name",
+                    "message": f"Identity matched authoritative WMS SKU master '{r['sku_id']}'.",
+                    "master_record": r
+                }
+
+            # 4. Fallback check: Inbound consignment unloading sheet SKUs in expected deliveries or gate passes
+            rows_gp = conn.execute("""
+                SELECT id, po_number, vendor, unloading_sheet, status
+                FROM gate_passes
+                WHERE unloading_sheet IS NOT NULL AND unloading_sheet != ''
+            """).fetchall()
+
+            matched_consignments = []
+            for gp in rows_gp:
+                try:
+                    sheet = json.loads(gp['unloading_sheet'] or '[]')
+                    for item in sheet:
+                        sku = str(item.get('sku', '')).strip()
+                        if sku.upper() == raw_val.upper():
+                            matched_consignments.append({
+                                "sku": sku,
+                                "name": item.get('description', f'{object_class} Item'),
+                                "description": item.get('description', ''),
+                                "category": object_class,
+                                "source": "gate_passes",
+                                "source_id": gp['id'],
+                                "po_number": gp['po_number']
+                            })
+                except Exception:
+                    pass
+
+            rows_ed = conn.execute("""
+                SELECT po_number, vendor, unloading_sheet, status
+                FROM expected_deliveries
+                WHERE unloading_sheet IS NOT NULL AND unloading_sheet != ''
+            """).fetchall()
+
+            for ed in rows_ed:
+                try:
+                    sheet = json.loads(ed['unloading_sheet'] or '[]')
+                    for item in sheet:
+                        sku = str(item.get('sku', '')).strip()
+                        if sku.upper() == raw_val.upper():
+                            matched_consignments.append({
+                                "sku": sku,
+                                "name": item.get('description', f'{object_class} Item'),
+                                "description": item.get('description', ''),
+                                "category": object_class,
+                                "source": "expected_deliveries",
+                                "source_id": ed['po_number'],
+                                "po_number": ed['po_number']
+                            })
+                except Exception:
+                    pass
+
+            if len(matched_consignments) > 1:
+                first_sku = matched_consignments[0]["sku"]
+                if all(m["sku"].upper() == first_sku.upper() for m in matched_consignments):
+                    m = matched_consignments[0]
+                    return {
+                        "status": "VALIDATED",
+                        "master_type": "SKU",
+                        "master_id": m["sku"],
+                        "display_name": f"{object_class} SKU: {m['sku']} ({m['name']})",
+                        "matched_field": "sku",
+                        "message": f"Identity matched consignment shipment SKU '{m['sku']}'.",
+                        "master_record": m
+                    }
+                else:
+                    return {
+                        "status": "AMBIGUOUS",
+                        "master_type": "SKU",
+                        "master_id": None,
+                        "display_name": None,
+                        "matched_field": "sku",
+                        "message": f"Multiple consignment records matched identifier '{raw_val}'.",
+                        "master_record": None
+                    }
+
+            if matched_consignments:
+                m = matched_consignments[0]
+                return {
+                    "status": "VALIDATED",
+                    "master_type": "SKU",
+                    "master_id": m["sku"],
+                    "display_name": f"{object_class} SKU: {m['sku']} ({m['name']})",
+                    "matched_field": "sku",
+                    "message": f"Identity matched consignment shipment SKU '{m['sku']}'.",
+                    "master_record": m
+                }
+
+            # 5. Not found in SKU master or consignment shipments
+            return {
+                "status": "UNREGISTERED",
+                "master_type": None,
+                "master_id": None,
+                "display_name": None,
+                "matched_field": None,
+                "message": f"Visual identity '{raw_val}' was recognized but no matching WMS record was found in SKU master or shipments for class '{object_class}'.",
                 "master_record": None
             }
         finally:
@@ -401,31 +637,67 @@ class WarehouseMasterValidator:
 
     def validate_bin(self, identity_val: str) -> Dict[str, Any]:
         """
-        Validate BIN visual identity against vision_zones master table.
-        Matches by zone_code (e.g. BIN-A, DOCK-01, TB-01).
+        Validate BIN visual identity against authoritative WMS bins table.
+        Matches by physical bin identifier (bin_id).
+        Resolves spatial context if the bin's zone corresponds to a registered vision zone.
         """
         raw_val = self._safe_str(identity_val)
+        if not raw_val:
+            return {
+                "status": "NOT_APPLICABLE",
+                "master_type": None,
+                "master_id": None,
+                "display_name": None,
+                "matched_field": None,
+                "message": "Visual identity value is missing or empty.",
+                "master_record": None
+            }
+
         conn = get_db()
         try:
+            # Parameterized query against authoritative physical storage locations (bins table)
             row = conn.execute("""
-                SELECT id, zone_code, zone_name, zone_type, warehouse FROM vision_zones
-                WHERE UPPER(zone_code) = ?
+                SELECT bin_id, zone, max_volume, current_volume, max_weight, current_weight, status, last_updated
+                FROM bins
+                WHERE UPPER(bin_id) = ?
             """, (raw_val.upper(),)).fetchone()
 
             if row:
+                # Spatial context from vision_zones via bin.zone mapping (if configured)
+                zone_ref = row['zone']
+                vz_row = None
+                if zone_ref:
+                    vz_row = conn.execute("""
+                        SELECT id, zone_code, zone_name, zone_type, warehouse
+                        FROM vision_zones
+                        WHERE UPPER(zone_code) = ? OR UPPER(zone_name) = ?
+                    """, (zone_ref.upper(), zone_ref.upper())).fetchone()
+
+                spatial_context = {
+                    "zone_code": vz_row['zone_code'],
+                    "zone_name": vz_row['zone_name'],
+                    "zone_type": vz_row['zone_type'],
+                    "warehouse": vz_row['warehouse']
+                } if vz_row else None
+
+                zone_disp = vz_row['zone_name'] if vz_row else (row['zone'] or 'General')
+
                 return {
                     "status": "VALIDATED",
                     "master_type": "BIN",
-                    "master_id": row['zone_code'],
-                    "display_name": f"{row['zone_name']} [{row['zone_code']}]",
-                    "matched_field": "zone_code",
-                    "message": f"Identity matched registered warehouse zone/bin '{row['zone_code']}'.",
+                    "master_id": row['bin_id'],
+                    "display_name": f"Bin {row['bin_id']} (Zone: {zone_disp})",
+                    "matched_field": "bin_id",
+                    "message": f"Identity matched registered WMS physical storage bin '{row['bin_id']}'.",
                     "master_record": {
-                        "zone_id": row['id'],
-                        "zone_code": row['zone_code'],
-                        "zone_name": row['zone_name'],
-                        "zone_type": row['zone_type'],
-                        "warehouse": row['warehouse']
+                        "bin_id": row['bin_id'],
+                        "zone": row['zone'],
+                        "max_volume": row['max_volume'],
+                        "current_volume": row['current_volume'],
+                        "max_weight": row['max_weight'],
+                        "current_weight": row['current_weight'],
+                        "status": row['status'],
+                        "spatial_context": spatial_context
                     }
                 }
 
@@ -435,7 +707,7 @@ class WarehouseMasterValidator:
                 "master_id": None,
                 "display_name": None,
                 "matched_field": None,
-                "message": f"Visual identity '{raw_val}' was recognized but no matching warehouse zone/bin was found.",
+                "message": f"Visual identity '{raw_val}' was recognized but no matching physical storage bin was found in WMS Bin Master.",
                 "master_record": None
             }
         finally:
@@ -469,15 +741,15 @@ class WarehouseMasterValidator:
                 "master_record": None
             }
 
-        # 2. Conflict Handling
-        if identity_status == "CONFLICT":
+        # 2. Conflict & Ambiguity Handling
+        if identity_status in ("CONFLICT", "AMBIGUOUS"):
             return {
                 "status": "NOT_APPLICABLE",
                 "master_type": None,
                 "master_id": None,
                 "display_name": None,
                 "matched_field": None,
-                "message": "Identity conflict must be resolved before master-data validation.",
+                "message": f"Identity {identity_status.lower()} must be resolved before master-data validation.",
                 "master_record": None
             }
 
@@ -510,6 +782,8 @@ class WarehouseMasterValidator:
         # 5. Object-class-aware routing
         if norm_class in ("TRUCK", "CARRIER", "VEHICLE", "LICENSE_PLATE", "LICENSE PLATE"):
             return self.validate_truck(identity_value)
+        elif norm_class in ("MATERIAL", "GLASS", "ROD", "PART", "COMPONENT", "FASTENER", "SKU"):
+            return self.validate_material(identity_value, norm_class)
         elif norm_class in ("BOX", "CARTON", "PACKAGE"):
             return self.validate_box(identity_value)
         elif norm_class in ("WORKER", "PERSONNEL", "USER"):
@@ -517,15 +791,7 @@ class WarehouseMasterValidator:
         elif norm_class in ("BIN", "LOCATION", "TOTE", "RACK"):
             return self.validate_bin(identity_value)
         else:
-            return {
-                "status": "MASTER_DATA_UNAVAILABLE",
-                "master_type": None,
-                "master_id": None,
-                "display_name": None,
-                "matched_field": None,
-                "message": f"Object class '{norm_class}' is not mapped to any known WMS master data source.",
-                "master_record": None
-            }
+            return self.validate_material(identity_value, norm_class)
 
 
 # ============================================================================
@@ -561,6 +827,14 @@ class MultiObjectValidationService:
     def reset_all(self):
         """Reset all camera tracking and identity sessions."""
         self.identity_service.reset_all()
+
+    def validate_object(self, class_code: str, identity_value: Any) -> Dict[str, Any]:
+        """Convenience method to validate an individual object."""
+        return self.validator.validate_identity(
+            class_code=class_code,
+            identity_value=identity_value,
+            identity_status="IDENTIFIED"
+        )
 
     def validate_tracks(
         self,
@@ -647,6 +921,7 @@ class MultiObjectValidationService:
         active_cnt = len(validated_tracks)
         validated_cnt = sum(1 for t in validated_tracks if t.get("validation", {}).get("status") == "VALIDATED")
         unregistered_cnt = sum(1 for t in validated_tracks if t.get("validation", {}).get("status") == "UNREGISTERED")
+        ambiguous_cnt = sum(1 for t in validated_tracks if t.get("validation", {}).get("status") == "AMBIGUOUS" or t.get("identity", {}).get("status") == "AMBIGUOUS")
         conflict_cnt = sum(1 for t in validated_tracks if t.get("identity", {}).get("status") == "CONFLICT")
         not_applicable_cnt = sum(1 for t in validated_tracks if t.get("validation", {}).get("status") == "NOT_APPLICABLE")
 
@@ -672,6 +947,7 @@ class MultiObjectValidationService:
             "identified_count": ident_res.get("identified_count", 0),
             "validated_count": validated_cnt,
             "unregistered_count": unregistered_cnt,
+            "ambiguous_count": ambiguous_cnt,
             "conflict_count": conflict_cnt,
             "not_applicable_count": not_applicable_cnt,
             "performance": {
@@ -706,6 +982,7 @@ class MultiObjectValidationService:
         STATUS_COLORS = {
             "VALIDATED": (129, 185, 16),        # Emerald green (#10b981)
             "UNREGISTERED": (11, 158, 245),     # Amber/Orange (#f59e0b)
+            "AMBIGUOUS": (0, 165, 255),         # Vivid Orange (#ff8000)
             "CONFLICT": (68, 68, 239),          # Bright red (#ef4444)
             "NOT_APPLICABLE": (139, 116, 100),  # Slate grey (#64748b)
             "MASTER_DATA_UNAVAILABLE": (246, 92, 139) # Violet (#8b5cf6)
@@ -730,7 +1007,6 @@ class MultiObjectValidationService:
             val = t.get("validation", {})
             val_status = val.get("status", "NOT_APPLICABLE")
             val_display = val.get("display_name")
-            matched_field = val.get("matched_field")
 
             color = STATUS_COLORS.get(val_status, (139, 116, 100))
 
@@ -744,9 +1020,9 @@ class MultiObjectValidationService:
             if id_status == "IDENTIFIED":
                 sub_txt = f"VISUAL: {id_val} [{id_source}]"
             elif id_status == "CONFLICT":
-                sub_txt = f"VISUAL: CONFLICT (competing reads)"
+                sub_txt = "VISUAL: CONFLICT (competing reads)"
             else:
-                sub_txt = f"VISUAL: UNIDENTIFIED"
+                sub_txt = "VISUAL: UNIDENTIFIED"
 
             # 4. Validation Badge text
             badge_txt = f"[{val_status}]"

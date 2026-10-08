@@ -46,10 +46,7 @@ import cv2
 import numpy as np
 
 # Import Part 8 MultiObjectValidationService
-from validation_service import (
-    get_validation_service,
-    MultiObjectValidationService
-)
+from validation_service import get_validation_service
 from detection_service import is_point_in_polygon
 
 logger = logging.getLogger(__name__)
@@ -304,7 +301,7 @@ class CameraBoxBinAssociationSession:
 
         for t in tracks:
             cls_code = str(t.get("class_code", "")).upper()
-            if cls_code in ("BOX", "CARTON", "PACKAGE", "CONTAINER", "CARDBOARD BOX"):
+            if cls_code in ("BOX", "CARTON", "PACKAGE", "CONTAINER", "CARDBOARD BOX", "MATERIAL", "GLASS", "ROD", "PART", "COMPONENT", "FASTENER", "SKU"):
                 boxes.append(t)
             elif cls_code in ("BIN", "STORAGE_BIN", "TOTE", "BAY", "SLOT", "LOCATION", "STORAGE BIN / TOTE"):
                 bins.append(t)
@@ -605,6 +602,12 @@ class MultiObjectBoxBinAssociationService:
             "message": f"Box <-> Bin association session for '{camera_id}' has been reset."
         }
 
+    def reset_all(self):
+        """Reset association sessions for all cameras."""
+        for cam_id in list(self.sessions.keys()):
+            self.reset_session(cam_id)
+        self._annotated_frames.clear()
+
     def get_status(self) -> Dict[str, Any]:
         """Diagnostic operational status reporting."""
         val_status = self.validation_service.get_status()
@@ -873,7 +876,7 @@ class MultiObjectBoxBinAssociationService:
         Used for verification of temporal accumulation (CANDIDATE -> CONFIRMED -> EXPIRED).
         """
         t_seq_start = time.perf_counter()
-        session = self.get_session(camera_id)
+        self.get_session(camera_id)
         camera_zones = self._load_camera_zones(camera_id)
         results = []
 

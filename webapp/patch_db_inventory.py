@@ -1,5 +1,4 @@
 import sqlite3
-import re
 
 # 1. Update the schema in db.py
 with open('webapp/db.py', 'r', encoding='utf-8') as f:

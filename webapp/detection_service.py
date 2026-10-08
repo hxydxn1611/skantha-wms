@@ -40,7 +40,6 @@ DEFAULT_CLASS_MAPPING = {
     "bus": "TRUCK",
     "suitcase": "BOX",      # Packaging / bundle proxy in COCO
     "backpack": "BOX",
-    # Custom warehouse taxonomy classes if custom model weights are loaded
     "box": "BOX",
     "bundle": "BUNDLE",
     "pallet": "PALLET",
@@ -53,7 +52,15 @@ DEFAULT_CLASS_MAPPING = {
     "hood": "HOOD",
     "forklift": "FORKLIFT",
     "worker": "WORKER",
-    "license plate": "LICENSE_PLATE"
+    "license plate": "LICENSE_PLATE",
+    "bin": "BIN",
+    "material": "MATERIAL",
+    "glass": "GLASS",
+    "rod": "ROD",
+    "part": "PART",
+    "component": "COMPONENT",
+    "fastener": "FASTENER",
+    "sku": "SKU"
 }
 
 # Fallback human-readable class names if database is not queried
@@ -72,7 +79,14 @@ FALLBACK_CLASS_NAMES = {
     "STEERING_WHEEL": "Steering Wheel",
     "TIRE_BUNDLE": "Tire Bundle",
     "HOOD": "Hood",
-    "LICENSE_PLATE": "License Plate"
+    "LICENSE_PLATE": "License Plate",
+    "MATERIAL": "Automotive Material",
+    "GLASS": "Automotive Glass / Windshield",
+    "ROD": "Rod / Tube / Shaft",
+    "PART": "Automotive Part",
+    "COMPONENT": "Component / Assembly",
+    "FASTENER": "Fastener / Hardware",
+    "SKU": "Material SKU"
 }
 
 # Model limitations documentation for report and UI notice

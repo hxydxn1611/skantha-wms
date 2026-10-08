@@ -22,17 +22,15 @@ import logging
 from collections import deque
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, List, Optional, Union
 
 import cv2
 import numpy as np
 
 # Import detection engine and utilities from Part 5
 from detection_service import (
-    ObjectDetectionEngine,
     get_detection_engine,
     is_point_in_polygon,
-    DEFAULT_CLASS_MAPPING,
     FALLBACK_CLASS_NAMES
 )
 

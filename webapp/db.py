@@ -315,44 +315,53 @@ def init_db():
             ]
             cur.executemany("INSERT INTO object_classes (code, name, description, status) VALUES (?, ?, ?, ?)", initial_classes)
 
+        # Seed initial SKUs for SKU Master if empty or missing
+        initial_skus = [
+            ('AUTO-GLASS-01', 'Laminated Windshield Glass', 'Automotive Glass', 2.0, 5.0),
+            ('AUTO-ROD-01', 'High-Tensile Tie Rod', 'Steering & Suspension', 1.0, 3.0),
+            ('AUTO-BOLT-01', 'Grade 10.9 Flange Bolt', 'Fasteners', 0.1, 0.2),
+            ('SKU-001', 'Standard Part 001', 'Parts', 1.0, 1.0),
+            ('SKU-DARK', 'Component Dark', 'Components', 1.0, 1.0)
+        ]
+        cur.executemany(
+            "INSERT OR IGNORE INTO skus (sku_id, name, category, unit_volume, unit_weight) VALUES (?, ?, ?, ?, ?)",
+            initial_skus
+        )
+
         # Seed initial cameras for Camera Master if empty
-        cur.execute("SELECT COUNT(*) FROM cameras")
-        if cur.fetchone()[0] == 0:
-            initial_cameras = [
-                ('CAM-001', 'CAM-001', 'Gate Camera 01', 'Warehouse A', 'Gate 01', 'IP Camera', 'Hikvision', 'rtsp://192.168.1.101:554/ch0', 'Online'),
-                ('CAM-002', 'CAM-002', 'Dock Camera 01', 'Warehouse A', 'Dock 01', 'IP Camera', 'Hikvision', 'rtsp://192.168.1.102:554/ch0', 'Online'),
-                ('CAM-003', 'CAM-003', 'Dock Camera 02', 'Warehouse A', 'Dock 02', 'IP Camera', 'Dahua', 'rtsp://192.168.1.103:554/ch0', 'Online'),
-                ('CAM-004', 'CAM-004', 'Yard Overview Camera', 'Warehouse A', 'Yard Area', 'IP Camera', 'CP Plus', 'rtsp://192.168.1.104:554/ch0', 'Offline')
-            ]
-            cur.executemany(
-                "INSERT INTO cameras (camera_id, camera_code, name, warehouse, location, camera_type, vendor, stream_url, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                initial_cameras
-            )
+        initial_cameras = [
+            ('CAM-001', 'CAM-001', 'Gate Camera 01', 'Warehouse A', 'Gate 01', 'IP Camera', 'Hikvision', 'rtsp://192.168.1.101:554/ch0', 'Online'),
+            ('CAM-002', 'CAM-002', 'Dock Camera 01', 'Warehouse A', 'Dock 01', 'IP Camera', 'Hikvision', 'rtsp://192.168.1.102:554/ch0', 'Online'),
+            ('CAM-003', 'CAM-003', 'Dock Camera 02', 'Warehouse A', 'Dock 02', 'IP Camera', 'Dahua', 'rtsp://192.168.1.103:554/ch0', 'Online'),
+            ('CAM-004', 'CAM-004', 'Yard Overview Camera', 'Warehouse A', 'Yard Area', 'IP Camera', 'CP Plus', 'rtsp://192.168.1.104:554/ch0', 'Offline')
+        ]
+        cur.executemany(
+            "INSERT OR IGNORE INTO cameras (camera_id, camera_code, name, warehouse, location, camera_type, vendor, stream_url, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            initial_cameras
+        )
 
         # Seed initial AI camera configs if empty
-        cur.execute("SELECT COUNT(*) FROM vision_camera_configs")
-        if cur.fetchone()[0] == 0:
-            initial_configs = [
-                ('CAM-001', 1, 1, 0, 5),
-                ('CAM-002', 1, 1, 1, 10),
-                ('CAM-003', 1, 1, 0, 5),
-                ('CAM-004', 0, 0, 0, 2)
-            ]
-            cur.executemany(
-                "INSERT INTO vision_camera_configs (camera_id, ai_enabled, detection_enabled, tracking_enabled, processing_fps) VALUES (?, ?, ?, ?, ?)",
-                initial_configs
-            )
+        initial_configs = [
+            ('CAM-001', 1, 1, 0, 5),
+            ('CAM-002', 1, 1, 1, 10),
+            ('CAM-003', 1, 1, 0, 5),
+            ('CAM-004', 0, 0, 0, 2)
+        ]
+        cur.executemany(
+            "INSERT OR IGNORE INTO vision_camera_configs (camera_id, ai_enabled, detection_enabled, tracking_enabled, processing_fps) VALUES (?, ?, ?, ?, ?)",
+            initial_configs
+        )
 
-            initial_cam_classes = [
-                ('CAM-001', 'BOX'), ('CAM-001', 'WORKER'), ('CAM-001', 'TRUCK'),
-                ('CAM-002', 'BOX'), ('CAM-002', 'WORKER'), ('CAM-002', 'PALLET'), ('CAM-002', 'FORKLIFT'),
-                ('CAM-003', 'BOX'), ('CAM-003', 'BIN'),
-                ('CAM-004', 'TRUCK')
-            ]
-            cur.executemany(
-                "INSERT INTO vision_camera_object_classes (camera_id, class_code) VALUES (?, ?)",
-                initial_cam_classes
-            )
+        initial_cam_classes = [
+            ('CAM-001', 'BOX'), ('CAM-001', 'WORKER'), ('CAM-001', 'TRUCK'),
+            ('CAM-002', 'BOX'), ('CAM-002', 'WORKER'), ('CAM-002', 'PALLET'), ('CAM-002', 'FORKLIFT'),
+            ('CAM-003', 'BOX'), ('CAM-003', 'BIN'),
+            ('CAM-004', 'TRUCK')
+        ]
+        cur.executemany(
+            "INSERT OR IGNORE INTO vision_camera_object_classes (camera_id, class_code) VALUES (?, ?)",
+            initial_cam_classes
+        )
 
         # Seed initial warehouse zones if empty
         cur.execute("SELECT COUNT(*) FROM vision_zones")
@@ -499,9 +508,6 @@ def _row_to_gate_pass(row):
         "photo": d.get("photo") or "",
         "driver_photo": d.get("driver_photo") or "",
         "unloaded_qty": d.get("unloaded_qty") or 0,
-        "bin_allocation": d.get("bin_allocation") or "",
-        "otp_verified": d.get("otp_verified") or 0,
-        "exit_time": d.get("exit_time") or "",
         "bin_allocation": d.get("bin_allocation") or "",
         "unloading_sheet": sheet,
         "otp": d.get("otp") or "",
@@ -1026,7 +1032,7 @@ def get_all_vision_cameras(search_term=None, ai_status=None, cam_status=None):
     query = """
         SELECT 
             c.id, c.camera_id, c.camera_code, c.name AS camera_name, c.warehouse, c.location, c.bin_id,
-            c.camera_type, c.vendor, c.status AS camera_status, c.created_at AS camera_created_at,
+            c.camera_type, c.vendor, c.stream_url, c.status AS camera_status, c.created_at AS camera_created_at,
             cfg.id AS config_id, cfg.ai_enabled, cfg.detection_enabled, cfg.tracking_enabled,
             cfg.processing_fps, cfg.created_at AS config_created_at, cfg.updated_at AS config_updated_at
         FROM cameras c
@@ -1077,6 +1083,7 @@ def get_all_vision_cameras(search_term=None, ai_status=None, cam_status=None):
             "bin_id": d.get('bin_id'),
             "camera_type": d['camera_type'],
             "vendor": d['vendor'],
+            "stream_url": d.get('stream_url', '') or '',
             "camera_status": d['camera_status'],
             "ai_config": {
                 "ai_enabled": ai_enabled,
@@ -1096,7 +1103,7 @@ def get_vision_camera(identifier):
     row = conn.execute("""
         SELECT 
             c.id, c.camera_id, c.camera_code, c.name AS camera_name, c.warehouse, c.location, c.bin_id,
-            c.camera_type, c.vendor, c.status AS camera_status, c.created_at AS camera_created_at,
+            c.camera_type, c.vendor, c.stream_url, c.status AS camera_status, c.created_at AS camera_created_at,
             cfg.id AS config_id, cfg.ai_enabled, cfg.detection_enabled, cfg.tracking_enabled,
             cfg.processing_fps, cfg.created_at AS config_created_at, cfg.updated_at AS config_updated_at
         FROM cameras c
@@ -1131,6 +1138,7 @@ def get_vision_camera(identifier):
         "bin_id": d.get('bin_id'),
         "camera_type": d['camera_type'],
         "vendor": d['vendor'],
+        "stream_url": d.get('stream_url', '') or '',
         "camera_status": d['camera_status'],
         "ai_config": {
             "ai_enabled": ai_enabled,
@@ -1859,19 +1867,29 @@ def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
             ON CONFLICT(bin_id) DO NOTHING
         ''', (bin_id,))
         
-        conn.execute('''
-            INSERT INTO skus (sku_id, name, description, units_per_bundle)
-            VALUES (?, ?, 'Auto-generated SKU', 1)
-            ON CONFLICT(sku_id) DO NOTHING
-        ''', (sku_id, f"Item {sku_id}"))
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(skus)")
+        sku_cols = [c[1] for c in cursor.fetchall()]
+        if 'units_per_bundle' in sku_cols:
+            conn.execute('''
+                INSERT INTO skus (sku_id, name, description, units_per_bundle)
+                VALUES (?, ?, 'Auto-generated SKU', 1)
+                ON CONFLICT(sku_id) DO NOTHING
+            ''', (sku_id, f"Item {sku_id}"))
+            sku = conn.execute("SELECT unit_volume, unit_weight, units_per_bundle FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+        else:
+            conn.execute('''
+                INSERT INTO skus (sku_id, name, description)
+                VALUES (?, ?, 'Auto-generated SKU')
+                ON CONFLICT(sku_id) DO NOTHING
+            ''', (sku_id, f"Item {sku_id}"))
+            sku = conn.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
 
         # Look up SKU sizes and bundle info dynamically
-        sku = conn.execute("SELECT unit_volume, unit_weight, units_per_bundle FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
-        vol_per_unit = sku['unit_volume'] if sku else 1.5
-        wt_per_unit = sku['unit_weight'] if sku else 2.0
+        vol_per_unit = (sku['unit_volume'] if (sku and 'unit_volume' in sku.keys() and sku['unit_volume']) else 1.5)
+        wt_per_unit = (sku['unit_weight'] if (sku and 'unit_weight' in sku.keys() and sku['unit_weight']) else 2.0)
         
         # Determine the bundle multiplier. 
-        # If the SKU has units_per_bundle, multiply the visual "bundle" count by it.
         bundle_multiplier = 1
         if sku and 'units_per_bundle' in sku.keys() and sku['units_per_bundle'] is not None:
             bundle_multiplier = sku['units_per_bundle']
@@ -1940,3 +1958,57 @@ def intelligent_putaway(total_unloaded, vendor_name, sku_id='UNKNOWN-SKU'):
     # 3. Perform the stock update using the chosen bin
     update_bin_stock(chosen_bin, vendor_name, total_unloaded, sku_id)
     return chosen_bin
+
+
+# ----------------- Activities & Audit Log Operations -----------------
+
+_in_memory_activities = []
+
+def log_activity(action, target, details=""):
+    """
+    Thread-safe logging of operational events and cycle count audits.
+    Maintains an in-memory audit log and writes to the activities table if present.
+    Avoids schema changes to maintain strict database invariants.
+    """
+    entry = {
+        "id": len(_in_memory_activities) + 1,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "action": action,
+        "target": target,
+        "details": details
+    }
+    _in_memory_activities.insert(0, entry)
+    
+    conn = get_db()
+    try:
+        has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='activities'").fetchone()
+        if has_table:
+            with conn:
+                conn.execute('''
+                    INSERT INTO activities (timestamp, action, target, details)
+                    VALUES (CURRENT_TIMESTAMP, ?, ?, ?)
+                ''', (action, target, details))
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def get_activities(limit=50):
+    """Retrieve recent operational activity logs."""
+    conn = get_db()
+    try:
+        has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='activities'").fetchone()
+        if has_table:
+            cursor = conn.execute('''
+                SELECT id, timestamp, action, target, details
+                FROM activities
+                ORDER BY id DESC
+                LIMIT ?
+            ''', (limit,))
+            return [dict(r) for r in cursor.fetchall()]
+        return _in_memory_activities[:limit]
+    finally:
+        conn.close()
+
+

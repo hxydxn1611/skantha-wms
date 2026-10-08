@@ -51,10 +51,12 @@ class TestVisionRuntimeBackend(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        os.environ["WARLOG_TEST_MODE"] = "1"
         cls.flask_app = flask_app_module.app
         cls.flask_app.config['TESTING'] = True
         cls.client = cls.flask_app.test_client()
         cls.manager = get_vision_runtime_manager()
+        cls.manager.refresh_cameras()
         # Ensure all cameras are stopped before tests begin
         cls.manager.stop_all()
 

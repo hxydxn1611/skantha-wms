@@ -1,5 +1,6 @@
 from flask import Flask, render_template, Response, request, jsonify
 from ai_engine import SmartCamera
+import logging
 import time
 import uuid
 import cv2
@@ -8,6 +9,8 @@ import os
 import random
 from datetime import datetime
 from fpdf import FPDF
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -21,10 +24,12 @@ from validation_service import get_validation_service
 from association_service import get_association_service
 from worker_box_association_service import get_worker_box_association_service
 from box_bin_association_service import get_box_bin_association_service
+from material_association_service import get_material_association_service
 from movement_event_service import get_movement_event_service
 from material_traceability_service import get_material_traceability_service
 from integration_service import get_integration_service
-from vision_runtime_service import get_vision_runtime_manager
+from vision_runtime_service import get_vision_runtime_manager, get_shared_frame_bus
+from cycle_count_service import get_cycle_count_service
 
 # Initialize SQLite database schema
 db.init_db()
@@ -116,7 +121,20 @@ def get_stats():
 
 @app.route('/api/gate_passes', methods=['GET'])
 def get_gate_passes():
-    return jsonify(db.get_all_gate_passes())
+    gps = db.get_all_gate_passes()
+    # Part 4: Attach read-only formal W.A.R.L.O.G. dock perception evidence
+    try:
+        integ = get_integration_service()
+        for gp in gps:
+            if gp.get("status") in ("Sent to Dock", "Unloading", "Completed"):
+                ev = integ.get_gate_pass_unloading_evidence(gp["id"])
+                if ev:
+                    gp["vision_unloaded_count"] = ev.get("verified_unloaded_count", 0)
+                    gp["vision_candidate_count"] = ev.get("candidate_unloaded_count", 0)
+                    gp["vision_verification_status"] = ev.get("verification_status", "NO_EVIDENCE")
+    except Exception:
+        pass
+    return jsonify(gps)
 
 @app.route('/api/gate_passes', methods=['POST'])
 def create_gate_pass():
@@ -580,6 +598,11 @@ def get_camera_frame_for_detection(camera_id):
     2. Most recent static capture file for realistic test detection
     3. CCTV warehouse perspective frame
     """
+    # 1. Primary: SharedFrameBus unified frame buffer
+    bus_frame = get_shared_frame_bus().get_latest_frame(camera_id, copy=True, max_age_seconds=5.0)
+    if bus_frame is not None:
+        return bus_frame, "LIVE CAMERA"
+
     cam = active_cameras.get(camera_id)
     if cam:
         frame_bytes = cam.get_frame()
@@ -1230,6 +1253,44 @@ def api_validation_reset():
         })
 
 
+@app.route('/api/vision/validate', methods=['POST'])
+def api_vision_validate():
+    """
+    Validate a detected object identity against authoritative WMS master data.
+    Supports single-identity or object-class query:
+      POST /api/vision/validate
+      Payload: {
+        "class_code": "BIN",
+        "identity_value": "BIN-01",
+        "identity_status": "IDENTIFIED"
+      }
+    """
+    validation_service = get_validation_service()
+    data = request.get_json(silent=True) or {}
+    class_code = data.get("class_code") or data.get("object_class")
+    identity_val = data.get("identity_value") or data.get("identity") or data.get("value")
+
+    # Convenience fallback if bin_id is supplied directly
+    if not identity_val and data.get("bin_id"):
+        identity_val = data.get("bin_id")
+        if not class_code:
+            class_code = "BIN"
+
+    if not class_code:
+        class_code = "UNKNOWN"
+
+    identity_status = data.get("identity_status", "IDENTIFIED" if identity_val else "UNIDENTIFIED")
+    identity_source = data.get("identity_source")
+
+    result = validation_service.validator.validate_identity(
+        class_code=class_code,
+        identity_value=identity_val,
+        identity_status=identity_status,
+        identity_source=identity_source
+    )
+    return jsonify(result)
+
+
 @app.route('/api/vision/validation/test', methods=['POST'])
 def api_validation_test():
     """
@@ -1785,8 +1846,6 @@ def api_box_bin_test():
     source_type = data.get('source_type', 'sample')
     sample_scene = data.get('sample_scene') or data.get('sample_name') or 'association_box_bin_dock1.jpg'
     conf_threshold = data.get('conf_threshold')
-    enable_barcode = data.get('enable_barcode', True)
-    enable_ocr = data.get('enable_ocr', True)
 
     rois = db.get_camera_rois(camera_id)
     roi_polygon = rois[0].get('coordinates', []) if rois else None
@@ -1936,6 +1995,200 @@ def api_box_bin_camera_annotated_jpg(camera_id):
 
 
 # ============================================================================
+# PART 9: MATERIAL ASSOCIATION ENGINE APIS
+# ============================================================================
+
+@app.route('/api/vision/material-association/status', methods=['GET'])
+def api_material_association_status():
+    """Return operational status, active sessions, and configuration for Material Association Engine."""
+    service = get_material_association_service()
+    return jsonify(service.get_status())
+
+
+@app.route('/api/vision/material-association/reset', methods=['POST'])
+def api_material_association_reset():
+    """Reset in-memory material association sessions for a specific camera or all cameras."""
+    service = get_material_association_service()
+    data = request.get_json(silent=True) or {}
+    camera_id = data.get('camera_id')
+
+    if camera_id and camera_id.upper() != 'ALL':
+        service.reset_session(camera_id)
+        return jsonify({
+            'success': True,
+            'message': f"In-memory material association session for camera '{camera_id}' reset successfully."
+        })
+    else:
+        service.reset_all()
+        return jsonify({
+            'success': True,
+            'message': "All in-memory material association sessions reset successfully."
+        })
+
+
+@app.route('/api/vision/material-association/test', methods=['POST'])
+def api_material_association_test():
+    """
+    Execute material association evaluation on synthetic tracks, uploaded image, or sample scene.
+    Supports TRUCK <-> MATERIAL, TRUCK <-> CONTAINER, WORKER <-> MATERIAL, MATERIAL <-> BIN, MATERIAL <-> CONTAINER.
+    """
+    service = get_material_association_service()
+    data = request.get_json(silent=True) or {}
+
+    camera_id = data.get('camera_id', 'CAM-001')
+    synthetic_tracks = data.get('synthetic_tracks')
+
+    # Direct synthetic tracks path
+    if synthetic_tracks is not None:
+        assocs, assoc_ms = service.process_tracks(
+            tracks=synthetic_tracks,
+            camera_id=camera_id,
+            frame_index=data.get('frame_index')
+        )
+        return jsonify({
+            'success': True,
+            'mode': 'synthetic_tracks',
+            'camera_id': camera_id,
+            'associations': assocs,
+            'association_ms': assoc_ms,
+            'confirmed_count': sum(1 for a in assocs if a.get('status') == 'CONFIRMED'),
+            'candidate_count': sum(1 for a in assocs if a.get('status') == 'CANDIDATE'),
+            'ambiguous_count': sum(1 for a in assocs if a.get('evidence', {}).get('is_ambiguous', False)),
+            'expired_count': sum(1 for a in assocs if a.get('status') == 'EXPIRED'),
+            'rejected_count': sum(1 for a in assocs if a.get('status') == 'REJECTED')
+        })
+
+    source_type = data.get('source_type', 'sample')
+    sample_scene = data.get('sample_scene') or data.get('sample_name') or 'association_truck_box_dock1.jpg'
+    conf_threshold = data.get('conf_threshold')
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    frame = None
+    if source_type == 'sample':
+        safe_name = os.path.basename(sample_scene)
+        sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", safe_name)
+        if not os.path.exists(sample_path):
+            sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "association_truck_box_dock1.jpg")
+        frame = cv2.imread(sample_path)
+        if frame is None:
+            return jsonify({'success': False, 'message': f"Sample scene '{sample_scene}' could not be loaded."}), 400
+
+    elif source_type == 'upload':
+        image_data = data.get('image_data') or data.get('image_base64')
+        if not image_data:
+            return jsonify({'success': False, 'message': "No image_data provided for upload test."}), 400
+        frame, err = service.validation_service.identity_service.detection_engine._parse_image(image_data)
+        if err or frame is None:
+            return jsonify({'success': False, 'message': err or "Invalid uploaded image format."}), 400
+
+    elif source_type == 'camera':
+        frame, _ = get_camera_frame_for_detection(camera_id)
+        if frame is None:
+            return jsonify({'success': False, 'message': f"Live preview for '{camera_id}' is unavailable."}), 404
+
+    result = service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        conf_threshold=conf_threshold,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+    return jsonify(result)
+
+
+@app.route('/api/vision/material-association/sequence', methods=['POST'])
+def api_material_association_sequence():
+    """
+    Run multi-frame material association sequence to verify temporal accumulation and lifecycle transitions.
+    """
+    service = get_material_association_service()
+    data = request.get_json(silent=True) or {}
+    camera_id = data.get('camera_id', 'CAM-001')
+    frames_data = data.get('frames', [])
+
+    results = []
+    for idx, f_tracks in enumerate(frames_data):
+        assocs, _ = service.process_tracks(tracks=f_tracks, camera_id=camera_id, frame_index=idx + 1)
+        results.append({
+            'frame_index': idx + 1,
+            'associations': assocs
+        })
+
+    return jsonify({
+        'success': True,
+        'camera_id': camera_id,
+        'total_frames': len(frames_data),
+        'sequence': results
+    })
+
+
+@app.route('/api/vision/material-association/cameras/<camera_id>', methods=['GET'])
+def api_material_association_camera(camera_id):
+    """Run full material association pipeline on a single snapshot from the specified camera."""
+    service = get_material_association_service()
+    frame, feed_mode = get_camera_frame_for_detection(camera_id)
+    if frame is None:
+        return jsonify({'success': False, 'message': f"Camera '{camera_id}' preview is unavailable."}), 404
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    result = service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+    result['feed_mode'] = feed_mode
+    return jsonify(result)
+
+
+@app.route('/api/vision/material-association/cameras/<camera_id>/annotated.jpg', methods=['GET'])
+def api_material_association_camera_annotated_jpg(camera_id):
+    """Return annotated binary JPEG with material bounding boxes, connecting lines, and status pills."""
+    service = get_material_association_service()
+    frame, _ = get_camera_frame_for_detection(camera_id)
+    if frame is None:
+        return Response("Camera unavailable", status=404)
+
+    rois = db.get_camera_rois(camera_id)
+    roi_polygon = rois[0].get('coordinates', []) if rois else None
+    roi_zone_code = rois[0].get('zone_code') if rois else None
+
+    result = service.process_frame(
+        frame_input=frame,
+        camera_id=camera_id,
+        roi_polygon=roi_polygon,
+        roi_zone_code=roi_zone_code
+    )
+
+    session = service.get_session(camera_id)
+    annotated = service.annotate_associations(
+        frame=frame,
+        associations=list(session.associations.values()),
+        tracks=result.get('tracks', [])
+    )
+    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    return Response(buffer.tobytes(), mimetype='image/jpeg')
+
+
+@app.route('/api/vision/material-association/materials/<material_id>', methods=['GET'])
+def api_material_association_by_material(material_id):
+    """
+    Query associations for a specific physical material across all active camera sessions.
+    Strictly uses validated physical identity (barcode/QR/OCR/WMS SKU).
+    Zero visual cross-camera Re-ID or appearance embeddings.
+    """
+    service = get_material_association_service()
+    result = service.get_associations_for_material(material_id)
+    return jsonify(result)
+
+
+# ============================================================================
 # PART 12: WAREHOUSE MOVEMENT EVENT DETECTION FOUNDATION ROUTES
 # ============================================================================
 
@@ -1995,6 +2248,7 @@ def api_vision_events_test():
                 truck_box_assocs=data.get('truck_box_assocs', []),
                 worker_box_assocs=data.get('worker_box_assocs', []),
                 box_bin_assocs=data.get('box_bin_assocs', []),
+                material_assocs=data.get('material_assocs', {}),
                 camera_id=camera_id,
                 frame_index=data.get('frame_index'),
                 camera_zones=camera_zones
@@ -2138,6 +2392,22 @@ def api_vision_events_camera_annotated_jpg(camera_id):
     return Response(jpeg_bytes, mimetype='image/jpeg')
 
 
+@app.route('/api/vision/events/timeline/<material_id>', methods=['GET'])
+def api_vision_events_material_timeline(material_id):
+    """
+    Retrieve chronological cross-camera movement event timeline for a specific material.
+    Continuity relies strictly on physical identity (barcode/QR/OCR).
+    Zero visual cross-camera Re-ID is permitted. Conflicted or unvalidated records are isolated.
+    """
+    service = get_movement_event_service()
+    include_candidates = request.args.get('include_candidates', 'false').lower() == 'true'
+    timeline_res = service.get_cross_camera_material_timeline(
+        material_id=material_id,
+        include_candidates=include_candidates
+    )
+    return jsonify(timeline_res)
+
+
 # ============================================================================
 # PART 13: MATERIAL TRACEABILITY FOUNDATION API
 # ============================================================================
@@ -2188,7 +2458,9 @@ def api_vision_traceability_materials():
     })
 
 
+@app.route('/api/vision/traceability/<material_id>', methods=['GET'])
 @app.route('/api/vision/traceability/materials/<material_id>', methods=['GET'])
+@app.route('/api/vision/traceability/material/<material_id>', methods=['GET'])
 def api_vision_traceability_material_detail(material_id):
     """Retrieve full material-centric dossier for a specific material or track."""
     service = get_material_traceability_service()
@@ -2205,6 +2477,8 @@ def api_vision_traceability_material_detail(material_id):
 
 
 @app.route('/api/vision/traceability/materials/<material_id>/timeline', methods=['GET'])
+@app.route('/api/vision/traceability/material/<material_id>/timeline', methods=['GET'])
+@app.route('/api/vision/traceability/timeline/<material_id>', methods=['GET'])
 def api_vision_traceability_material_timeline(material_id):
     """Retrieve chronological event timeline for a specific material."""
     service = get_material_traceability_service()
@@ -2279,18 +2553,69 @@ def update_gate_pass(gp_id):
 
 @app.route('/api/dock/unload_step/<gp_id>', methods=['POST'])
 def unload_step(gp_id):
-    # Get total visible packages across all cameras (or total tracked if available)
-    total_unloaded = 0
-    for cam in active_cameras.values():
-        total_unloaded += cam.total_unloaded
-        
-    if total_unloaded == 0:
-         return jsonify({"success": False, "message": "No packages detected by AI."})
-         
-    gp = db.set_unload_qty(gp_id, total_unloaded)
+    """
+    Part 5: Legacy SmartCamera tripwire and total_unloaded are RETIRED.
+    W.A.R.L.O.G. BOX_UNLOADED_AT_DOCK is the sole authoritative perception evidence source.
+    WMS boundary: This explicit operator endpoint synchronizes verified evidence with WMS.
+    """
+    warlog_verified = 0
+    dossier = None
+    try:
+        dossier = get_integration_service().get_gate_pass_unloading_evidence(gp_id)
+        if dossier:
+            warlog_verified = int(dossier.get('verified_unloaded_count', 0))
+    except Exception as e:
+        logger.warning(f"Error querying W.A.R.L.O.G. unloading evidence for {gp_id}: {e}")
+
+    req_data = request.get_json(silent=True) or {}
+    explicit_qty = req_data.get('explicit_qty') or req_data.get('quantity')
+
+    if explicit_qty is not None:
+        target_qty = int(explicit_qty)
+        source = "operator_explicit"
+    elif warlog_verified > 0:
+        target_qty = warlog_verified
+        source = "warlog_evidence"
+    else:
+        return jsonify({
+            "success": False,
+            "message": "No verified unloading evidence found in W.A.R.L.O.G. perception pipeline.",
+            "source": "warlog_evidence",
+            "verified_count": 0,
+            "evidence_status": dossier.get("verification_status") if dossier else "NO_EVIDENCE"
+        }), 200
+
+    # Explicit WMS operator action: synchronize gate pass unloaded_qty with verified W.A.R.L.O.G. evidence
+    gp = db.set_unload_qty(gp_id, target_qty)
     if gp:
-        return jsonify({"success": True, "total": gp['unloaded_qty']})
-    return jsonify({"success": False, "message": "Gate pass not found."})
+        return jsonify({
+            "success": True,
+            "total": gp['unloaded_qty'],
+            "source": source,
+            "verified_count": warlog_verified,
+            "verification_status": dossier.get("verification_status") if dossier else "VERIFIED"
+        })
+    return jsonify({"success": False, "message": "Gate pass not found."}), 404
+
+@app.route('/api/dock/evidence/<gp_id>', methods=['GET'])
+def api_dock_gate_pass_evidence(gp_id):
+    """Part 4: Read-only formal W.A.R.L.O.G. unloading evidence for a specific Gate Pass."""
+    try:
+        evidence = get_integration_service().get_gate_pass_unloading_evidence(gp_id)
+        if not evidence:
+            return jsonify({"success": False, "error": f"Gate pass '{gp_id}' not found"}), 404
+        return jsonify({"success": True, "data": evidence}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/dock/verification/<dock_name>', methods=['GET'])
+def api_dock_verification(dock_name):
+    """Part 4: Read-only formal W.A.R.L.O.G. verification dossier for a dock zone."""
+    try:
+        dossier = get_integration_service().get_dock_unloading_evidence_dossier(dock_name)
+        return jsonify({"success": True, "data": dossier}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/dock/auto_add/<gp_id>', methods=['POST'])
 def auto_add_step(gp_id):
@@ -2304,26 +2629,72 @@ def auto_add_step(gp_id):
 @app.route('/api/cameras', methods=['GET'])
 def get_cameras():
     cameras_data = []
+    seen_ids = set()
+    try:
+        db_cameras = db.get_all_cameras()
+        for cam in db_cameras:
+            cid = cam.get('camera_id')
+            if not cid:
+                continue
+            seen_ids.add(cid)
+            active_cam = active_cameras.get(cid)
+            events = active_cam.events if active_cam else []
+            cameras_data.append({
+                "id": cid,
+                "code": cam.get('camera_code', cid),
+                "name": cam.get('name') or cid,
+                "url": cam.get('stream_url', ''),
+                "location": cam.get('location', 'General'),
+                "type": cam.get('camera_type', 'IP Camera'),
+                "vendor": cam.get('vendor', 'Unknown'),
+                "status": cam.get('status', 'Online'),
+                "events": events
+            })
+    except Exception as e:
+        logger.warning(f"Error querying authoritative cameras for /api/cameras: {e}")
+
+    # Fallback/merge for any active in-memory cameras not found in DB
     for cam_id, cam in active_cameras.items():
-        cameras_data.append({
-            "id": cam.camera_id,
-            "name": cam.name,
-            "url": cam.url,
-            "location": cam.location,
-            "type": cam.cam_type,
-            "vendor": cam.vendor,
-            "events": cam.events
-        })
+        if cam_id not in seen_ids:
+            cameras_data.append({
+                "id": cam.camera_id,
+                "code": getattr(cam, 'code', cam.camera_id),
+                "name": cam.name,
+                "url": cam.url,
+                "location": cam.location,
+                "type": cam.cam_type,
+                "vendor": cam.vendor,
+                "status": "Online",
+                "events": cam.events
+            })
     return jsonify(cameras_data)
 
 @app.route('/api/cameras/<cam_id>/snap', methods=['POST'])
 def snap_camera(cam_id):
+    frame_bytes = None
     cam = active_cameras.get(cam_id)
-    if not cam:
-        return jsonify({"success": False, "message": "Camera not found"})
-    frame_bytes = cam.get_frame()
+    if cam:
+        frame_bytes = cam.get_frame()
+    
     if not frame_bytes:
-        return jsonify({"success": False, "message": "No frame available"})
+        bus = get_shared_frame_bus()
+        bus_frame = bus.get_latest_frame(cam_id, copy=False, max_age_seconds=5.0)
+        if bus_frame is not None:
+            ret, buf = cv2.imencode('.jpg', bus_frame)
+            if ret:
+                frame_bytes = buf.tobytes()
+
+    if not frame_bytes:
+        mgr = get_vision_runtime_manager()
+        sess = mgr.get_session(cam_id)
+        if sess:
+            frame_bytes = sess.get_latest_jpeg()
+            
+    if not frame_bytes:
+        db_cam = db.get_camera(cam_id)
+        if not db_cam and not cam:
+            return jsonify({"success": False, "message": "Camera not found"}), 404
+        return jsonify({"success": False, "message": "No frame available"}), 404
     
     photo_filename = f"captures/manual_{uuid.uuid4().hex}.jpg"
     capture_path = os.path.join(os.path.dirname(__file__), "static", photo_filename)
@@ -2336,33 +2707,42 @@ def snap_camera(cam_id):
 @app.route('/api/cameras', methods=['POST'])
 def add_camera():
     data = request.json or {}
-    cam_id = str(uuid.uuid4())[:8]
+    cam_id = data.get('camera_id') or data.get('id') or f"CAM-{str(uuid.uuid4())[:6].upper()}"
+    cam_code = data.get('code') or data.get('camera_code') or cam_id
     
     # Sync with Camera Master in SQLite
-    db.create_or_update_camera({
+    saved_cam = db.create_or_update_camera({
         'camera_id': cam_id,
-        'camera_code': data.get('code') or f"CAM-{cam_id[:4].upper()}",
-        'name': data.get('name') or f"Camera {cam_id[:4].upper()}",
+        'camera_code': cam_code,
+        'name': data.get('name') or f"Camera {cam_id}",
         'warehouse': data.get('warehouse') or 'Warehouse A',
         'location': data.get('location') or 'General',
-        'camera_type': data.get('type') or 'IP Camera',
+        'bin_id': data.get('bin_id'),
+        'camera_type': data.get('type') or data.get('camera_type') or 'IP Camera',
         'vendor': data.get('vendor') or 'Unknown',
-        'stream_url': data.get('url') or '',
+        'stream_url': data.get('url') or data.get('stream_url') or '',
         'status': 'Online'
     })
 
     new_camera = SmartCamera(
         camera_id=cam_id,
-        name=data.get('name'),
-        url=data.get('url'),
-        location=data.get('location'),
-        cam_type=data.get('type', 'IP Camera'),
+        name=data.get('name') or f"Camera {cam_id}",
+        url=data.get('url') or data.get('stream_url') or '',
+        location=data.get('location') or 'General',
+        cam_type=data.get('type') or data.get('camera_type') or 'IP Camera',
         vendor=data.get('vendor', 'Unknown')
     )
     new_camera.start()
     active_cameras[cam_id] = new_camera
+
+    # Refresh W.A.R.L.O.G. Vision Runtime Manager
+    try:
+        mgr = get_vision_runtime_manager()
+        mgr.refresh_cameras()
+    except Exception as e:
+        logger.warning(f"Could not refresh VisionRuntimeManager for new camera {cam_id}: {e}")
     
-    return jsonify({"success": True, "id": cam_id})
+    return jsonify({"success": True, "id": cam_id, "camera_id": cam_id, "camera": saved_cam})
 
 @app.route('/api/cameras/<camera_id>/frame', methods=['POST'])
 def receive_camera_frame(camera_id):
@@ -2375,14 +2755,16 @@ def receive_camera_frame(camera_id):
     if frame is None:
         return jsonify({"success": False, "message": "Failed to decode frame"}), 400
 
+    # Part 6: Single publication to SharedFrameBus feeds both Camera Junction and W.A.R.L.O.G.
+    bus_handled = get_shared_frame_bus().publish_frame(camera_id, frame, source_type="PUSH_DEVICE")
     runtime_handled = get_vision_runtime_manager().push_frame(camera_id, frame)
     legacy_handled = False
     if camera_id in active_cameras:
         active_cameras[camera_id].push_frame(frame)
         legacy_handled = True
 
-    if runtime_handled or legacy_handled:
-        return jsonify({"success": True})
+    if bus_handled or runtime_handled or legacy_handled:
+        return jsonify({"success": True, "shared_bus": True})
     return jsonify({"success": False, "message": "Camera session not active"}), 404
 
 @app.route('/api/cameras/<camera_id>', methods=['DELETE'])
@@ -2394,6 +2776,9 @@ def delete_camera(camera_id):
     sess = mgr.get_session(camera_id)
     if sess:
         sess.stop()
+    with mgr.lock:
+        mgr.sessions.pop(camera_id, None)
+    get_shared_frame_bus().clear(camera_id)
     conn = db.get_db()
     conn.execute("DELETE FROM cameras WHERE camera_id = ? OR camera_code = ?", (camera_id, camera_id))
     conn.commit()
@@ -2402,6 +2787,7 @@ def delete_camera(camera_id):
 
 def generate_frames(camera_id):
     mgr = get_vision_runtime_manager()
+    bus = get_shared_frame_bus()
     while True:
         sess = mgr.get_session(camera_id)
         if sess and sess.runtime_state.value in ("RUNNING", "DEGRADED"):
@@ -2419,6 +2805,14 @@ def generate_frames(camera_id):
             else:
                 time.sleep(0.016)
         else:
+            bus_frame = bus.get_latest_frame(camera_id, copy=False, max_age_seconds=5.0)
+            if bus_frame is not None:
+                ret, buf = cv2.imencode('.jpg', bus_frame)
+                if ret:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+                    time.sleep(0.033)
+                    continue
             time.sleep(0.1)
 
 @app.route('/video_feed/<camera_id>')
@@ -2455,7 +2849,6 @@ def get_alerts():
 # ==========================================
 # OUTBOUND FLOW LOGIC
 # ==========================================
-import uuid
 
 @app.route('/api/outbound', methods=['GET', 'POST'])
 def handle_outbound():
@@ -2630,6 +3023,160 @@ def api_integration_e2e_test_scenario():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+# ============================================================================
+# PART 13 — WMS INTEGRATION & CONTROLLED ACTIONS ENHANCEMENT
+# ============================================================================
+
+@app.route('/api/wms/controlled_actions/recommendations', methods=['GET'])
+def api_controlled_actions_recommendations():
+    """
+    Part 13: Read-only list of active AI-assisted action recommendations across
+    Dock Unloading, Putaway, Cycle Count, and Outbound Dispatch.
+    Strictly READ-ONLY. Zero database or inventory mutations.
+    """
+    try:
+        recs = get_integration_service().get_controlled_action_recommendations()
+        return jsonify({
+            "success": True,
+            "count": len(recs),
+            "recommendations": recs
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching controlled action recommendations: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/wms/controlled_actions/preview', methods=['POST'])
+def api_controlled_actions_preview():
+    """
+    Part 13: Read-only Action Preview mechanism before operator commits.
+    Evaluates authoritative WMS state, validation gates, projected state, and exact WMS operation.
+    Strictly READ-ONLY. Zero database or inventory mutations.
+    """
+    try:
+        data = request.get_json(force=True) if request.is_json or request.data else {}
+        action_type = data.get("action_type")
+        entity_id = data.get("entity_id")
+        params = data.get("params") or {}
+        
+        if not action_type or not entity_id:
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields 'action_type' or 'entity_id'"
+            }), 400
+
+        preview = get_integration_service().preview_controlled_action(action_type, entity_id, params)
+        return jsonify({
+            "success": True,
+            "preview": preview
+        }), 200
+    except Exception as e:
+        logger.error(f"Error generating controlled action preview: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/wms/controlled_actions/execute', methods=['POST'])
+def api_controlled_actions_execute():
+    """
+    Part 13: Explicit authorized WMS transaction execution endpoint.
+    Mutates WMS state ONLY with explicit operator authorization, validation gate clearance,
+    idempotency enforcement, and complete evidence snapshot auditing.
+    """
+    try:
+        data = request.get_json(force=True) if request.is_json or request.data else {}
+        action_type = data.get("action_type")
+        entity_id = data.get("entity_id")
+        params = data.get("params") or {}
+        operator_id = data.get("operator_id")
+        idempotency_key = data.get("idempotency_key")
+
+        if not action_type or not entity_id:
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields 'action_type' or 'entity_id'"
+            }), 400
+
+        if not operator_id or str(operator_id).strip() == "":
+            return jsonify({
+                "success": False,
+                "error": "Explicit operator authorization required. 'operator_id' cannot be blank."
+            }), 403
+
+        res = get_integration_service().execute_controlled_action(
+            action_type=action_type,
+            entity_id=entity_id,
+            params=params,
+            operator_id=operator_id,
+            idempotency_key=idempotency_key
+        )
+
+        status_code = 200 if res.get("success") else 400
+        return jsonify(res), status_code
+    except Exception as e:
+        logger.error(f"Error executing controlled action: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/wms/controlled_actions/reject', methods=['POST'])
+def api_controlled_actions_reject():
+    """
+    Part 13: Explicit operator rejection endpoint.
+    Prevents WMS mutation and records rejection reason in authoritative activity log.
+    """
+    try:
+        data = request.get_json(force=True) if request.is_json or request.data else {}
+        action_type = data.get("action_type")
+        entity_id = data.get("entity_id")
+        reason = data.get("reason", "Operator rejected recommendation")
+        operator_id = data.get("operator_id", "operator")
+
+        if not action_type or not entity_id:
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields 'action_type' or 'entity_id'"
+            }), 400
+
+        res = get_integration_service().reject_controlled_action(
+            action_type=action_type,
+            entity_id=entity_id,
+            reason=reason,
+            operator_id=operator_id
+        )
+        return jsonify(res), 200
+    except Exception as e:
+        logger.error(f"Error rejecting controlled action: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/wms/controlled_actions/audit', methods=['GET'])
+def api_controlled_actions_audit():
+    """
+    Part 13: Retrieves recent controlled action execution and rejection audit trail.
+    """
+    try:
+        limit = int(request.args.get("limit", 50))
+        audits = get_integration_service().get_controlled_actions_audit(limit=limit)
+        return jsonify({
+            "success": True,
+            "count": len(audits),
+            "audit_trail": audits
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching controlled action audit: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/wms/controlled_actions/status/<path:idempotency_key>', methods=['GET'])
+def api_controlled_actions_status(idempotency_key):
+    """
+    Part 13: Check execution status of an action reference key.
+    """
+    svc = get_integration_service()
+    if idempotency_key in svc._executed_actions:
+        return jsonify({"success": True, "action": svc._executed_actions[idempotency_key]}), 200
+    return jsonify({"success": False, "error": f"Action reference '{idempotency_key}' not found in execution cache"}), 404
+
+
 @app.route('/api/gate/checkout/<gp_id>', methods=['POST'])
 def checkout_gate_pass(gp_id):
     conn = db.get_db()
@@ -2788,10 +3335,23 @@ def api_vision_runtime_camera_restart(camera_id):
 
 
 @app.route('/api/vision/runtime/start', methods=['POST'])
+@app.route('/api/vision/runtime/start_all', methods=['POST'])
 def api_vision_runtime_start_all():
-    """Starts all configured vision camera sessions."""
+    """Starts all configured vision camera sessions or a specific camera if provided."""
     try:
         mgr = get_vision_runtime_manager()
+        data = request.get_json(silent=True) or {}
+        cid = data.get("camera_id") or request.args.get("camera_id")
+        if cid:
+            sess = mgr.get_session(cid)
+            if not sess:
+                return jsonify({"success": False, "error": f"Camera '{cid}' not found"}), 404
+            success = sess.start()
+            return jsonify({
+                "success": success,
+                "message": f"Camera '{cid}' started successfully." if success else f"Failed to start camera '{cid}'.",
+                "camera": sess.to_dict()
+            }), 200 if success else 500
         results = mgr.start_all()
         return jsonify({"success": True, "results": results}), 200
     except Exception as e:
@@ -2799,37 +3359,85 @@ def api_vision_runtime_start_all():
 
 
 @app.route('/api/vision/runtime/stop', methods=['POST'])
+@app.route('/api/vision/runtime/stop_all', methods=['POST'])
 def api_vision_runtime_stop_all():
-    """Gracefully halts all camera sessions."""
+    """Gracefully halts all camera sessions or a specific camera if provided."""
     try:
         mgr = get_vision_runtime_manager()
+        data = request.get_json(silent=True) or {}
+        cid = data.get("camera_id") or request.args.get("camera_id")
+        if cid:
+            sess = mgr.get_session(cid)
+            if not sess:
+                return jsonify({"success": False, "error": f"Camera '{cid}' not found"}), 404
+            success = sess.stop()
+            return jsonify({
+                "success": success,
+                "message": f"Camera '{cid}' stopped successfully." if success else f"Failed to stop camera '{cid}'.",
+                "camera": sess.to_dict()
+            }), 200
         results = mgr.stop_all()
         return jsonify({"success": True, "results": results}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/preview.jpg', methods=['GET'])
 @app.route('/api/vision/runtime/cameras/<camera_id>/preview.jpg', methods=['GET'])
-def api_vision_runtime_camera_preview_jpg(camera_id):
-    """Returns the latest annotated JPEG frame bytes from the runtime pipeline."""
+def api_vision_runtime_camera_preview_jpg(camera_id=None):
+    """Returns the latest annotated JPEG frame bytes from the runtime pipeline or SharedFrameBus."""
     mgr = get_vision_runtime_manager()
-    sess = mgr.get_session(camera_id)
-    if not sess:
-        return Response("Camera not found", status=404)
-    jpeg = sess.get_latest_jpeg()
-    if not jpeg:
-        return Response("No frame available yet", status=404)
-    return Response(jpeg, mimetype='image/jpeg')
+    cid = camera_id or request.args.get('camera_id')
+    sess = mgr.get_session(cid) if cid else None
+    if not sess and mgr.sessions:
+        sess = next(iter(mgr.sessions.values()))
+    
+    target_cid = sess.camera_id if sess else (cid or "CAM-001")
+    target_loc = sess.location if sess else "Dock 01"
+
+    if sess:
+        jpeg = sess.get_latest_jpeg()
+        if jpeg:
+            return Response(jpeg, mimetype='image/jpeg')
+    
+    # Try SharedFrameBus
+    from vision_runtime_service import SharedFrameBus
+    bus = SharedFrameBus.get_instance()
+    bus_frame = bus.get_latest_frame(target_cid, copy=False, max_age_seconds=5.0)
+    if bus_frame is not None:
+        ret, buf = cv2.imencode('.jpg', bus_frame)
+        if ret:
+            return Response(buf.tobytes(), mimetype='image/jpeg')
+    
+    # Synthetic frame fallback
+    from vision_runtime_service import TestSyntheticFrameSource
+    test_source = TestSyntheticFrameSource(target_cid, target_loc)
+    frame = test_source.read_frame()
+    if frame is not None:
+        ret, buf = cv2.imencode('.jpg', frame)
+        if ret:
+            return Response(buf.tobytes(), mimetype='image/jpeg')
+            
+    # Black fallback placeholder
+    blank = np.zeros((480, 640, 3), dtype=np.uint8)
+    cv2.putText(blank, "LIVE VISION FEED STANDBY", (140, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    ret, buf = cv2.imencode('.jpg', blank)
+    return Response(buf.tobytes(), mimetype='image/jpeg')
 
 
+@app.route('/api/vision/runtime/test_step', methods=['POST'])
 @app.route('/api/vision/runtime/cameras/<camera_id>/test_step', methods=['POST'])
-def api_vision_runtime_camera_test_step(camera_id):
+def api_vision_runtime_camera_test_step(camera_id=None):
     """Executes a single test frame through the camera's pipeline for deterministic testing."""
     try:
         mgr = get_vision_runtime_manager()
-        sess = mgr.get_session(camera_id)
+        data = request.get_json(silent=True) or {}
+        cid = camera_id or data.get('camera_id') or request.args.get('camera_id')
+        sess = mgr.get_session(cid) if cid else None
+        if not sess and mgr.sessions:
+            sess = next(iter(mgr.sessions.values()))
         if not sess:
-            return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
+            return jsonify({"success": False, "error": f"Camera '{cid}' not found"}), 404
         
         # Step synthetic frame source
         from vision_runtime_service import TestSyntheticFrameSource
@@ -2845,17 +3453,37 @@ def api_vision_runtime_camera_test_step(camera_id):
         )
         with sess.lock:
             sess.frames_processed += 1
+            sess.latest_annotated_jpeg = result.get("annotated_jpeg")
+            sess.last_processing_timestamp = result.get("timestamp")
             sess.last_context = {
                 "frame_index": result.get("frame_index"),
                 "timestamp": result.get("timestamp"),
                 "detections_count": result.get("detections_count"),
                 "tracks_count": result.get("tracks_count"),
                 "events_count": result.get("events_count"),
-                "timing": result.get("timing")
+                "truck_box_assocs": result.get("truck_box_assocs_count"),
+                "worker_box_assocs": result.get("worker_box_assocs_count"),
+                "box_bin_assocs": result.get("box_bin_assocs_count"),
+                "material_assocs": result.get("material_assocs_count"),
+                "timing": result.get("timing"),
+                "tracks": [
+                    {
+                        "track_id": t.get("track_id"),
+                        "class_name": t.get("class_name") or t.get("class_code"),
+                        "class_code": t.get("class_code") or t.get("class_name"),
+                        "confidence": round(float(t.get("confidence", 0.0)), 2),
+                        "bbox": t.get("bbox"),
+                        "identity_value": (t.get("identity") or {}).get("value") or (t.get("identity") or {}).get("identifier") or t.get("identity_value"),
+                        "validation_status": (t.get("validation") or {}).get("status") or t.get("validation_status", "NOT_APPLICABLE"),
+                        "zone": t.get("zone") or sess.location,
+                        "material_id": (t.get("identity") or {}).get("value") or t.get("material_id")
+                    }
+                    for t in (result.get("tracks") or [])[:20]
+                ]
             }
         return jsonify({
             "success": True,
-            "camera_id": camera_id,
+            "camera_id": sess.camera_id,
             "pipeline_result": {
                 "frame_index": result.get("frame_index"),
                 "timestamp": result.get("timestamp"),
@@ -2872,41 +3500,423 @@ def api_vision_runtime_camera_test_step(camera_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/api/vision/dashboard/live', methods=['GET'])
+def api_vision_dashboard_live():
+    """
+    Part 12: Unified Live Operational Dashboard Feed for W.A.R.L.O.G. AI Vision Runtime.
+    Aggregates runtime status, camera telemetry, detection/tracks, active materials,
+    movement event streams, zone occupancy, and operational exceptions in ONE efficient,
+    strictly read-only JSON payload.
+    Zero database mutations. Zero duplicate video captures or inference.
+    """
+    try:
+        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        mgr = get_vision_runtime_manager()
+        telemetry = mgr.get_telemetry()
+        cams_meta = telemetry.get("cameras", [])
+
+        # 1. Determine selected camera
+        req_cid = request.args.get('camera_id')
+        selected_sess = None
+        if req_cid:
+            selected_sess = mgr.get_session(req_cid)
+        if not selected_sess:
+            # Pick first running session, or first session overall
+            running_cams = [c for c in cams_meta if str(c.get("runtime_state")) == "RUNNING"]
+            first_cid = running_cams[0].get("camera_id") if running_cams else (cams_meta[0].get("camera_id") if cams_meta else None)
+            if first_cid:
+                selected_sess = mgr.get_session(first_cid)
+            elif mgr.sessions:
+                selected_sess = next(iter(mgr.sessions.values()))
+
+        # 2. Selected camera payload & tracks
+        selected_cam_data = None
+        formatted_tracks = []
+        if selected_sess:
+            s_dict = selected_sess.to_dict()
+            s_ctx = s_dict.get("last_context", {}) or {}
+            rois = []
+            try:
+                rois = db.get_camera_rois(selected_sess.camera_id)
+            except Exception:
+                pass
+
+            state_val = selected_sess.runtime_state.value if hasattr(selected_sess.runtime_state, "value") else str(selected_sess.runtime_state)
+
+            for t in s_ctx.get("tracks", []):
+                tr_id = t.get("track_id")
+                cls_name = t.get("class_name") or t.get("class_code") or "OBJECT"
+                conf = round(float(t.get("confidence", 0.0)), 2)
+                bb = t.get("bbox")
+                ident = t.get("identity") if isinstance(t.get("identity"), dict) else {}
+                val = t.get("validation") if isinstance(t.get("validation"), dict) else {}
+                ident_val = t.get("identity_value") or ident.get("value") or ident.get("identifier")
+                val_stat = t.get("validation_status") or val.get("status") or "NOT_APPLICABLE"
+                mat_id = t.get("material_id") or ident_val
+                zn = t.get("zone") or selected_sess.location
+                formatted_tracks.append({
+                    "track_id": tr_id,
+                    "class_name": cls_name,
+                    "class_code": cls_name,
+                    "confidence": conf,
+                    "bbox": bb,
+                    "identity_value": ident_val,
+                    "validation_status": val_stat,
+                    "identity_status": ident.get("status") or t.get("identity_status"),
+                    "zone": zn,
+                    "material_id": mat_id
+                })
+
+            selected_cam_data = {
+                "id": selected_sess.camera_id,
+                "camera_id": selected_sess.camera_id,
+                "camera_code": selected_sess.camera_code,
+                "name": selected_sess.name or selected_sess.camera_id,
+                "camera_name": selected_sess.name,
+                "location": selected_sess.location,
+                "zone": selected_sess.location or "Global",
+                "status": state_val,
+                "runtime_state": state_val,
+                "source": selected_sess.stream_url or selected_sess.camera_id,
+                "source_type": selected_sess.source_state or "SHARED BUS",
+                "source_state": selected_sess.source_state,
+                "configured_fps": selected_sess.configured_fps,
+                "actual_fps": selected_sess.actual_processing_fps,
+                "fps": round(float(selected_sess.actual_processing_fps or selected_sess.configured_fps or 0.0), 1),
+                "uptime_seconds": s_dict.get("uptime_seconds", 0.0),
+                "last_processing_timestamp": selected_sess.last_processing_timestamp,
+                "last_inference_ms": selected_sess.last_inference_ms,
+                "preview_url": f"/api/vision/runtime/cameras/{selected_sess.camera_id}/preview.jpg",
+                "tracks": formatted_tracks,
+                "detections_count": s_ctx.get("detections_count", 0),
+                "tracks_count": len(formatted_tracks),
+                "events_count": s_ctx.get("events_count", 0),
+                "rois": rois
+            }
+
+        # 3. Active Materials from MaterialTraceabilityService
+        trc_svc = get_material_traceability_service()
+        active_materials = []
+        for m_key, m_rec in trc_svc.materials.items():
+            if hasattr(m_rec, "to_dict"):
+                active_materials.append(m_rec.to_dict())
+            elif isinstance(m_rec, dict):
+                active_materials.append(m_rec)
+
+        # 4. Movement Events from MovementEventService
+        evt_svc = get_movement_event_service()
+        recent_events = evt_svc.get_recent_events(limit=25)
+        active_events = evt_svc.get_active_events()
+
+        # 5. Associations from MaterialAssociationService
+        mat_assoc_svc = get_material_association_service()
+        associations = mat_assoc_svc.get_all_associations(limit=30)
+
+        # 6. Warehouse Zones & Occupancy Matrix
+        all_zones = []
+        try:
+            all_zones = db.get_all_vision_zones()
+        except Exception:
+            pass
+
+        zone_occupancy = []
+        for z in all_zones:
+            z_code = z.get("zone_code")
+            resident_mats = [
+                m.get("material_id") for m in active_materials
+                if m.get("current_location") and m.get("current_location", {}).get("zone_code") == z_code
+            ]
+            resident_tracks = [
+                t for t in formatted_tracks if t.get("zone") == z_code
+            ]
+            track_count = len(resident_tracks)
+            is_occ = len(resident_mats) > 0 or track_count > 0
+            latest_z_evt = next((e for e in recent_events if (e.get("zone") or {}).get("zone_code") == z_code or e.get("zone") == z_code), None)
+            
+            zone_occupancy.append({
+                "zone_id": z.get("id"),
+                "zone_code": z_code,
+                "name": z.get("zone_name") or z_code,
+                "zone_name": z.get("zone_name"),
+                "type": z.get("zone_type") or "ROI",
+                "zone_type": z.get("zone_type"),
+                "warehouse": z.get("warehouse"),
+                "status": z.get("status"),
+                "is_occupied": is_occ,
+                "occupancy_count": len(resident_mats) + track_count,
+                "track_count": track_count,
+                "materials": resident_mats[:5],
+                "active_materials": resident_mats[:5],
+                "latest_activity": latest_z_evt.get("timestamp") if latest_z_evt else None,
+                "camera_count": z.get("camera_count", 0)
+            })
+
+        # 7. Operational Alerts & Exceptions
+        alerts = []
+        for c in cams_meta:
+            cid = c.get("camera_id")
+            sess = mgr.get_session(cid)
+            c_state = str(c.get("runtime_state") or "")
+            s_state = str(c.get("source_state") or "")
+            if c_state in ("DEGRADED", "ERROR"):
+                alerts.append({
+                    "id": f"CAM_HEALTH_{cid}",
+                    "code": "CAMERA_ERROR",
+                    "severity": "CRITICAL" if c_state == "ERROR" else "WARNING",
+                    "type": "CAMERA_HEALTH",
+                    "camera_id": cid,
+                    "target": cid,
+                    "message": f"Camera {cid} in {c_state} state ({s_state}).",
+                    "timestamp": now_ts
+                })
+            if sess and (sess.is_running or c_state == "RUNNING"):
+                if sess.last_frame_time and (time.time() - sess.last_frame_time > 5.0):
+                    alerts.append({
+                        "id": f"STALE_{cid}",
+                        "code": "CAMERA_STALE",
+                        "severity": "WARNING",
+                        "camera_id": cid,
+                        "type": "CAMERA_STALE",
+                        "target": cid,
+                        "message": f"Camera {cid} stream is stale (>5s without new frames).",
+                        "timestamp": now_ts
+                    })
+
+        for tr in formatted_tracks:
+            val_stat = tr.get("validation_status")
+            ident_stat = tr.get("identity_status")
+            if val_stat == "AMBIGUOUS" or ident_stat == "AMBIGUOUS" or tr.get("identity_value") == "AMBIG_TAG":
+                alerts.append({
+                    "id": f"AMBIG_{tr.get('track_id')}",
+                    "code": "AMBIGUOUS_IDENTITY",
+                    "severity": "WARNING",
+                    "type": "AMBIGUOUS_IDENTITY",
+                    "camera_id": selected_sess.camera_id if selected_sess else "",
+                    "target": f"Track #{tr.get('track_id')}",
+                    "message": f"Track #{tr.get('track_id')} has ambiguous or conflicting identity token.",
+                    "timestamp": now_ts
+                })
+            elif val_stat == "UNIDENTIFIED" or not tr.get("identity_value"):
+                alerts.append({
+                    "id": f"UNID_{tr.get('track_id')}",
+                    "code": "UNIDENTIFIED_OBJECT",
+                    "severity": "INFO",
+                    "type": "UNIDENTIFIED_OBJECT",
+                    "camera_id": selected_sess.camera_id if selected_sess else "",
+                    "target": f"Track #{tr.get('track_id')}",
+                    "message": f"Track #{tr.get('track_id')} is currently unidentified.",
+                    "timestamp": now_ts
+                })
+
+        for m in active_materials:
+            m_id = m.get("material_id")
+            if m.get("has_conflicts") or m.get("conflicts"):
+                alerts.append({
+                    "id": f"MAT_CONFLICT_{m_id}",
+                    "code": "MATERIAL_CONFLICT",
+                    "severity": "WARNING",
+                    "type": "IDENTITY_OR_DEST_CONFLICT",
+                    "target": m_id,
+                    "message": f"Material {m_id} has identity or destination conflicts requiring operator attention.",
+                    "timestamp": m.get("last_seen") or now_ts
+                })
+
+        # Format camera nodes list for frontend pills
+        formatted_cams = []
+        for c in cams_meta:
+            cid = c.get("camera_id")
+            s_state = str(c.get("runtime_state") or "STOPPED")
+            is_act = s_state == "RUNNING"
+            formatted_cams.append({
+                "id": cid,
+                "name": c.get("camera_name") or cid,
+                "status": s_state,
+                "fps": round(float(c.get("actual_fps") or c.get("configured_fps") or 0.0), 1),
+                "is_active": is_act,
+                "source": c.get("source") or cid,
+                "source_type": c.get("source_type") or "SHARED BUS",
+                "zone": c.get("location") or "Global"
+            })
+
+        active_cams_count = sum(1 for c in formatted_cams if c.get("is_active"))
+        total_cams_count = len(formatted_cams)
+        avg_fps = telemetry.get("average_processing_fps", 0.0)
+        runtime_is_active = active_cams_count > 0 or any(s.is_running for s in mgr.sessions.values())
+        occupied_zones_count = sum(1 for z in zone_occupancy if z.get("is_occupied"))
+
+        # Part 13: Controlled Action Recommendations
+        ctrl_recs = []
+        try:
+            ctrl_recs = get_integration_service().get_controlled_action_recommendations()
+        except Exception as e:
+            logger.warning(f"Error gathering controlled action recommendations: {e}")
+
+        return jsonify({
+            "success": True,
+            "timestamp": now_ts,
+            "runtime_active": runtime_is_active,
+            "active_cameras": active_cams_count,
+            "total_cameras": total_cams_count,
+            "aggregate_fps": round(avg_fps, 1),
+            "tracked_objects": sum(len((s.last_context or {}).get("tracks", [])) for s in mgr.sessions.values()) or len(formatted_tracks),
+            "active_materials_count": len(active_materials),
+            "occupied_zones": occupied_zones_count,
+            "operational_alerts": alerts,
+            "cameras": formatted_cams,
+            "selected_camera": selected_cam_data,
+            "selected_camera_tracks": formatted_tracks,
+            "active_materials": active_materials,
+            "zone_occupancy": zone_occupancy,
+            "movement_events": recent_events,
+            "associations": associations,
+            "controlled_action_recommendations": ctrl_recs,
+            # Legacy structures for backwards compatibility
+            "runtime": {
+                "status": "RUNNING" if runtime_is_active else "STANDBY",
+                "total_cameras": total_cams_count,
+                "active_cameras": active_cams_count,
+                "total_frames_processed": telemetry.get("total_frames_processed", 0),
+                "avg_fps": avg_fps,
+                "cameras": cams_meta
+            },
+            "materials": active_materials,
+            "zones": zone_occupancy,
+            "events": recent_events,
+            "active_events": active_events,
+            "alerts": alerts[:25]
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Failed to generate live dashboard summary: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/cycle_count/audit/<bin_id>', methods=['GET'])
+def audit_bin_cycle_count(bin_id):
+    """
+    Read-only W.A.R.L.O.G. AI observation and discrepancy evaluation for a storage bin.
+    Zero database mutations.
+    """
+    try:
+        service = get_cycle_count_service()
+        result = service.evaluate_bin(bin_id)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/cycle_count/audit/<bin_id>/simulate', methods=['POST'])
+def simulate_bin_cycle_count(bin_id):
+    """
+    Simulates vision evidence against authoritative WMS inventory for testing & diagnostics.
+    Zero database mutations.
+    """
+    try:
+        service = get_cycle_count_service()
+        override = request.json or {}
+        result = service.evaluate_bin(bin_id, observation_override=override)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/cycle_count/activities', methods=['GET'])
+def get_cycle_count_activities():
+    """Retrieve recent cycle count audit and adjustment logs."""
+    try:
+        limit = int(request.args.get('limit', 50))
+        activities = db.get_activities(limit=limit)
+        return jsonify({"success": True, "activities": activities}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/cycle_count', methods=['POST'])
 def run_cycle_count():
-    data = request.json
+    """
+    The authoritative, explicit operator/WMS Cycle Count action.
+    This is the ONLY path through which physical audit adjustments mutate inventory.
+    """
+    data = request.json or {}
     bin_id = data.get('bin_id')
     actual_qty = data.get('actual_qty')
+    sku_id = data.get('sku_id')
+    notes = data.get('notes', '')
     
     if bin_id is None or actual_qty is None:
-        return jsonify({"success": False, "message": "Missing bin_id or actual_qty"})
+        return jsonify({"success": False, "message": "Missing bin_id or actual_qty"}), 400
+
+    try:
+        actual_qty = int(actual_qty)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "actual_qty must be an integer"}), 400
+
+    if actual_qty < 0:
+        return jsonify({"success": False, "message": "actual_qty cannot be negative"}), 400
         
     conn = db.get_db()
     with conn:
-        # Get expected qty
-        inv = conn.execute("SELECT quantity, sku_id, vendor FROM inventory WHERE bin_id = ?", (bin_id,)).fetchone()
+        # Retrieve current WMS inventory for bin
+        inv = conn.execute("SELECT id, quantity, sku_id, vendor FROM inventory WHERE bin_id = ?", (bin_id,)).fetchone()
+        
         if not inv:
-            return jsonify({"success": False, "message": f"No inventory found in bin {bin_id}"})
-            
+            # Case: Bin currently has 0 inventory recorded in WMS
+            if actual_qty == 0:
+                db.log_activity('CYCLE_COUNT_AUDIT', bin_id, f"Audited Qty: 0 (Confirmed Empty Bin). {notes}".strip())
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "message": f"Audit complete. Bin {bin_id} confirmed empty (Qty: 0).",
+                    "discrepancy": 0,
+                    "bin_id": bin_id,
+                    "actual_qty": 0,
+                    "previous_qty": 0
+                })
+            else:
+                # Excess in empty bin: initialize inventory row with audited SKU or auto-generated SKU
+                target_sku = sku_id or "UNKNOWN-SKU"
+                conn.execute('''
+                    INSERT INTO inventory (bin_id, sku_id, quantity, vendor, received_date)
+                    VALUES (?, ?, ?, 'CYCLE_COUNT_ADJUSTMENT', CURRENT_TIMESTAMP)
+                ''', (bin_id, target_sku, actual_qty))
+                
+                discrepancy = actual_qty
+                db.log_activity('CYCLE_COUNT_AUDIT', bin_id, f"Audited Qty: {actual_qty} (Discrepancy: +{discrepancy}, New SKU: {target_sku}). {notes}".strip())
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "message": f"Audit complete. Initialized stock of {actual_qty} units ({target_sku}) in bin {bin_id}.",
+                    "discrepancy": discrepancy,
+                    "bin_id": bin_id,
+                    "actual_qty": actual_qty,
+                    "previous_qty": 0
+                })
+
         expected_qty = inv['quantity']
         discrepancy = actual_qty - expected_qty
         
         if discrepancy == 0:
-            msg = f"Audit complete. Count perfectly matches system (Qty: {actual_qty})."
+            msg = f"Audit complete. Physical count perfectly matches system (Qty: {actual_qty})."
+            db.log_activity('CYCLE_COUNT_AUDIT', bin_id, f"Audited Qty: {actual_qty} (Count Matches WMS). {notes}".strip())
         else:
-            # Update the inventory to the actual audited count
+            # Update the authoritative inventory table
             conn.execute("UPDATE inventory SET quantity = ? WHERE bin_id = ?", (actual_qty, bin_id))
             
-            # Log the discrepancy in a hypothetical audit log
-            conn.execute('''
-                INSERT INTO activities (timestamp, action, target, details)
-                VALUES (CURRENT_TIMESTAMP, 'CYCLE_COUNT_AUDIT', ?, ?)
-            ''', (bin_id, f"Audited Qty: {actual_qty} (Discrepancy: {discrepancy})"))
+            # Log the discrepancy in activities
+            delta_str = f"+{discrepancy}" if discrepancy > 0 else f"{discrepancy}"
+            db.log_activity('CYCLE_COUNT_AUDIT', bin_id, f"Audited Qty: {actual_qty} (Previous: {expected_qty}, Discrepancy: {delta_str}). {notes}".strip())
             
-            msg = f"Audit complete. Inventory adjusted. Discrepancy of {discrepancy} units recorded."
+            msg = f"Audit complete. Inventory adjusted. Discrepancy of {delta_str} units recorded."
             
     conn.close()
-    return jsonify({"success": True, "message": msg})
+    return jsonify({
+        "success": True,
+        "message": msg,
+        "discrepancy": discrepancy,
+        "bin_id": bin_id,
+        "actual_qty": actual_qty,
+        "previous_qty": expected_qty
+    })
 
 
 @app.route('/api/gate/<gp_id>/manifest', methods=['GET'])

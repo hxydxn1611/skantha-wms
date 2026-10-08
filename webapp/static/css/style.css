@@ -1005,7 +1005,12 @@
             .login-top-brand { top: 1rem; right: 1rem; }
             .login-top-brand img.login-skantha-logo { max-height: 52px; }
             .login-top-brand .login-skantha-name { font-size: 0.72rem; }
-            .app-layout { flex-direction: column; }
-            #main-header { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-light); }
+            .app-layout { flex-direction: column; overflow-y: auto; height: 100%; }
+            #main-header { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-light); padding: 0.75rem 1rem; flex-shrink: 0; }
+            #main-header .tabs { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+            #main-header .tabs .tab-btn { padding: 0.5rem 0.75rem; font-size: 0.82rem; border-radius: 6px; }
+            .container { padding: 1rem; height: auto; min-height: 0; overflow: visible; }
+            .metrics-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+            .vision-navigation-container > div { flex-direction: row; flex-wrap: wrap; gap: 6px; }
         }
     

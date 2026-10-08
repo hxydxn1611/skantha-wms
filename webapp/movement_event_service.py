@@ -26,22 +26,20 @@ Core Principles:
 
 import os
 import time
-import math
-import copy
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, List, Optional, Tuple, Union, Set
 
 import cv2
 import numpy as np
 
 # Upstream Service Singletons
-from validation_service import get_validation_service, MultiObjectValidationService
-from association_service import get_association_service, MultiObjectAssociationService
-from worker_box_association_service import get_worker_box_association_service, MultiObjectWorkerBoxAssociationService
-from box_bin_association_service import get_box_bin_association_service, MultiObjectBoxBinAssociationService
+from validation_service import get_validation_service
+from association_service import get_association_service
+from worker_box_association_service import get_worker_box_association_service
+from box_bin_association_service import get_box_bin_association_service
 from detection_service import is_point_in_polygon
 
 logger = logging.getLogger(__name__)
@@ -87,20 +85,66 @@ class EventState(str, Enum):
 
 
 class EventType(str, Enum):
-    """Strictly constrained Part 12 Event Types (Section 4)."""
-    # Zone Events
+    """Strictly constrained Part 10 & 12 Event Types."""
+    # Legacy Box Zone Events (Preserved for 100% backward compatibility)
     BOX_ENTERED_ZONE = "BOX_ENTERED_ZONE"
     BOX_EXITED_ZONE = "BOX_EXITED_ZONE"
 
-    # Association Observation Events (Candidate / Proximity)
+    # Legacy Box Association Observation Events
     BOX_NEAR_TRUCK = "BOX_NEAR_TRUCK"
     BOX_NEAR_WORKER = "BOX_NEAR_WORKER"
     BOX_NEAR_BIN = "BOX_NEAR_BIN"
 
-    # Confirmed Association Events
+    # Legacy Box Confirmed Association Events
     BOX_ASSOCIATED_WITH_TRUCK = "BOX_ASSOCIATED_WITH_TRUCK"
     BOX_ASSOCIATED_WITH_WORKER = "BOX_ASSOCIATED_WITH_WORKER"
     BOX_ASSOCIATED_WITH_BIN = "BOX_ASSOCIATED_WITH_BIN"
+
+    # Legacy Box Derived Dock Evidence Event
+    BOX_UNLOADED_AT_DOCK = "BOX_UNLOADED_AT_DOCK"
+
+    # Material-Agnostic Movement Events (Part 10 Enhancement)
+    MATERIAL_ENTERED_ZONE = "MATERIAL_ENTERED_ZONE"
+    MATERIAL_EXITED_ZONE = "MATERIAL_EXITED_ZONE"
+
+    # Material Proximity / Observation Events
+    MATERIAL_NEAR_TRUCK = "MATERIAL_NEAR_TRUCK"
+    MATERIAL_NEAR_WORKER = "MATERIAL_NEAR_WORKER"
+    MATERIAL_NEAR_BIN = "MATERIAL_NEAR_BIN"
+    MATERIAL_NEAR_CONTAINER = "MATERIAL_NEAR_CONTAINER"
+
+    # Material Confirmed Association Events
+    MATERIAL_ASSOCIATED_WITH_TRUCK = "MATERIAL_ASSOCIATED_WITH_TRUCK"
+    MATERIAL_ASSOCIATED_WITH_WORKER = "MATERIAL_ASSOCIATED_WITH_WORKER"
+    MATERIAL_ASSOCIATED_WITH_BIN = "MATERIAL_ASSOCIATED_WITH_BIN"
+    MATERIAL_ASSOCIATED_WITH_CONTAINER = "MATERIAL_ASSOCIATED_WITH_CONTAINER"
+
+    # Material Derived Dock Evidence Event
+    MATERIAL_UNLOADED_AT_DOCK = "MATERIAL_UNLOADED_AT_DOCK"
+
+    # Warehouse Stage Milestone Events
+    MATERIAL_MOVED_TO_SORTING = "MATERIAL_MOVED_TO_SORTING"
+    MATERIAL_ENTERED_STAGING = "MATERIAL_ENTERED_STAGING"
+    MATERIAL_STORED_IN_BIN = "MATERIAL_STORED_IN_BIN"
+    MATERIAL_DISPATCHED = "MATERIAL_DISPATCHED"
+
+
+# Object classes eligible for movement & association tracking
+BOX_CLASS_CODES = ("BOX", "CARTON", "PACKAGE", "CARDBOARD BOX")
+CONTAINER_CLASS_CODES = ("CONTAINER", "PALLET", "TRAY", "CRATE")
+AUTOMOTIVE_MATERIAL_CLASS_CODES = ("MATERIAL", "GLASS", "ROD", "PART", "COMPONENT", "FASTENER", "SKU")
+ALL_MATERIAL_FAMILY_CODES = tuple(set(BOX_CLASS_CODES) | set(CONTAINER_CLASS_CODES) | set(AUTOMOTIVE_MATERIAL_CLASS_CODES))
+
+TRUCK_CLASS_CODES = ("TRUCK", "CARRIER", "VEHICLE")
+WORKER_CLASS_CODES = ("WORKER", "PERSON", "OPERATOR")
+BIN_CLASS_CODES = ("BIN", "STORAGE_BIN", "TOTE", "BAY", "SLOT", "LOCATION", "STORAGE BIN / TOTE")
+
+# Vision zone types (vision_zones.zone_type) for warehouse operational stages
+DOCK_ZONE_TYPES = ("DOCK", "UNLOADING")
+SORTING_ZONE_TYPES = ("SORTING", "SORT")
+STAGING_ZONE_TYPES = ("STAGING", "STAGE", "STG")
+STORAGE_ZONE_TYPES = ("STORAGE", "BIN", "RACK")
+DISPATCH_ZONE_TYPES = ("DISPATCH", "OUTBOUND", "GATE")
 
 
 # ============================================================================
@@ -122,6 +166,7 @@ class MovementEvent:
     confidence: float = 0.0
     status: str = EventState.CANDIDATE
     event_level: str = "TRACK_LEVEL"  # "TRACK_LEVEL" or "VALIDATED_REAL_WORLD"
+    stage: Optional[str] = None       # DOCK, UNLOADING, SORTING, STAGING, STORAGE, DISPATCH
     created_frame: int = 1
     last_seen_frame: int = 1
     missed_frames: int = 0
@@ -139,6 +184,8 @@ class MovementEvent:
             "confidence": round(float(self.confidence), 4),
             "status": self.status,
             "event_level": self.event_level,
+            "stage": self.stage,
+            "blocking_reasons": self.evidence.get("blocking_reasons", []),
             "metrics": {
                 "created_frame": self.created_frame,
                 "last_seen_frame": self.last_seen_frame,
@@ -166,13 +213,27 @@ class CameraMovementEventSession:
         # Keys:
         #   Zone: ("ZONE_ENTER", box_track_id, zone_code)
         #   Assoc: ("ASSOC", assoc_type, box_track_id, other_track_id)
+        #   Stage: ("STAGE", stage_event_type, mat_track_id, zone_code)
+        #   Unload: ("UNLOAD", mat_track_id, truck_track_id, zone_code)
         self.active_events: Dict[Tuple, MovementEvent] = {}
 
         # Chronological event history (contains all generated events: CANDIDATE, ACTIVE, COMPLETED, EXPIRED, CANCELLED)
         self.event_history: List[MovementEvent] = []
 
-        # Previous zone tracking per box: box_track_id -> Optional[str]
+        # Previous zone tracking per material/box: mat_track_id -> Optional[str]
         self.box_zone_history: Dict[int, Optional[str]] = {}
+
+        # Current zone metadata per material/box (includes zone_type, used for dock-unloading evidence)
+        self.box_zone_meta: Dict[int, Optional[Dict[str, Any]]] = {}
+
+        # Material-specific dwell persistence: mat_track_id -> consecutive frames resident in current zone
+        self.material_dwell_frames: Dict[int, int] = {}
+
+        # Active custody tracking per material track ID: mat_track_id -> {entity_type: active_pair_key}
+        self.material_active_custody: Dict[int, Dict[str, Tuple]] = {}
+
+        # Last seen frame per track for bounded cleanup: track_id -> frame_index
+        self.last_seen_track_frame: Dict[int, int] = {}
 
         # Last update timestamp
         self.last_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -187,6 +248,10 @@ class CameraMovementEventSession:
         self.active_events.clear()
         self.event_history.clear()
         self.box_zone_history.clear()
+        self.box_zone_meta.clear()
+        self.material_dwell_frames.clear()
+        self.material_active_custody.clear()
+        self.last_seen_track_frame.clear()
         self.event_counter = 0
         self.frame_index = 0
         self.last_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -270,9 +335,10 @@ class CameraMovementEventSession:
             for cz in effective_zones:
                 if str(cz.get("zone_code", "")).upper() == z_code_str.upper():
                     return cz.get("zone_code"), {
-                        "zone_id": cz.get("id"),
+                        "zone_id": cz.get("zone_id") or cz.get("id"),
                         "zone_code": cz.get("zone_code"),
-                        "zone_name": cz.get("zone_name", cz.get("zone_code"))
+                        "zone_name": cz.get("zone_name", cz.get("zone_code")),
+                        "zone_type": cz.get("zone_type")
                     }
             return z_code_str, {
                 "zone_id": None,
@@ -292,16 +358,102 @@ class CameraMovementEventSession:
         if cn:
             center_dict = {"x": float(cn[0]), "y": float(cn[1])}
             for cz in effective_zones:
-                poly = cz.get("polygon")
+                # Runtime ROIs (db.get_camera_rois) carry 'coordinates'; synthetic zones carry 'polygon'
+                poly = cz.get("polygon") or cz.get("coordinates")
                 if poly and len(poly) >= 3:
                     if is_point_in_polygon(center_dict, poly):
                         return cz.get("zone_code"), {
-                            "zone_id": cz.get("id"),
+                            "zone_id": cz.get("zone_id") or cz.get("id"),
                             "zone_code": cz.get("zone_code"),
-                            "zone_name": cz.get("zone_name", cz.get("zone_code"))
+                            "zone_name": cz.get("zone_name", cz.get("zone_code")),
+                            "zone_type": cz.get("zone_type")
                         }
 
         return None, None
+
+    # ------------------------------------------------------------------------
+    # PART 10: WAREHOUSE STAGE & DOCK-UNLOADING EVIDENCE HELPERS
+    # ------------------------------------------------------------------------
+    @staticmethod
+    def _classify_warehouse_stage(zone_code: Optional[str], zone_meta: Optional[Dict[str, Any]]) -> Optional[str]:
+        """
+        Classifies a zone into standard warehouse operational movement stages:
+        DOCK, UNLOADING, SORTING, STAGING, STORAGE, DISPATCH.
+        """
+        if not zone_code and not zone_meta:
+            return None
+        z_type = str((zone_meta or {}).get("zone_type") or "").upper()
+        z_code = str(zone_code or "").upper()
+
+        if z_type in DOCK_ZONE_TYPES or any(z_code.startswith(p) for p in ("DOCK", "UNLOAD")):
+            return "UNLOADING" if "UNLOAD" in (z_type or z_code) else "DOCK"
+        if z_type in SORTING_ZONE_TYPES or any(z_code.startswith(p) for p in ("SORT", "SRT")):
+            return "SORTING"
+        if z_type in STAGING_ZONE_TYPES or any(z_code.startswith(p) for p in ("STAG", "STG")):
+            return "STAGING"
+        if z_type in STORAGE_ZONE_TYPES or any(z_code.startswith(p) for p in ("BIN", "STOR", "RCK", "RACK")):
+            return "STORAGE"
+        if z_type in DISPATCH_ZONE_TYPES or any(z_code.startswith(p) for p in ("DISP", "OUTBOUND", "GATE_OUT")):
+            return "DISPATCH"
+        return z_type or "ZONE"
+
+    @staticmethod
+    def _is_dock_zone(zone_code: Optional[str], zone_meta: Optional[Dict[str, Any]]) -> bool:
+        """
+        A zone is a dock/unloading zone when its configured vision_zones.zone_type is DOCK or UNLOADING.
+        If zone_type is unknown, falls back to zone-code convention (DOCK-xx / UNLOAD-xx).
+        """
+        if not zone_code:
+            return False
+        z_type = str((zone_meta or {}).get("zone_type") or "").upper()
+        if z_type:
+            return z_type in DOCK_ZONE_TYPES
+        code = str(zone_code).upper()
+        return code.startswith("DOCK") or code.startswith("UNLOAD")
+
+    @staticmethod
+    def _validation_of(track: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Extract Part 8 validation (status, master_id, master_type) from a validated track."""
+        val = track.get("validation") or {}
+        status = track.get("validation_status") or val.get("status")
+        master_id = val.get("master_id") or track.get("validated_master_id")
+        master_type = val.get("master_type") or track.get("validated_master_type")
+        return status, master_id, master_type
+
+    def _finalize_unloading_events(self, mat_id: int, zone_code: Optional[str], reason: str) -> None:
+        """
+        Conclude dock-unloading evidence for a material/box leaving the dock zone.
+        ACTIVE (sustained) -> COMPLETED. CANDIDATE (never sustained) -> CANCELLED.
+        """
+        for key, ev in list(self.active_events.items()):
+            if key[0] == "UNLOAD" and key[1] == mat_id and key[3] == zone_code:
+                if ev.status == EventState.ACTIVE:
+                    ev.status = EventState.COMPLETED
+                    ev.evidence["conclusion_reason"] = reason
+                else:
+                    ev.status = EventState.CANCELLED
+                    ev.evidence["conclusion_reason"] = f"{reason}_BEFORE_SUSTAINED_EVIDENCE"
+                ev.last_seen_frame = self.frame_index
+                del self.active_events[key]
+
+    def _finalize_stage_events(self, mat_id: int, zone_code: Optional[str], reason: str) -> None:
+        """
+        Conclude active warehouse stage milestone events for a material leaving a zone.
+        """
+        for key, ev in list(self.active_events.items()):
+            if key[0] == "STAGE" and key[2] == mat_id and key[3] == zone_code:
+                if ev.status == EventState.ACTIVE:
+                    ev.status = EventState.COMPLETED
+                    ev.evidence["conclusion_reason"] = reason
+                else:
+                    ev.status = EventState.CANCELLED
+                    ev.evidence["conclusion_reason"] = f"{reason}_BEFORE_CONFIRMATION"
+                ev.last_seen_frame = self.frame_index
+                del self.active_events[key]
+
+    def get_unloading_events(self) -> List[Dict[str, Any]]:
+        """All dock unloading events for this camera (any lifecycle state), chronological."""
+        return [e.to_dict() for e in self.event_history if e.event_type in (EventType.BOX_UNLOADED_AT_DOCK, EventType.MATERIAL_UNLOADED_AT_DOCK)]
 
     def update(
         self,
@@ -309,12 +461,14 @@ class CameraMovementEventSession:
         truck_box_assocs: Optional[List[Dict[str, Any]]] = None,
         worker_box_assocs: Optional[List[Dict[str, Any]]] = None,
         box_bin_assocs: Optional[List[Dict[str, Any]]] = None,
+        material_assocs: Optional[List[Dict[str, Any]]] = None,
         camera_zones: Optional[List[Dict[str, Any]]] = None,
         frame_index: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Process a single video frame / tracking step and evaluate movement events.
         Produces explainable events, deduplicates ongoing states, and handles timeout/expiration.
+        Supports material-agnostic movement (GLASS, ROD, PART, FASTENER, BOX, CONTAINER, PALLET).
         """
         if frame_index is not None:
             self.frame_index = frame_index
@@ -326,51 +480,62 @@ class CameraMovementEventSession:
         truck_box_assocs = truck_box_assocs or []
         worker_box_assocs = worker_box_assocs or []
         box_bin_assocs = box_bin_assocs or []
+        material_assocs = material_assocs or []
 
         current_frame_events: List[MovementEvent] = []
         seen_event_keys = set()
 
-        # Separate boxes from tracks
-        boxes: List[Dict[str, Any]] = []
+        # Separate materials from tracks
+        materials: List[Dict[str, Any]] = []
         all_tracks_by_id: Dict[int, Dict[str, Any]] = {}
         for t in tracks:
             t_id = int(t.get("track_id", 0))
             all_tracks_by_id[t_id] = t
+            self.last_seen_track_frame[t_id] = self.frame_index
             cls_code = str(t.get("class_code", "")).upper()
-            if cls_code in ("BOX", "CARTON", "PACKAGE", "CONTAINER", "CARDBOARD BOX"):
-                boxes.append(t)
+            if cls_code in ALL_MATERIAL_FAMILY_CODES:
+                materials.append(t)
 
-        current_box_ids = {int(b.get("track_id", 0)) for b in boxes}
+        current_mat_ids = {int(m.get("track_id", 0)) for m in materials}
 
         # --------------------------------------------------------------------
-        # STEP 1: ZONE TRANSITION EVENTS (BOX_ENTERED_ZONE, BOX_EXITED_ZONE)
+        # STEP 1: ZONE TRANSITIONS & WAREHOUSE STAGE MILESTONES
         # --------------------------------------------------------------------
-        for box in boxes:
-            box_id = int(box.get("track_id", 0))
-            current_zone_code, zone_meta = self._resolve_zone_for_track(box, camera_zones)
-            prev_zone_code = self.box_zone_history.get(box_id)
+        for mat in materials:
+            mat_id = int(mat.get("track_id", 0))
+            cls_code = str(mat.get("class_code", "BOX")).upper()
+            is_legacy_box = cls_code in BOX_CLASS_CODES
 
-            primary_desc = self._format_object_desc(box, "BOX")
+            current_zone_code, zone_meta = self._resolve_zone_for_track(mat, camera_zones)
+            prev_zone_code = self.box_zone_history.get(mat_id)
+            current_stage = self._classify_warehouse_stage(current_zone_code, zone_meta)
+
+            primary_desc = self._format_object_desc(mat, cls_code)
 
             # Check for Zone Transition
             if current_zone_code != prev_zone_code:
-                # 1. Exit Event for previous zone if box was inside one
+                # 1. Exit Event for previous zone if material was inside one
                 if prev_zone_code is not None:
-                    exit_key = ("ZONE_EXIT", box_id, prev_zone_code, self.frame_index)
+                    exit_key = ("ZONE_EXIT", mat_id, prev_zone_code, self.frame_index)
                     seen_event_keys.add(exit_key)
 
+                    # Conclude dock-unloading and stage evidence for leaving zone
+                    self._finalize_unloading_events(mat_id, prev_zone_code, f"{cls_code}_EXITED_DOCK_ZONE")
+                    self._finalize_stage_events(mat_id, prev_zone_code, f"{cls_code}_EXITED_STAGE_ZONE")
+
                     # Mark prior active enter event as COMPLETED
-                    enter_key = ("ZONE_ENTER", box_id, prev_zone_code)
+                    enter_key = ("ZONE_ENTER", mat_id, prev_zone_code)
                     if enter_key in self.active_events:
                         prior_enter = self.active_events[enter_key]
                         prior_enter.status = EventState.COMPLETED
                         prior_enter.last_seen_frame = self.frame_index
                         del self.active_events[enter_key]
 
-                    # Generate BOX_EXITED_ZONE event
+                    # Generate exit event
+                    exit_evt_type = EventType.BOX_EXITED_ZONE if is_legacy_box else EventType.MATERIAL_EXITED_ZONE
                     exit_event = MovementEvent(
                         event_id=self.generate_event_id(),
-                        event_type=EventType.BOX_EXITED_ZONE,
+                        event_type=exit_evt_type,
                         camera_id=self.camera_id,
                         timestamp=self.last_update_time,
                         primary_object=primary_desc,
@@ -394,14 +559,26 @@ class CameraMovementEventSession:
                     self.event_history.append(exit_event)
                     current_frame_events.append(exit_event)
 
-                # 2. Enter Event for current zone if box is now inside one
+                # 2. Enter Event for current zone if material is now inside one
                 if current_zone_code is not None:
-                    enter_key = ("ZONE_ENTER", box_id, current_zone_code)
+                    enter_key = ("ZONE_ENTER", mat_id, current_zone_code)
                     seen_event_keys.add(enter_key)
+                    self.material_dwell_frames[mat_id] = 1
+
+                    enter_evt_type = EventType.BOX_ENTERED_ZONE if is_legacy_box else EventType.MATERIAL_ENTERED_ZONE
+                    # Legacy BOX events start ACTIVE for backward compatibility
+                    # Enhanced generic materials: require dwell persistence (>= min_consecutive_frames) for confirmed ACTIVE, else CANDIDATE
+                    dwell = self.material_dwell_frames[mat_id]
+                    is_sustained = dwell >= self.config.min_consecutive_frames
+                    enter_status = EventState.ACTIVE if is_legacy_box else (EventState.ACTIVE if is_sustained else EventState.CANDIDATE)
+
+                    blocking = []
+                    if not is_legacy_box and not is_sustained:
+                        blocking.append(f"INSUFFICIENT_ZONE_PERSISTENCE_{dwell}_OF_{self.config.min_consecutive_frames}")
 
                     enter_event = MovementEvent(
                         event_id=self.generate_event_id(),
-                        event_type=EventType.BOX_ENTERED_ZONE,
+                        event_type=enter_evt_type,
                         camera_id=self.camera_id,
                         timestamp=self.last_update_time,
                         primary_object=primary_desc,
@@ -413,11 +590,13 @@ class CameraMovementEventSession:
                             "transition": "ENTER",
                             "zone_code": current_zone_code,
                             "spatial_containment": True,
-                            "consecutive_frames": 1
+                            "consecutive_frames": dwell,
+                            "blocking_reasons": blocking
                         },
-                        confidence=1.0,
-                        status=EventState.ACTIVE,
+                        confidence=1.0 if (is_legacy_box or is_sustained) else 0.5,
+                        status=enter_status,
                         event_level=self._determine_event_level(primary_desc),
+                        stage=current_stage,
                         created_frame=self.frame_index,
                         last_seen_frame=self.frame_index
                     )
@@ -426,26 +605,39 @@ class CameraMovementEventSession:
                     current_frame_events.append(enter_event)
 
                 # Update zone history
-                self.box_zone_history[box_id] = current_zone_code
+                self.box_zone_history[mat_id] = current_zone_code
+                self.box_zone_meta[mat_id] = zone_meta
 
             else:
-                # Box remained in the same zone (Deduplication Check)
+                # Material remained in the same zone (Deduplication Check)
                 if current_zone_code is not None:
-                    enter_key = ("ZONE_ENTER", box_id, current_zone_code)
+                    enter_key = ("ZONE_ENTER", mat_id, current_zone_code)
                     seen_event_keys.add(enter_key)
+                    dwell = self.material_dwell_frames.get(mat_id, 0) + 1
+                    self.material_dwell_frames[mat_id] = dwell
+                    is_sustained = dwell >= self.config.min_consecutive_frames
 
                     if enter_key in self.active_events:
                         # Existing active event: update in-place without generating a duplicate
                         active_ev = self.active_events[enter_key]
                         active_ev.last_seen_frame = self.frame_index
                         active_ev.missed_frames = 0
-                        active_ev.evidence["consecutive_frames"] = active_ev.evidence.get("consecutive_frames", 1) + 1
+                        active_ev.evidence["consecutive_frames"] = dwell
+                        if active_ev.status == EventState.CANDIDATE and is_sustained:
+                            active_ev.status = EventState.ACTIVE
+                            active_ev.confidence = 1.0
+                            active_ev.evidence.pop("blocking_reasons", None)
                         current_frame_events.append(active_ev)
                     else:
-                        # If not active (e.g. initial frame or re-entered), create it
+                        enter_evt_type = EventType.BOX_ENTERED_ZONE if is_legacy_box else EventType.MATERIAL_ENTERED_ZONE
+                        enter_status = EventState.ACTIVE if is_legacy_box else (EventState.ACTIVE if is_sustained else EventState.CANDIDATE)
+                        blocking = []
+                        if not is_legacy_box and not is_sustained:
+                            blocking.append(f"INSUFFICIENT_ZONE_PERSISTENCE_{dwell}_OF_{self.config.min_consecutive_frames}")
+
                         enter_event = MovementEvent(
                             event_id=self.generate_event_id(),
-                            event_type=EventType.BOX_ENTERED_ZONE,
+                            event_type=enter_evt_type,
                             camera_id=self.camera_id,
                             timestamp=self.last_update_time,
                             primary_object=primary_desc,
@@ -457,11 +649,13 @@ class CameraMovementEventSession:
                                 "transition": "ENTER",
                                 "zone_code": current_zone_code,
                                 "spatial_containment": True,
-                                "consecutive_frames": 1
+                                "consecutive_frames": dwell,
+                                "blocking_reasons": blocking
                             },
-                            confidence=1.0,
-                            status=EventState.ACTIVE,
+                            confidence=1.0 if (is_legacy_box or is_sustained) else 0.5,
+                            status=enter_status,
                             event_level=self._determine_event_level(primary_desc),
+                            stage=current_stage,
                             created_frame=self.frame_index,
                             last_seen_frame=self.frame_index
                         )
@@ -469,18 +663,173 @@ class CameraMovementEventSession:
                         self.event_history.append(enter_event)
                         current_frame_events.append(enter_event)
 
+            # Warehouse Stage Milestone Events (SORTING, STAGING, STORAGE, DISPATCH)
+            if current_zone_code is not None and current_stage in ("SORTING", "STAGING", "STORAGE", "DISPATCH"):
+                stage_event_type = None
+                if current_stage == "SORTING":
+                    stage_event_type = EventType.MATERIAL_MOVED_TO_SORTING
+                elif current_stage == "STAGING":
+                    stage_event_type = EventType.MATERIAL_ENTERED_STAGING
+                elif current_stage == "STORAGE":
+                    stage_event_type = EventType.MATERIAL_STORED_IN_BIN
+                elif current_stage == "DISPATCH":
+                    stage_event_type = EventType.MATERIAL_DISPATCHED
+
+                if stage_event_type is not None:
+                    stage_key = ("STAGE", stage_event_type, mat_id, current_zone_code)
+                    seen_event_keys.add(stage_key)
+                    dwell = self.material_dwell_frames.get(mat_id, 1)
+                    min_frames = self.config.min_consecutive_frames
+                    is_sustained = dwell >= min_frames
+
+                    blocking = []
+                    if not is_sustained:
+                        blocking.append(f"INSUFFICIENT_PERSISTENCE_FRAMES_{dwell}_OF_{min_frames}")
+
+                    stage_status = EventState.ACTIVE if is_sustained else EventState.CANDIDATE
+                    stage_ev_data = {
+                        "warehouse_stage": current_stage,
+                        "zone_code": current_zone_code,
+                        "zone_type": (zone_meta or {}).get("zone_type"),
+                        "consecutive_dwell_frames": dwell,
+                        "required_frames": min_frames,
+                        "sustained_evidence": is_sustained,
+                        "blocking_reasons": blocking
+                    }
+
+                    if stage_key in self.active_events:
+                        sev = self.active_events[stage_key]
+                        sev.last_seen_frame = self.frame_index
+                        sev.status = stage_status
+                        sev.confidence = 1.0 if is_sustained else 0.5
+                        sev.evidence.update(stage_ev_data)
+                        current_frame_events.append(sev)
+                    else:
+                        sev = MovementEvent(
+                            event_id=self.generate_event_id(),
+                            event_type=stage_event_type,
+                            camera_id=self.camera_id,
+                            timestamp=self.last_update_time,
+                            primary_object=primary_desc,
+                            secondary_object=None,
+                            zone=zone_meta or {"zone_code": current_zone_code, "zone_name": current_zone_code},
+                            evidence=stage_ev_data,
+                            confidence=1.0 if is_sustained else 0.5,
+                            status=stage_status,
+                            event_level=self._determine_event_level(primary_desc),
+                            stage=current_stage,
+                            created_frame=self.frame_index,
+                            last_seen_frame=self.frame_index
+                        )
+                        self.active_events[stage_key] = sev
+                        self.event_history.append(sev)
+                        current_frame_events.append(sev)
+
         # --------------------------------------------------------------------
-        # STEP 2: ASSOCIATION EVENTS (TRUCK, WORKER, BIN)
+        # STEP 2: ASSOCIATION EVENTS (TRUCK, WORKER, BIN, CONTAINER)
         # --------------------------------------------------------------------
+        # Consolidate Part 9 material associations into association sets
+        unified_truck_assocs = list(truck_box_assocs)
+        unified_worker_assocs = list(worker_box_assocs)
+        unified_bin_assocs = list(box_bin_assocs)
+        unified_container_assocs = []
+
+        flat_material_assocs = []
+        if isinstance(material_assocs, dict):
+            for k, v in material_assocs.items():
+                if isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, dict):
+                            it = dict(item)
+                            if "association_type" not in it:
+                                if "truck" in k.lower():
+                                    it["association_type"] = "TRUCK_MATERIAL"
+                                elif "worker" in k.lower():
+                                    it["association_type"] = "WORKER_MATERIAL"
+                                elif "bin" in k.lower():
+                                    it["association_type"] = "MATERIAL_BIN"
+                                elif "container" in k.lower():
+                                    it["association_type"] = "MATERIAL_CONTAINER"
+                            flat_material_assocs.append(it)
+                elif isinstance(v, dict):
+                    flat_material_assocs.append(dict(v))
+        elif isinstance(material_assocs, list):
+            flat_material_assocs = [m for m in material_assocs if isinstance(m, dict)]
+
+        for ma in flat_material_assocs:
+            a_type = str(ma.get("association_type", "")).upper()
+            p_id = int(ma.get("primary_track_id") or ma.get("truck_track_id") or ma.get("worker_track_id") or ma.get("bin_track_id") or ma.get("container_track_id") or 0)
+            s_id = int(ma.get("secondary_track_id") or ma.get("material_track_id") or ma.get("box_track_id") or 0)
+            p_cls = str(ma.get("primary_class", "")).upper()
+            s_cls = str(ma.get("secondary_class", "")).upper()
+            status_val = str(ma.get("status") or ma.get("association_state", "")).upper()
+
+            if a_type in ("TRUCK_MATERIAL", "TRUCK_CONTAINER") or "TRUCK" in a_type:
+                t_id = p_id if p_cls in TRUCK_CLASS_CODES or ma.get("truck_track_id") else s_id
+                m_id = s_id if p_cls in TRUCK_CLASS_CODES or ma.get("truck_track_id") else p_id
+                unified_truck_assocs.append({
+                    "truck_track_id": t_id,
+                    "box_track_id": m_id,
+                    "association_state": status_val,
+                    "association_score": ma.get("association_score", 0.0),
+                    "is_ambiguous": (ma.get("evidence") or {}).get("is_ambiguous", ma.get("is_ambiguous", False)),
+                    "evidence": ma.get("evidence") or {},
+                    "material_track_id": m_id
+                })
+            elif a_type == "WORKER_MATERIAL" or "WORKER" in a_type:
+                w_id = p_id if p_cls in WORKER_CLASS_CODES or ma.get("worker_track_id") else s_id
+                m_id = s_id if p_cls in WORKER_CLASS_CODES or ma.get("worker_track_id") else p_id
+                unified_worker_assocs.append({
+                    "worker_track_id": w_id,
+                    "box_track_id": m_id,
+                    "association_state": status_val,
+                    "association_score": ma.get("association_score", 0.0),
+                    "is_ambiguous": (ma.get("evidence") or {}).get("is_ambiguous", ma.get("is_ambiguous", False)),
+                    "evidence": ma.get("evidence") or {},
+                    "material_track_id": m_id
+                })
+            elif a_type == "MATERIAL_BIN" or "BIN" in a_type:
+                b_id = s_id if s_cls in BIN_CLASS_CODES or ma.get("bin_track_id") else p_id
+                m_id = p_id if s_cls in BIN_CLASS_CODES or ma.get("bin_track_id") else s_id
+                unified_bin_assocs.append({
+                    "bin_track_id": b_id,
+                    "box_track_id": m_id,
+                    "association_state": status_val,
+                    "association_score": ma.get("association_score", 0.0),
+                    "is_ambiguous": (ma.get("evidence") or {}).get("is_ambiguous", ma.get("is_ambiguous", False)),
+                    "evidence": ma.get("evidence") or {},
+                    "material_track_id": m_id
+                })
+            elif a_type == "MATERIAL_CONTAINER" or "CONTAINER" in a_type:
+                c_id = p_id if p_cls in CONTAINER_CLASS_CODES or ma.get("container_track_id") else s_id
+                m_id = s_id if p_cls in CONTAINER_CLASS_CODES or ma.get("container_track_id") else p_id
+                unified_container_assocs.append({
+                    "container_track_id": c_id,
+                    "box_track_id": m_id,
+                    "association_state": status_val,
+                    "association_score": ma.get("association_score", 0.0),
+                    "is_ambiguous": (ma.get("evidence") or {}).get("is_ambiguous", ma.get("is_ambiguous", False)),
+                    "evidence": ma.get("evidence") or {},
+                    "material_track_id": m_id
+                })
+
         association_sets = [
-            ("TRUCK", truck_box_assocs, EventType.BOX_NEAR_TRUCK, EventType.BOX_ASSOCIATED_WITH_TRUCK, "truck_track_id"),
-            ("WORKER", worker_box_assocs, EventType.BOX_NEAR_WORKER, EventType.BOX_ASSOCIATED_WITH_WORKER, "worker_track_id"),
-            ("BIN", box_bin_assocs, EventType.BOX_NEAR_BIN, EventType.BOX_ASSOCIATED_WITH_BIN, "bin_track_id")
+            ("TRUCK", unified_truck_assocs, "truck_track_id"),
+            ("WORKER", unified_worker_assocs, "worker_track_id"),
+            ("BIN", unified_bin_assocs, "bin_track_id"),
+            ("CONTAINER", unified_container_assocs, "container_track_id")
         ]
 
-        for assoc_type, assocs_list, near_event_type, confirmed_event_type, other_id_key in association_sets:
+        current_frame_assoc_keys = set()
+        for a_type, a_list, oid_key in association_sets:
+            for a in a_list:
+                m_id = int(a.get("box_track_id") or a.get("material_track_id", 0))
+                o_id = int(a.get(oid_key, 0))
+                current_frame_assoc_keys.add(("ASSOC", a_type, m_id, o_id))
+
+        for assoc_type, assocs_list, other_id_key in association_sets:
             for assoc in assocs_list:
-                box_id = int(assoc.get("box_track_id", 0))
+                mat_id = int(assoc.get("box_track_id") or assoc.get("material_track_id", 0))
                 other_id = int(assoc.get(other_id_key, 0))
                 status = str(assoc.get("status") or assoc.get("association_state", "")).upper()
                 assoc_score = float(assoc.get("association_score", 0.0))
@@ -488,10 +837,10 @@ class CameraMovementEventSession:
                 is_ambiguous = bool(assoc.get("is_ambiguous", False) or ev_data.get("is_ambiguous", False))
 
                 # Retrieve raw track metadata or build from association dict
-                box_track = all_tracks_by_id.get(box_id) or {
-                    "track_id": box_id,
-                    "class_code": "BOX",
-                    "identity": assoc.get("box_identity") or {}
+                mat_track = all_tracks_by_id.get(mat_id) or {
+                    "track_id": mat_id,
+                    "class_code": "MATERIAL",
+                    "identity": assoc.get("box_identity") or assoc.get("material_identity") or {}
                 }
                 other_track = all_tracks_by_id.get(other_id) or {
                     "track_id": other_id,
@@ -499,18 +848,56 @@ class CameraMovementEventSession:
                     "identity": assoc.get(f"{assoc_type.lower()}_identity") or {}
                 }
 
-                primary_desc = self._format_object_desc(box_track, "BOX")
+                mat_cls = str(mat_track.get("class_code", "BOX")).upper()
+                is_box = mat_cls in BOX_CLASS_CODES
+
+                # Determine Event Types (preserve BOX_* when material is a box)
+                if assoc_type == "TRUCK":
+                    near_event_type = EventType.BOX_NEAR_TRUCK if is_box else EventType.MATERIAL_NEAR_TRUCK
+                    confirmed_event_type = EventType.BOX_ASSOCIATED_WITH_TRUCK if is_box else EventType.MATERIAL_ASSOCIATED_WITH_TRUCK
+                elif assoc_type == "WORKER":
+                    near_event_type = EventType.BOX_NEAR_WORKER if is_box else EventType.MATERIAL_NEAR_WORKER
+                    confirmed_event_type = EventType.BOX_ASSOCIATED_WITH_WORKER if is_box else EventType.MATERIAL_ASSOCIATED_WITH_WORKER
+                elif assoc_type == "BIN":
+                    near_event_type = EventType.BOX_NEAR_BIN if is_box else EventType.MATERIAL_NEAR_BIN
+                    confirmed_event_type = EventType.BOX_ASSOCIATED_WITH_BIN if is_box else EventType.MATERIAL_ASSOCIATED_WITH_BIN
+                elif assoc_type == "CONTAINER":
+                    near_event_type = EventType.MATERIAL_NEAR_CONTAINER
+                    confirmed_event_type = EventType.MATERIAL_ASSOCIATED_WITH_CONTAINER
+                else:
+                    continue
+
+                primary_desc = self._format_object_desc(mat_track, mat_cls)
                 secondary_desc = self._format_object_desc(other_track, assoc_type)
                 event_level = self._determine_event_level(primary_desc, secondary_desc)
 
                 zone_code = ev_data.get("box_zone") or ev_data.get("zone")
                 zone_meta = {"zone_code": zone_code, "zone_name": zone_code} if zone_code else None
 
-                pair_key = ("ASSOC", assoc_type, box_id, other_id)
+                pair_key = ("ASSOC", assoc_type, mat_id, other_id)
                 seen_event_keys.add(pair_key)
 
                 # Case A: CONFIRMED Association Event
                 if status == "CONFIRMED" and not is_ambiguous:
+                    # Custody Handoff (Requirement 12): Material custody transfers to new entity when prior entity is absent
+                    if mat_id not in self.material_active_custody:
+                        self.material_active_custody[mat_id] = {}
+
+                    for prior_type, prior_key in list(self.material_active_custody[mat_id].items()):
+                        if prior_type != assoc_type and prior_key in self.active_events:
+                            if prior_key not in current_frame_assoc_keys:
+                                prior_ev = self.active_events[prior_key]
+                                if prior_ev.status == EventState.ACTIVE:
+                                    prior_ev.status = EventState.COMPLETED
+                                    prior_ev.evidence["conclusion_reason"] = f"CUSTODY_HANDOFF_TO_{assoc_type}"
+                                    prior_ev.evidence["handoff_to_track_id"] = other_id
+                                    prior_ev.evidence["handoff_to_type"] = assoc_type
+                                    prior_ev.last_seen_frame = self.frame_index
+                                    del self.active_events[prior_key]
+                                    del self.material_active_custody[mat_id][prior_type]
+
+                    self.material_active_custody[mat_id][assoc_type] = pair_key
+
                     if pair_key in self.active_events:
                         active_ev = self.active_events[pair_key]
                         # If already confirmed, update in-place (DEDUPLICATION)
@@ -528,7 +915,6 @@ class CameraMovementEventSession:
                         else:
                             # Transition from NEAR candidate to CONFIRMED
                             active_ev.status = EventState.COMPLETED
-                            # Create new confirmed event instance
                             new_event = MovementEvent(
                                 event_id=self.generate_event_id(),
                                 event_type=confirmed_event_type,
@@ -557,7 +943,6 @@ class CameraMovementEventSession:
                             self.event_history.append(new_event)
                             current_frame_events.append(new_event)
                     else:
-                        # First time confirmed event instance
                         new_event = MovementEvent(
                             event_id=self.generate_event_id(),
                             event_type=confirmed_event_type,
@@ -593,7 +978,6 @@ class CameraMovementEventSession:
                         active_ev.last_seen_frame = self.frame_index
                         active_ev.missed_frames = 0
                         active_ev.confidence = assoc_score
-                        # If previously confirmed but now ambiguous or candidate, revert status
                         active_ev.status = EventState.CANDIDATE
                         active_ev.evidence.update({
                             "is_ambiguous": is_ambiguous,
@@ -642,12 +1026,158 @@ class CameraMovementEventSession:
                         del self.active_events[pair_key]
 
         # --------------------------------------------------------------------
+        # STEP 2b: DERIVED DOCK-UNLOADING EVIDENCE (BOX / MATERIAL)
+        # --------------------------------------------------------------------
+        min_frames = self.config.min_consecutive_frames
+        for assoc in unified_truck_assocs:
+            mat_id = int(assoc.get("box_track_id") or assoc.get("material_track_id", 0))
+            truck_id = int(assoc.get("truck_track_id", 0))
+            mat_track = all_tracks_by_id.get(mat_id)
+            truck_track = all_tracks_by_id.get(truck_id)
+
+            if not mat_track or not truck_track:
+                continue
+
+            mat_cls = str(mat_track.get("class_code", "")).upper()
+            if mat_cls not in ALL_MATERIAL_FAMILY_CODES:
+                continue
+            if str(truck_track.get("class_code", "")).upper() not in TRUCK_CLASS_CODES:
+                continue
+
+            zone_code = self.box_zone_history.get(mat_id)
+            zone_meta = self.box_zone_meta.get(mat_id)
+            if not self._is_dock_zone(zone_code, zone_meta):
+                continue
+
+            is_legacy_box = mat_cls in BOX_CLASS_CODES
+            unload_event_type = EventType.BOX_UNLOADED_AT_DOCK if is_legacy_box else EventType.MATERIAL_UNLOADED_AT_DOCK
+
+            a_status = str(assoc.get("status") or assoc.get("association_state", "")).upper()
+            a_ev = assoc.get("evidence") or {}
+            a_ambiguous = bool(assoc.get("is_ambiguous", False) or a_ev.get("is_ambiguous", False))
+            a_score = float(assoc.get("association_score", 0.0))
+            unload_key = ("UNLOAD", mat_id, truck_id, zone_code)
+
+            if a_status == "REJECTED":
+                if unload_key in self.active_events:
+                    rej = self.active_events.pop(unload_key)
+                    rej.status = EventState.CANCELLED
+                    rej.last_seen_frame = self.frame_index
+                    rej.evidence["conclusion_reason"] = "TRUCK_MATERIAL_ASSOCIATION_REJECTED"
+                continue
+            if a_status not in ("CONFIRMED", "CANDIDATE") and not a_ambiguous:
+                continue
+
+            has_identity = bool(
+                mat_track.get("identity_id") or mat_track.get("identity") or mat_track.get("validation_status") or
+                truck_track.get("identity_id") or truck_track.get("identity") or truck_track.get("validation_status")
+            )
+            if a_status != "CONFIRMED" and not a_ambiguous and not has_identity:
+                continue
+
+            seen_event_keys.add(unload_key)
+
+            zone_ev = self.active_events.get(("ZONE_ENTER", mat_id, zone_code))
+            dock_dwell = int(zone_ev.evidence.get("consecutive_frames", 1)) if zone_ev else self.material_dwell_frames.get(mat_id, 0)
+            assoc_ev = self.active_events.get(("ASSOC", "TRUCK", mat_id, truck_id))
+            assoc_frames = a_ev.get("consecutive_frames")
+            if assoc_frames is None and assoc_ev is not None:
+                assoc_frames = self.frame_index - assoc_ev.created_frame + 1
+
+            mat_vs, mat_mid, _ = self._validation_of(mat_track)
+            trk_vs, trk_mid, trk_mtype = self._validation_of(truck_track)
+            primary_desc = self._format_object_desc(mat_track, mat_cls)
+            secondary_desc = self._format_object_desc(truck_track, "TRUCK")
+            mat_vs = mat_vs or primary_desc.get("validation_status")
+            trk_vs = trk_vs or secondary_desc.get("validation_status")
+
+            blocking = []
+            if a_status != "CONFIRMED":
+                blocking.append("TRUCK_MATERIAL_ASSOCIATION_NOT_CONFIRMED")
+            if a_ambiguous:
+                blocking.append("TRUCK_MATERIAL_ASSOCIATION_AMBIGUOUS")
+            if dock_dwell < min_frames:
+                blocking.append("INSUFFICIENT_DOCK_ZONE_PERSISTENCE")
+            if mat_vs != "VALIDATED":
+                blocking.append(f"MATERIAL_IDENTITY_{(mat_vs or 'UNVALIDATED').upper()}")
+            if trk_vs != "VALIDATED":
+                blocking.append(f"TRUCK_IDENTITY_{(trk_vs or 'UNVALIDATED').upper()}")
+
+            sustained = len(blocking) == 0
+            new_state = EventState.ACTIVE if sustained else EventState.CANDIDATE
+            unload_evidence = {
+                "derived_from": ["ZONE_ENTER", "TRUCK_ASSOCIATION"],
+                "zone_event_id": zone_ev.event_id if zone_ev else None,
+                "association_event_id": assoc_ev.event_id if assoc_ev else None,
+                "dock_zone_code": zone_code,
+                "dock_zone_type": (zone_meta or {}).get("zone_type"),
+                "association_state": a_status,
+                "association_score": round(a_score, 4),
+                "is_ambiguous": a_ambiguous,
+                "competing_ids": a_ev.get("competing_truck_ids") or [],
+                "association_consecutive_frames": assoc_frames,
+                "dock_zone_dwell_frames": dock_dwell,
+                "required_persistence_frames": min_frames,
+                "material_validation_status": mat_vs,
+                "material_master_id": mat_mid,
+                "truck_validation_status": trk_vs,
+                "truck_master_id": trk_mid,
+                "truck_master_type": trk_mtype,
+                "truck_identity": secondary_desc.get("identity_id"),
+                "sustained_evidence": sustained,
+                "blocking_reasons": blocking,
+                "wms_transaction": "NONE",
+                "governance_note": "Perception evidence only. Does not alter inventory, SKU, PO or Gate Pass records."
+            }
+
+            if unload_key in self.active_events:
+                u_ev = self.active_events[unload_key]
+                u_ev.status = new_state
+                u_ev.confidence = a_score
+                u_ev.last_seen_frame = self.frame_index
+                u_ev.missed_frames = 0
+                u_ev.primary_object = primary_desc
+                u_ev.secondary_object = secondary_desc
+                u_ev.event_level = self._determine_event_level(primary_desc, secondary_desc)
+                u_ev.evidence.update(unload_evidence)
+            else:
+                u_ev = MovementEvent(
+                    event_id=self.generate_event_id(),
+                    event_type=unload_event_type,
+                    camera_id=self.camera_id,
+                    timestamp=self.last_update_time,
+                    primary_object=primary_desc,
+                    secondary_object=secondary_desc,
+                    zone=zone_meta or {"zone_code": zone_code, "zone_name": zone_code},
+                    evidence=unload_evidence,
+                    confidence=a_score,
+                    status=new_state,
+                    event_level=self._determine_event_level(primary_desc, secondary_desc),
+                    stage="UNLOADING",
+                    created_frame=self.frame_index,
+                    last_seen_frame=self.frame_index
+                )
+                self.active_events[unload_key] = u_ev
+                self.event_history.append(u_ev)
+            if sustained and "activated_frame" not in u_ev.evidence:
+                u_ev.evidence["activated_frame"] = self.frame_index
+            current_frame_events.append(u_ev)
+
+        # --------------------------------------------------------------------
         # STEP 3: TIMEOUT, EXPIRATION & DEPARTURE MANAGEMENT
         # --------------------------------------------------------------------
         for key, event in list(self.active_events.items()):
             if key not in seen_event_keys:
-                if event.event_type == EventType.BOX_EXITED_ZONE:
+                if event.event_type in (EventType.BOX_EXITED_ZONE, EventType.MATERIAL_EXITED_ZONE):
                     event.status = EventState.COMPLETED
+                    del self.active_events[key]
+                elif (key[0] == "UNLOAD" and event.status == EventState.ACTIVE
+                      and key[1] in current_mat_ids and self.box_zone_history.get(key[1]) == key[3]):
+                    # Sustained unloading evidence and the material is still visible in dock zone
+                    # but no longer associated with the truck -> separated from truck: COMPLETED.
+                    event.status = EventState.COMPLETED
+                    event.last_seen_frame = self.frame_index
+                    event.evidence["conclusion_reason"] = "MATERIAL_SEPARATED_FROM_TRUCK_IN_DOCK_ZONE"
                     del self.active_events[key]
                 else:
                     event.missed_frames += 1
@@ -655,6 +1185,16 @@ class CameraMovementEventSession:
                         # Timeout exceeded -> Transition to EXPIRED
                         event.status = EventState.EXPIRED
                         del self.active_events[key]
+
+        # Bounded Memory Cleanup for departed tracks (Requirement 18)
+        stale_threshold = self.config.event_timeout_frames * 2
+        for tid in list(self.last_seen_track_frame.keys()):
+            if (self.frame_index - self.last_seen_track_frame[tid]) > stale_threshold:
+                self.box_zone_history.pop(tid, None)
+                self.box_zone_meta.pop(tid, None)
+                self.material_dwell_frames.pop(tid, None)
+                self.material_active_custody.pop(tid, None)
+                self.last_seen_track_frame.pop(tid, None)
 
         # Cap history list to max configured size
         if len(self.event_history) > self.config.max_history_events:
@@ -696,6 +1236,11 @@ class MultiObjectMovementEventService:
         self.truck_box_service = get_association_service()
         self.worker_box_service = get_worker_box_association_service()
         self.box_bin_service = get_box_bin_association_service()
+        try:
+            from material_association_service import get_material_association_service
+            self.material_assoc_service = get_material_association_service()
+        except ImportError:
+            self.material_assoc_service = None
 
         logger.info("MultiObjectMovementEventService initialized successfully.")
 
@@ -745,20 +1290,131 @@ class MultiObjectMovementEventService:
         }
         return {
             "status": "healthy",
-            "service": "Warehouse Movement Event Detection Foundation (Part 12)",
+            "service": "Warehouse Movement Event Detection Foundation (Part 10 & 12)",
             "config": self.config.to_dict(),
             "database_access": "ZERO-WRITES (Strictly In-Memory)",
             "active_camera_sessions": active_cams,
-            "supported_event_types": [
-                EventType.BOX_ENTERED_ZONE,
-                EventType.BOX_EXITED_ZONE,
-                EventType.BOX_NEAR_TRUCK,
-                EventType.BOX_NEAR_WORKER,
-                EventType.BOX_NEAR_BIN,
-                EventType.BOX_ASSOCIATED_WITH_TRUCK,
-                EventType.BOX_ASSOCIATED_WITH_WORKER,
-                EventType.BOX_ASSOCIATED_WITH_BIN
-            ]
+            "supported_event_types": [e.value for e in EventType]
+        }
+
+    def get_dock_unloading_evidence(
+        self,
+        camera_ids: Optional[List[str]] = None,
+        zone_code: Optional[str] = None,
+        include_candidates: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Part 4: Read-only aggregation of dock-unloading evidence across camera sessions.
+        Optionally filtered by camera ids and dock zone code. Never writes to any store.
+        """
+        results: List[Dict[str, Any]] = []
+        target_zone = str(zone_code).upper() if zone_code else None
+        for cam_id, sess in list(self.sessions.items()):
+            if camera_ids is not None and cam_id not in camera_ids:
+                continue
+            for ev in sess.get_unloading_events():
+                ev_zone = str((ev.get("zone") or {}).get("zone_code") or "").upper()
+                if target_zone and ev_zone != target_zone:
+                    continue
+                if not include_candidates and ev.get("status") == EventState.CANDIDATE.value:
+                    continue
+                results.append(ev)
+        return results
+
+    def get_recent_events(
+        self,
+        limit: int = 50,
+        camera_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Part 12: Read-only aggregation of recent movement events across all active camera sessions.
+        Ordered chronologically descending. Strictly in-memory and bounded. Zero database writes.
+        """
+        all_events: List[Dict[str, Any]] = []
+        for cid, sess in list(self.sessions.items()):
+            if camera_id and cid != camera_id:
+                continue
+            for ev in sess.event_history:
+                all_events.append(ev.to_dict())
+        all_events.sort(key=lambda x: str(x.get("timestamp") or ""), reverse=True)
+        return all_events[:limit]
+
+    def get_active_events(
+        self,
+        camera_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Part 12: Returns currently ongoing active events across camera sessions.
+        """
+        active_list: List[Dict[str, Any]] = []
+        for cid, sess in list(self.sessions.items()):
+            if camera_id and cid != camera_id:
+                continue
+            for ev in sess.active_events.values():
+                active_list.append(ev.to_dict())
+        return active_list
+
+    def get_cross_camera_material_timeline(
+        self,
+        material_id: str,
+        include_candidates: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Cross-camera continuity query conforming to Requirements 8, 9, 10, 11:
+        1. NO visual cross-camera Re-ID (Strictly explicit physical identity).
+        2. Aggregates explainable events across camera sessions strictly by validated identity.
+        3. Identifies and isolates ambiguous/conflicting identities.
+        """
+        target_id = str(material_id).strip().upper()
+        matched_events: List[Dict[str, Any]] = []
+        observed_cameras: Set[str] = set()
+        conflicts: List[Dict[str, Any]] = []
+
+        for cam_id, session in self.sessions.items():
+            for ev in session.event_history:
+                primary = ev.primary_object or {}
+                ident_id = str(primary.get("identity_id") or primary.get("validated_master_id") or "").strip().upper()
+                if ident_id != target_id:
+                    continue
+
+                ident_status = str(primary.get("identity_status") or "").upper()
+                val_status = str(primary.get("validation_status") or "").upper()
+                is_ambig = bool(ev.evidence.get("is_ambiguous", False) or ident_status in ("AMBIGUOUS", "CONFLICT"))
+
+                # Strict Requirement 11: Do not create false material movement history on ambiguous/conflicting identity
+                if is_ambig:
+                    conflicts.append({
+                        "event_id": ev.event_id,
+                        "camera_id": cam_id,
+                        "timestamp": ev.timestamp,
+                        "event_type": ev.event_type,
+                        "identity_status": ident_status,
+                        "reason": ev.evidence.get("ambiguity_reason", "AMBIGUOUS_OR_CONFLICTING_IDENTITY")
+                    })
+                    continue
+
+                # Filter out candidates if not requested
+                if not include_candidates and ev.status == EventState.CANDIDATE.value:
+                    continue
+
+                observed_cameras.add(cam_id)
+                matched_events.append(ev.to_dict())
+
+        # Sort chronologically by timestamp / created_frame
+        matched_events.sort(key=lambda x: (x.get("timestamp", ""), x.get("metrics", {}).get("created_frame", 0)))
+
+        return {
+            "success": True,
+            "material_id": material_id,
+            "cross_camera_continuity_method": "EXPLICIT_PHYSICAL_IDENTITY",
+            "visual_reid_used": False,
+            "governance_note": "Cross-camera continuity strictly relies on validated barcode/QR/OCR identity without visual Re-ID embeddings.",
+            "total_events": len(matched_events),
+            "observed_cameras": sorted(list(observed_cameras)),
+            "cameras_visited": sorted(list(observed_cameras)),
+            "has_conflicts": len(conflicts) > 0,
+            "conflicting_events_isolated": conflicts,
+            "timeline": matched_events
         }
 
     def _load_camera_zones(self, camera_id: str) -> List[Dict[str, Any]]:
@@ -787,6 +1443,7 @@ class MultiObjectMovementEventService:
         truck_box_assocs: Optional[List[Dict[str, Any]]] = None,
         worker_box_assocs: Optional[List[Dict[str, Any]]] = None,
         box_bin_assocs: Optional[List[Dict[str, Any]]] = None,
+        material_assocs: Optional[List[Dict[str, Any]]] = None,
         camera_id: str = "CAM-001",
         frame_index: Optional[int] = None,
         camera_zones: Optional[List[Dict[str, Any]]] = None
@@ -805,6 +1462,7 @@ class MultiObjectMovementEventService:
             truck_box_assocs=truck_box_assocs,
             worker_box_assocs=worker_box_assocs,
             box_bin_assocs=box_bin_assocs,
+            material_assocs=material_assocs,
             camera_zones=camera_zones,
             frame_index=frame_index
         )
@@ -840,10 +1498,12 @@ class MultiObjectMovementEventService:
             tb = truck_box_assocs
             wb = worker_box_assocs
             bb = box_bin_assocs
+            ma = kwargs.get("material_assocs")
             if associations and isinstance(associations, dict):
                 tb = associations.get("truck_associations") or associations.get("truck_box_assocs") or tb
                 wb = associations.get("worker_associations") or associations.get("worker_box_assocs") or wb
                 bb = associations.get("bin_associations") or associations.get("box_bin_assocs") or bb
+                ma = associations.get("material_associations") or associations.get("material_assocs") or ma
 
             session = self.get_session(actual_cam)
             if camera_zones is None:
@@ -854,6 +1514,7 @@ class MultiObjectMovementEventService:
                 truck_box_assocs=tb,
                 worker_box_assocs=wb,
                 box_bin_assocs=bb,
+                material_assocs=ma,
                 camera_zones=camera_zones,
                 frame_index=frame_index
             )
@@ -903,7 +1564,17 @@ class MultiObjectMovementEventService:
             camera_zones=camera_zones
         )
 
-        # Step 5: Part 12 Movement Event Detection
+        # Step 4b: Part 9 Material-Agnostic Associations
+        ma_assocs = []
+        ma_ms = 0.0
+        if self.material_assoc_service:
+            ma_assocs, ma_ms = self.material_assoc_service.process_tracks(
+                tracks=tracks,
+                camera_id=camera_id,
+                camera_zones=camera_zones
+            )
+
+        # Step 5: Movement Event Detection
         t_event_start = time.perf_counter()
         session = self.get_session(camera_id)
         event_res = session.update(
@@ -911,6 +1582,7 @@ class MultiObjectMovementEventService:
             truck_box_assocs=tb_assocs,
             worker_box_assocs=wb_assocs,
             box_bin_assocs=bb_assocs,
+            material_assocs=ma_assocs,
             camera_zones=camera_zones
         )
         event_ms = round((time.perf_counter() - t_event_start) * 1000.0, 2)
@@ -948,7 +1620,7 @@ class MultiObjectMovementEventService:
                 "tracking_ms": upstream_perf.get("tracking_ms", 0.0),
                 "identity_ms": upstream_perf.get("identity_ms", 0.0),
                 "validation_ms": upstream_perf.get("validation_ms", 0.0),
-                "association_ms": round(tb_ms + wb_ms + bb_ms, 2),
+                "association_ms": round(tb_ms + wb_ms + bb_ms + ma_ms, 2),
                 "event_ms": event_ms,
                 "total_ms": total_ms
             }
@@ -969,7 +1641,7 @@ class MultiObjectMovementEventService:
         Executes frame sequence to demonstrate state transitions, deduplication, and expiration.
         """
         history = []
-        session = self.get_session(camera_id)
+        self.get_session(camera_id)
 
         if synthetic_sequence:
             camera_zones = self._load_camera_zones(camera_id)
@@ -985,12 +1657,14 @@ class MultiObjectMovementEventService:
                 tb = frame_data.get("truck_box_assocs", [])
                 wb = frame_data.get("worker_box_assocs", [])
                 bb = frame_data.get("box_bin_assocs", [])
+                ma = frame_data.get("material_assocs", [])
 
                 res, ev_ms = self.process_events(
                     tracks=tracks,
                     truck_box_assocs=tb,
                     worker_box_assocs=wb,
                     box_bin_assocs=bb,
+                    material_assocs=ma,
                     camera_id=camera_id,
                     frame_index=idx,
                     camera_zones=camera_zones
@@ -1067,89 +1741,183 @@ class MultiObjectMovementEventService:
         """
         self.reset_session(camera_id)
         session = self.get_session(camera_id)
-        dock_zone = [{
-            "id": 18,
-            "zone_code": "DOCK-01",
-            "zone_name": "Dock 01",
-            "polygon": [{"x": 0.20, "y": 0.20}, {"x": 0.85, "y": 0.20}, {"x": 0.85, "y": 0.85}, {"x": 0.20, "y": 0.85}]
-        }]
 
-        frames_data = [
-            # Frame 1: Box outside Dock 1
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.05, 0.05], "bbox": [0.02, 0.02, 0.08, 0.08], "identity_id": "B104", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {}
-            },
-            # Frame 2: Box approaching Dock 1
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.15, 0.15], "bbox": [0.12, 0.12, 0.18, 0.18], "identity_id": "B104", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {}
-            },
-            # Frame 3: Box enters Dock 1 -> BOX_ENTERED_ZONE
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.50, 0.50], "bbox": [0.46, 0.46, 0.54, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {}
-            },
-            # Frame 4: Box remains inside Dock 1 -> Deduplicated
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.52, 0.50], "bbox": [0.48, 0.46, 0.56, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {}
-            },
-            # Frame 5: Box associated with Truck T1 -> BOX_ASSOCIATED_WITH_TRUCK
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.55, 0.50], "bbox": [0.50, 0.46, 0.60, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"},
-                    {"track_id": 4, "class_code": "TRUCK", "center": [0.60, 0.50], "bbox": [0.40, 0.30, 0.80, 0.70], "identity_id": "GP-1000", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {
-                    "truck_associations": [{
-                        "truck_track_id": 4, "box_track_id": 104, "association_state": "CONFIRMED",
-                        "association_score": 0.92, "is_ambiguous": False
-                    }]
+        if sequence_name == "automotive_warehouse_flow":
+            zones_to_use = [
+                {
+                    "id": 1,
+                    "zone_code": "DOCK-01",
+                    "zone_name": "Dock 01",
+                    "zone_type": "DOCK",
+                    "polygon": [{"x": 0.05, "y": 0.05}, {"x": 0.35, "y": 0.05}, {"x": 0.35, "y": 0.40}, {"x": 0.05, "y": 0.40}]
+                },
+                {
+                    "id": 2,
+                    "zone_code": "SORT-01",
+                    "zone_name": "Sorting Area",
+                    "zone_type": "SORTING",
+                    "polygon": [{"x": 0.40, "y": 0.05}, {"x": 0.70, "y": 0.05}, {"x": 0.70, "y": 0.40}, {"x": 0.40, "y": 0.40}]
+                },
+                {
+                    "id": 3,
+                    "zone_code": "STAGE-01",
+                    "zone_name": "Staging Area",
+                    "zone_type": "STAGING",
+                    "polygon": [{"x": 0.75, "y": 0.05}, {"x": 0.95, "y": 0.05}, {"x": 0.95, "y": 0.40}, {"x": 0.75, "y": 0.40}]
+                },
+                {
+                    "id": 4,
+                    "zone_code": "BIN-A-01",
+                    "zone_name": "Storage Bin A01",
+                    "zone_type": "STORAGE",
+                    "polygon": [{"x": 0.40, "y": 0.50}, {"x": 0.70, "y": 0.50}, {"x": 0.70, "y": 0.90}, {"x": 0.40, "y": 0.90}]
+                },
+                {
+                    "id": 5,
+                    "zone_code": "DISP-01",
+                    "zone_name": "Dispatch Area",
+                    "zone_type": "DISPATCH",
+                    "polygon": [{"x": 0.75, "y": 0.50}, {"x": 0.95, "y": 0.50}, {"x": 0.95, "y": 0.90}, {"x": 0.75, "y": 0.90}]
                 }
-            },
-            # Frame 6: Box associated with Worker W1 -> BOX_ASSOCIATED_WITH_WORKER
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.55, 0.50], "bbox": [0.50, 0.46, 0.60, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"},
-                    {"track_id": 5, "class_code": "WORKER", "center": [0.53, 0.48], "bbox": [0.49, 0.35, 0.57, 0.60], "identity_id": "W-RAJESH", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {
-                    "worker_associations": [{
-                        "worker_track_id": 5, "box_track_id": 104, "association_state": "CONFIRMED",
-                        "association_score": 0.89, "is_ambiguous": False
-                    }]
+            ]
+
+            mat_track = {"track_id": 201, "class_code": "ROD", "center": [0.20, 0.20], "bbox": [0.15, 0.15, 0.25, 0.25], "identity_id": "ROD-STEEL-4140-A", "validation_status": "VALIDATED"}
+            truck_track = {"track_id": 10, "class_code": "TRUCK", "center": [0.22, 0.22], "bbox": [0.05, 0.05, 0.35, 0.40], "identity_id": "TRK-MH12-8821", "validation_status": "VALIDATED"}
+            worker_track = {"track_id": 30, "class_code": "WORKER", "center": [0.23, 0.21], "bbox": [0.18, 0.15, 0.28, 0.30], "identity_id": "W-VIKRAM", "validation_status": "VALIDATED"}
+            bin_track = {"track_id": 50, "class_code": "BIN", "center": [0.55, 0.70], "bbox": [0.45, 0.60, 0.65, 0.80], "identity_id": "BIN-A-01", "validation_status": "VALIDATED"}
+
+            frames_data = [
+                # Frame 1: Rod inside DOCK-01 (dwell 1 - CANDIDATE)
+                {"tracks": [dict(mat_track, center=[0.20, 0.20])], "assocs": {}, "material_assocs": {}},
+                # Frame 2: Rod inside DOCK-01 (dwell 2 - CANDIDATE)
+                {"tracks": [dict(mat_track, center=[0.21, 0.20])], "assocs": {}, "material_assocs": {}},
+                # Frame 3: Rod inside DOCK-01 (dwell 3 - MATERIAL_ENTERED_ZONE)
+                {"tracks": [dict(mat_track, center=[0.22, 0.20])], "assocs": {}, "material_assocs": {}},
+                # Frame 4: Truck arrives + associated with Rod (MATERIAL_ASSOCIATED_WITH_TRUCK + MATERIAL_UNLOADED_AT_DOCK)
+                {
+                    "tracks": [dict(mat_track, center=[0.22, 0.20]), truck_track],
+                    "assocs": {},
+                    "material_assocs": {
+                        "truck_material_associations": [{
+                            "truck_track_id": 10, "material_track_id": 201, "association_state": "CONFIRMED",
+                            "association_score": 0.94, "is_ambiguous": False
+                        }]
+                    }
+                },
+                # Frame 5: Worker takes custody (Custody handoff! MATERIAL_ASSOCIATED_WITH_WORKER + TRUCK finishes)
+                {
+                    "tracks": [dict(mat_track, center=[0.22, 0.20]), worker_track],
+                    "assocs": {},
+                    "material_assocs": {
+                        "worker_material_associations": [{
+                            "worker_track_id": 30, "material_track_id": 201, "association_state": "CONFIRMED",
+                            "association_score": 0.91, "is_ambiguous": False
+                        }]
+                    }
+                },
+                # Frames 6-8: Moves to SORT-01 (dwell 1, 2, 3 -> MATERIAL_MOVED_TO_SORTING)
+                {"tracks": [dict(mat_track, center=[0.50, 0.20])], "assocs": {}, "material_assocs": {}},
+                {"tracks": [dict(mat_track, center=[0.52, 0.20])], "assocs": {}, "material_assocs": {}},
+                {"tracks": [dict(mat_track, center=[0.55, 0.20])], "assocs": {}, "material_assocs": {}},
+                # Frames 9-11: Moves to STAGE-01 (dwell 1, 2, 3 -> MATERIAL_ENTERED_STAGING)
+                {"tracks": [dict(mat_track, center=[0.80, 0.20])], "assocs": {}, "material_assocs": {}},
+                {"tracks": [dict(mat_track, center=[0.82, 0.20])], "assocs": {}, "material_assocs": {}},
+                {"tracks": [dict(mat_track, center=[0.85, 0.20])], "assocs": {}, "material_assocs": {}},
+                # Frames 12-14: Stored in BIN-A-01 (dwell 1, 2, 3 + bin assoc -> MATERIAL_STORED_IN_BIN)
+                {"tracks": [dict(mat_track, center=[0.55, 0.70]), bin_track], "assocs": {}, "material_assocs": {"material_bin_associations": [{"bin_track_id": 50, "material_track_id": 201, "association_state": "CONFIRMED", "association_score": 0.96, "is_ambiguous": False}]}},
+                {"tracks": [dict(mat_track, center=[0.55, 0.70]), bin_track], "assocs": {}, "material_assocs": {"material_bin_associations": [{"bin_track_id": 50, "material_track_id": 201, "association_state": "CONFIRMED", "association_score": 0.96, "is_ambiguous": False}]}},
+                {"tracks": [dict(mat_track, center=[0.55, 0.70]), bin_track], "assocs": {}, "material_assocs": {"material_bin_associations": [{"bin_track_id": 50, "material_track_id": 201, "association_state": "CONFIRMED", "association_score": 0.96, "is_ambiguous": False}]}},
+                # Frame 15: Exits BIN-A-01 into transit hallway (center [0.72, 0.45]) -> MATERIAL_EXITED_ZONE
+                {"tracks": [dict(mat_track, center=[0.72, 0.45])], "assocs": {}, "material_assocs": {}},
+                # Frames 16-18: Dispatched at DISP-01 (dwell 1, 2, 3 -> MATERIAL_DISPATCHED)
+                {"tracks": [dict(mat_track, center=[0.80, 0.70])], "assocs": {}, "material_assocs": {}},
+                {"tracks": [dict(mat_track, center=[0.82, 0.70])], "assocs": {}, "material_assocs": {}},
+                {"tracks": [dict(mat_track, center=[0.85, 0.70])], "assocs": {}, "material_assocs": {}}
+            ]
+        else:
+            zones_to_use = [{
+                "id": 18,
+                "zone_code": "DOCK-01",
+                "zone_name": "Dock 01",
+                "polygon": [{"x": 0.20, "y": 0.20}, {"x": 0.85, "y": 0.20}, {"x": 0.85, "y": 0.85}, {"x": 0.20, "y": 0.85}]
+            }]
+
+            frames_data = [
+                # Frame 1: Box outside Dock 1
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.05, 0.05], "bbox": [0.02, 0.02, 0.08, 0.08], "identity_id": "B104", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {}
+                },
+                # Frame 2: Box approaching Dock 1
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.15, 0.15], "bbox": [0.12, 0.12, 0.18, 0.18], "identity_id": "B104", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {}
+                },
+                # Frame 3: Box enters Dock 1 -> BOX_ENTERED_ZONE
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.50, 0.50], "bbox": [0.46, 0.46, 0.54, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {}
+                },
+                # Frame 4: Box remains inside Dock 1 -> Deduplicated
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.52, 0.50], "bbox": [0.48, 0.46, 0.56, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {}
+                },
+                # Frame 5: Box associated with Truck T1 -> BOX_ASSOCIATED_WITH_TRUCK
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.55, 0.50], "bbox": [0.50, 0.46, 0.60, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"},
+                        {"track_id": 4, "class_code": "TRUCK", "center": [0.60, 0.50], "bbox": [0.40, 0.30, 0.80, 0.70], "identity_id": "GP-1000", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {
+                        "truck_associations": [{
+                            "truck_track_id": 4, "box_track_id": 104, "association_state": "CONFIRMED",
+                            "association_score": 0.92, "is_ambiguous": False
+                        }]
+                    }
+                },
+                # Frame 6: Box associated with Worker W1 -> BOX_ASSOCIATED_WITH_WORKER
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.55, 0.50], "bbox": [0.50, 0.46, 0.60, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"},
+                        {"track_id": 5, "class_code": "WORKER", "center": [0.53, 0.48], "bbox": [0.49, 0.35, 0.57, 0.60], "identity_id": "W-RAJESH", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {
+                        "worker_associations": [{
+                            "worker_track_id": 5, "box_track_id": 104, "association_state": "CONFIRMED",
+                            "association_score": 0.89, "is_ambiguous": False
+                        }]
+                    }
+                },
+                # Frame 7: Box associated with Bin B1 -> BOX_ASSOCIATED_WITH_BIN
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.55, 0.50], "bbox": [0.50, 0.46, 0.60, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"},
+                        {"track_id": 8, "class_code": "BIN", "center": [0.56, 0.52], "bbox": [0.48, 0.44, 0.64, 0.60], "identity_id": "BIN-A-01", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {
+                        "bin_associations": [{
+                            "bin_track_id": 8, "box_track_id": 104, "association_state": "CONFIRMED",
+                            "association_score": 0.95, "is_ambiguous": False
+                        }]
+                    }
+                },
+                # Frame 8: Box exits Dock 1 -> BOX_EXITED_ZONE
+                {
+                    "tracks": [
+                        {"track_id": 104, "class_code": "BOX", "center": [0.95, 0.95], "bbox": [0.90, 0.90, 0.99, 0.99], "identity_id": "B104", "validation_status": "VALIDATED"}
+                    ],
+                    "assocs": {}
                 }
-            },
-            # Frame 7: Box associated with Bin B1 -> BOX_ASSOCIATED_WITH_BIN
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.55, 0.50], "bbox": [0.50, 0.46, 0.60, 0.54], "identity_id": "B104", "validation_status": "VALIDATED"},
-                    {"track_id": 8, "class_code": "BIN", "center": [0.56, 0.52], "bbox": [0.48, 0.44, 0.64, 0.60], "identity_id": "BIN-A-01", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {
-                    "bin_associations": [{
-                        "bin_track_id": 8, "box_track_id": 104, "association_state": "CONFIRMED",
-                        "association_score": 0.95, "is_ambiguous": False
-                    }]
-                }
-            },
-            # Frame 8: Box exits Dock 1 -> BOX_EXITED_ZONE
-            {
-                "tracks": [
-                    {"track_id": 104, "class_code": "BOX", "center": [0.95, 0.95], "bbox": [0.90, 0.90, 0.99, 0.99], "identity_id": "B104", "validation_status": "VALIDATED"}
-                ],
-                "assocs": {}
-            }
-        ]
+            ]
 
         frame_results = []
         all_generated_event_types = set()
@@ -1159,12 +1927,14 @@ class MultiObjectMovementEventService:
             tb = assocs.get("truck_associations", [])
             wb = assocs.get("worker_associations", [])
             bb = assocs.get("bin_associations", [])
+            mat_assocs = fd.get("material_assocs", {})
             res = session.update(
                 tracks=fd.get("tracks", []),
                 truck_box_assocs=tb,
                 worker_box_assocs=wb,
                 box_bin_assocs=bb,
-                camera_zones=dock_zone,
+                material_assocs=mat_assocs,
+                camera_zones=zones_to_use,
                 frame_index=idx
             )
             for ev in res.get("current_events", []):
