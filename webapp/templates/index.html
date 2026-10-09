@@ -836,8 +836,6 @@
                 <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
                 <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
                 <button class="tab-btn" onclick="switchTab('outbound')">Outbound Flow</button>
-                <!-- AI Vision Master Hidden -->
-                <button class="tab-btn" onclick="switchTab('ai-vision-master')">AI Vision &amp; Tracking Master</button>
             </div>
 
             <!-- THEME SWITCHER AT BOTTOM LEFT CORNER -->
@@ -1073,12 +1071,15 @@
                         <span class="badge" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; font-size:0.72rem; font-weight:700;">MONITORING &amp; JUNCTION VIEW</span>
                     </div>
                     <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.85rem;">
-                        Operational camera monitoring matrix and live video feeds. Authoritative camera hardware registration, AI perception models, and spatial ROI zoning are configured in <strong>AI Vision &rarr; Camera Sources</strong>.
+                        Operational camera monitoring matrix, live video feeds, and on-demand AI perception diagnostics.
                     </p>
                 </div>
-                <button type="button" class="btn-primary" style="background:#0ea5e9; font-size:0.82rem; padding:8px 14px;" onclick="navigateToEntity('camera_sources')">
-                    ⚙️ Configure Cameras &amp; AI in Camera Sources &rarr;
-                </button>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span class="badge sent" style="font-size:0.75rem; padding:6px 12px; display:inline-flex; align-items:center; gap:6px;">
+                        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span>
+                        AI Perception Ready
+                    </span>
+                </div>
             </div>
             <div style="display: flex; gap: 2rem;">
                 <aside class="glass-panel" style="width: 300px; height: fit-content;">
@@ -1194,6 +1195,29 @@
                         }
                     }, 3000);
                 </script>
+                <!-- LIVE GATE VISION EVIDENCE (STAGE 1 GOVERNANCE: ZERO AUTO-WRITES) -->
+                <div id="gateVisionEvidenceBox" style="margin-top:1.25rem; margin-bottom:1.25rem; padding:1rem 1.25rem; background:var(--panel-subtle); border:1px solid var(--border-light); border-left:4px solid var(--accent); border-radius:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span style="font-size:1.8rem;">📸</span>
+                        <div>
+                            <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; letter-spacing:0.5px;">Gate Camera Live Reading (Unverified Evidence)</div>
+                            <div style="display:flex; align-items:center; gap:10px; margin-top:3px;">
+                                <span id="gateEvidencePlateVal" style="font-size:1.2rem; font-weight:700; color:var(--primary-navy);">Checking gate cameras...</span>
+                                <span id="gateEvidenceConfidenceBadge" class="badge" style="display:none; font-size:0.72rem;"></span>
+                            </div>
+                            <div id="gateEvidenceMeta" style="font-size:0.75rem; color:var(--text-muted); margin-top:3px;">Gate Entry Camera Node • Zero automatic database mutations</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button type="button" class="btn-primary" id="btnUseGatePlate" onclick="applyGatePlateToPass()" style="display:none; font-size:0.82rem; padding:7px 16px; background:#10b981; border-color:#10b981; font-weight:600;">
+                            🎫 Create Gate Pass with Plate
+                        </button>
+                        <button type="button" class="btn-secondary" onclick="checkGateCameraEvidence()" style="font-size:0.82rem; padding:7px 12px;" title="Refresh reading">
+                            ↻ Check Plate
+                        </button>
+                    </div>
+                </div>
+
                 <div id="gatePassGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1.5rem; margin-top: 1rem;"></div>
             </div>
         </div>
@@ -1229,6 +1253,8 @@
                         <button class="btn-primary sub-tab-btn" onclick="switchSubTab('sku-master', this)">SKU Master</button>
                         <button class="btn-primary sub-tab-btn" onclick="switchSubTab('cycle-count', this)">Cycle Count</button>
                         <button class="btn-primary sub-tab-btn" onclick="switchSubTab('inventory-master', this)">Inventory Master</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vision-objects', this)">Object Taxonomy</button>
+                        <button class="btn-primary sub-tab-btn" onclick="switchSubTab('vision-zones', this)">Warehouse Zones</button>
                     </div>
                     <div>
                         <div style="position:relative;">
@@ -1546,6 +1572,163 @@
                     </div>
                 </div>
                 
+                <!-- OBJECT CLASSES (TAXONOMY) MASTER SUB -->
+                <div id="vision-objects-sub" class="sub-master-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy);">Object Classes Master</h3>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Manage detectable physical object categories, taxonomy definitions, and detection status for the warehouse perception system.</p>
+                        </div>
+                        <button class="btn-primary" onclick="openAddObjectClassModal()" style="display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; padding:0.6rem 1.1rem;">
+                            <span style="font-size:1.1rem; line-height:1;">+</span> Add Object Class
+                        </button>
+                    </div>
+
+                    <!-- Inline Notification / Alert Banner -->
+                    <div id="objClassAlertBox" style="display:none; padding:0.75rem 1rem; border-radius:8px; margin-bottom:1.25rem; font-size:0.88rem; font-weight:600; justify-content:space-between; align-items:center; transition: all 0.3s ease;">
+                        <span id="objClassAlertMsg"></span>
+                        <button type="button" onclick="hideObjectClassAlert()" style="background:none; border:none; color:inherit; font-size:1.2rem; cursor:pointer; padding:0 4px; line-height:1;">&times;</button>
+                    </div>
+
+                    <!-- Filter and Search Toolbar -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;">
+                        <div style="display:flex; flex:1; min-width:260px; max-width:440px; position:relative;">
+                            <input type="text" id="objClassSearchInput" placeholder="🔍 Search by code, name, or description..." style="margin-bottom:0; padding-right:2rem;" oninput="handleSearchFilterChange()">
+                            <button type="button" onclick="clearSearchInput()" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1rem; display:none;" id="objClassClearSearchBtn" title="Clear search">&times;</button>
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="margin:0; font-size:0.82rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; white-space:nowrap;">Status:</label>
+                                <select id="objClassStatusFilter" style="margin-bottom:0; width:auto; min-width:130px;" onchange="handleSearchFilterChange()">
+                                    <option value="ALL">All Statuses</option>
+                                    <option value="Active">Active</option>
+                                    <option value="Disabled">Disabled</option>
+                                </select>
+                            </div>
+
+                            <button type="button" class="btn-secondary" style="padding:0.6rem 0.9rem; font-size:0.85rem;" onclick="resetSearchFilters()" title="Reset search & filters">
+                                ↺ Reset
+                            </button>
+
+                            <div id="objClassCountBadge" style="font-size:0.82rem; color:var(--text-muted); font-weight:700; white-space:nowrap; background:var(--panel-bg); border:1px solid var(--border-light); padding:0.45rem 0.8rem; border-radius:6px;">
+                                Showing classes
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Object Classes Master Table -->
+                    <div style="overflow-x:auto; background:var(--panel-bg); border-radius:10px; border:1px solid var(--border-light);">
+                        <table style="width:100%; margin-top:0;">
+                            <thead>
+                                <tr>
+                                    <th style="width:65px; text-align:center;">ID</th>
+                                    <th style="width:130px;">Class Code</th>
+                                    <th style="width:180px;">Class Name</th>
+                                    <th>Description</th>
+                                    <th style="width:110px; text-align:center;">Status</th>
+                                    <th style="width:160px;">Created At</th>
+                                    <th style="width:160px;">Updated At</th>
+                                    <th style="width:230px; text-align:center;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="objectClassesBody">
+                                <!-- Populated dynamically from API / seeded records -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- WAREHOUSE ZONES MASTER SUB -->
+                <div id="vision-zones-sub" class="sub-master-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.35rem; color:var(--primary-navy);">Warehouse Zones</h3>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Define operational spatial topology, dock bays, and camera ROI boundaries. (For physical inventory storage locations, see Bin Master).</p>
+                        </div>
+                        <button class="btn-primary" onclick="openAddZoneModal()" style="display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; padding:0.6rem 1.1rem;">
+                            <span style="font-size:1.1rem; line-height:1;">+</span> Add Zone
+                        </button>
+                    </div>
+
+                    <!-- Inline Notification / Alert Banner -->
+                    <div id="visionZoneAlertBox" style="display:none; padding:0.75rem 1rem; border-radius:8px; margin-bottom:1.25rem; font-size:0.88rem; font-weight:600; justify-content:space-between; align-items:center; transition: all 0.3s ease;">
+                        <span id="visionZoneAlertMsg"></span>
+                        <button type="button" onclick="hideVisionZoneAlert()" style="background:none; border:none; color:inherit; font-size:1.2rem; cursor:pointer; padding:0 4px; line-height:1;">&times;</button>
+                    </div>
+
+                    <!-- Filter and Search Toolbar -->
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:10px; padding:1rem; margin-bottom:1.25rem; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;">
+                        <div style="display:flex; flex:1; min-width:260px; max-width:380px; position:relative;">
+                            <input type="text" id="visionZoneSearchInput" placeholder="🔍 Search by code, name, description, warehouse..." style="margin-bottom:0; padding-right:2rem;" oninput="handleVisionZoneSearchChange()">
+                            <button type="button" onclick="clearVisionZoneSearch()" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1rem; display:none;" id="visionZoneClearSearchBtn" title="Clear search">&times;</button>
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="margin:0; font-size:0.82rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; white-space:nowrap;">Warehouse:</label>
+                                <select id="visionZoneWarehouseFilter" style="margin-bottom:0; width:auto; min-width:130px;" onchange="handleVisionZoneSearchChange()">
+                                    <option value="ALL">All Warehouses</option>
+                                    <option value="Warehouse A">Warehouse A</option>
+                                </select>
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="margin:0; font-size:0.82rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; white-space:nowrap;">Type:</label>
+                                <select id="visionZoneTypeFilter" style="margin-bottom:0; width:auto; min-width:130px;" onchange="handleVisionZoneSearchChange()">
+                                    <option value="ALL">All Types</option>
+                                    <option value="TRUCK_BAY">Truck Bay</option>
+                                    <option value="DOCK">Dock</option>
+                                    <option value="UNLOADING">Unloading</option>
+                                    <option value="SORTING">Sorting</option>
+                                    <option value="CONVEYOR">Conveyor</option>
+                                    <option value="STAGING">Staging</option>
+                                    <option value="STORAGE">Storage</option>
+                                    <option value="BIN_AREA">Bin Area</option>
+                                    <option value="DISPATCH">Dispatch</option>
+                                </select>
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="margin:0; font-size:0.82rem; color:var(--text-muted); text-transform:uppercase; font-weight:700; white-space:nowrap;">Status:</label>
+                                <select id="visionZoneStatusFilter" style="margin-bottom:0; width:auto; min-width:120px;" onchange="handleVisionZoneSearchChange()">
+                                    <option value="ALL">All Statuses</option>
+                                    <option value="Active">Active</option>
+                                    <option value="Disabled">Disabled</option>
+                                </select>
+                            </div>
+
+                            <button type="button" class="btn-secondary" style="padding:0.6rem 0.9rem; font-size:0.85rem;" onclick="resetVisionZoneFilters()" title="Reset search & filters">
+                                ↺ Reset
+                            </button>
+
+                            <div id="visionZoneCountBadge" style="font-size:0.82rem; color:var(--text-muted); font-weight:700; white-space:nowrap; background:var(--panel-bg); border:1px solid var(--border-light); padding:0.45rem 0.8rem; border-radius:6px;">
+                                Showing 0 zones
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Warehouse Zones Table -->
+                    <div style="overflow-x:auto; background:var(--panel-bg); border-radius:10px; border:1px solid var(--border-light);">
+                        <table style="width:100%; margin-top:0;">
+                            <thead>
+                                <tr>
+                                    <th style="width:120px;">Zone Code</th>
+                                    <th style="width:180px;">Zone Name</th>
+                                    <th style="width:130px;">Type</th>
+                                    <th style="width:130px;">Warehouse</th>
+                                    <th style="width:140px; text-align:center;">Cameras</th>
+                                    <th style="width:110px; text-align:center;">Status</th>
+                                    <th style="width:230px; text-align:center;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="visionZonesBody">
+                                <!-- Populated dynamically from /api/vision/zones -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
                 <script>
                     
                 
@@ -1622,6 +1805,8 @@ function switchSubTab(tabId, btn) {
     if(typeof window.fetchBins === 'function' && tabId === 'bin-master') window.fetchBins();
     if(typeof window.fetchSkus === 'function' && tabId === 'sku-master') window.fetchSkus();
     if(typeof window.fetchCycleCountData === 'function' && tabId === 'cycle-count') window.fetchCycleCountData();
+    if(typeof window.fetchObjectClasses === 'function' && tabId === 'vision-objects') window.fetchObjectClasses();
+    if(typeof window.fetchVisionZones === 'function' && tabId === 'vision-zones') window.fetchVisionZones();
 }
 window.switchSubTab = switchSubTab;
                 </script>

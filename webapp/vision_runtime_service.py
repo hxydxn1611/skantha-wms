@@ -604,44 +604,6 @@ class VisionPipelineExecutor:
         # 4. Master-Data Validation (Part 8)
         t_step = time.perf_counter()
         validated_tracks, val_ms = self.validation_service.validate_tracks(enriched_tracks)
-        
-        # --- AUTO-CREATE GATE PASS FEATURE ---
-        import db
-        for t in validated_tracks:
-            val = t.get("validation", {})
-            if val.get("status") == "UNREGISTERED":
-                cls_code = t.get("class_code", "")
-                ident_val = t.get("identity", {}).get("value")
-                
-                if cls_code in ("LICENSE_PLATE", "TRUCK") and ident_val:
-                    try:
-                        if not hasattr(self, "_created_gate_passes"):
-                            self._created_gate_passes = set()
-                        
-                        if ident_val not in self._created_gate_passes:
-                            gp_data = {
-                                "po_number": "",
-                                "plate": ident_val,
-                                "vehicle_type": "Unknown",
-                                "driver_name": "Unknown",
-                                "vendor": "Unknown",
-                                "dock": ""
-                            }
-                            new_gp = db.create_gate_pass(gp_data)
-                            if new_gp:
-                                logger.info(f"Auto-created pending gate pass {new_gp['id']} for plate {ident_val}")
-                                self._created_gate_passes.add(ident_val)
-                                
-                                # Instantly override validation so UI updates in real-time
-                                val["status"] = "VALIDATED"
-                                val["master_type"] = "TRUCK"
-                                val["master_id"] = new_gp['id']
-                                val["display_name"] = f"Gate Pass {new_gp['id']} [Plate: {ident_val}] (Auto-Created)"
-                                val["message"] = f"Automatically created pending gate pass {new_gp['id']}."
-                    except Exception as e:
-                        logger.error(f"Failed to auto-create gate pass for {ident_val}: {e}")
-        # -------------------------------------
-        
         timing["validation_ms"] = round((time.perf_counter() - t_step) * 1000, 2)
 
         # 5. Associations (Parts 9, 10, 11)
