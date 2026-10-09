@@ -266,7 +266,9 @@ class WmsVisionIntegrationService:
             zone_code=zone_code,
             include_candidates=True
         )
+        print("DEBUG MOVEMENT SVC ID IN INTEGRATION:", id(self.movement_svc), "SESSIONS:", list(self.movement_svc.sessions.keys()))
 
+        import sys
         matched_events = []
         verified_boxes = set()
         candidate_boxes = set()
@@ -274,6 +276,8 @@ class WmsVisionIntegrationService:
         for ev in all_unloading_events:
             ev_evidence = ev.get("evidence", {})
             match_res = self.match_gate_pass_for_evidence(ev_evidence)
+            print(f"DEBUG MATCH_RES: {match_res['match_status']} FOR GP {gp_id}")
+            sys.stdout.flush()
             if match_res["match_status"] == "EXACT_MATCH" and match_res["gate_pass"]["id"] == gp_id:
                 matched_events.append({
                     "event_id": ev.get("event_id"),
@@ -292,6 +296,8 @@ class WmsVisionIntegrationService:
                     verified_boxes.add(box_ident)
                 elif ev.get("status") == "CANDIDATE":
                     candidate_boxes.add(box_ident)
+            print(f"DEBUG EV: {ev_evidence.get('truck_identity')}, MATCH RES: {match_res['match_status']}, BOX IDENT: {box_ident if 'box_ident' in locals() else None}")
+        print("DEBUG VERIFIED BOXES:", verified_boxes)
 
         sheet = []
         try:
