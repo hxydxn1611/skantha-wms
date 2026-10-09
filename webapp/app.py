@@ -2640,18 +2640,26 @@ def get_cameras():
             active_cam = active_cameras.get(cid)
             events = active_cam.events if active_cam else []
             visible_packages = active_cam.visible_packages if active_cam else 0
+            visible_boxes = getattr(active_cam, 'visible_boxes', 0) if active_cam else 0
+            clustered_bundle_count = getattr(active_cam, 'clustered_bundle_count', visible_packages) if active_cam else 0
+            detected_bar_layers = getattr(active_cam, 'detected_bar_layers', 0) if active_cam else 0
             latest_boxes = active_cam.latest_boxes if active_cam else []
+            bin_id = cam.get('bin_id') or (getattr(active_cam, 'bin_id', None))
             cameras_data.append({
                 "id": cid,
                 "code": cam.get('camera_code', cid),
                 "name": cam.get('name') or cid,
                 "url": cam.get('stream_url', ''),
                 "location": cam.get('location', 'General'),
+                "bin_id": bin_id,
                 "type": cam.get('camera_type', 'IP Camera'),
                 "vendor": cam.get('vendor', 'Unknown'),
                 "status": cam.get('status', 'Online'),
                 "events": events,
                 "visible_packages": visible_packages,
+                "visible_boxes": visible_boxes,
+                "clustered_bundle_count": clustered_bundle_count,
+                "detected_bar_layers": detected_bar_layers,
                 "latest_boxes": latest_boxes
             })
     except Exception as e:
@@ -2660,17 +2668,24 @@ def get_cameras():
     # Fallback/merge for any active in-memory cameras not found in DB
     for cam_id, cam in active_cameras.items():
         if cam_id not in seen_ids:
+            visible_packages = getattr(cam, 'visible_packages', 0)
+            clustered_bundle_count = getattr(cam, 'clustered_bundle_count', visible_packages)
+            detected_bar_layers = getattr(cam, 'detected_bar_layers', 0)
             cameras_data.append({
                 "id": cam.camera_id,
                 "code": getattr(cam, 'code', cam.camera_id),
                 "name": cam.name,
                 "url": cam.url,
                 "location": cam.location,
+                "bin_id": getattr(cam, 'bin_id', None),
                 "type": cam.cam_type,
                 "vendor": cam.vendor,
                 "status": "Online",
                 "events": getattr(cam, 'events', []),
-                "visible_packages": getattr(cam, 'visible_packages', 0),
+                "visible_packages": visible_packages,
+                "visible_boxes": getattr(cam, 'visible_boxes', 0),
+                "clustered_bundle_count": clustered_bundle_count,
+                "detected_bar_layers": detected_bar_layers,
                 "latest_boxes": getattr(cam, 'latest_boxes', [])
             })
     return jsonify(cameras_data)
@@ -2736,7 +2751,8 @@ def add_camera():
         url=data.get('url') or data.get('stream_url') or '',
         location=data.get('location') or 'General',
         cam_type=data.get('type') or data.get('camera_type') or 'IP Camera',
-        vendor=data.get('vendor', 'Unknown')
+        vendor=data.get('vendor', 'Unknown'),
+        bin_id=data.get('bin_id')
     )
     new_camera.start()
     active_cameras[cam_id] = new_camera
@@ -2749,6 +2765,43 @@ def add_camera():
         logger.warning(f"Could not refresh VisionRuntimeManager for new camera {cam_id}: {e}")
     
     return jsonify({"success": True, "id": cam_id, "camera_id": cam_id, "camera": saved_cam})
+
+@app.route('/api/cameras/<camera_id>/assign_bin', methods=['POST'])
+def assign_camera_bin(camera_id):
+    data = request.json or {}
+    bin_id = data.get('bin_id') or None
+    db.update_camera_bin(camera_id, bin_id)
+    if camera_id in active_cameras:
+        active_cameras[camera_id].bin_id = bin_id
+    return jsonify({"success": True, "camera_id": camera_id, "bin_id": bin_id})
+
+@app.route('/api/cameras/<camera_id>/sync_inventory', methods=['POST'])
+def sync_camera_inventory(camera_id):
+    active_cam = active_cameras.get(camera_id)
+    db_cam = db.get_camera(camera_id)
+    
+    bin_id = (active_cam.bin_id if active_cam and active_cam.bin_id else None) or (db_cam.get('bin_id') if db_cam else None)
+    if not bin_id:
+        return jsonify({"success": False, "message": "No Bin assigned to this camera. Please assign a Bin in Camera Management."}), 400
+        
+    count = 0
+    if active_cam:
+        count = getattr(active_cam, 'clustered_bundle_count', None)
+        if count is None or count == 0:
+            count = getattr(active_cam, 'visible_packages', 0)
+    
+    data = request.json or {}
+    sku_id = data.get('sku_id')
+    vendor = data.get('vendor') or f"Vision AI ({db_cam.get('name', camera_id) if db_cam else camera_id})"
+    
+    result = db.sync_bin_inventory(bin_id, count, sku_id=sku_id, vendor=vendor)
+    return jsonify({
+        "success": True,
+        "bin_id": bin_id,
+        "synced_count": count,
+        "details": result,
+        "message": f"Successfully synced live count of {count} bundles to Bin {bin_id}!"
+    })
 
 @app.route('/api/cameras/<camera_id>/frame', methods=['POST'])
 def receive_camera_frame(camera_id):
