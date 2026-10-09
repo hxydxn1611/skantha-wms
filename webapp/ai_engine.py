@@ -88,11 +88,18 @@ class SmartCamera:
     def _capture_loop(self):
         # Support integer source for USB webcams (e.g. "0")
         cap_source = self.url
+        is_usb = False
         if isinstance(cap_source, str) and cap_source.strip().isdigit():
             cap_source = int(cap_source.strip())
+            is_usb = True
         elif isinstance(cap_source, str) and (cap_source.startswith("rtsp://") or cap_source.startswith("http://")):
             os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;2000000"
-        cap = cv2.VideoCapture(cap_source)
+            
+        if is_usb and os.name == 'nt':
+            cap = cv2.VideoCapture(cap_source, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(cap_source)
+            
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Reduce video lag by minimizing buffer
         while self.is_running:
             read_res = cap.read()
@@ -102,7 +109,10 @@ class SmartCamera:
             ret, frame = read_res
             if not ret or frame is None:
                 time.sleep(1)
-                cap = cv2.VideoCapture(cap_source)
+                if is_usb and os.name == 'nt':
+                    cap = cv2.VideoCapture(cap_source, cv2.CAP_DSHOW)
+                else:
+                    cap = cv2.VideoCapture(cap_source)
                 continue
             
             frame = cv2.resize(frame, (640, 480))

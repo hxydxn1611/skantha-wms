@@ -834,6 +834,7 @@
                 <button class="tab-btn" onclick="switchTab('gate-passes')">Gate Management <span id="gate-badge" class="nav-badge"></span></button>
                 <button class="tab-btn" onclick="switchTab('cameras')">Camera Junction</button>
                 <button class="tab-btn" onclick="switchTab('docks')">Dock Management <span id="dock-badge" class="nav-badge"></span></button>
+                <button class="tab-btn" onclick="switchTab('inbound-flow')">Inbound Automation <span id="inbound-badge" class="nav-badge" style="background:var(--success); display:none;"></span></button>
                 <button class="tab-btn" onclick="switchTab('master-hub')">Master Hub</button>
                 <button class="tab-btn" onclick="switchTab('outbound')">Outbound Flow</button>
             </div>
@@ -950,6 +951,41 @@
             </div>
         </div>
 
+        <!-- INBOUND AUTOMATION VIEW -->
+        <div id="inbound-flow-view" class="view-section">
+            <div class="glass-panel" style="margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+                    <div>
+                        <h2 style="margin:0; font-size:1.5rem; color:var(--primary-navy);">Inbound Operations Automation</h2>
+                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.9rem;">AI-driven truck arrivals, automatic dock assignments, and bundle counting.</p>
+                    </div>
+                    <div>
+                        <span class="badge sent" style="font-size:0.8rem; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
+                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--success);"></span>
+                            Matrix Agent Active
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <!-- AI Operations Log -->
+                <div class="glass-panel">
+                    <h3 style="margin-top:0; border-bottom:1px solid var(--border-light); padding-bottom:10px;">Automated Operations Log</h3>
+                    <div id="ai-operations-log" style="height:400px; overflow-y:auto; background:#111; padding:15px; border-radius:6px; font-family:monospace; color:#10b981; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">
+                        <div>[SYSTEM] Matrix Engine Initialized. Listening for YOLO streams...</div>
+                    </div>
+                </div>
+                
+                <!-- Live Bundle Counting -->
+                <div class="glass-panel">
+                    <h3 style="margin-top:0; border-bottom:1px solid var(--border-light); padding-bottom:10px;">Spatial Matrix Bundle Count</h3>
+                    <div style="display:flex; flex-direction:column; gap:15px;" id="live-bundle-counts">
+                        <p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">Waiting for YOLO bounding box matrix clusters on unloading docks...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
         
         <!-- OUTBOUND VIEW -->
         <div id="outbound-view" class="view-section">
@@ -1081,8 +1117,80 @@
                     </span>
                 </div>
             </div>
-            <div style="display: flex; gap: 2rem;">
-                <aside class="glass-panel" style="width: 300px; height: fit-content;">
+            
+            <!-- CAMERA SUB-NAVIGATION BAR -->
+            <div style="display: flex; gap: 1rem; border-bottom: 2px solid var(--border-light); margin-bottom: 1.5rem;">
+                <button id="cam-tab-view-btn" class="cam-sub-tab active" onclick="switchCameraSubTab('view')" style="background:none; border:none; padding:10px 20px; font-weight:bold; cursor:pointer; border-bottom:3px solid var(--accent); color:var(--text-main);">View Connected Cameras</button>
+                <button id="cam-tab-add-btn" class="cam-sub-tab" onclick="switchCameraSubTab('add')" style="background:none; border:none; padding:10px 20px; font-weight:bold; cursor:pointer; color:var(--text-muted);">Add Camera</button>
+            </div>
+
+            <!-- VIEW CONNECTED CAMERAS (HIKVISION LAYOUT) -->
+            <div id="cam-sub-view" style="display: flex; gap: 10px; height: 70vh; background: #0a0a0a; padding: 10px; border-radius: 8px;">
+                <!-- Hikvision Side Panel -->
+                <div style="width: 250px; background: #1a1a1a; border-right: 1px solid #333; display: flex; flex-direction: column; color: #ccc;">
+                    <div style="padding: 15px; border-bottom: 1px solid #333; font-weight: bold; font-size: 0.9rem; color: #fff;">
+                        Device Management
+                    </div>
+                    <div id="hikvision-cam-list" style="flex:1; overflow-y: auto; padding: 10px; display:flex; flex-direction:column; gap:8px;">
+                        <!-- List of connected cameras (populated via JS) -->
+                    </div>
+                    <div style="padding: 15px; border-top: 1px solid #333;">
+                        <div style="font-size: 0.8rem; margin-bottom: 8px;">Matrix View</div>
+                        <div style="display: flex; gap: 5px;">
+                            <button onclick="setMatrix(1)" style="flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:0.8rem; border-radius:4px;">1x1</button>
+                            <button onclick="setMatrix(2)" style="flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:0.8rem; border-radius:4px;">2x2</button>
+                            <button onclick="setMatrix(3)" style="flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:0.8rem; border-radius:4px;">3x3</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Matrix Grid -->
+                <div id="cameraGrid" class="camera-grid" style="flex:1; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 10px; background: #000; padding:10px; overflow-y:auto;">
+                    <!-- Video cards populated by JS -->
+                </div>
+            </div>
+            
+            <script>
+                function switchCameraSubTab(tab) {
+                    const viewBtn = document.getElementById('cam-tab-view-btn');
+                    const addBtn = document.getElementById('cam-tab-add-btn');
+                    const viewTab = document.getElementById('cam-sub-view');
+                    const addTab = document.getElementById('cam-sub-add');
+                    
+                    if(tab === 'view') {
+                        viewBtn.classList.add('active');
+                        viewBtn.style.borderBottom = '3px solid var(--accent)';
+                        viewBtn.style.color = 'var(--text-main)';
+                        
+                        addBtn.classList.remove('active');
+                        addBtn.style.borderBottom = 'none';
+                        addBtn.style.color = 'var(--text-muted)';
+                        
+                        viewTab.style.display = 'flex';
+                        addTab.style.display = 'none';
+                    } else {
+                        addBtn.classList.add('active');
+                        addBtn.style.borderBottom = '3px solid var(--accent)';
+                        addBtn.style.color = 'var(--text-main)';
+                        
+                        viewBtn.classList.remove('active');
+                        viewBtn.style.borderBottom = 'none';
+                        viewBtn.style.color = 'var(--text-muted)';
+                        
+                        addTab.style.display = 'flex';
+                        viewTab.style.display = 'none';
+                    }
+                }
+                
+                function setMatrix(cols) {
+                    const grid = document.getElementById('cameraGrid');
+                    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+                    grid.style.gridTemplateRows = `repeat(${cols}, 1fr)`;
+                }
+            </script>
+
+            <div id="cam-sub-add" style="display: none; justify-content: center; align-items:flex-start;">
+                <aside class="glass-panel" style="width: 100%; max-width: 600px; height: fit-content;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                         <h3 style="margin:0;">Quick Connect Node</h3>
                         <span style="font-size:0.7rem; color:var(--text-muted);">Stream Feed</span>
@@ -1155,7 +1263,6 @@
                         <button type="submit" id="connectCameraBtn" class="btn-primary" style="width:100%; margin-top:8px;">Connect Camera</button>
                     </form>
                 </aside>
-                <div id="cameraGrid" class="camera-grid" style="flex:1;"></div>
             </div>
         </div>
 

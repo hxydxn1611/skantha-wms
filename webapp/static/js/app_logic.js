@@ -352,6 +352,7 @@
                 const camRes = await fetch('/api/cameras');
                 const cameras = await camRes.json();
                 renderCameras(cameras);
+                renderInboundAutomation(cameras);
 
                 // Auto-create Passes and Auto-Count Packages
                 cameras.forEach(cam => {
@@ -1433,6 +1434,8 @@
             await fetch(`/api/cameras/${camId}`, { method: 'DELETE' });
             const card = document.getElementById(`cam-${camId}`);
             if (card) card.remove();
+            const hikCard = document.getElementById(`hik-${camId}`);
+            if (hikCard) hikCard.remove();
             pollData();
         }
 
@@ -1453,51 +1456,79 @@
         window.addEventListener('beforeunload', () => {
             Object.values(activeDeviceStreams).forEach(item => {
                 if (item.stream) item.stream.getTracks().forEach(t => t.stop());
-                if (item.intervalId) clearInterval(item.intervalId);
-            });
-        });
-
-        function renderCameras(cameras) {
+              function renderCameras(cameras) {
             const grid = document.getElementById('cameraGrid');
+            const hikList = document.getElementById('hikvision-cam-list');
             const currentIds = new Set(cameras.map(c => `cam-${c.id}`));
             
             // Remove cards of cameras that were disconnected
-            Array.from(grid.children).forEach(child => {
-                if (!currentIds.has(child.id)) {
-                    child.remove();
-                }
-            });
+            if(grid) {
+                Array.from(grid.children).forEach(child => {
+                    if (!currentIds.has(child.id)) {
+                        child.remove();
+                    }
+                });
+            }
+            if(hikList) {
+                Array.from(hikList.children).forEach(child => {
+                    if (!currentIds.has(child.id.replace('hik-', 'cam-'))) {
+                        child.remove();
+                    }
+                });
+            }
 
             cameras.forEach(cam => {
-                let card = document.getElementById(`cam-${cam.id}`);
                 const isLocalDevice = !!activeDeviceStreams[cam.id];
-                if (!card) {
+                
+                // Update Main Grid
+                let card = document.getElementById(`cam-${cam.id}`);
+                if (!card && grid) {
                     card = document.createElement('div');
                     card.className = 'glass-panel';
+                    card.style.margin = '0';
+                    card.style.height = '100%';
+                    card.style.display = 'flex';
+                    card.style.flexDirection = 'column';
                     card.id = `cam-${cam.id}`;
                     card.innerHTML = `
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                            <strong style="font-size:1.1rem; color:var(--primary-navy);">${cam.name}</strong>
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">● Device Stream</span>' : ''}
-                                <span class="badge pending">${cam.location}</span>
+                            <strong style="font-size:0.95rem; color:var(--primary-navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${cam.name}">${cam.name}</strong>
+                            <div style="display:flex; gap:4px; align-items:center;">
+                                ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; padding:2px 4px; font-size:0.6rem;">📲</span>' : ''}
+                                <span class="badge pending" style="font-size:0.65rem; padding:2px 4px;">${cam.location}</span>
                             </div>
                         </div>
-                        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.75rem; display:flex; gap:10px;">
-                            <span>Type: ${cam.type}</span>
-                            <span>Vendor: ${cam.vendor}</span>
-                        </div>
-                        <div class="video-container" onclick="openFullscreen('/video_feed/${cam.id}')">
-                            <img src="/video_feed/${cam.id}" alt="Live Feed">
-                            <div style="position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.6); padding:4px 8px; border-radius:4px; font-size:0.7rem; pointer-events:none; color:white;">&#x26F6; Fullscreen</div>
-                        </div>
-                        <div style="display:flex; gap:8px; margin-top:0.75rem;">
-                            <button class="btn-primary" style="flex:1; font-size:0.8rem; padding:6px; background:var(--success);" onclick="manualSnapshot('${cam.id}')">📸 Snapshot</button>
-                            ${isLocalDevice ? `<button class="btn-primary" style="flex:1; font-size:0.8rem; padding:6px;" onclick="flipDeviceCamera('${cam.id}')">🔄 Flip Lens</button>` : ''}
-                            <button class="btn-danger" style="flex:1; font-size:0.8rem; padding:6px;" onclick="deleteCamera('${cam.id}')">Disconnect</button>
+                        <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer;" onclick="openFullscreen('/video_feed/${cam.id}')">
+                            <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain;">
+                            <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.6); padding:4px 6px; border-radius:4px; font-size:0.65rem; pointer-events:none; color:white;">&#x26F6;</div>
                         </div>
                     `;
                     grid.appendChild(card);
+                }
+
+                // Update Hikvision Side Panel List
+                let hikCard = document.getElementById(`hik-${cam.id}`);
+                if (!hikCard && hikList) {
+                    hikCard = document.createElement('div');
+                    hikCard.id = `hik-${cam.id}`;
+                    hikCard.style.padding = '8px';
+                    hikCard.style.background = '#222';
+                    hikCard.style.borderRadius = '4px';
+                    hikCard.style.borderLeft = '3px solid #3b82f6';
+                    hikCard.style.fontSize = '0.8rem';
+                    hikCard.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                            <strong style="color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="${cam.name}">${cam.name}</strong>
+                            <span style="color:#10b981; font-size:0.7rem;">Online</span>
+                        </div>
+                        <div style="color:#888; font-size:0.7rem; margin-bottom:6px;">${cam.location} | ${cam.vendor}</div>
+                        <div style="display:flex; gap:4px;">
+                            <button style="flex:1; background:#374151; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="manualSnapshot('${cam.id}')">Snap</button>
+                            ${isLocalDevice ? `<button style="flex:1; background:#374151; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="flipDeviceCamera('${cam.id}')">Flip</button>` : ''}
+                            <button style="flex:1; background:#991b1b; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="deleteCamera('${cam.id}')">Disconn</button>
+                        </div>
+                    `;
+                    hikList.appendChild(hikCard);
                 }
             });
         }
@@ -1514,6 +1545,93 @@
             const img = document.getElementById('fsImg');
             overlay.classList.remove('active');
             img.src = "";
+        }
+
+        // AI Inbound Automation
+        function renderInboundAutomation(cameras) {
+            const logContainer = document.getElementById('ai-operations-log');
+            const bundleContainer = document.getElementById('live-bundle-counts');
+            if (!logContainer || !bundleContainer) return;
+
+            let logHtml = '';
+            let bundleHtml = '';
+
+            // Map dock cameras to their bundle counts based on YOLO matrix latest_boxes
+            let dockCameras = cameras.filter(c => c.location.toLowerCase().includes('dock'));
+            let totalBundles = 0;
+
+            if (dockCameras.length === 0) {
+                bundleHtml = '<p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">No active dock cameras found.</p>';
+            } else {
+                dockCameras.forEach(cam => {
+                    let boxCount = 0;
+                    let carPartsCount = 0;
+                    if (cam.latest_boxes) {
+                        cam.latest_boxes.forEach(b => {
+                            if (b.type.toLowerCase().includes('box') || b.type.toLowerCase().includes('bundle')) boxCount++;
+                            if (b.type.toLowerCase().includes('car part') || b.type.toLowerCase().includes('engine') || b.type.toLowerCase().includes('bumper')) carPartsCount++;
+                        });
+                    }
+                    totalBundles += (boxCount + carPartsCount);
+                    
+                    bundleHtml += `
+                        <div style="background:#1a1a24; padding:15px; border-radius:6px; border:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <h4 style="margin:0; color:#fff; font-size:1rem;">${cam.name}</h4>
+                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Spatial Matrix: ${cam.latest_boxes ? cam.latest_boxes.length : 0} objects tracked</div>
+                            </div>
+                            <div style="display:flex; gap:15px;">
+                                <div style="text-align:center;">
+                                    <div style="font-size:1.5rem; font-weight:bold; color:#10b981;">${boxCount}</div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted);">Boxes/Bundles</div>
+                                </div>
+                                <div style="text-align:center;">
+                                    <div style="font-size:1.5rem; font-weight:bold; color:#8b5cf6;">${carPartsCount}</div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted);">Car Parts</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            bundleContainer.innerHTML = bundleHtml;
+            
+            // Check gate cameras for recent events to log
+            let gateCameras = cameras.filter(c => c.location === 'Gate');
+            let eventsLogged = 0;
+            gateCameras.forEach(cam => {
+                if (cam.events) {
+                    cam.events.slice(0, 5).forEach(ev => {
+                        logHtml += `<div style="border-bottom:1px solid #333; padding-bottom:5px;">
+                            <span style="color:#6366f1;">[${ev.time}]</span> 
+                            <span style="color:#eab308;">[${ev.camera}]</span> 
+                            Detected <b style="color:#fff;">${ev.type}</b> with plate <b>${ev.plate}</b>. Gate Pass auto-generated.
+                        </div>`;
+                        eventsLogged++;
+                    });
+                }
+            });
+
+            if (eventsLogged === 0) {
+                logHtml = '<div>[SYSTEM] Matrix Engine Initialized. Listening for YOLO streams on Gates and Docks...</div>';
+            }
+
+            // Only update log if we have actual events, avoid wiping out existing
+            if (eventsLogged > 0) {
+                logContainer.innerHTML = logHtml;
+            }
+
+            // Update tab badge
+            const badge = document.getElementById('inbound-badge');
+            if (badge) {
+                if (totalBundles > 0) {
+                    badge.style.display = 'inline-block';
+                    badge.innerText = totalBundles;
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
         }
 
         // Background polling
