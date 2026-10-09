@@ -98,7 +98,11 @@ class SmartCamera:
             os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;2000000"
             
         if is_usb and os.name == 'nt':
-            cap = cv2.VideoCapture(cap_source, cv2.CAP_DSHOW)
+            # Attempt to grab the external USB webcam (index 1) first
+            cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap.release()
+                cap = cv2.VideoCapture(cap_source, cv2.CAP_DSHOW)
         else:
             cap = cv2.VideoCapture(cap_source)
             
@@ -112,7 +116,10 @@ class SmartCamera:
             if not ret or frame is None:
                 time.sleep(1)
                 if is_usb and os.name == 'nt':
-                    cap = cv2.VideoCapture(cap_source, cv2.CAP_DSHOW)
+                    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+                    if not cap.isOpened():
+                        cap.release()
+                        cap = cv2.VideoCapture(cap_source, cv2.CAP_DSHOW)
                 else:
                     cap = cv2.VideoCapture(cap_source)
                 continue

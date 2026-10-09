@@ -1275,14 +1275,24 @@
 
                 let stream = null;
                 try {
-                    stream = await navigator.mediaDevices.getUserMedia({
+                    let devices = await navigator.mediaDevices.enumerateDevices();
+                    let videoDevices = devices.filter(d => d.kind === 'videoinput');
+                    let usbCam = videoDevices.find(d => d.label.toLowerCase().includes('usb') || d.label.toLowerCase().includes('webcam'));
+                    
+                    let constraints = {
                         video: {
                             facingMode: { ideal: facingMode },
                             width: { ideal: 640 },
                             height: { ideal: 480 }
                         },
                         audio: false
-                    });
+                    };
+                    
+                    if (usbCam) {
+                        constraints.video.deviceId = { exact: usbCam.deviceId };
+                    }
+
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
                 } catch(err) {
                     try {
                         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
