@@ -7,6 +7,7 @@ import numpy as np
 from ultralytics import YOLO
 import easyocr
 from scipy.signal import find_peaks
+from scipy.cluster.hierarchy import linkage, fcluster
 from identity_service import get_identity_service
 
 class SmartCamera:
@@ -28,6 +29,9 @@ class SmartCamera:
         self.detected_bar_layers = 0
         self.bar_layer_peaks = []
         self.bar_stack_bbox = None
+        self.detected_heads = []
+        self.cluster_breakdown = {}
+        self.head_count = 0
         self.last_package_count = 0
         self.consecutive_zeros = 0
         self.seen_package_ids = set()
@@ -319,44 +323,122 @@ class SmartCamera:
                 for b in new_boxes:
                     b['in_pile'] = False
 
-            # Human-Logic Structural Bar Stack & Layer Counting (Zero-Dataset)
-            bar_layers = 0
-            bar_peaks = []
-            bar_bbox = None
+            # Industrial Cross-Section Head & Hollow Tube Counting (Zero-Dataset)
+            detected_heads = []
+            cluster_breakdown = {}
+            palette_bgr = [
+                (220, 20, 220), # Purple
+                (255, 144, 30), # Blue
+                (50, 205, 50),  # Green
+                (0, 140, 255)   # Orange
+            ]
+            cluster_names = ['Top Layer', 'Left Bundle', 'Centre Bundle', 'Right Bundle']
+
             try:
-                hsv = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2HSV)
-                lower_gold = np.array([10, 40, 40])
-                upper_gold = np.array([38, 255, 255])
-                gold_mask = cv2.inRange(hsv, lower_gold, upper_gold)
-                if cv2.countNonZero(gold_mask) > 1500:
-                    kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 3))
-                    clean_mask = cv2.morphologyEx(gold_mask, cv2.MORPH_CLOSE, kernel_h)
-                    contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    if contours:
-                        stack_cnt = max(contours, key=cv2.contourArea)
-                        if cv2.contourArea(stack_cnt) > 2000:
-                            sx, sy, sw, sh = cv2.boundingRect(stack_cnt)
-                            gray = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
-                            sobel_y = np.abs(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3))
-                            sobel_y[clean_mask == 0] = 0
-                            sample_xs = [sx + int(sw * 0.35), sx + int(sw * 0.5), sx + int(sw * 0.65)]
-                            l_counts = []
-                            l_peaks = []
-                            for cx in sample_xs:
-                                cx_min, cx_max = max(0, cx - 25), min(640, cx + 25)
-                                v_proj = np.mean(sobel_y[sy:sy+sh, cx_min:cx_max], axis=1)
-                                pks, _ = find_peaks(v_proj, height=np.mean(v_proj)*0.75, distance=max(6, int(sh / 45)))
-                                l_counts.append(len(pks))
-                                l_peaks.append([int(p + sy) for p in pks])
-                            if l_counts:
-                                med = int(np.median(l_counts))
-                                bar_layers = med
-                                bar_peaks = sorted(l_peaks, key=lambda p: abs(len(p) - med))[0]
-                                bar_bbox = (sx, sy, sw, sh)
+                hf, wf = ai_frame.shape[:2]
+                hsv_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2HSV)
+                heads_raw = []
+
+                # Strategy A: Profile Bundle Orange Tags / End Caps on Front Face
+                lower_orange = np.array([4, 90, 90])
+                upper_orange = np.array([24, 255, 255])
+                orange_mask = cv2.inRange(hsv_f, lower_orange, upper_orange)
+                orange_mask[:int(hf * 0.12), :] = 0
+                orange_mask[:, int(wf * 0.62):] = 0
+
+                cnts_o, _ = cv2.findContours(orange_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for c in cnts_o:
+                    area = cv2.contourArea(c)
+                    if 6 < area < 1200:
+                        bx, by, bw, bh = cv2.boundingRect(c)
+                        heads_raw.append((bx + bw // 2, by + bh // 2))
+
+                # Strategy B: Steel Hollow Tubes / Pipe Cavities (if Strategy A finds < 5)
+                if len(heads_raw) < 5:
+                    gray_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
+                    blur_f = cv2.bilateralFilter(gray_f, 7, 50, 50)
+                    thresh_f = cv2.adaptiveThreshold(blur_f, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 19, 4)
+                    cnts_t, _ = cv2.findContours(thresh_f, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+                    heads_raw = []
+                    for c in cnts_t:
+                        area = cv2.contourArea(c)
+                        if 25 < area < 1500:
+                            bx, by, bw, bh = cv2.boundingRect(c)
+                            aspect = float(bw) / bh if bh > 0 else 0
+                            if 0.45 < aspect < 2.2:
+                                heads_raw.append((bx + bw // 2, by + bh // 2))
+
+                if len(heads_raw) >= 4:
+                    coords = np.array(heads_raw)
+                    k_clusters = min(4, max(1, len(heads_raw) // 25))
+                    Z = linkage(coords, method='ward')
+                    c_labels = fcluster(Z, t=k_clusters, criterion='maxclust')
+
+                    # Sort top-to-bottom, left-to-right for sequential numbering
+                    sorted_order = sorted(range(len(heads_raw)), key=lambda i: (heads_raw[i][1], heads_raw[i][0]))
+
+                    c_counts = {ci: 0 for ci in range(1, k_clusters + 1)}
+                    pins = []
+                    for seq, idx in enumerate(sorted_order, 1):
+                        hx, hy = heads_raw[idx]
+                        c_id = int(c_labels[idx])
+                        c_counts[c_id] += 1
+                        pins.append({
+                            'x': hx,
+                            'y': hy,
+                            'seq': seq,
+                            'cluster_id': c_id,
+                            'color': palette_bgr[(c_id - 1) % len(palette_bgr)]
+                        })
+
+                    detected_heads = pins
+                    for ci in range(1, k_clusters + 1):
+                        c_name = cluster_names[ci - 1] if ci - 1 < len(cluster_names) else f'Bundle {ci}'
+                        cluster_breakdown[c_name] = c_counts[ci]
             except Exception:
                 pass
 
-            if bar_layers > 0:
+            # Secondary fallback: Human-Logic Structural Bar Stack & Layer Counting (Zero-Dataset)
+            bar_layers = 0
+            bar_peaks = []
+            bar_bbox = None
+            if not detected_heads:
+                try:
+                    hsv = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2HSV)
+                    lower_gold = np.array([10, 40, 40])
+                    upper_gold = np.array([38, 255, 255])
+                    gold_mask = cv2.inRange(hsv, lower_gold, upper_gold)
+                    if cv2.countNonZero(gold_mask) > 1500:
+                        kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 3))
+                        clean_mask = cv2.morphologyEx(gold_mask, cv2.MORPH_CLOSE, kernel_h)
+                        contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        if contours:
+                            stack_cnt = max(contours, key=cv2.contourArea)
+                            if cv2.contourArea(stack_cnt) > 2000:
+                                sx, sy, sw, sh = cv2.boundingRect(stack_cnt)
+                                gray = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
+                                sobel_y = np.abs(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3))
+                                sobel_y[clean_mask == 0] = 0
+                                sample_xs = [sx + int(sw * 0.35), sx + int(sw * 0.5), sx + int(sw * 0.65)]
+                                l_counts = []
+                                l_peaks = []
+                                for cx in sample_xs:
+                                    cx_min, cx_max = max(0, cx - 25), min(640, cx + 25)
+                                    v_proj = np.mean(sobel_y[sy:sy+sh, cx_min:cx_max], axis=1)
+                                    pks, _ = find_peaks(v_proj, height=np.mean(v_proj)*0.75, distance=max(6, int(sh / 45)))
+                                    l_counts.append(len(pks))
+                                    l_peaks.append([int(p + sy) for p in pks])
+                                if l_counts:
+                                    med = int(np.median(l_counts))
+                                    bar_layers = med
+                                    bar_peaks = sorted(l_peaks, key=lambda p: abs(len(p) - med))[0]
+                                    bar_bbox = (sx, sy, sw, sh)
+                except Exception:
+                    pass
+
+            if detected_heads:
+                clustered_count = len(detected_heads)
+            elif bar_layers > 0:
                 clustered_count = max(clustered_count, bar_layers)
 
             with self.lock:
@@ -369,6 +451,9 @@ class SmartCamera:
                 self.detected_bar_layers = bar_layers
                 self.bar_layer_peaks = bar_peaks
                 self.bar_stack_bbox = bar_bbox
+                self.detected_heads = detected_heads
+                self.cluster_breakdown = cluster_breakdown
+                self.head_count = len(detected_heads)
 
             time.sleep(0.016) # Faster loop for 60 FPS capabilities
 
@@ -386,9 +471,43 @@ class SmartCamera:
             bar_layers = self.detected_bar_layers
             bar_peaks = copy.deepcopy(self.bar_layer_peaks)
             bar_bbox = self.bar_stack_bbox
-            
-        # Draw physical bar stack boundary and layer seams (Human-Logic zero-dataset count)
-        if bar_bbox and bar_layers > 0:
+            detected_heads = copy.deepcopy(self.detected_heads)
+            cluster_breakdown = copy.deepcopy(self.cluster_breakdown)
+
+        palette_bgr = [
+            (220, 20, 220), # Purple
+            (255, 144, 30), # Blue
+            (50, 205, 50),  # Green
+            (0, 140, 255)   # Orange
+        ]
+
+        # Priority 1: Reference-Grade Individual Head Pins & Summary Legend Card
+        if detected_heads:
+            # Draw individual pins
+            for pin in detected_heads:
+                px, py = pin['x'], pin['y']
+                p_col = pin['color']
+                cv2.circle(display_frame, (px, py), 5, (255, 255, 255), -1)
+                cv2.circle(display_frame, (px, py), 4, p_col, -1)
+                if len(detected_heads) <= 75:
+                    cv2.putText(display_frame, str(pin['seq']), (px - 3, py + 3), cv2.FONT_HERSHEY_SIMPLEX, 0.22, (255, 255, 255), 1)
+
+            # Draw white HUD legend card in top-left matching reference image
+            k_groups = len(cluster_breakdown)
+            card_w, card_h = 165, 26 + (k_groups + 1) * 16
+            cv2.rectangle(display_frame, (10, 38), (10 + card_w, 38 + card_h), (255, 255, 255), -1)
+            cv2.rectangle(display_frame, (10, 38), (10 + card_w, 38 + card_h), (180, 180, 180), 1)
+
+            y_pos = 54
+            for ci, (b_name, b_count) in enumerate(cluster_breakdown.items()):
+                b_col = palette_bgr[ci % len(palette_bgr)]
+                cv2.circle(display_frame, (22, y_pos - 4), 4, b_col, -1)
+                cv2.putText(display_frame, f"{b_name}: {b_count}", (32, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (20, 20, 20), 1)
+                y_pos += 16
+            cv2.putText(display_frame, f"TOTAL: {len(detected_heads)} pcs", (20, y_pos + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 200), 1)
+
+        # Priority 2: Draw physical bar stack boundary and layer seams
+        elif bar_bbox and bar_layers > 0:
             bsx, bsy, bsw, bsh = bar_bbox
             cv2.rectangle(display_frame, (bsx, bsy), (bsx + bsw, bsy + bsh), (0, 215, 255), 2)
             for i, py in enumerate(bar_peaks):
@@ -396,32 +515,35 @@ class SmartCamera:
                 cv2.putText(display_frame, f"L{i+1}", (bsx + 6, py - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
             cv2.putText(display_frame, f"BAR STACK: {bar_layers} LAYERS", (bsx + 8, max(20, bsy - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 215, 255), 2)
 
-        # Draw primary pile boundary envelope if detected
+        # Priority 3: Draw primary pile boundary envelope if detected
         elif pile_envelope and clustered_count > 0:
             px1, py1, px2, py2 = pile_envelope['x1'], pile_envelope['y1'], pile_envelope['x2'], pile_envelope['y2']
             cv2.rectangle(display_frame, (max(0, px1 - 6), max(0, py1 - 6)), (min(640, px2 + 6), min(480, py2 + 6)), (0, 255, 255), 2)
             cv2.putText(display_frame, f"PRIMARY PILE: {clustered_count} BUNDLES", (max(10, px1), max(25, py1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-        for box in boxes_to_draw:
-            if box.get('in_pile'):
-                color = (0, 230, 115) # Emerald green for primary pile
-            elif box.get('is_package'):
-                color = (255, 140, 0) # Amber for stray/background packages
-            else:
-                color = (200, 200, 200) # Gray/white for persons/other
+        if not detected_heads:
+            for box in boxes_to_draw:
+                if box.get('in_pile'):
+                    color = (0, 230, 115) # Emerald green for primary pile
+                elif box.get('is_package'):
+                    color = (255, 140, 0) # Amber for stray/background packages
+                else:
+                    color = (200, 200, 200) # Gray/white for persons/other
+                    
+                x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(display_frame, box['type'], (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                 
-            x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
-            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(display_frame, box['type'], (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-            # Draw centroid point
-            if box.get('is_package'):
-                cx, cy = int((x1 + x2)/2), int((y1 + y2)/2)
-                cv2.circle(display_frame, (cx, cy), 3, (0, 255, 255), -1)
+                # Draw centroid point
+                if box.get('is_package'):
+                    cx, cy = int((x1 + x2)/2), int((y1 + y2)/2)
+                    cv2.circle(display_frame, (cx, cy), 3, (0, 255, 255), -1)
 
         # High-tech HUD banner at top of frame
         bin_label = f"BIN: {self.bin_id}" if self.bin_id else "BIN: UNASSIGNED"
-        if bar_layers > 0:
+        if detected_heads:
+            hud_text = f"{bin_label} | PILE: {len(detected_heads)} PCS ({len(cluster_breakdown)} GROUPS)"
+        elif bar_layers > 0:
             hud_text = f"{bin_label} | BARS: {bar_layers} LAYERS | PILE: {clustered_count} BUNDLES"
         else:
             hud_text = f"{bin_label} | PILE: {clustered_count} BUNDLES | TOTAL: {self.visible_packages}"
