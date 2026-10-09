@@ -329,35 +329,20 @@ def init_db():
         )
 
         # Seed initial cameras for Camera Master if empty
-        initial_cameras = [
-            ('CAM-001', 'CAM-001', 'Gate Camera 01', 'Warehouse A', 'Gate 01', 'IP Camera', 'Hikvision', 'rtsp://192.168.1.101:554/ch0', 'Online'),
-            ('CAM-002', 'CAM-002', 'Dock Camera 01', 'Warehouse A', 'Dock 01', 'IP Camera', 'Hikvision', 'rtsp://192.168.1.102:554/ch0', 'Online'),
-            ('CAM-003', 'CAM-003', 'Dock Camera 02', 'Warehouse A', 'Dock 02', 'IP Camera', 'Dahua', 'rtsp://192.168.1.103:554/ch0', 'Online'),
-            ('CAM-004', 'CAM-004', 'Yard Overview Camera', 'Warehouse A', 'Yard Area', 'IP Camera', 'CP Plus', 'rtsp://192.168.1.104:554/ch0', 'Offline')
-        ]
+        initial_cameras = []
         cur.executemany(
             "INSERT OR IGNORE INTO cameras (camera_id, camera_code, name, warehouse, location, camera_type, vendor, stream_url, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             initial_cameras
         )
 
         # Seed initial AI camera configs if empty
-        initial_configs = [
-            ('CAM-001', 1, 1, 0, 5),
-            ('CAM-002', 1, 1, 1, 10),
-            ('CAM-003', 1, 1, 0, 5),
-            ('CAM-004', 0, 0, 0, 2)
-        ]
+        initial_configs = []
         cur.executemany(
             "INSERT OR IGNORE INTO vision_camera_configs (camera_id, ai_enabled, detection_enabled, tracking_enabled, processing_fps) VALUES (?, ?, ?, ?, ?)",
             initial_configs
         )
 
-        initial_cam_classes = [
-            ('CAM-001', 'BOX'), ('CAM-001', 'WORKER'), ('CAM-001', 'TRUCK'),
-            ('CAM-002', 'BOX'), ('CAM-002', 'WORKER'), ('CAM-002', 'PALLET'), ('CAM-002', 'FORKLIFT'),
-            ('CAM-003', 'BOX'), ('CAM-003', 'BIN'),
-            ('CAM-004', 'TRUCK')
-        ]
+        initial_cam_classes = []
         cur.executemany(
             "INSERT OR IGNORE INTO vision_camera_object_classes (camera_id, class_code) VALUES (?, ?)",
             initial_cam_classes
