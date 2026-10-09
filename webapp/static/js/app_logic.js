@@ -1614,18 +1614,27 @@
                             <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.6); padding:4px 6px; border-radius:4px; font-size:0.65rem; pointer-events:none; color:white;">&#x26F6;</div>
                         </div>
                         <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:6px; border-radius:4px; font-size:0.75rem;">
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <span style="color:#10b981; font-weight:bold;">📦 Pile: ${pileCount}</span>
-                                ${cam.detected_bar_layers ? `<span style="color:#f59e0b; font-weight:bold;">(🟡 ${cam.detected_bar_layers} Layers)</span>` : ''}
-                                <span style="color:var(--text-muted); font-size:0.7rem;">(All: ${cam.visible_packages || 0})</span>
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <span style="color:#10b981; font-weight:bold;">📦 Total: ${pileCount} pcs</span>
+                                ${cam.head_count ? `<span class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:0.65rem; padding:1px 4px;">🎯 End Heads</span>` : ''}
+                                ${cam.detected_bar_layers && !cam.head_count ? `<span style="color:#f59e0b; font-weight:bold;">(🟡 ${cam.detected_bar_layers} Layers)</span>` : ''}
                             </div>
                             <div style="display:flex; align-items:center; gap:6px;">
                                 <label style="font-size:0.65rem; color:#cbd5e1; display:flex; align-items:center; gap:2px; cursor:pointer;" title="Continuously reflect live count into Bin inventory">
                                     <input type="checkbox" onchange="toggleAutoSync('${cam.id}', this.checked)" ${isAutoSync ? 'checked' : ''} ${!hasBin ? 'disabled' : ''}> Auto
                                 </label>
-                                <button class="btn-primary" style="padding:3px 8px; font-size:0.65rem; background:#10b981; color:#000; font-weight:bold; border:none; border-radius:3px; cursor:pointer;" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} title="${hasBin ? 'Sync live pile count directly to Bin ' + cam.bin_id : 'Assign a Bin first'}">⚡ Sync to Bin</button>
+                                <button class="btn-primary" style="padding:3px 8px; font-size:0.65rem; background:#10b981; color:#000; font-weight:bold; border:none; border-radius:3px; cursor:pointer;" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} title="${hasBin ? 'Sync live count directly to Bin ' + cam.bin_id : 'Assign a Bin first'}">⚡ Sync to Bin</button>
                             </div>
                         </div>
+                        ${cam.cluster_breakdown && Object.keys(cam.cluster_breakdown).length > 0 ? `
+                        <div style="margin-top:4px; display:flex; gap:4px; flex-wrap:wrap; font-size:0.65rem;">
+                            ${Object.entries(cam.cluster_breakdown).map(([grp, cnt], idx) => {
+                                const colors = ['#e879f9', '#60a5fa', '#4ade80', '#fb923c'];
+                                const c = colors[idx % colors.length];
+                                return `<span style="background:rgba(255,255,255,0.06); padding:2px 5px; border-radius:3px; color:${c}; border:1px solid rgba(255,255,255,0.1);">● ${grp}: <b>${cnt}</b></span>`;
+                            }).join('')}
+                        </div>
+                        ` : ''}
                     `;
                 }
 

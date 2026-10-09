@@ -2643,6 +2643,8 @@ def get_cameras():
             visible_boxes = getattr(active_cam, 'visible_boxes', 0) if active_cam else 0
             clustered_bundle_count = getattr(active_cam, 'clustered_bundle_count', visible_packages) if active_cam else 0
             detected_bar_layers = getattr(active_cam, 'detected_bar_layers', 0) if active_cam else 0
+            head_count = getattr(active_cam, 'head_count', 0) if active_cam else 0
+            cluster_breakdown = getattr(active_cam, 'cluster_breakdown', {}) if active_cam else {}
             latest_boxes = active_cam.latest_boxes if active_cam else []
             bin_id = cam.get('bin_id') or (getattr(active_cam, 'bin_id', None))
             cameras_data.append({
@@ -2660,6 +2662,8 @@ def get_cameras():
                 "visible_boxes": visible_boxes,
                 "clustered_bundle_count": clustered_bundle_count,
                 "detected_bar_layers": detected_bar_layers,
+                "head_count": head_count,
+                "cluster_breakdown": cluster_breakdown,
                 "latest_boxes": latest_boxes
             })
     except Exception as e:
@@ -2671,6 +2675,8 @@ def get_cameras():
             visible_packages = getattr(cam, 'visible_packages', 0)
             clustered_bundle_count = getattr(cam, 'clustered_bundle_count', visible_packages)
             detected_bar_layers = getattr(cam, 'detected_bar_layers', 0)
+            head_count = getattr(cam, 'head_count', 0)
+            cluster_breakdown = getattr(cam, 'cluster_breakdown', {})
             cameras_data.append({
                 "id": cam.camera_id,
                 "code": getattr(cam, 'code', cam.camera_id),
@@ -2686,6 +2692,8 @@ def get_cameras():
                 "visible_boxes": getattr(cam, 'visible_boxes', 0),
                 "clustered_bundle_count": clustered_bundle_count,
                 "detected_bar_layers": detected_bar_layers,
+                "head_count": head_count,
+                "cluster_breakdown": cluster_breakdown,
                 "latest_boxes": getattr(cam, 'latest_boxes', [])
             })
     return jsonify(cameras_data)
