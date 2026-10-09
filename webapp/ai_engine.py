@@ -19,6 +19,8 @@ class SmartCamera:
         self.is_running = False
         self.events = []
         self.visible_packages = 0
+        self.visible_boxes = 0
+        self.visible_car_parts = 0
         self.last_package_count = 0
         self.consecutive_zeros = 0
         self.seen_package_ids = set()
@@ -152,7 +154,8 @@ class SmartCamera:
                 results = SmartCamera.vehicle_model(ai_frame, conf=0.1, iou=0.4, verbose=False)
                 
             new_boxes = []
-            package_count = 0
+            box_count = 0
+            car_part_count = 0
             
             for result in results:
                 if result.boxes.id is not None:
@@ -198,9 +201,12 @@ class SmartCamera:
                             threading.Thread(target=run_ocr, args=(ai_frame.copy(), self.camera_id, self.name, vehicle_type, self.events)).start()
                     elif raw_type == "person":
                         vehicle_type = "Worker"
+                    elif raw_type in ["suitcase", "backpack", "handbag", "box", "carton", "bundle", "laptop", "book", "tv", "microwave", "oven", "refrigerator"]:
+                        vehicle_type = "Box/Bundle"
+                        box_count += 1
                     else:
                         vehicle_type = "Car Part"
-                        package_count += 1
+                        car_part_count += 1
                         
                         # Part 5: Legacy tripwire / SmartCamera package counting is RETIRED.
                         # W.A.R.L.O.G. BOX_UNLOADED_AT_DOCK is the sole authoritative perception source.
@@ -211,11 +217,13 @@ class SmartCamera:
                             self.tracked_centroids[track_id] = (cx, cy)
                         
                     label = vehicle_type if track_id is None else f"{vehicle_type} #{track_id}"
-                    new_boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "type": label, "is_package": vehicle_type=="Car Part", "track_id": track_id})
+                    new_boxes.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "type": label, "is_package": vehicle_type in ["Car Part", "Box/Bundle"], "track_id": track_id})
 
             with self.lock:
                 self.latest_boxes = new_boxes
-                self.visible_packages = package_count
+                self.visible_boxes = box_count
+                self.visible_car_parts = car_part_count
+                self.visible_packages = box_count + car_part_count
 
             time.sleep(0.016) # Faster loop for 60 FPS capabilities
 
@@ -244,7 +252,7 @@ class SmartCamera:
 
         if self.location == "Dock":
             # High-tech HUD info
-            cv2.putText(display_frame, f"VISIBLE: {self.visible_packages} | W.A.R.L.O.G. ACTIVE", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 150), 2)
+            cv2.putText(display_frame, f"BOXES: {self.visible_boxes} | CAR PARTS: {self.visible_car_parts} | W.A.R.L.O.G. ACTIVE", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 150), 2)
 
         ret, buffer = cv2.imencode('.jpg', display_frame)
         return buffer.tobytes()
