@@ -70,16 +70,19 @@ class TestLegacySmartCameraTripwireRetirement(unittest.TestCase):
         # Seed gate pass initial unloaded_qty = 0 for test repeatability
         conn = db.get_db()
         with conn:
-            conn.execute("UPDATE gate_passes SET unloaded_qty = 0 WHERE id = 'GP-1000'")
+            conn.execute("INSERT OR IGNORE INTO expected_deliveries (po_number, expected_date) VALUES ('PO-TEST', '2026-10-09')")
+            conn.execute("INSERT OR IGNORE INTO gate_passes (id, po_number, plate, vehicle_type, vendor, status, unloaded_qty, dock) VALUES ('GP-1000', 'PO-TEST', 'MH-12-AB-1234', 'TRUCK', 'Test Vendor', 'ACTIVE', 0, 'Dock 1')")
+            conn.execute("UPDATE gate_passes SET unloaded_qty = 0, status = 'ACTIVE', dock = 'Dock 1' WHERE id = 'GP-1000'")
         conn.close()
 
     def tearDown(self):
         self.movement_svc.reset_all()
         self.trace_svc.reset()
-        # Restore gate pass unloaded_qty to 0
+        # Delete gate pass GP-1000 to restore counts
         conn = db.get_db()
         with conn:
-            conn.execute("UPDATE gate_passes SET unloaded_qty = 0 WHERE id = 'GP-1000'")
+            conn.execute("DELETE FROM gate_passes WHERE id = 'GP-1000'")
+            conn.execute("DELETE FROM expected_deliveries WHERE po_number = 'PO-TEST'")
         conn.close()
 
         # Verify database invariants
@@ -151,13 +154,19 @@ class TestLegacySmartCameraTripwireRetirement(unittest.TestCase):
         assocs = [{
             "box_track_id": 101, "truck_track_id": 201, "association_state": "CONFIRMED", "association_score": 0.95, "is_ambiguous": False
         }]
-        for f in range(1, 4):
-            self.movement_svc.process_events(tracks, truck_box_assocs=assocs, camera_id="CAM-001", frame_index=f, camera_zones=dock_zones)
+        for f in range(1, 10):
+            res, _ = self.movement_svc.process_events(tracks, truck_box_assocs=assocs, camera_id="CAM-001", frame_index=f, camera_zones=dock_zones)
+            if f == 9:
+                print("DEBUG EVENTS AT FRAME 9:", res["active_events"], res["candidate_events"])
+        print("DEBUG MOVEMENT SVC ID IN TEST:", id(self.movement_svc), "SESSIONS:", list(self.movement_svc.sessions.keys()))
+        all_ev = self.movement_svc.get_dock_unloading_evidence(include_candidates=True)
+        print("DEBUG ALL EV IN TEST:", len(all_ev))
 
         # Trigger operator unload_step sync
         res = self.client.post("/api/dock/unload_step/GP-1000")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
+        print("DEBUG UNLOAD STEP RESPONSE:", data)
         self.assertTrue(data.get("success"))
         self.assertEqual(data.get("total"), 1)
         self.assertEqual(data.get("source"), "warlog_evidence")

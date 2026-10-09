@@ -174,7 +174,7 @@ class MovementEvent:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "event_id": self.event_id,
-            "event_type": self.event_type,
+            "event_type": self.event_type.value if hasattr(self.event_type, 'value') else self.event_type,
             "camera_id": self.camera_id,
             "timestamp": self.timestamp,
             "primary_object": self.primary_object,
@@ -182,7 +182,7 @@ class MovementEvent:
             "zone": self.zone,
             "evidence": self.evidence,
             "confidence": round(float(self.confidence), 4),
-            "status": self.status,
+            "status": self.status.value if hasattr(self.status, 'value') else self.status,
             "event_level": self.event_level,
             "stage": self.stage,
             "blocking_reasons": self.evidence.get("blocking_reasons", []),

@@ -1,5 +1,5 @@
 {
-  "sha256": "dc914467fbc2e72a22fbd628a717aa760e67e1f1eee891bcbddd4d86291efec4",
+  "sha256": "55c940088e2e8b50394bb9dc6b724bcc17e27fb4e41318a7cb333dd2e34fbcca",
   "tables": {
     "bins": {
       "columns": 8,
@@ -13,7 +13,7 @@
         "status",
         "last_updated"
       ],
-      "rows": 0
+      "rows": 5
     },
     "cameras": {
       "columns": 13,
@@ -32,7 +32,7 @@
         "updated_at",
         "bin_id"
       ],
-      "rows": 4
+      "rows": 9
     },
     "expected_deliveries": {
       "columns": 12,
@@ -41,26 +41,28 @@
         "expected_date",
         "activity",
         "vendor",
+        "vendor_email",
         "load_description",
         "plate",
         "driver_name",
+        "driver_phone",
         "unloading_sheet",
         "status",
-        "created_at",
-        "vendor_email",
-        "driver_phone"
+        "created_at"
       ],
-      "rows": 2
+      "rows": 6
     },
     "gate_passes": {
-      "columns": 24,
+      "columns": 25,
       "col_names": [
         "id",
         "po_number",
         "plate",
         "vehicle_type",
         "driver_name",
+        "driver_phone",
         "vendor",
+        "vendor_email",
         "load_description",
         "activity",
         "expected_date",
@@ -72,15 +74,14 @@
         "unloaded_qty",
         "bin_allocation",
         "unloading_sheet",
-        "created_at",
-        "driver_phone",
-        "vendor_email",
         "otp",
+        "otp_verified",
         "exit_time",
+        "created_at",
         "driver_photo",
-        "otp_verified"
+        "otp_code"
       ],
-      "rows": 2
+      "rows": 12
     },
     "inventory": {
       "columns": 8,
@@ -107,7 +108,7 @@
         "pdf_path",
         "generated_at"
       ],
-      "rows": 0
+      "rows": 11
     },
     "object_classes": {
       "columns": 7,
@@ -145,7 +146,7 @@
       "rows": 0
     },
     "skus": {
-      "columns": 7,
+      "columns": 8,
       "col_names": [
         "sku_id",
         "name",
@@ -153,9 +154,10 @@
         "category",
         "unit_weight",
         "unit_volume",
-        "created_at"
+        "created_at",
+        "units_per_bundle"
       ],
-      "rows": 0
+      "rows": 5
     },
     "users": {
       "columns": 3,
@@ -177,7 +179,7 @@
         "exit_time",
         "status"
       ],
-      "rows": 0
+      "rows": 12
     },
     "vision_camera_configs": {
       "columns": 8,
@@ -201,7 +203,7 @@
         "class_code",
         "created_at"
       ],
-      "rows": 11
+      "rows": 10
     },
     "vision_zone_camera_rois": {
       "columns": 7,
@@ -214,7 +216,7 @@
         "created_at",
         "updated_at"
       ],
-      "rows": 3
+      "rows": 2
     },
     "vision_zone_cameras": {
       "columns": 4,
@@ -224,7 +226,7 @@
         "camera_id",
         "created_at"
       ],
-      "rows": 14
+      "rows": 10
     },
     "vision_zones": {
       "columns": 9,
