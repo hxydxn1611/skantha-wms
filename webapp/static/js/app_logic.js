@@ -1456,7 +1456,11 @@
         window.addEventListener('beforeunload', () => {
             Object.values(activeDeviceStreams).forEach(item => {
                 if (item.stream) item.stream.getTracks().forEach(t => t.stop());
-              function renderCameras(cameras) {
+                if (item.intervalId) clearInterval(item.intervalId);
+            });
+        });
+
+        function renderCameras(cameras) {
             const grid = document.getElementById('cameraGrid');
             const hikList = document.getElementById('hikvision-cam-list');
             const currentIds = new Set(cameras.map(c => `cam-${c.id}`));
