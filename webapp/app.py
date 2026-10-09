@@ -2639,6 +2639,8 @@ def get_cameras():
             seen_ids.add(cid)
             active_cam = active_cameras.get(cid)
             events = active_cam.events if active_cam else []
+            visible_packages = active_cam.visible_packages if active_cam else 0
+            latest_boxes = active_cam.latest_boxes if active_cam else []
             cameras_data.append({
                 "id": cid,
                 "code": cam.get('camera_code', cid),
@@ -2648,7 +2650,9 @@ def get_cameras():
                 "type": cam.get('camera_type', 'IP Camera'),
                 "vendor": cam.get('vendor', 'Unknown'),
                 "status": cam.get('status', 'Online'),
-                "events": events
+                "events": events,
+                "visible_packages": visible_packages,
+                "latest_boxes": latest_boxes
             })
     except Exception as e:
         logger.warning(f"Error querying authoritative cameras for /api/cameras: {e}")
@@ -2665,7 +2669,9 @@ def get_cameras():
                 "type": cam.cam_type,
                 "vendor": cam.vendor,
                 "status": "Online",
-                "events": cam.events
+                "events": getattr(cam, 'events', []),
+                "visible_packages": getattr(cam, 'visible_packages', 0),
+                "latest_boxes": getattr(cam, 'latest_boxes', [])
             })
     return jsonify(cameras_data)
 
