@@ -1008,6 +1008,18 @@ def create_or_update_camera(data):
     conn.close()
     return get_camera(camera_id)
 
+def update_camera_bin(camera_id, bin_id):
+    conn = get_db()
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with conn:
+        conn.execute(
+            "UPDATE cameras SET bin_id = ?, updated_at = ? WHERE camera_id = ? OR camera_code = ?",
+            (bin_id, now, str(camera_id), str(camera_id))
+        )
+    conn.close()
+    return get_camera(camera_id)
+
 def get_all_vision_cameras(search_term=None, ai_status=None, cam_status=None):
     """
     Returns list of cameras from Camera Master combined with their AI-specific configuration
@@ -1894,6 +1906,53 @@ def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
             WHERE bin_id = ?
         ''', (actual_count * vol_per_unit, actual_count * wt_per_unit, bin_id))
     conn.close()
+
+def sync_bin_inventory(bin_id, verified_count, sku_id=None, vendor="Vision AI"):
+    """
+    Reconciles a physical bin's inventory count with the live AI vision-verified count.
+    Updates the inventory record and calculates current_volume and current_weight in bins table.
+    """
+    conn = get_db()
+    with conn:
+        conn.execute('''
+            INSERT INTO bins (bin_id, status, last_updated)
+            VALUES (?, 'Active', CURRENT_TIMESTAMP)
+            ON CONFLICT(bin_id) DO NOTHING
+        ''', (bin_id,))
+        
+        inv = conn.execute("SELECT * FROM inventory WHERE bin_id = ? ORDER BY id ASC", (bin_id,)).fetchall()
+        if inv:
+            target_sku = sku_id or inv[0]['sku_id']
+            target_vendor = inv[0]['vendor'] or vendor
+            conn.execute("UPDATE inventory SET quantity = ?, received_date = CURRENT_TIMESTAMP WHERE id = ?", (verified_count, inv[0]['id']))
+            if len(inv) > 1:
+                extra_ids = [str(r['id']) for r in inv[1:]]
+                conn.execute(f"DELETE FROM inventory WHERE id IN ({','.join(extra_ids)})")
+        else:
+            target_sku = sku_id or 'SKU-BUNDLE-01'
+            target_vendor = vendor
+            conn.execute('''
+                INSERT INTO skus (sku_id, name, unit_volume, unit_weight)
+                VALUES (?, ?, 1.5, 2.0)
+                ON CONFLICT(sku_id) DO NOTHING
+            ''', (target_sku, f"Item {target_sku}"))
+            conn.execute('''
+                INSERT INTO inventory (bin_id, sku_id, quantity, vendor, received_date)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (bin_id, target_sku, verified_count, target_vendor))
+            
+        sku_row = conn.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (target_sku,)).fetchone()
+        vol = round((sku_row['unit_volume'] if sku_row and sku_row['unit_volume'] else 1.5) * verified_count, 2)
+        wt = round((sku_row['unit_weight'] if sku_row and sku_row['unit_weight'] else 2.0) * verified_count, 2)
+        conn.execute('''
+            UPDATE bins 
+            SET current_volume = ?, current_weight = ?, status = 'Active', last_updated = CURRENT_TIMESTAMP
+            WHERE bin_id = ?
+        ''', (vol, wt, bin_id))
+    conn.close()
+    return {"bin_id": bin_id, "sku_id": target_sku, "quantity": verified_count, "volume": vol, "weight": wt}
+
+
 
 
 def intelligent_putaway(total_unloaded, vendor_name, sku_id='UNKNOWN-SKU'):

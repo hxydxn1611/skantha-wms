@@ -354,6 +354,28 @@
                 renderCameras(cameras);
                 renderInboundAutomation(cameras);
 
+                // Auto-sync live camera bundle counts to assigned Bins
+                if (window.autoSyncCameras && window.autoSyncCameras.size > 0) {
+                    const now = Date.now();
+                    window.lastSyncTimes = window.lastSyncTimes || {};
+                    cameras.forEach(cam => {
+                        if (window.autoSyncCameras.has(cam.id) && cam.bin_id && (cam.clustered_bundle_count > 0 || cam.visible_packages > 0)) {
+                            const last = window.lastSyncTimes[cam.id] || 0;
+                            if (now - last > 3500) {
+                                window.lastSyncTimes[cam.id] = now;
+                                fetch(`/api/cameras/${cam.id}/sync_inventory`, {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'}
+                                }).then(r => r.json()).then(res => {
+                                    if (res.success && window.fetchBins) {
+                                        window.fetchBins();
+                                    }
+                                }).catch(() => {});
+                            }
+                        }
+                    });
+                }
+
                 // Auto-create Passes and Auto-Count Packages
                 cameras.forEach(cam => {
                     if(cam.location === 'Gate' && cam.events) {
@@ -1232,11 +1254,19 @@
                             camUrlInput.value = "0";
                         }
                     }
+                } else if(camType === 'File / Test Stream') {
+                    if(urlLabel) urlLabel.innerText = "Test File Path / Image Path";
+                    if(camUrlInput) {
+                        camUrlInput.placeholder = "e.g. test_image.jpeg or c:/path/to/stock.jpg";
+                        if(!camUrlInput.value || camUrlInput.value === "0" || camUrlInput.value.startsWith('http')) {
+                            camUrlInput.value = "test_image.jpeg";
+                        }
+                    }
                 } else {
                     if(urlLabel) urlLabel.innerText = "Stream URL";
                     if(camUrlInput) {
                         camUrlInput.placeholder = "http://192.168.x.x:8080/video";
-                        if(camUrlInput.value === "0" || camUrlInput.value === "1") {
+                        if(camUrlInput.value === "0" || camUrlInput.value === "1" || camUrlInput.value.endsWith('.jpeg')) {
                             camUrlInput.value = "";
                         }
                     }
@@ -1251,10 +1281,10 @@
             const camType = document.getElementById('camType').value;
             const name = document.getElementById('camName').value;
             const rawLoc = document.getElementById('camLocation').value;
+            const binId = document.getElementById('camBinId') ? document.getElementById('camBinId').value : null;
             let location = rawLoc;
-            if(rawLoc === 'Bin Location') {
-                const bin = document.getElementById('camBinId').value;
-                if(bin) location = `Bin: ${bin}`;
+            if(binId) {
+                location = `Bin: ${binId}`;
             }
             const vendor = document.getElementById('camVendor').value;
             const url = document.getElementById('camUrl').value;
@@ -1313,6 +1343,7 @@
                         body: JSON.stringify({
                             name: name,
                             location: location,
+                            bin_id: binId || null,
                             url: 'device://client',
                             type: 'Device Camera',
                             vendor: vendor
@@ -1377,6 +1408,7 @@
                     body: JSON.stringify({
                         name: name,
                         location: location,
+                        bin_id: binId || null,
                         url: url,
                         type: camType,
                         vendor: vendor
@@ -1470,6 +1502,60 @@
             });
         });
 
+        window.autoSyncCameras = window.autoSyncCameras || new Set();
+
+        window.toggleAutoSync = function(camId, enabled) {
+            if(enabled) {
+                window.autoSyncCameras.add(camId);
+            } else {
+                window.autoSyncCameras.delete(camId);
+            }
+        };
+
+        window.syncCameraToBin = async function(camId) {
+            try {
+                const res = await fetch(`/api/cameras/${camId}/sync_inventory`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert(`✅ ${data.message}\nBin Master and Inventory Master have been updated!`);
+                    if(window.fetchBins) window.fetchBins();
+                    if(window.fetchInventoryMaster) window.fetchInventoryMaster();
+                    pollData();
+                } else {
+                    alert(`❌ Sync failed: ${data.message}`);
+                }
+            } catch(e) {
+                alert("Error syncing count: " + e.message);
+            }
+        };
+
+        window.promptAssignCameraBin = async function(camId) {
+            try {
+                const res = await fetch('/api/bins');
+                const bins = await res.json();
+                if(!bins || bins.length === 0) {
+                    alert("No bins found in Bin Master. Please add bins first in Master Hub -> Bin Master.");
+                    return;
+                }
+                const binList = bins.map(b => `${b.bin_id} (${b.zone})`).join('\n');
+                const chosen = prompt(`Enter Bin ID to link to this camera for live inventory count:\n\nAvailable Bins:\n${binList}`);
+                if(chosen !== null) {
+                    const trimmed = chosen.trim();
+                    await fetch(`/api/cameras/${camId}/assign_bin`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ bin_id: trimmed || null })
+                    });
+                    pollData();
+                }
+            } catch(e) {
+                alert("Error assigning bin: " + e.message);
+            }
+        };
+
         function renderCameras(cameras) {
             const grid = document.getElementById('cameraGrid');
             const hikList = document.getElementById('hikvision-cam-list');
@@ -1493,6 +1579,9 @@
 
             cameras.forEach(cam => {
                 const isLocalDevice = !!activeDeviceStreams[cam.id];
+                const pileCount = cam.clustered_bundle_count !== undefined ? cam.clustered_bundle_count : (cam.visible_packages || 0);
+                const hasBin = !!cam.bin_id;
+                const isAutoSync = window.autoSyncCameras && window.autoSyncCameras.has(cam.id);
                 
                 // Update Main Grid
                 let card = document.getElementById(`cam-${cam.id}`);
@@ -1504,11 +1593,19 @@
                     card.style.display = 'flex';
                     card.style.flexDirection = 'column';
                     card.id = `cam-${cam.id}`;
+                    grid.appendChild(card);
+                }
+
+                if (card) {
                     card.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
                             <strong style="font-size:0.95rem; color:var(--primary-navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${cam.name}">${cam.name}</strong>
                             <div style="display:flex; gap:4px; align-items:center;">
                                 ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; padding:2px 4px; font-size:0.6rem;">📲</span>' : ''}
+                                ${hasBin ? 
+                                    `<span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.65rem; padding:2px 6px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')" title="Click to change Bin">📍 ${cam.bin_id}</span>` : 
+                                    `<button style="background:#334155; color:#94a3b8; border:none; padding:2px 6px; font-size:0.65rem; border-radius:3px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">+ Assign Bin</button>`
+                                }
                                 <span class="badge pending" style="font-size:0.65rem; padding:2px 4px;">${cam.location}</span>
                             </div>
                         </div>
@@ -1516,8 +1613,20 @@
                             <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain;">
                             <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.6); padding:4px 6px; border-radius:4px; font-size:0.65rem; pointer-events:none; color:white;">&#x26F6;</div>
                         </div>
+                        <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:6px; border-radius:4px; font-size:0.75rem;">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <span style="color:#10b981; font-weight:bold;">📦 Pile: ${pileCount}</span>
+                                ${cam.detected_bar_layers ? `<span style="color:#f59e0b; font-weight:bold;">(🟡 ${cam.detected_bar_layers} Layers)</span>` : ''}
+                                <span style="color:var(--text-muted); font-size:0.7rem;">(All: ${cam.visible_packages || 0})</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <label style="font-size:0.65rem; color:#cbd5e1; display:flex; align-items:center; gap:2px; cursor:pointer;" title="Continuously reflect live count into Bin inventory">
+                                    <input type="checkbox" onchange="toggleAutoSync('${cam.id}', this.checked)" ${isAutoSync ? 'checked' : ''} ${!hasBin ? 'disabled' : ''}> Auto
+                                </label>
+                                <button class="btn-primary" style="padding:3px 8px; font-size:0.65rem; background:#10b981; color:#000; font-weight:bold; border:none; border-radius:3px; cursor:pointer;" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} title="${hasBin ? 'Sync live pile count directly to Bin ' + cam.bin_id : 'Assign a Bin first'}">⚡ Sync to Bin</button>
+                            </div>
+                        </div>
                     `;
-                    grid.appendChild(card);
                 }
 
                 // Update Hikvision Side Panel List
@@ -1530,19 +1639,26 @@
                     hikCard.style.borderRadius = '4px';
                     hikCard.style.borderLeft = '3px solid #3b82f6';
                     hikCard.style.fontSize = '0.8rem';
+                    hikList.appendChild(hikCard);
+                }
+
+                if (hikCard) {
                     hikCard.innerHTML = `
                         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                            <strong style="color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="${cam.name}">${cam.name}</strong>
+                            <strong style="color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;" title="${cam.name}">${cam.name}</strong>
                             <span style="color:#10b981; font-size:0.7rem;">Online</span>
                         </div>
-                        <div style="color:#888; font-size:0.7rem; margin-bottom:6px;">${cam.location} | ${cam.vendor}</div>
+                        <div style="color:#888; font-size:0.7rem; margin-bottom:4px;">${cam.location} | ${cam.vendor}</div>
+                        <div style="font-size:0.7rem; color:${hasBin ? '#10b981' : '#9ca3af'}; margin-bottom:6px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">
+                            ${hasBin ? `📍 Bin: <b>${cam.bin_id}</b> (Pile: <b>${pileCount}</b>)` : `⚠️ No Bin Assigned (Click)`}
+                        </div>
                         <div style="display:flex; gap:4px;">
                             <button style="flex:1; background:#374151; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="manualSnapshot('${cam.id}')">Snap</button>
                             ${isLocalDevice ? `<button style="flex:1; background:#374151; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="flipDeviceCamera('${cam.id}')">Flip</button>` : ''}
+                            ${hasBin ? `<button style="flex:1; background:#10b981; color:#000; font-weight:bold; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="syncCameraToBin('${cam.id}')">Sync</button>` : ''}
                             <button style="flex:1; background:#991b1b; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="deleteCamera('${cam.id}')">Disconn</button>
                         </div>
                     `;
-                    hikList.appendChild(hikCard);
                 }
             });
         }
@@ -1570,14 +1686,13 @@
             let logHtml = '';
             let bundleHtml = '';
 
-            // Map dock cameras to their bundle counts based on YOLO matrix latest_boxes
-            let dockCameras = cameras.filter(c => c.location.toLowerCase().includes('dock'));
-            let totalBundles = 0;
+            let activeCams = cameras.filter(c => (c.latest_boxes && c.latest_boxes.length > 0) || c.location.toLowerCase().includes('dock') || c.bin_id);
+            if (activeCams.length === 0) activeCams = cameras;
 
-            if (dockCameras.length === 0) {
-                bundleHtml = '<p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">No active dock cameras found.</p>';
+            if (activeCams.length === 0) {
+                bundleHtml = '<p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">No active cameras found.</p>';
             } else {
-                dockCameras.forEach(cam => {
+                activeCams.forEach(cam => {
                     let boxCount = 0;
                     let carPartsCount = 0;
                     if (cam.latest_boxes) {
@@ -1586,22 +1701,40 @@
                             if (b.type.toLowerCase().includes('car part') || b.type.toLowerCase().includes('engine') || b.type.toLowerCase().includes('bumper')) carPartsCount++;
                         });
                     }
-                    totalBundles += (boxCount + carPartsCount);
+                    const pileCount = cam.clustered_bundle_count !== undefined ? cam.clustered_bundle_count : boxCount;
+                    const hasBin = !!cam.bin_id;
+                    const isAutoSync = window.autoSyncCameras && window.autoSyncCameras.has(cam.id);
                     
                     bundleHtml += `
-                        <div style="background:#1a1a24; padding:15px; border-radius:6px; border:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center;">
+                        <div style="background:#1a1a24; padding:15px; border-radius:6px; border:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                             <div>
-                                <h4 style="margin:0; color:#fff; font-size:1rem;">${cam.name}</h4>
-                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Spatial Matrix: ${cam.latest_boxes ? cam.latest_boxes.length : 0} objects tracked</div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <h4 style="margin:0; color:#fff; font-size:1rem;">${cam.name}</h4>
+                                    ${hasBin ? 
+                                        `<span class="badge" style="background:#064e3b; color:#34d399; font-size:0.7rem; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')" title="Click to reassign">📍 Bin: ${cam.bin_id}</span>` : 
+                                        `<button style="background:#334155; color:#9ca3af; border:none; padding:2px 8px; font-size:0.7rem; border-radius:3px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">+ Assign Bin</button>`
+                                    }
+                                </div>
+                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
+                                    Spatial Matrix: ${cam.latest_boxes ? cam.latest_boxes.length : 0} objects tracked | ${cam.location}
+                                </div>
                             </div>
-                            <div style="display:flex; gap:15px;">
+                            <div style="display:flex; gap:15px; align-items:center;">
                                 <div style="text-align:center;">
-                                    <div style="font-size:1.5rem; font-weight:bold; color:#10b981;">${boxCount}</div>
-                                    <div style="font-size:0.7rem; color:var(--text-muted);">Boxes/Bundles</div>
+                                    <div style="font-size:1.6rem; font-weight:bold; color:#10b981;">${pileCount}</div>
+                                    <div style="font-size:0.7rem; color:var(--text-muted);">Clustered Pile</div>
                                 </div>
                                 <div style="text-align:center;">
-                                    <div style="font-size:1.5rem; font-weight:bold; color:#8b5cf6;">${carPartsCount}</div>
+                                    <div style="font-size:1.6rem; font-weight:bold; color:#8b5cf6;">${carPartsCount}</div>
                                     <div style="font-size:0.7rem; color:var(--text-muted);">Car Parts</div>
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                    <button class="btn-primary" style="padding:6px 14px; font-size:0.75rem; background:#10b981; color:#000; font-weight:bold; border:none; cursor:pointer;" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
+                                        ⚡ Sync to Bin
+                                    </button>
+                                    <label style="font-size:0.7rem; color:#cbd5e1; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                        <input type="checkbox" onchange="toggleAutoSync('${cam.id}', this.checked)" ${isAutoSync ? 'checked' : ''} ${!hasBin ? 'disabled' : ''}> Live Auto-Sync
+                                    </label>
                                 </div>
                             </div>
                         </div>

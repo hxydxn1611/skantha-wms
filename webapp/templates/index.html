@@ -1179,6 +1179,7 @@
                         
                         addTab.style.display = 'flex';
                         viewTab.style.display = 'none';
+                        if(typeof fetchCamBins === 'function') fetchCamBins();
                     }
                 }
                 
@@ -1199,20 +1200,26 @@
                         Connect or stream a local/IP video feed into junction monitoring.
                     </p>
                     <form id="addCameraForm">
-                        <label>Name</label> <input type="text" id="camName" placeholder="Main Gate" required>
-                        <label>Location</label> 
-                        <select id="camLocation" onchange="if(this.value==='Bin Location'){document.getElementById('binSelectContainer').style.display='block';fetchCamBins();}else{document.getElementById('binSelectContainer').style.display='none';}">
-                            <option value="Gate">Gate Entry</option>
+                        <label>Name</label> <input type="text" id="camName" placeholder="Pallet Area Cam" required>
+                        <label>Location / Zone</label> 
+                        <select id="camLocation">
+                            <option value="Bin Location">Bin / Pallet Hub Area</option>
                             <option value="Dock">Loading Dock</option>
+                            <option value="Gate">Gate Entry</option>
                             <option value="Warehouse Inside">Warehouse Inside</option>
-                            <option value="Bin Location">Bin Location</option>
                             <option value="General">General / Security</option>
                         </select>
-                        <div id="binSelectContainer" style="display:none; margin-top: 10px;">
-                            <label style="font-size:0.8rem; font-weight:600;">Assign to Bin:</label>
-                            <select id="camBinId" style="width:100%; padding:8px; border-radius:4px; border:1px solid #ddd;">
+                        <div id="binSelectContainer" style="margin-top: 10px; margin-bottom: 12px; background: rgba(16, 185, 129, 0.08); padding: 12px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label style="font-size:0.85rem; font-weight:700; color:#10b981; margin:0;">🎯 Assign to Bin (from Bin Master):</label>
+                                <span style="font-size:0.7rem; background:#10b981; color:#000; font-weight:bold; padding:2px 6px; border-radius:3px;">LIVE INVENTORY SYNC</span>
+                            </div>
+                            <select id="camBinId" style="width:100%; padding:8px; border-radius:4px; border:1px solid #334155; background:#1e293b; color:#fff; font-size:0.85rem;">
                                 <option value="">Select a Bin...</option>
                             </select>
+                            <p style="font-size:0.75rem; color:var(--text-muted); margin:6px 0 0 0;">
+                                💡 The live clustered bundle count from this camera will directly reflect onto the chosen bin's inventory count.
+                            </p>
                         </div>
                         <script>
                             async function fetchCamBins() {
@@ -1220,9 +1227,11 @@
                                     const res = await fetch('/api/bins');
                                     const bins = await res.json();
                                     const sel = document.getElementById('camBinId');
-                                    sel.innerHTML = '<option value="">Select a Bin...</option>' + bins.map(b => `<option value="${b.bin_id}">${b.bin_id} (${b.vendor || 'No Vendor'})</option>`).join('');
+                                    if(!sel) return;
+                                    sel.innerHTML = '<option value="">-- No Bin Assigned --</option>' + bins.map(b => `<option value="${b.bin_id}">📦 ${b.bin_id} (Zone: ${b.zone} | Current Stock: ${b.stock_count || 0})</option>`).join('');
                                 } catch(e){}
                             }
+                            fetchCamBins();
                         </script>
                         <label>Camera Type</label>
                         <select id="camType" onchange="handleCamTypeChange()">
@@ -1231,6 +1240,7 @@
                             <option value="DVR">DVR</option>
                             <option value="NVR">NVR</option>
                             <option value="USB Webcam">USB Webcam</option>
+                            <option value="File / Test Stream">Test Image / Video File (e.g. test_image.jpeg)</option>
                         </select>
                         
                         <div id="deviceFacingGroup">
