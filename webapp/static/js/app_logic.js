@@ -1254,19 +1254,19 @@
                             camUrlInput.value = "0";
                         }
                     }
-                } else if(camType === 'File / Test Stream') {
-                    if(urlLabel) urlLabel.innerText = "Test File Path / Image Path";
+                } else if(camType === 'File / Video Stream' || camType === 'File / Test Stream') {
+                    if(urlLabel) urlLabel.innerText = "File Path / Stream Path";
                     if(camUrlInput) {
-                        camUrlInput.placeholder = "e.g. test_image.jpeg or c:/path/to/stock.jpg";
-                        if(!camUrlInput.value || camUrlInput.value === "0" || camUrlInput.value.startsWith('http')) {
-                            camUrlInput.value = "test_image.jpeg";
+                        camUrlInput.placeholder = "Enter video/media file path or RTSP/HTTP URL";
+                        if(camUrlInput.value === "0" || camUrlInput.value === "1") {
+                            camUrlInput.value = "";
                         }
                     }
                 } else {
                     if(urlLabel) urlLabel.innerText = "Stream URL";
                     if(camUrlInput) {
                         camUrlInput.placeholder = "http://192.168.x.x:8080/video";
-                        if(camUrlInput.value === "0" || camUrlInput.value === "1" || camUrlInput.value.endsWith('.jpeg')) {
+                        if(camUrlInput.value === "0" || camUrlInput.value === "1") {
                             camUrlInput.value = "";
                         }
                     }
