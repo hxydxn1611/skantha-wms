@@ -8,6 +8,7 @@ from ultralytics import YOLO
 import easyocr
 from scipy.signal import find_peaks
 from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial import cKDTree
 from identity_service import get_identity_service
 
 class SmartCamera:
@@ -323,7 +324,7 @@ class SmartCamera:
                 for b in new_boxes:
                     b['in_pile'] = False
 
-            # Industrial Cross-Section Head & Hollow Tube Counting (Zero-Dataset)
+            # Universal Industrial Cross-Section & Piece Counter (Zero-Dataset Concept)
             detected_heads = []
             cluster_breakdown = {}
             palette_bgr = [
@@ -335,57 +336,73 @@ class SmartCamera:
             cluster_names = ['Top Layer', 'Left Bundle', 'Centre Bundle', 'Right Bundle']
 
             try:
-                hf, wf = ai_frame.shape[:2]
-                hsv_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2HSV)
-                heads_raw = []
+                gray_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
+                filtered = cv2.bilateralFilter(gray_f, 7, 45, 45)
 
-                # Strategy A: Profile Bundle Orange Tags / End Caps on Front Face
-                lower_orange = np.array([4, 90, 90])
-                upper_orange = np.array([24, 255, 255])
-                orange_mask = cv2.inRange(hsv_f, lower_orange, upper_orange)
-                orange_mask[:int(hf * 0.12), :] = 0
-                orange_mask[:, int(wf * 0.62):] = 0
+                # Dynamic adaptive thresholding for both dark cavities (tubes/pipes/hollows)
+                # and bright heads/caps/labels
+                th_dark = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 23, 4)
+                th_bright = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 23, 4)
 
-                cnts_o, _ = cv2.findContours(orange_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                for c in cnts_o:
-                    area = cv2.contourArea(c)
-                    if 6 < area < 1200:
-                        bx, by, bw, bh = cv2.boundingRect(c)
-                        heads_raw.append((bx + bw // 2, by + bh // 2))
+                kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+                best_points = []
 
-                # Strategy B: Steel Hollow Tubes / Pipe Cavities (if Strategy A finds < 5)
-                if len(heads_raw) < 5:
-                    gray_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
-                    blur_f = cv2.bilateralFilter(gray_f, 7, 50, 50)
-                    thresh_f = cv2.adaptiveThreshold(blur_f, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 19, 4)
-                    cnts_t, _ = cv2.findContours(thresh_f, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-                    heads_raw = []
-                    for c in cnts_t:
-                        area = cv2.contourArea(c)
-                        if 25 < area < 1500:
-                            bx, by, bw, bh = cv2.boundingRect(c)
-                            aspect = float(bw) / bh if bh > 0 else 0
-                            if 0.45 < aspect < 2.2:
-                                heads_raw.append((bx + bw // 2, by + bh // 2))
+                for th_mask in [th_dark, th_bright]:
+                    clean_mask = cv2.morphologyEx(th_mask, cv2.MORPH_OPEN, kernel3)
+                    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(clean_mask, connectivity=8)
 
-                if len(heads_raw) >= 4:
-                    coords = np.array(heads_raw)
-                    k_clusters = min(4, max(1, len(heads_raw) // 25))
+                    cands = []
+                    for i in range(1, num_labels):
+                        area = stats[i, cv2.CC_STAT_AREA]
+                        cw = stats[i, cv2.CC_STAT_WIDTH]
+                        ch = stats[i, cv2.CC_STAT_HEIGHT]
+                        aspect = float(cw) / ch if ch > 0 else 0
+                        if 18 < area < 2500 and 0.35 < aspect < 2.8:
+                            cands.append((centroids[i][0], centroids[i][1], max(cw, ch), area))
+
+                    if len(cands) >= 5:
+                        diams = [c[2] for c in cands]
+                        med_diam = float(np.median(diams))
+                        valid_c = [c for c in cands if 0.45 * med_diam <= c[2] <= 2.2 * med_diam]
+
+                        if len(valid_c) >= 5:
+                            pts_arr = np.array([[c[0], c[1]] for c in valid_c])
+                            tree = cKDTree(pts_arr)
+                            dense_items = []
+                            for c in valid_c:
+                                nbrs = tree.query_ball_point([c[0], c[1]], r=med_diam * 3.2)
+                                if len(nbrs) >= 3:
+                                    dense_items.append(c)
+
+                            if len(dense_items) > len(best_points):
+                                tree_d = cKDTree(np.array([[c[0], c[1]] for c in dense_items]))
+                                used_d = set()
+                                final_pts = []
+                                merge_r = max(8.0, med_diam * 0.7)
+                                for idx, c in enumerate(dense_items):
+                                    if idx in used_d:
+                                        continue
+                                    nbrs = tree_d.query_ball_point([c[0], c[1]], r=merge_r)
+                                    for n in nbrs:
+                                        used_d.add(n)
+                                    final_pts.append((int(c[0]), int(c[1])))
+                                best_points = final_pts
+
+                if len(best_points) >= 4:
+                    sorted_order = sorted(best_points, key=lambda p: (p[1], p[0]))
+                    coords = np.array(sorted_order)
+                    k_clusters = min(4, max(1, len(sorted_order) // 25))
                     Z = linkage(coords, method='ward')
                     c_labels = fcluster(Z, t=k_clusters, criterion='maxclust')
 
-                    # Sort top-to-bottom, left-to-right for sequential numbering
-                    sorted_order = sorted(range(len(heads_raw)), key=lambda i: (heads_raw[i][1], heads_raw[i][0]))
-
                     c_counts = {ci: 0 for ci in range(1, k_clusters + 1)}
                     pins = []
-                    for seq, idx in enumerate(sorted_order, 1):
-                        hx, hy = heads_raw[idx]
-                        c_id = int(c_labels[idx])
+                    for seq, (pt, c_id) in enumerate(zip(sorted_order, c_labels), 1):
+                        c_id = int(c_id)
                         c_counts[c_id] += 1
                         pins.append({
-                            'x': hx,
-                            'y': hy,
+                            'x': pt[0],
+                            'y': pt[1],
                             'seq': seq,
                             'cluster_id': c_id,
                             'color': palette_bgr[(c_id - 1) % len(palette_bgr)]
@@ -398,43 +415,9 @@ class SmartCamera:
             except Exception:
                 pass
 
-            # Secondary fallback: Human-Logic Structural Bar Stack & Layer Counting (Zero-Dataset)
             bar_layers = 0
             bar_peaks = []
             bar_bbox = None
-            if not detected_heads:
-                try:
-                    hsv = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2HSV)
-                    lower_gold = np.array([10, 40, 40])
-                    upper_gold = np.array([38, 255, 255])
-                    gold_mask = cv2.inRange(hsv, lower_gold, upper_gold)
-                    if cv2.countNonZero(gold_mask) > 1500:
-                        kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 3))
-                        clean_mask = cv2.morphologyEx(gold_mask, cv2.MORPH_CLOSE, kernel_h)
-                        contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        if contours:
-                            stack_cnt = max(contours, key=cv2.contourArea)
-                            if cv2.contourArea(stack_cnt) > 2000:
-                                sx, sy, sw, sh = cv2.boundingRect(stack_cnt)
-                                gray = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
-                                sobel_y = np.abs(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3))
-                                sobel_y[clean_mask == 0] = 0
-                                sample_xs = [sx + int(sw * 0.35), sx + int(sw * 0.5), sx + int(sw * 0.65)]
-                                l_counts = []
-                                l_peaks = []
-                                for cx in sample_xs:
-                                    cx_min, cx_max = max(0, cx - 25), min(640, cx + 25)
-                                    v_proj = np.mean(sobel_y[sy:sy+sh, cx_min:cx_max], axis=1)
-                                    pks, _ = find_peaks(v_proj, height=np.mean(v_proj)*0.75, distance=max(6, int(sh / 45)))
-                                    l_counts.append(len(pks))
-                                    l_peaks.append([int(p + sy) for p in pks])
-                                if l_counts:
-                                    med = int(np.median(l_counts))
-                                    bar_layers = med
-                                    bar_peaks = sorted(l_peaks, key=lambda p: abs(len(p) - med))[0]
-                                    bar_bbox = (sx, sy, sw, sh)
-                except Exception:
-                    pass
 
             if detected_heads:
                 clustered_count = len(detected_heads)
