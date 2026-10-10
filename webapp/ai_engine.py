@@ -49,11 +49,6 @@ class SmartCamera:
         self.latest_boxes = []
         self.lock = threading.Lock()
 
-    def toggle_freeze(self):
-        with self.lock:
-            self.is_frozen = not self.is_frozen
-            return self.is_frozen
-        
         if not hasattr(SmartCamera, 'vehicle_model'):
             print("Loading YOLOv8 (Attempting YOLO-World for Zero-Shot)...")
             try:
@@ -71,6 +66,11 @@ class SmartCamera:
             else:
                 print("Loading EasyOCR...")
                 SmartCamera.ocr_reader = easyocr.Reader(['en'], gpu=False)
+
+    def toggle_freeze(self):
+        with self.lock:
+            self.is_frozen = not self.is_frozen
+            return self.is_frozen
 
     def start(self):
         self.is_running = True
@@ -204,10 +204,15 @@ class SmartCamera:
                 time.sleep(0.016)
                 continue
             
-            try:
-                results = SmartCamera.vehicle_model.track(ai_frame, persist=True, conf=0.1, iou=0.4, verbose=False)
-            except Exception:
-                results = SmartCamera.vehicle_model(ai_frame, conf=0.1, iou=0.4, verbose=False)
+            results = []
+            if hasattr(SmartCamera, 'vehicle_model') and SmartCamera.vehicle_model is not None:
+                try:
+                    results = SmartCamera.vehicle_model.track(ai_frame, persist=True, conf=0.1, iou=0.4, verbose=False)
+                except Exception:
+                    try:
+                        results = SmartCamera.vehicle_model(ai_frame, conf=0.1, iou=0.4, verbose=False)
+                    except Exception:
+                        results = []
                 
             new_boxes = []
             box_count = 0
@@ -404,7 +409,7 @@ class SmartCamera:
                                     h_area = cv2.contourArea(hull)
                                     density = len(final_pts) / (h_area / 1000.0) if h_area > 0 else 0
 
-                                    if density >= 0.70 and len(final_pts) > len(best_points):
+                                    if density >= 0.50 and len(final_pts) > len(best_points):
                                         best_points = final_pts
                                         current_med_diam = med_diam
 
@@ -457,12 +462,18 @@ class SmartCamera:
                     for tid in to_remove:
                         del self.tracker_items[tid]
 
-                # Stable confirmed pins (seen in >= 2 frames)
+                # Stable confirmed pins (seen in >= 2 frames), or all active pins for instantaneous first frame
                 stable_pins = [
                     (tid, tdata['x'], tdata['y'])
                     for tid, tdata in self.tracker_items.items()
                     if tdata['hits'] >= 2 and tdata['missed'] <= 2
                 ]
+                if len(stable_pins) < 4:
+                    stable_pins = [
+                        (tid, tdata['x'], tdata['y'])
+                        for tid, tdata in self.tracker_items.items()
+                        if tdata['missed'] <= 1
+                    ]
 
                 if len(stable_pins) >= 4:
                     coords = np.array([[p[1], p[2]] for p in stable_pins])
