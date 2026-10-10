@@ -2804,11 +2804,13 @@ def sync_camera_inventory(camera_id):
         
     count = 0
     if active_cam:
-        count = getattr(active_cam, 'clustered_bundle_count', None)
+        count = getattr(active_cam, 'head_count', 0)
+        if not count:
+            count = getattr(active_cam, 'clustered_bundle_count', None)
         if count is None or count == 0:
             count = getattr(active_cam, 'visible_packages', 0)
     
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     sku_id = data.get('sku_id')
     vendor = data.get('vendor') or f"Vision AI ({db_cam.get('name', camera_id) if db_cam else camera_id})"
     
