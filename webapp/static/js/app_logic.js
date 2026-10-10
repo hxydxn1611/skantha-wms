@@ -365,7 +365,8 @@
                                 window.lastSyncTimes[cam.id] = now;
                                 fetch(`/api/cameras/${cam.id}/sync_inventory`, {
                                     method: 'POST',
-                                    headers: {'Content-Type': 'application/json'}
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({})
                                 }).then(r => r.json()).then(res => {
                                     if (res.success && window.fetchBins) {
                                         window.fetchBins();
@@ -1516,7 +1517,8 @@
             try {
                 const res = await fetch(`/api/cameras/${camId}/sync_inventory`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'}
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
                 });
                 const data = await res.json();
                 if(data.success) {
