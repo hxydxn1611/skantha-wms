@@ -2664,6 +2664,7 @@ def get_cameras():
                 "detected_bar_layers": detected_bar_layers,
                 "head_count": head_count,
                 "cluster_breakdown": cluster_breakdown,
+                "is_frozen": getattr(active_cam, 'is_frozen', False) if active_cam else False,
                 "latest_boxes": latest_boxes
             })
     except Exception as e:
@@ -2694,9 +2695,18 @@ def get_cameras():
                 "detected_bar_layers": detected_bar_layers,
                 "head_count": head_count,
                 "cluster_breakdown": cluster_breakdown,
+                "is_frozen": getattr(cam, 'is_frozen', False),
                 "latest_boxes": getattr(cam, 'latest_boxes', [])
             })
     return jsonify(cameras_data)
+
+@app.route('/api/cameras/<camera_id>/toggle_freeze', methods=['POST'])
+def toggle_camera_freeze(camera_id):
+    active_cam = active_cameras.get(camera_id)
+    if active_cam:
+        state = active_cam.toggle_freeze()
+        return jsonify({"success": True, "is_frozen": state})
+    return jsonify({"success": False, "message": "Camera not active"}), 404
 
 @app.route('/api/cameras/<cam_id>/snap', methods=['POST'])
 def snap_camera(cam_id):

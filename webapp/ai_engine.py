@@ -33,6 +33,10 @@ class SmartCamera:
         self.detected_heads = []
         self.cluster_breakdown = {}
         self.head_count = 0
+        self.is_frozen = False
+        self.frozen_jpeg = None
+        self.tracker_items = {}
+        self.next_pin_id = 1
         self.last_package_count = 0
         self.consecutive_zeros = 0
         self.seen_package_ids = set()
@@ -44,6 +48,11 @@ class SmartCamera:
         self.raw_frame = None
         self.latest_boxes = []
         self.lock = threading.Lock()
+
+    def toggle_freeze(self):
+        with self.lock:
+            self.is_frozen = not self.is_frozen
+            return self.is_frozen
         
         if not hasattr(SmartCamera, 'vehicle_model'):
             print("Loading YOLOv8 (Attempting YOLO-World for Zero-Shot)...")
@@ -324,6 +333,11 @@ class SmartCamera:
                 for b in new_boxes:
                     b['in_pile'] = False
 
+            # If camera is frozen in Review/Count mode, hold current frame and detections
+            if self.is_frozen:
+                time.sleep(0.04)
+                continue
+
             # Universal Industrial Cross-Section & Piece Counter (Zero-Dataset Concept)
             detected_heads = []
             cluster_breakdown = {}
@@ -339,13 +353,12 @@ class SmartCamera:
                 gray_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
                 filtered = cv2.bilateralFilter(gray_f, 7, 45, 45)
 
-                # Dynamic adaptive thresholding for both dark cavities (tubes/pipes/hollows)
-                # and bright heads/caps/labels
                 th_dark = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 23, 4)
                 th_bright = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 23, 4)
 
                 kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
                 best_points = []
+                current_med_diam = 16.0
 
                 for th_mask in [th_dark, th_bright]:
                     clean_mask = cv2.morphologyEx(th_mask, cv2.MORPH_OPEN, kernel3)
@@ -357,52 +370,118 @@ class SmartCamera:
                         cw = stats[i, cv2.CC_STAT_WIDTH]
                         ch = stats[i, cv2.CC_STAT_HEIGHT]
                         aspect = float(cw) / ch if ch > 0 else 0
-                        if 18 < area < 2500 and 0.35 < aspect < 2.8:
-                            cands.append((centroids[i][0], centroids[i][1], max(cw, ch), area))
+                        if 18 < area < 2500 and 0.4 < aspect < 2.5:
+                            cands.append((centroids[i][0], centroids[i][1], max(cw, ch)))
 
-                    if len(cands) >= 5:
+                    if len(cands) >= 8:
                         diams = [c[2] for c in cands]
                         med_diam = float(np.median(diams))
-                        valid_c = [c for c in cands if 0.45 * med_diam <= c[2] <= 2.2 * med_diam]
+                        valid_c = [c for c in cands if 0.5 * med_diam <= c[2] <= 2.0 * med_diam]
 
-                        if len(valid_c) >= 5:
+                        if len(valid_c) >= 8:
                             pts_arr = np.array([[c[0], c[1]] for c in valid_c])
                             tree = cKDTree(pts_arr)
-                            dense_items = []
-                            for c in valid_c:
-                                nbrs = tree.query_ball_point([c[0], c[1]], r=med_diam * 3.2)
-                                if len(nbrs) >= 3:
-                                    dense_items.append(c)
+                            dense_items = [c for c in valid_c if len(tree.query_ball_point([c[0], c[1]], r=med_diam * 3.0)) >= 3]
 
-                            if len(dense_items) > len(best_points):
+                            if len(dense_items) >= 8:
+                                # NMS to merge overlapping multi-level hits
                                 tree_d = cKDTree(np.array([[c[0], c[1]] for c in dense_items]))
                                 used_d = set()
                                 final_pts = []
-                                merge_r = max(8.0, med_diam * 0.7)
+                                merge_r = max(8.0, med_diam * 0.75)
                                 for idx, c in enumerate(dense_items):
                                     if idx in used_d:
                                         continue
-                                    nbrs = tree_d.query_ball_point([c[0], c[1]], r=merge_r)
-                                    for n in nbrs:
+                                    for n in tree_d.query_ball_point([c[0], c[1]], r=merge_r):
                                         used_d.add(n)
                                     final_pts.append((int(c[0]), int(c[1])))
-                                best_points = final_pts
 
-                if len(best_points) >= 4:
-                    sorted_order = sorted(best_points, key=lambda p: (p[1], p[0]))
-                    coords = np.array(sorted_order)
-                    k_clusters = min(4, max(1, len(sorted_order) // 25))
+                                if len(final_pts) >= 8:
+                                    # Stack Convex Hull Density Check:
+                                    # Real warehouse stacks (pipes, tubes, bundles) have density >= 0.70 items / 1000px^2
+                                    # Everyday rooms / tablecloths have density < 0.45 and get rejected
+                                    hull = cv2.convexHull(np.array(final_pts, dtype=np.int32))
+                                    h_area = cv2.contourArea(hull)
+                                    density = len(final_pts) / (h_area / 1000.0) if h_area > 0 else 0
+
+                                    if density >= 0.70 and len(final_pts) > len(best_points):
+                                        best_points = final_pts
+                                        current_med_diam = med_diam
+
+                # Anti-Jitter Temporal Centroid Tracking (stops dots from jumping/running)
+                if len(best_points) >= 6:
+                    matched_ids = set()
+                    match_dist = max(14.0, current_med_diam * 0.75)
+
+                    for pt in best_points:
+                        px, py = pt
+                        best_tid, best_d = None, float('inf')
+                        for tid, tdata in self.tracker_items.items():
+                            if tid in matched_ids:
+                                continue
+                            d = np.hypot(px - tdata['x'], py - tdata['y'])
+                            if d < match_dist and d < best_d:
+                                best_tid, best_d = tid, d
+                        if best_tid is not None:
+                            matched_ids.add(best_tid)
+                            # Exponential Moving Average for smooth anchoring without jitter
+                            self.tracker_items[best_tid]['x'] = 0.85 * self.tracker_items[best_tid]['x'] + 0.15 * px
+                            self.tracker_items[best_tid]['y'] = 0.85 * self.tracker_items[best_tid]['y'] + 0.15 * py
+                            self.tracker_items[best_tid]['hits'] += 1
+                            self.tracker_items[best_tid]['missed'] = 0
+                        else:
+                            self.tracker_items[self.next_pin_id] = {
+                                'x': float(px),
+                                'y': float(py),
+                                'hits': 1,
+                                'missed': 0
+                            }
+                            self.next_pin_id += 1
+
+                    # Increment missed for unmatched pins; prune only after 6 consecutive misses
+                    to_remove = []
+                    for tid, tdata in self.tracker_items.items():
+                        if tid not in matched_ids:
+                            tdata['missed'] += 1
+                            if tdata['missed'] > 6:
+                                to_remove.append(tid)
+                    for tid in to_remove:
+                        del self.tracker_items[tid]
+                else:
+                    # No stack in view: smoothly age out tracked pins
+                    to_remove = []
+                    for tid, tdata in self.tracker_items.items():
+                        tdata['missed'] += 1
+                        if tdata['missed'] > 3:
+                            to_remove.append(tid)
+                    for tid in to_remove:
+                        del self.tracker_items[tid]
+
+                # Stable confirmed pins (seen in >= 2 frames)
+                stable_pins = [
+                    (tid, tdata['x'], tdata['y'])
+                    for tid, tdata in self.tracker_items.items()
+                    if tdata['hits'] >= 2 and tdata['missed'] <= 2
+                ]
+
+                if len(stable_pins) >= 4:
+                    coords = np.array([[p[1], p[2]] for p in stable_pins])
+                    k_clusters = min(4, max(1, len(stable_pins) // 25))
                     Z = linkage(coords, method='ward')
                     c_labels = fcluster(Z, t=k_clusters, criterion='maxclust')
 
+                    sorted_order = sorted(range(len(stable_pins)), key=lambda i: (stable_pins[i][2], stable_pins[i][1]))
+
                     c_counts = {ci: 0 for ci in range(1, k_clusters + 1)}
                     pins = []
-                    for seq, (pt, c_id) in enumerate(zip(sorted_order, c_labels), 1):
-                        c_id = int(c_id)
+                    for seq, idx in enumerate(sorted_order, 1):
+                        tid, px, py = stable_pins[idx]
+                        c_id = int(c_labels[idx])
                         c_counts[c_id] += 1
                         pins.append({
-                            'x': pt[0],
-                            'y': pt[1],
+                            'id': tid,
+                            'x': int(round(px)),
+                            'y': int(round(py)),
                             'seq': seq,
                             'cluster_id': c_id,
                             'color': palette_bgr[(c_id - 1) % len(palette_bgr)]
@@ -442,6 +521,8 @@ class SmartCamera:
 
     def get_frame(self):
         with self.lock:
+            if self.is_frozen and self.frozen_jpeg is not None:
+                return self.frozen_jpeg
             if self.raw_frame is None:
                 placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
                 cv2.putText(placeholder, "Awaiting Camera Feed...", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
@@ -456,6 +537,7 @@ class SmartCamera:
             bar_bbox = self.bar_stack_bbox
             detected_heads = copy.deepcopy(self.detected_heads)
             cluster_breakdown = copy.deepcopy(self.cluster_breakdown)
+            is_frozen = self.is_frozen
 
         palette_bgr = [
             (220, 20, 220), # Purple
@@ -524,15 +606,19 @@ class SmartCamera:
 
         # High-tech HUD banner at top of frame
         bin_label = f"BIN: {self.bin_id}" if self.bin_id else "BIN: UNASSIGNED"
+        freeze_tag = " [FROZEN]" if is_frozen else ""
         if detected_heads:
-            hud_text = f"{bin_label} | PILE: {len(detected_heads)} PCS ({len(cluster_breakdown)} GROUPS)"
+            hud_text = f"{bin_label} | PILE: {len(detected_heads)} PCS ({len(cluster_breakdown)} GROUPS){freeze_tag}"
         elif bar_layers > 0:
-            hud_text = f"{bin_label} | BARS: {bar_layers} LAYERS | PILE: {clustered_count} BUNDLES"
+            hud_text = f"{bin_label} | BARS: {bar_layers} LAYERS | PILE: {clustered_count} BUNDLES{freeze_tag}"
         else:
-            hud_text = f"{bin_label} | PILE: {clustered_count} BUNDLES | TOTAL: {self.visible_packages}"
+            hud_text = f"{bin_label} | PILE: {clustered_count} BUNDLES | TOTAL: {self.visible_packages}{freeze_tag}"
         cv2.rectangle(display_frame, (0, 0), (640, 32), (20, 20, 25), -1)
         hud_color = (0, 255, 200) if self.bin_id else (0, 220, 255)
         cv2.putText(display_frame, hud_text, (15, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, hud_color, 2)
 
         ret, buffer = cv2.imencode('.jpg', display_frame)
-        return buffer.tobytes()
+        jpeg_bytes = buffer.tobytes()
+        with self.lock:
+            self.frozen_jpeg = jpeg_bytes
+        return jpeg_bytes

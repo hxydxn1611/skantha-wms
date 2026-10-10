@@ -1557,6 +1557,7 @@
         };
 
         function renderCameras(cameras) {
+            window.lastCamerasData = cameras;
             const grid = document.getElementById('cameraGrid');
             const hikList = document.getElementById('hikvision-cam-list');
             const currentIds = new Set(cameras.map(c => `cam-${c.id}`));
@@ -1609,7 +1610,7 @@
                                 <span class="badge pending" style="font-size:0.65rem; padding:2px 4px;">${cam.location}</span>
                             </div>
                         </div>
-                        <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer;" onclick="openFullscreen('/video_feed/${cam.id}')">
+                        <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer;" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
                             <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain;">
                             <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.6); padding:4px 6px; border-radius:4px; font-size:0.65rem; pointer-events:none; color:white;">&#x26F6;</div>
                         </div>
@@ -1620,10 +1621,13 @@
                                 ${cam.detected_bar_layers && !cam.head_count ? `<span style="color:#f59e0b; font-weight:bold;">(🟡 ${cam.detected_bar_layers} Layers)</span>` : ''}
                             </div>
                             <div style="display:flex; align-items:center; gap:6px;">
+                                <button style="background:${cam.is_frozen ? '#f59e0b' : '#334155'}; color:#fff; border:none; padding:2px 6px; font-size:0.65rem; border-radius:3px; cursor:pointer;" onclick="toggleFreezeCamera('${cam.id}')" title="Freeze frame to lock pins">
+                                    ${cam.is_frozen ? '▶️ Live' : '📸 Freeze'}
+                                </button>
                                 <label style="font-size:0.65rem; color:#cbd5e1; display:flex; align-items:center; gap:2px; cursor:pointer;" title="Continuously reflect live count into Bin inventory">
                                     <input type="checkbox" onchange="toggleAutoSync('${cam.id}', this.checked)" ${isAutoSync ? 'checked' : ''} ${!hasBin ? 'disabled' : ''}> Auto
                                 </label>
-                                <button class="btn-primary" style="padding:3px 8px; font-size:0.65rem; background:#10b981; color:#000; font-weight:bold; border:none; border-radius:3px; cursor:pointer;" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} title="${hasBin ? 'Sync live count directly to Bin ' + cam.bin_id : 'Assign a Bin first'}">⚡ Sync to Bin</button>
+                                <button class="btn-primary" style="padding:3px 8px; font-size:0.65rem; background:#10b981; color:#000; font-weight:bold; border:none; border-radius:3px; cursor:pointer;" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} title="${hasBin ? 'Sync live count directly to Bin ' + cam.bin_id : 'Assign a Bin first'}">⚡ Sync</button>
                             </div>
                         </div>
                         ${cam.cluster_breakdown && Object.keys(cam.cluster_breakdown).length > 0 ? `
@@ -1673,17 +1677,71 @@
         }
         
         // Fullscreen Logic
-        function openFullscreen(url) {
+        window.currentFsCamId = null;
+        window.currentFsIsFrozen = false;
+
+        async function toggleFreezeCamera(camId) {
+            try {
+                const res = await fetch(`/api/cameras/${camId}/toggle_freeze`, { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    if (window.currentFsCamId === camId) {
+                        window.currentFsIsFrozen = data.is_frozen;
+                        updateFsToolbar();
+                    }
+                    if (typeof pollData === 'function') pollData();
+                }
+            } catch (err) {
+                console.error("Toggle freeze error:", err);
+            }
+        }
+
+        function updateFsToolbar() {
+            const btn = document.getElementById('fsFreezeBtn');
+            if (btn) {
+                if (window.currentFsIsFrozen) {
+                    btn.innerHTML = '▶️ Resume Live';
+                    btn.style.background = '#f59e0b';
+                } else {
+                    btn.innerHTML = '📸 Freeze & Count';
+                    btn.style.background = '#6366f1';
+                }
+            }
+        }
+
+        function openFullscreen(url, camId) {
             const overlay = document.getElementById('fsOverlay');
             const img = document.getElementById('fsImg');
             img.src = url;
             overlay.classList.add('active');
+            window.currentFsCamId = camId || null;
+            if (camId && window.lastCamerasData) {
+                const c = window.lastCamerasData.find(x => x.id === camId);
+                window.currentFsIsFrozen = c ? !!c.is_frozen : false;
+            } else {
+                window.currentFsIsFrozen = false;
+            }
+            updateFsToolbar();
         }
+
         function closeFullscreen() {
             const overlay = document.getElementById('fsOverlay');
             const img = document.getElementById('fsImg');
             overlay.classList.remove('active');
             img.src = "";
+            window.currentFsCamId = null;
+        }
+
+        function fsToggleFreeze() {
+            if (window.currentFsCamId) {
+                toggleFreezeCamera(window.currentFsCamId);
+            }
+        }
+
+        function fsSyncToBin() {
+            if (window.currentFsCamId) {
+                syncCameraToBin(window.currentFsCamId);
+            }
         }
 
         // AI Inbound Automation
