@@ -138,6 +138,52 @@
         }
         window.switchTab = switchTab;
 
+        // Global Command Bar Search (Ctrl+K or '/')
+        function handleGlobalSearch(e) {
+            if (e.key === 'Enter') {
+                const val = (e.target.value || '').trim().toLowerCase();
+                if (!val) return;
+                
+                if (val.includes('dash')) {
+                    switchTab('dashboard');
+                } else if (val.includes('pre') || val.includes('deliv') || val.includes('asn') || val.startsWith('po')) {
+                    switchTab('deliveries');
+                    const searchInput = document.getElementById('deliverySearch');
+                    if (searchInput && val.length > 2) { searchInput.value = val; searchInput.dispatchEvent(new Event('keyup')); }
+                } else if (val.includes('gate') || val.includes('pass') || val.includes('truck') || val.includes('plate')) {
+                    switchTab('gate-passes');
+                } else if (val.includes('dock') || val.includes('bay')) {
+                    switchTab('docks');
+                } else if (val.includes('cam') || val.includes('stream') || val.includes('junction')) {
+                    switchTab('cameras');
+                } else if (val.includes('inbound') || val.includes('flow') || val.includes('reconcil')) {
+                    switchTab('inbound-flow');
+                } else if (val.includes('outbound') || val.includes('order') || val.includes('dispatch')) {
+                    switchTab('outbound');
+                } else if (val.includes('vision') || val.includes('yolo') || val.includes('roi') || val.includes('model')) {
+                    switchTab('ai-vision-master');
+                } else {
+                    switchTab('master-hub');
+                    const mSearch = document.getElementById('masterHubSearch');
+                    if (mSearch) { mSearch.value = val; if (typeof filterMasterHub === 'function') filterMasterHub(); }
+                }
+            }
+        }
+        window.handleGlobalSearch = handleGlobalSearch;
+
+        // Global Keyboard Shortcut listener for Ctrl+K and /
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                const s = document.getElementById('globalQuickSearch');
+                if (s) { s.focus(); s.select(); }
+            } else if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                const s = document.getElementById('globalQuickSearch');
+                if (s) { s.focus(); s.select(); }
+            }
+        });
+
         function navigateToEntity(entityType, entityId) {
             if (!entityType) return;
             if (entityType === 'delivery') {
