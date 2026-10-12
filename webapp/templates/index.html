@@ -964,31 +964,88 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
                     <div>
                         <h2 style="margin:0; font-size:1.5rem; color:var(--primary-navy);">Inbound Operations Automation</h2>
-                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.9rem;">AI-driven truck arrivals, automatic dock assignments, and bundle counting.</p>
+                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.9rem;">AI-driven truck arrivals, automatic dock assignments, computer vision piece verification, and automated inventory sync.</p>
                     </div>
-                    <div>
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                         <span class="badge sent" style="font-size:0.8rem; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
                             <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--success);"></span>
                             Matrix Agent Active
                         </span>
+                        <button type="button" class="btn-primary" style="background:#10b981; color:#000; font-weight:bold; font-size:0.8rem; padding:8px 14px; border:none; cursor:pointer;" onclick="simulateInboundArrival()">
+                            ⚡ Simulate Inbound Arrival &amp; Unload
+                        </button>
+                        <button type="button" class="btn-secondary" style="font-size:0.8rem; padding:8px 12px;" onclick="refreshInboundAutomation()">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Metric Counters -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:15px; margin-top:20px;">
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Active Dock Trucks</div>
+                        <div id="inbound-kpi-trucks" style="font-size:1.6rem; font-weight:700; color:var(--accent-hover); margin-top:4px;">0</div>
+                    </div>
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">AI Verified Items</div>
+                        <div id="inbound-kpi-pieces" style="font-size:1.6rem; font-weight:700; color:#10b981; margin-top:4px;">0</div>
+                    </div>
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Target Bins Allocated</div>
+                        <div id="inbound-kpi-bins" style="font-size:1.6rem; font-weight:700; color:#8b5cf6; margin-top:4px;">0</div>
+                    </div>
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Autonomous Sync</div>
+                        <div id="inbound-kpi-sync" style="font-size:1.1rem; font-weight:700; color:#34d399; margin-top:8px;">REAL-TIME ON</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Dock Unloading & Reconciliation Grid -->
+            <div class="glass-panel" style="margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                    <div>
+                        <h3 style="margin:0; font-size:1.2rem; color:var(--primary-navy);">Active Dock Unloading &amp; Material Reconciliation</h3>
+                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.82rem;">Real-time computer vision verification of materials unloading at physical docks vs PO manifest.</p>
+                    </div>
+                    <span id="inbound-dock-count-badge" class="badge" style="background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:0.75rem; padding:4px 8px;">0 Active Bays</span>
+                </div>
+                <div id="inbound-docks-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap:20px;">
+                    <!-- Dynamically populated dock cards -->
+                    <div style="grid-column: 1 / -1; text-align:center; padding: 40px 20px; color:var(--text-muted);">
+                        <i class="fas fa-truck-loading" style="font-size:2.5rem; color:var(--border-light); margin-bottom:12px; display:block;"></i>
+                        <p style="margin:0 0 10px 0; font-size:1rem; font-weight:600;">No trucks are currently docked for unloading.</p>
+                        <p style="margin:0 0 18px 0; font-size:0.85rem;">Assign a truck to a dock in Gate Management, or click below to simulate an inbound arrival.</p>
+                        <button type="button" class="btn-primary" style="font-size:0.85rem; padding:8px 16px;" onclick="simulateInboundArrival()">
+                            ⚡ Simulate Inbound Arrival &amp; Dock Unload
+                        </button>
                     </div>
                 </div>
             </div>
             
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-                <!-- AI Operations Log -->
+                <!-- Live Bundle & Object Counting by Camera -->
                 <div class="glass-panel">
-                    <h3 style="margin-top:0; border-bottom:1px solid var(--border-light); padding-bottom:10px;">Automated Operations Log</h3>
-                    <div id="ai-operations-log" style="height:400px; overflow-y:auto; background:#111; padding:15px; border-radius:6px; font-family:monospace; color:#10b981; font-size:0.85rem; display:flex; flex-direction:column; gap:8px;">
-                        <div>[SYSTEM] Matrix Engine Initialized. Listening for YOLO streams...</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                        <h3 style="margin:0; font-size:1.1rem;">Spatial Matrix Camera Streams</h3>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">Live YOLO Clusters</span>
                     </div>
-                </div>
-                
-                <!-- Live Bundle Counting -->
-                <div class="glass-panel">
-                    <h3 style="margin-top:0; border-bottom:1px solid var(--border-light); padding-bottom:10px;">Spatial Matrix Bundle Count</h3>
                     <div style="display:flex; flex-direction:column; gap:15px;" id="live-bundle-counts">
                         <p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">Waiting for YOLO bounding box matrix clusters on unloading docks...</p>
+                    </div>
+                </div>
+
+                <!-- AI Operations Log -->
+                <div class="glass-panel">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                        <h3 style="margin:0; font-size:1.1rem;">Autonomous Operations Log</h3>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="clearInboundLog()">Clear</button>
+                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="addManualLogEntry('Operator manual event check requested')">Test Event</button>
+                        </div>
+                    </div>
+                    <div id="ai-operations-log" style="height:420px; overflow-y:auto; background:#111; padding:15px; border-radius:6px; font-family:monospace; color:#10b981; font-size:0.82rem; display:flex; flex-direction:column; gap:8px;">
+                        <div><span style="color:#6366f1;">[STARTUP]</span> Matrix Engine Initialized. Listening for YOLO streams on Gates and Docks...</div>
                     </div>
                 </div>
             </div>
@@ -1294,8 +1351,11 @@
                         <span style="font-size: 0.85rem; color: var(--success);">Match AI Detections to Expected POs</span><br/>
                         <button class="btn-primary" onclick="createManualPass()" style="font-size:0.85rem; margin-top: 10px;">+ Create Manual Pass</button>
                     </div>
-                    <div id="miniGateCamContainer" style="width: 300px; height: 170px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border);">
-                        <img id="miniGateCamView" src="" alt="Live Gate Feed" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.5;">
+                    <div id="miniGateCamContainer" style="width: 320px; height: 180px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.18); position:relative;">
+                        <img id="miniGateCamView" src="" alt="Live Gate Feed" style="width: 100%; height: 100%; object-fit: cover; opacity: 1;">
+                        <div style="position:absolute; top:8px; left:8px; background:rgba(15,23,42,0.85); color:#10b981; font-size:0.68rem; font-weight:700; padding:3px 8px; border-radius:4px; display:flex; align-items:center; gap:6px; border:1px solid rgba(16,185,129,0.3);">
+                            <span style="width:7px; height:7px; background:#10b981; border-radius:50%; display:inline-block;"></span> LIVE GATE FEED
+                        </div>
                     </div>
                 </div>
                 
@@ -1304,7 +1364,7 @@
                         try {
                             const res = await fetch('/api/cameras');
                             const cameras = await res.json();
-                            const gateCams = cameras.filter(c => c.location === 'Gate');
+                            const gateCams = cameras.filter(c => c.is_gate_camera || c.location === 'Gate');
                             if(gateCams.length > 0) {
                                 document.getElementById('miniGateCamView').src = `/video_feed/${gateCams[0].id}`;
                                 document.getElementById('miniGateCamView').style.opacity = '1';
@@ -1319,27 +1379,30 @@
                                 loadMiniGateCam();
                             }
                         }
-                    }, 3000);
+                    }, 2500);
                 </script>
-                <!-- LIVE GATE VISION EVIDENCE (STAGE 1 GOVERNANCE: ZERO AUTO-WRITES) -->
-                <div id="gateVisionEvidenceBox" style="margin-top:1.25rem; margin-bottom:1.25rem; padding:1rem 1.25rem; background:var(--panel-subtle); border:1px solid var(--border-light); border-left:4px solid var(--accent); border-radius:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <span style="font-size:1.8rem;">📸</span>
+                <!-- LIVE GATE VISION STREAM & AUTOMATIC GATE PASS GENERATION -->
+                <div id="gateVisionEvidenceBox" style="margin-top:1.25rem; margin-bottom:1.25rem; padding:1.1rem 1.3rem; background:var(--panel-subtle); border:1px solid var(--border-light); border-left:4px solid #10b981; border-radius:10px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div style="display:flex; align-items:center; gap:14px;">
+                        <span style="font-size:2rem;">🚛</span>
                         <div>
-                            <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; letter-spacing:0.5px;">Gate Camera Live Reading (Unverified Evidence)</div>
-                            <div style="display:flex; align-items:center; gap:10px; margin-top:3px;">
-                                <span id="gateEvidencePlateVal" style="font-size:1.2rem; font-weight:700; color:var(--primary-navy);">Checking gate cameras...</span>
-                                <span id="gateEvidenceConfidenceBadge" class="badge" style="display:none; font-size:0.72rem;"></span>
+                            <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; letter-spacing:0.5px;">Gate Camera Live ANPR Stream • Automatic Gate Pass Generation</div>
+                            <div style="display:flex; align-items:center; gap:10px; margin-top:4px;">
+                                <span id="gateEvidencePlateVal" style="font-size:1.25rem; font-weight:800; color:var(--primary-navy);">Scanning live feed...</span>
+                                <span id="gateEvidenceConfidenceBadge" class="badge" style="display:inline-block; font-size:0.72rem; background:#0284c7; color:#fff;">LIVE SCANNING</span>
                             </div>
-                            <div id="gateEvidenceMeta" style="font-size:0.75rem; color:var(--text-muted); margin-top:3px;">Gate Entry Camera Node • Zero automatic database mutations</div>
+                            <div id="gateEvidenceMeta" style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">Vehicle & license plate recognized in the live feed will automatically create and issue a Gate Pass.</div>
                         </div>
                     </div>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <button type="button" class="btn-primary" id="btnUseGatePlate" onclick="applyGatePlateToPass()" style="display:none; font-size:0.82rem; padding:7px 16px; background:#10b981; border-color:#10b981; font-weight:600;">
-                            🎫 Create Gate Pass with Plate
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" class="btn-primary" onclick="simulateGateArrivalPrompt()" style="font-size:0.82rem; padding:8px 14px; background:#2563eb; border-color:#2563eb; font-weight:600;" title="Simulate vehicle arrival with plate at gate">
+                            🚗 Simulate Vehicle Arrival
                         </button>
-                        <button type="button" class="btn-secondary" onclick="checkGateCameraEvidence()" style="font-size:0.82rem; padding:7px 12px;" title="Refresh reading">
-                            ↻ Check Plate
+                        <button type="button" class="btn-secondary" onclick="scanGateNowLive()" style="font-size:0.82rem; padding:8px 12px; font-weight:600;" title="Scan current video frame now">
+                            📷 Scan Live Feed Now
+                        </button>
+                        <button type="button" class="btn-secondary" onclick="checkGateCameraEvidence()" style="font-size:0.82rem; padding:8px 12px;" title="Refresh reading">
+                            ↻ Refresh Status
                         </button>
                     </div>
                 </div>

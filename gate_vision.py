@@ -1,3 +1,8 @@
+import os
+import sys
+import time
+import json
+import urllib.request
 import cv2
 from ultralytics import YOLO
 import easyocr
@@ -10,10 +15,13 @@ def main():
     # CO
     #CO dataset classes: 2=car, 3=motorcycle, 5=bus, 7=truck
     try:
-        vehicle_model = YOLO('yolov8n.pt') 
+        vehicle_model = YOLO('yolo11s.pt') 
     except Exception as e:
-        print(f"Error loading YOLO: {e}")
-        return
+        print(f"Error loading YOLO11, falling back to yolov8n: {e}")
+        try:
+            vehicle_model = YOLO('yolov8n.pt')
+        except Exception:
+            return
 
     # 2. Load EasyOCR for reading license plates
     # Using 'en' for English characters
@@ -43,6 +51,9 @@ def main():
     # To keep the video smooth, we won't run heavy OCR on every single frame.
     frame_count = 0
     process_every_n_frames = 15 # Run OCR every 15 frames (~0.5 seconds)
+    last_detected_plate = None
+    last_gate_pass_id = None
+    last_gate_pass_time = 0.0
 
     print("\nStarting video stream. Press 'q' to quit.")
 
@@ -132,17 +143,81 @@ def main():
                                     
                         if best_plate != "":
                             plate_text = best_plate
-                            print(f"Detected {vehicle_type.upper()} with Plate: {plate_text} (Confidence: {best_prob:.2f})")
-                            # Here is where you would send an API request to your iWMS backend!
-                            # e.g., requests.post('http://localhost:5000/api/gate_passes', json={'plate': plate_text, 'type': vehicle_type})
+                            now_t = time.time()
+                            print(f"[ANPR] Detected {vehicle_type.upper()} with Plate: {plate_text} (Confidence: {best_prob:.2f})")
+
+                            # Automatically create or link Gate Pass in WMS
+                            if best_plate != last_detected_plate or (now_t - last_gate_pass_time) > 12.0:
+                                try:
+                                    payload = json.dumps({
+                                        'plate': best_plate,
+                                        'type': vehicle_type,
+                                        'activity': 'Unloading',
+                                        'status': 'Arrived at Gate',
+                                        'driver_name': 'Gate Verified Driver',
+                                        'dock': 'Dock 1'
+                                    }).encode('utf-8')
+                                    req = urllib.request.Request(
+                                        'http://localhost:5000/api/gate_passes',
+                                        data=payload,
+                                        headers={'Content-Type': 'application/json'}
+                                    )
+                                    with urllib.request.urlopen(req, timeout=3.0) as resp:
+                                        res_data = json.loads(resp.read().decode('utf-8'))
+                                        if res_data.get('success'):
+                                            last_gate_pass_id = res_data.get('gate_pass', {}).get('id', 'GP-AUTO')
+                                            last_detected_plate = best_plate
+                                            last_gate_pass_time = now_t
+                                            print(f"[GATE PASS ISSUED] Created: {last_gate_pass_id} (Plate: {best_plate})")
+                                except Exception:
+                                    # Fallback to local DB if web server is offline
+                                    try:
+                                        sys.path.append(os.path.join(os.path.dirname(__file__), 'webapp'))
+                                        import db
+                                        new_gp = db.create_gate_pass({
+                                            'plate': best_plate,
+                                            'type': vehicle_type,
+                                            'activity': 'Unloading',
+                                            'status': 'Arrived at Gate'
+                                        })
+                                        last_gate_pass_id = new_gp.get('id', 'GP-AUTO')
+                                        last_detected_plate = best_plate
+                                        last_gate_pass_time = now_t
+                                        print(f"[LOCAL DB GATE PASS ISSUED] Created: {last_gate_pass_id} (Plate: {best_plate})")
+                                    except Exception:
+                                        pass
                             break
 
-                # Display the info on the screen
+                # Display the vehicle info on screen
                 label = f"{vehicle_type} {plate_text}"
-                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 128), 2)
+                cv2.putText(frame, label, (x1, max(20, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 128), 2)
+
+        # Draw Top HUD Banner (Explicitly: ANPR & Gate Pass only, NO stock counting)
+        cv2.rectangle(frame, (0, 0), (800, 38), (20, 24, 32), -1)
+        cv2.putText(frame, "GATE ACCESS CONTROL | ANPR & GATE PASS CREATION ONLY (ZERO STOCK COUNTING)", (15, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 220, 255), 2)
+
+        # Draw Plate Card in Bottom-Left
+        cv2.rectangle(frame, (15, 490), (420, 585), (15, 18, 24), -1)
+        cv2.rectangle(frame, (15, 490), (420, 585), (0, 220, 255), 1)
+
+        if last_detected_plate:
+            # Realistic License Plate Badge
+            cv2.rectangle(frame, (25, 500), (250, 538), (245, 230, 60), -1)
+            cv2.rectangle(frame, (25, 500), (250, 538), (10, 10, 10), 2)
+            cv2.rectangle(frame, (25, 500), (52, 538), (180, 50, 0), -1)
+            cv2.putText(frame, "IND", (27, 524), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+            cv2.putText(frame, last_detected_plate, (60, 528), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (10, 10, 10), 2)
+
+            pass_label = f"GATE PASS: {last_gate_pass_id or 'GENERATING...'}"
+            cv2.putText(frame, pass_label, (25, 560), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 128), 2)
+            cv2.putText(frame, "STATUS: ARRIVED AT GATE (AUTOMATED)", (25, 576), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 200, 200), 1)
+        else:
+            cv2.putText(frame, "ANPR ENGINE ACTIVE", (25, 524), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (0, 220, 255), 2)
+            cv2.putText(frame, "Scanning for vehicles and license plates...", (25, 555), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
 
         # Show the video window
-        cv2.imshow('Smart Gate Camera (PoC)', frame)
+        cv2.imshow('Smart Gate Camera (ANPR & Access Control)', frame)
 
         # Press 'q' to quit
         if cv2.waitKey(1) & 0xFF == ord('q'):

@@ -91,7 +91,7 @@ FALLBACK_CLASS_NAMES = {
 
 # Model limitations documentation for report and UI notice
 MODEL_LIMITATIONS = {
-    "pretrained_model": "yolov8n.pt (COCO-80)",
+    "pretrained_model": "yolo11s.pt (Ultralytics YOLO11)",
     "natively_supported_classes": ["WORKER (via 'person')", "TRUCK (via 'truck', 'car', 'bus')"],
     "proxy_classes": ["BOX (via 'suitcase', 'backpack')"],
     "unsupported_in_coco": [
@@ -99,7 +99,7 @@ MODEL_LIMITATIONS = {
         "FORKLIFT (Reach trucks and forklifts require custom warehouse weights)",
         "BIN (Shelving totes and small-part bins require custom warehouse weights)"
     ],
-    "notes": "Pretrained general-purpose COCO weights provide proof-of-concept inference. A custom-trained warehouse dataset can replace yolov8n.pt seamlessly."
+    "notes": "Ultralytics YOLO11 provides enhanced feature representation and higher mAP inference. Custom-trained warehouse dataset can replace yolo11s.pt seamlessly."
 }
 
 
@@ -144,7 +144,7 @@ class ObjectDetectionEngine:
     Maintains clean separation from HTTP routes and data persistence.
     """
 
-    def __init__(self, model_name: str = "yolov8s-world.pt", device: str = "auto", conf_threshold: float = 0.25):
+    def __init__(self, model_name: str = "yolo11s.pt", device: str = "auto", conf_threshold: float = 0.25):
         self.model_name = model_name
         self.device_preference = device
         self.conf_threshold = conf_threshold
@@ -376,10 +376,10 @@ class ObjectDetectionEngine:
                         continue
 
                     # Bounding box in integer display pixels
-                    x1 = max(0, int(round(float(xyxy[i][0]))))
-                    y1 = max(0, int(round(float(xyxy[i][1]))))
-                    x2 = min(width, int(round(float(xyxy[i][2]))))
-                    y2 = min(height, int(round(float(xyxy[i][3]))))
+                    x1 = max(0, round(float(xyxy[i][0])))
+                    y1 = max(0, round(float(xyxy[i][1])))
+                    x2 = min(width, round(float(xyxy[i][2])))
+                    y2 = min(height, round(float(xyxy[i][3])))
 
                     # Bounding box in normalized resolution-independent coordinates [0.0 - 1.0]
                     norm_x1 = round(float(x1) / width, 4)
@@ -388,8 +388,8 @@ class ObjectDetectionEngine:
                     norm_y2 = round(float(y2) / height, 4)
 
                     # Center points
-                    center_x = int(round((x1 + x2) / 2.0))
-                    center_y = int(round((y1 + y2) / 2.0))
+                    center_x = round((x1 + x2) / 2.0)
+                    center_y = round((y1 + y2) / 2.0)
                     norm_center_x = round(float(center_x) / width, 4)
                     norm_center_y = round(float(center_y) / height, 4)
 

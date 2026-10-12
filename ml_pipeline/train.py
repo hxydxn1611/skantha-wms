@@ -1,9 +1,9 @@
 from ultralytics import YOLO
 import argparse
 
-def train_warlog_model(model_weights='yolov8s-world.pt', data_yaml='data.yaml', epochs=50, imgsz=640):
+def train_warlog_model(model_weights='yolo11s.pt', data_yaml='data.yaml', epochs=50, imgsz=640):
     """
-    Fine-tunes the YOLOv8 model for the WARLOG automotive parts dataset.
+    Fine-tunes the flagship YOLO11 model for the WARLOG automotive parts dataset.
     Uses a small learning rate and freezes backbone layers to prevent catastrophic forgetting.
     """
     print(f"Loading pretrained weights from {model_weights}...")
@@ -19,7 +19,7 @@ def train_warlog_model(model_weights='yolov8s-world.pt', data_yaml='data.yaml', 
         epochs=epochs,
         imgsz=imgsz,
         batch=16,
-        lr0=0.001, # Smaller learning rate for fine-tuning
+        lr0=0.001, 
         freeze=freeze,
         project='warlog_vision',
         name='automotive_finetune',
@@ -30,7 +30,7 @@ def train_warlog_model(model_weights='yolov8s-world.pt', data_yaml='data.yaml', 
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train WARLOG YOLO Model")
-    parser.add_argument('--weights', type=str, default='yolov8s-world.pt', help='Pretrained weights')
+    parser.add_argument('--weights', type=str, default='yolo11s.pt', help='Pretrained weights (e.g. yolo11s.pt, yolo11m.pt)')
     parser.add_argument('--data', type=str, default='data.yaml', help='Path to data.yaml')
     parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
     
