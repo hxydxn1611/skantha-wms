@@ -37,6 +37,29 @@ db.init_db()
 # Store active cameras in memory
 active_cameras = {}
 
+def init_active_cameras():
+    try:
+        cams = db.get_all_cameras()
+        for cam in cams:
+            cid = cam.get('camera_id')
+            if cid and cid not in active_cameras:
+                sc = SmartCamera(
+                    camera_id=cid,
+                    name=cam.get('name') or f"Camera {cid}",
+                    url=cam.get('stream_url') or '',
+                    location=cam.get('location') or 'General',
+                    cam_type=cam.get('camera_type') or 'IP Camera',
+                    vendor=cam.get('vendor', 'Unknown'),
+                    bin_id=cam.get('bin_id')
+                )
+                sc.start()
+                active_cameras[cid] = sc
+                logger.info(f"Initialized active camera {cid} ({cam.get('location')})")
+    except Exception as e:
+        logger.warning(f"Error initializing active cameras from DB: {e}")
+
+init_active_cameras()
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -138,12 +161,14 @@ def get_gate_passes():
 
 @app.route('/api/gate_passes', methods=['POST'])
 def create_gate_pass():
-    data = request.json
+    data = request.json or {}
+    plate = (data.get('plate') or '').strip().upper()
     
-    # Enforce one truck at the gate at a time.
-    # If there is already a Pending gate pass, block new ones until it's processed.
-    if db.has_pending_gate_pass():
-        return jsonify({"success": False, "message": "Clear pending gate pass first."})
+    # If a gate pass with the same vehicle plate is already Pending, reuse it smoothly
+    if plate:
+        existing = db.get_pending_gate_pass_by_plate(plate)
+        if existing:
+            return jsonify({"success": True, "gate_pass": existing, "message": f"Active gate pass {existing['id']} found for {plate}."})
             
     # Generate a random 4-digit OTP if driver_phone is provided
     otp = str(random.randint(1000, 9999)) if data.get('driver_phone') else ""
@@ -156,7 +181,7 @@ def create_gate_pass():
     new_gp = db.create_gate_pass(data)
     
     # Add to Vehicle Log
-    db.create_vehicle_log(new_gp['id'], new_gp['plate'], new_gp['driver_name'])
+    db.create_vehicle_log(new_gp['id'], new_gp['plate'], new_gp.get('driver_name', 'Visitor'))
     
     return jsonify({"success": True, "gate_pass": new_gp})
 
@@ -2639,12 +2664,26 @@ def get_cameras():
             seen_ids.add(cid)
             active_cam = active_cameras.get(cid)
             events = active_cam.events if active_cam else []
-            visible_packages = active_cam.visible_packages if active_cam else 0
-            visible_boxes = getattr(active_cam, 'visible_boxes', 0) if active_cam else 0
-            clustered_bundle_count = getattr(active_cam, 'clustered_bundle_count', visible_packages) if active_cam else 0
-            detected_bar_layers = getattr(active_cam, 'detected_bar_layers', 0) if active_cam else 0
-            head_count = getattr(active_cam, 'head_count', 0) if active_cam else 0
-            cluster_breakdown = getattr(active_cam, 'cluster_breakdown', {}) if active_cam else {}
+            loc = (cam.get('location') or '').strip().lower()
+            name = (cam.get('name') or '').strip().lower()
+            cid_str = (cid or '').strip().lower()
+            is_gate = getattr(active_cam, 'is_gate_camera', False) if active_cam else (loc == 'gate' or 'gate' in name or 'gate' in cid_str or 'anpr' in name)
+
+            if is_gate:
+                visible_packages = 0
+                visible_boxes = 0
+                clustered_bundle_count = 0
+                detected_bar_layers = 0
+                head_count = 0
+                cluster_breakdown = {}
+            else:
+                visible_packages = active_cam.visible_packages if active_cam else 0
+                visible_boxes = getattr(active_cam, 'visible_boxes', 0) if active_cam else 0
+                clustered_bundle_count = getattr(active_cam, 'clustered_bundle_count', visible_packages) if active_cam else 0
+                detected_bar_layers = getattr(active_cam, 'detected_bar_layers', 0) if active_cam else 0
+                head_count = getattr(active_cam, 'head_count', 0) if active_cam else 0
+                cluster_breakdown = getattr(active_cam, 'cluster_breakdown', {}) if active_cam else {}
+
             latest_boxes = active_cam.latest_boxes if active_cam else []
             bin_id = cam.get('bin_id') or (getattr(active_cam, 'bin_id', None))
             cameras_data.append({
@@ -2658,6 +2697,16 @@ def get_cameras():
                 "vendor": cam.get('vendor', 'Unknown'),
                 "status": cam.get('status', 'Online'),
                 "events": events,
+                "is_gate_camera": is_gate,
+                "last_detected_plate": getattr(active_cam, 'last_detected_plate', None) if active_cam else None,
+                "last_gate_pass_id": getattr(active_cam, 'last_gate_pass_id', None) if active_cam else None,
+                "inbound_count": getattr(active_cam, 'inbound_count', 0) if active_cam else 0,
+                "outbound_count": getattr(active_cam, 'outbound_count', 0) if active_cam else 0,
+                "net_stock_count": getattr(active_cam, 'net_stock_count', 0) if active_cam else 0,
+                "inference_latency_ms": round(getattr(active_cam, 'inference_latency_ms', 0.0), 1) if active_cam else 0.0,
+                "fps": round(getattr(active_cam, 'fps', 0.0), 1) if active_cam else 0.0,
+                "active_workers_count": getattr(active_cam, 'active_workers_count', 0) if active_cam else 0,
+                "active_stocks_count": getattr(active_cam, 'active_stocks_count', 0) if active_cam else 0,
                 "visible_packages": visible_packages,
                 "visible_boxes": visible_boxes,
                 "clustered_bundle_count": clustered_bundle_count,
@@ -2673,11 +2722,21 @@ def get_cameras():
     # Fallback/merge for any active in-memory cameras not found in DB
     for cam_id, cam in active_cameras.items():
         if cam_id not in seen_ids:
-            visible_packages = getattr(cam, 'visible_packages', 0)
-            clustered_bundle_count = getattr(cam, 'clustered_bundle_count', visible_packages)
-            detected_bar_layers = getattr(cam, 'detected_bar_layers', 0)
-            head_count = getattr(cam, 'head_count', 0)
-            cluster_breakdown = getattr(cam, 'cluster_breakdown', {})
+            is_gate = getattr(cam, 'is_gate_camera', False)
+            if is_gate:
+                visible_packages = 0
+                visible_boxes = 0
+                clustered_bundle_count = 0
+                detected_bar_layers = 0
+                head_count = 0
+                cluster_breakdown = {}
+            else:
+                visible_packages = getattr(cam, 'visible_packages', 0)
+                clustered_bundle_count = getattr(cam, 'clustered_bundle_count', visible_packages)
+                detected_bar_layers = getattr(cam, 'detected_bar_layers', 0)
+                head_count = getattr(cam, 'head_count', 0)
+                cluster_breakdown = getattr(cam, 'cluster_breakdown', {})
+
             cameras_data.append({
                 "id": cam.camera_id,
                 "code": getattr(cam, 'code', cam.camera_id),
@@ -2689,6 +2748,16 @@ def get_cameras():
                 "vendor": cam.vendor,
                 "status": "Online",
                 "events": getattr(cam, 'events', []),
+                "is_gate_camera": is_gate,
+                "last_detected_plate": getattr(cam, 'last_detected_plate', None),
+                "last_gate_pass_id": getattr(cam, 'last_gate_pass_id', None),
+                "inbound_count": getattr(cam, 'inbound_count', 0),
+                "outbound_count": getattr(cam, 'outbound_count', 0),
+                "net_stock_count": getattr(cam, 'net_stock_count', 0),
+                "inference_latency_ms": round(getattr(cam, 'inference_latency_ms', 0.0), 1),
+                "fps": round(getattr(cam, 'fps', 0.0), 1),
+                "active_workers_count": getattr(cam, 'active_workers_count', 0),
+                "active_stocks_count": getattr(cam, 'active_stocks_count', 0),
                 "visible_packages": visible_packages,
                 "visible_boxes": getattr(cam, 'visible_boxes', 0),
                 "clustered_bundle_count": clustered_bundle_count,
@@ -2742,6 +2811,88 @@ def snap_camera(cam_id):
         f.write(frame_bytes)
         
     return jsonify({"success": True, "photo": photo_filename})
+
+@app.route('/api/gate/simulate_arrival', methods=['POST'])
+def simulate_gate_arrival():
+    try:
+        data = request.json or {}
+        plate = (data.get('plate') or "MH-12-PQ-9988").strip().upper()
+        vehicle_type = data.get('type') or "Heavy Commercial (HCV)"
+        
+        # 1. Locate Gate Camera
+        gate_cam = None
+        for cam in active_cameras.values():
+            if getattr(cam, 'is_gate_camera', False) or cam.location == 'Gate':
+                gate_cam = cam
+                break
+
+        # 2. Check if pending gate pass already exists for this plate
+        existing_gp = db.get_pending_gate_pass_by_plate(plate)
+        if existing_gp:
+            gp = existing_gp
+            gp_id = gp.get('id', 'GP-PENDING')
+        else:
+            gp = db.create_gate_pass({
+                "plate": plate,
+                "type": vehicle_type,
+                "activity": "Unloading",
+                "status": "Pending",
+                "driver_name": "Verified Driver",
+                "dock": "Dock 1"
+            })
+            gp_id = gp.get('id', 'GP-AUTO')
+            db.create_vehicle_log(gp_id, plate, "Verified Driver")
+
+        # 3. Synchronize Gate Camera Live Stream HUD
+        if gate_cam:
+            with gate_cam.lock:
+                gate_cam.last_detected_plate = plate
+                gate_cam.last_gate_pass_id = gp_id
+                gate_cam.last_gate_pass_time = time.time()
+                gate_cam.last_plate_prob = 0.99
+                gate_cam.events.insert(0, {
+                    "time": time.strftime("%H:%M:%S"),
+                    "type": vehicle_type,
+                    "plate": plate,
+                    "gate_pass_id": gp_id,
+                    "status": "GATE PASS ISSUED (LIVE FEED)",
+                    "camera": gate_cam.name
+                })
+
+        return jsonify({
+            "success": True,
+            "gate_pass": gp,
+            "plate": plate,
+            "message": f"Gate Pass {gp_id} created from Live Gate Feed for plate {plate}!"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/gate/scan_now', methods=['POST'])
+def scan_gate_now():
+    try:
+        gate_cam = None
+        for cam in active_cameras.values():
+            if getattr(cam, 'is_gate_camera', False) or cam.location == 'Gate':
+                gate_cam = cam
+                break
+        if not gate_cam:
+            return jsonify({"success": False, "message": "No active Gate camera found"}), 404
+            
+        with gate_cam.lock:
+            if gate_cam.raw_frame is None:
+                return jsonify({"success": False, "message": "Gate camera feed not ready"}), 400
+            frame_copy = gate_cam.raw_frame.copy()
+            boxes_copy = copy.deepcopy(gate_cam.latest_boxes)
+            
+        gate_cam._run_live_gate_anpr_worker(frame_copy, boxes_copy)
+        return jsonify({
+            "success": True,
+            "detected_plate": gate_cam.last_detected_plate,
+            "gate_pass_id": gate_cam.last_gate_pass_id
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/api/cameras', methods=['POST'])
 def add_camera():
@@ -2798,16 +2949,32 @@ def sync_camera_inventory(camera_id):
     active_cam = active_cameras.get(camera_id)
     db_cam = db.get_camera(camera_id)
     
+    # Gate camera check: gate camera strictly does NOT count stock
+    is_gate = False
+    if active_cam and getattr(active_cam, 'is_gate_camera', False):
+        is_gate = True
+    elif db_cam:
+        loc = (db_cam.get('location') or '').strip().lower()
+        name = (db_cam.get('name') or '').strip().lower()
+        cid = (db_cam.get('camera_id') or '').strip().lower()
+        if loc == 'gate' or 'gate' in name or 'gate' in cid or 'anpr' in name:
+            is_gate = True
+    if is_gate:
+        return jsonify({"success": False, "message": "Gate cameras strictly perform ANPR and Gate Pass creation only. Inventory counting is disabled on gate cameras."}), 400
+
     bin_id = (active_cam.bin_id if active_cam and active_cam.bin_id else None) or (db_cam.get('bin_id') if db_cam else None)
     if not bin_id:
         return jsonify({"success": False, "message": "No Bin assigned to this camera. Please assign a Bin in Camera Management."}), 400
         
     count = 0
     if active_cam:
-        count = getattr(active_cam, 'head_count', 0)
-        if not count:
-            count = getattr(active_cam, 'clustered_bundle_count', None)
-        if count is None or count == 0:
+        if hasattr(active_cam, 'net_stock_count') and active_cam.net_stock_count > 0:
+            count = active_cam.net_stock_count
+        elif hasattr(active_cam, 'head_count') and active_cam.head_count > 0:
+            count = active_cam.head_count
+        elif getattr(active_cam, 'clustered_bundle_count', None):
+            count = active_cam.clustered_bundle_count
+        else:
             count = getattr(active_cam, 'visible_packages', 0)
     
     data = request.get_json(silent=True) or {}
@@ -4129,6 +4296,125 @@ def suggest_bin(gp_id):
     return jsonify({"success": True, "suggested_bin": chosen_bin})
 
 
+@app.route('/api/inbound/simulate', methods=['POST'])
+def api_inbound_simulate():
+    """Simulates an inbound truck arrival, dock dispatch, and AI unloading count for testing."""
+    conn = db.get_db()
+    try:
+        # Check if an active pass already exists at Dock 1
+        existing = conn.execute("SELECT id FROM gate_passes WHERE UPPER(dock) = 'DOCK 1' AND status IN ('Sent to Dock', 'Unloading')").fetchone()
+        if existing:
+            gp_id = existing['id']
+            conn.execute("UPDATE gate_passes SET status = 'Unloading', unloaded_qty = 50 WHERE id = ?", (gp_id,))
+            conn.commit()
+            return jsonify({
+                "success": True,
+                "message": f"Dock 1 truck (Pass {gp_id}) is actively Unloading with 50 AI-verified pieces.",
+                "gp_id": gp_id
+            })
+        
+        # Ensure pre-registration delivery exists in expected_deliveries
+        po_num = "PO-INB-7701"
+        deliv = conn.execute("SELECT po_number FROM expected_deliveries WHERE po_number = ?", (po_num,)).fetchone()
+        if not deliv:
+            db.create_delivery({
+                "po_number": po_num,
+                "expected_date": datetime.now().strftime("%Y-%m-%d"),
+                "activity": "Unloading",
+                "vendor": "Tata AutoComp Systems",
+                "vendor_email": "logistics@tataautocomp.com",
+                "load": "50x Automotive Wire Bundles",
+                "plate": "MH-12-PQ-9988",
+                "driver_name": "Sunil Deshmukh",
+                "driver_phone": "9876543210",
+                "unloading_sheet": [{"sku_id": "SKU-AUTO-WIRE", "vendor": "Tata AutoComp Systems", "expected_qty": 50, "unit_volume": 1.5, "unit_weight": 2.0}]
+            })
+
+        # Create gate pass
+        import json
+        sheet = json.dumps([{"sku": "SKU-AUTO-WIRE", "desc": "50x Automotive Wire Bundles", "expected": 50, "counted": 50}])
+        new_gp = db.create_gate_pass({
+            "po_number": po_num,
+            "plate": "MH-12-PQ-9988",
+            "driver_name": "Sunil Deshmukh",
+            "driver_phone": "9876543210",
+            "vendor": "Tata AutoComp Systems",
+            "vendor_email": "logistics@tataautocomp.com",
+            "load": "50x Automotive Wire Bundles",
+            "activity": "Unloading",
+            "dock": "Dock 1",
+            "status": "Unloading",
+            "unloading_sheet": sheet,
+            "unloaded_qty": 50
+        })
+        gp_id = new_gp['id']
+        conn.execute("UPDATE gate_passes SET status = 'Unloading', dock = 'Dock 1', unloaded_qty = 50 WHERE id = ?", (gp_id,))
+        conn.commit()
+
+        # Ensure a Dock 1 camera exists in DB
+        cam = conn.execute("SELECT camera_id FROM cameras WHERE location LIKE '%Dock%' LIMIT 1").fetchone()
+        if not cam:
+            conn.execute("""
+                INSERT INTO cameras (camera_id, camera_code, name, location, bin_id, status, camera_type)
+                VALUES ('CAM-DOCK-01', 'CAM-DOCK-01', 'Dock 01 Overhead Vision', 'Dock 1', 'BIN-A1', 'Online', 'IP Camera')
+                ON CONFLICT(camera_id) DO NOTHING
+            """)
+            conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Successfully docked Inbound Truck (MH-12-PQ-9988) at Dock 1 for {po_num}!",
+            "gp_id": gp_id
+        })
+    finally:
+        conn.close()
+
+
+@app.route('/api/inbound/complete_receipt', methods=['POST'])
+def api_inbound_complete_receipt():
+    """Completes the dock unloading receipt, reconciles inventory to the designated bin, and closes the gate pass."""
+    data = request.get_json(silent=True) or {}
+    gp_id = data.get('gp_id')
+    bin_id = data.get('bin_id') or 'BIN-A1'
+    quantity = int(data.get('quantity', 0))
+    sku_id = data.get('sku_id') or 'SKU-AUTO-WIRE'
+    vendor = data.get('vendor') or 'Inbound Supplier'
+
+    if not gp_id:
+        return jsonify({"success": False, "message": "Gate Pass ID is required"}), 400
+
+    conn = db.get_db()
+    try:
+        gp = conn.execute("SELECT * FROM gate_passes WHERE id = ?", (gp_id,)).fetchone()
+        if not gp:
+            return jsonify({"success": False, "message": "Gate pass not found"}), 404
+
+        # Sync inventory
+        sync_res = db.sync_bin_inventory(bin_id, quantity, sku_id=sku_id, vendor=vendor)
+
+        # Update Gate pass status to Completed
+        conn.execute("""
+            UPDATE gate_passes 
+            SET status = 'Completed', unloaded_qty = ?
+            WHERE id = ?
+        """, (quantity, gp_id))
+
+        # Update associated delivery status in expected_deliveries
+        if gp['po_number']:
+            conn.execute("UPDATE expected_deliveries SET status = 'Completed' WHERE po_number = ?", (gp['po_number'],))
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Goods Receipt Note (GRN) generated! Synced {quantity} items to Bin {bin_id}.",
+            "sync_details": sync_res,
+            "gp_id": gp_id
+        })
+    finally:
+        conn.close()
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+

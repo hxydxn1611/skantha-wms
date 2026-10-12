@@ -591,6 +591,18 @@ def has_pending_gate_pass():
     conn.close()
     return row is not None
 
+def get_pending_gate_pass_by_plate(plate):
+    if not plate:
+        return None
+    conn = get_db()
+    clean_p = _clean_plate(plate)
+    rows = conn.execute("SELECT * FROM gate_passes WHERE status = 'Pending'").fetchall()
+    conn.close()
+    for r in rows:
+        if r['plate'] and _clean_plate(r['plate']) == clean_p:
+            return _row_to_gate_pass(r)
+    return None
+
 def get_all_gate_passes():
     """Retrieve all gate passes ordered chronologically (newest first)."""
     conn = get_db()
