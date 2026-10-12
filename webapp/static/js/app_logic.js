@@ -154,14 +154,12 @@
                     switchTab('gate-passes');
                 } else if (val.includes('dock') || val.includes('bay')) {
                     switchTab('docks');
-                } else if (val.includes('cam') || val.includes('stream') || val.includes('junction')) {
+                } else if (val.includes('cam') || val.includes('stream') || val.includes('junction') || val.includes('vision') || val.includes('yolo')) {
                     switchTab('cameras');
                 } else if (val.includes('inbound') || val.includes('flow') || val.includes('reconcil')) {
                     switchTab('inbound-flow');
                 } else if (val.includes('outbound') || val.includes('order') || val.includes('dispatch')) {
                     switchTab('outbound');
-                } else if (val.includes('vision') || val.includes('yolo') || val.includes('roi') || val.includes('model')) {
-                    switchTab('ai-vision-master');
                 } else {
                     switchTab('master-hub');
                     const mSearch = document.getElementById('masterHubSearch');
