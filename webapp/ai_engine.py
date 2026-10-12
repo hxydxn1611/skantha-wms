@@ -268,12 +268,12 @@ class SmartCamera:
             # 3. Full frame fallback
             candidate_crops.append(frame)
 
-            best_plate = ""
-            best_prob = 0.0
+            best_plate: str = ""
+            best_prob: float = 0.0
 
             if hasattr(SmartCamera, 'ocr_reader') and SmartCamera.ocr_reader is not None:
                 for crop in candidate_crops:
-                    if best_plate:
+                    if best_plate != "":
                         break
                     ch, cw = crop.shape[:2]
                     if ch < 30 or cw < 60:
@@ -326,7 +326,7 @@ class SmartCamera:
                             best_prob = 0.75
 
             # Standardize Indian format with hyphens (e.g. MH12PQ9988 -> MH-12-PQ-9988)
-            if best_plate:
+            if best_plate != "":
                 m_ind = re.match(r'^([A-Z]{2})([0-9]{1,2})([A-Z]{1,3})([0-9]{3,4})$', best_plate)
                 if m_ind:
                     best_plate = f"{m_ind.group(1)}-{m_ind.group(2)}-{m_ind.group(3)}-{m_ind.group(4)}"
