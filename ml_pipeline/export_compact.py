@@ -1,26 +1,16 @@
 from ultralytics import YOLO
+import sys
 
-def compress_model():
+def compress_model(weights_path="yolo11s.pt"):
     print("=======================================================")
-    print("WARLOG Model Compressor & Optimizer")
+    print("WARLOG YOLO11 Model Compressor & Optimizer")
     print("=======================================================\n")
-    print("Loading heavy PyTorch model (yolov8s-world.pt)...")
+    print(f"Loading YOLO11 PyTorch model ({weights_path})...")
     
     # Load the base model
-    model = YOLO("yolov8s-world.pt")
+    model = YOLO(weights_path)
     
-    # Define our exact warehouse classes so they are baked into the model
-    # This makes it "highly intelligent" without needing text encoding at runtime
-    custom_classes = [
-        "box", "bundle", "pallet", "engine block", 
-        "windshield", "bumper", "screw box", "steering wheel", 
-        "tire bundle", "hood", "truck", "forklift", "person", "license plate"
-    ]
-    model.set_classes(custom_classes)
-    
-    print(f"Baking {len(custom_classes)} custom warehouse classes directly into the neural network graph...")
-    
-    # Export to ONNX format with FP16 Half-precision quantization
+    # Export to TorchScript format with FP16 Half-precision quantization
     # This massively shrinks the file size and boosts speed
     print("Compressing model to TorchScript (FP16 Precision)... this may take a minute.")
     exported_path = model.export(
@@ -29,9 +19,10 @@ def compress_model():
         imgsz=640
     )
     
-    print(f"\n✅ Model successfully compressed and optimized!")
-    print(f"Your new highly-intelligent micro-model is located at: {exported_path}")
-    print("\nTo use it, just update identity_service.py to load 'yolov8s-world.onnx'!")
+    print(f"\n✅ YOLO11 Model successfully compressed and optimized!")
+    print(f"Your new micro-model is located at: {exported_path}")
+    print(f"\nTo use it in production, update detection_service.py to load '{exported_path}'!")
 
 if __name__ == "__main__":
-    compress_model()
+    weights = sys.argv[1] if len(sys.argv) > 1 else "yolo11s.pt"
+    compress_model(weights)

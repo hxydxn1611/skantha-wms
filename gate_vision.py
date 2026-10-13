@@ -11,15 +11,14 @@ import numpy as np
 def main():
     print("Loading AI Models... This might take a moment on the first run.")
     
-    # 1. Load YOLOv8 for Vehicle Detection (Downloads the small 'nano' model automatically)
-    # CO
-    #CO dataset classes: 2=car, 3=motorcycle, 5=bus, 7=truck
+    # 1. Load YOLO11 for Vehicle Detection (Flagship yolo11s with fallback to yolo11n)
+    # COCO dataset classes: 2=car, 3=motorcycle, 5=bus, 7=truck
     try:
         vehicle_model = YOLO('yolo11s.pt') 
     except Exception as e:
-        print(f"Error loading YOLO11, falling back to yolov8n: {e}")
+        print(f"Error loading YOLO11 (yolo11s.pt), falling back to yolo11n: {e}")
         try:
-            vehicle_model = YOLO('yolov8n.pt')
+            vehicle_model = YOLO('yolo11n.pt')
         except Exception:
             return
 

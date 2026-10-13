@@ -378,7 +378,8 @@ def init_db():
             for z_code, cam_id in zone_cam_mappings:
                 cur.execute("SELECT id FROM vision_zones WHERE zone_code = ?", (z_code,))
                 z_row = cur.fetchone()
-                if z_row:
+                cam_exists = cur.execute("SELECT 1 FROM cameras WHERE camera_id = ?", (cam_id,)).fetchone()
+                if z_row and cam_exists:
                     cur.execute(
                         "INSERT OR IGNORE INTO vision_zone_cameras (zone_id, camera_id) VALUES (?, ?)",
                         (z_row[0], cam_id)
@@ -391,7 +392,8 @@ def init_db():
             # Sample ROI for DOCK-01 on CAM-002 (Inbound Dock area)
             cur.execute("SELECT id FROM vision_zones WHERE zone_code = 'DOCK-01'")
             d1 = cur.fetchone()
-            if d1:
+            dock_cam_exists = cur.execute("SELECT 1 FROM cameras WHERE camera_id = 'CAM-002'").fetchone()
+            if d1 and dock_cam_exists:
                 poly_dock = [
                     {"x": 0.15, "y": 0.25},
                     {"x": 0.85, "y": 0.25},
@@ -406,7 +408,8 @@ def init_db():
             # Sample ROI for TB-01 on CAM-001 (Gate check-in bay)
             cur.execute("SELECT id FROM vision_zones WHERE zone_code = 'TB-01'")
             tb1 = cur.fetchone()
-            if tb1:
+            tb_cam_exists = cur.execute("SELECT 1 FROM cameras WHERE camera_id = 'CAM-001'").fetchone()
+            if tb1 and tb_cam_exists:
                 poly_tb = [
                     {"x": 0.12, "y": 0.22},
                     {"x": 0.88, "y": 0.22},
