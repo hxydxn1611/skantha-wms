@@ -212,6 +212,22 @@ class ObjectDetectionEngine:
             logger.info(f"Loaded YOLO model '{self.model_name}' on device '{self.active_device}'")
             return True
         except Exception as e:
+            if self.model_name == "yolo11s.pt":
+                logger.warning(f"Failed to load '{self.model_name}': {e}. Attempting fallback to 'yolo11n.pt'...")
+                try:
+                    fallback_path = "yolo11n.pt"
+                    if not os.path.isabs(fallback_path):
+                        webapp_path = os.path.join(os.path.dirname(__file__), fallback_path)
+                        if os.path.exists(webapp_path):
+                            fallback_path = webapp_path
+                    self.model = YOLO(fallback_path)
+                    self.model_name = "yolo11n.pt"
+                    self.is_loaded = True
+                    self.last_load_error = None
+                    logger.info(f"Loaded fallback YOLO11 model 'yolo11n.pt' on device '{self.active_device}'")
+                    return True
+                except Exception as fallback_e:
+                    logger.error(f"Fallback to 'yolo11n.pt' also failed: {fallback_e}")
             self.is_loaded = False
             self.last_load_error = str(e)
             logger.error(f"Failed to load YOLO model '{self.model_name}': {e}")

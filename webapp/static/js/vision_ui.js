@@ -2110,7 +2110,7 @@
                                 const kpiDevice = document.getElementById('kpi-dt-device');
                                 const kpiDeviceSub = document.getElementById('kpi-dt-device-sub');
                                 if (badge) {
-                                    badge.innerText = `Detector: ${info.model_name || 'YOLOv8'} (${(info.device || 'CPU').toUpperCase()})`;
+                                    badge.innerText = `Detector: ${info.model_name || 'YOLO11'} (${(info.device || 'CPU').toUpperCase()})`;
                                 }
                                 if (kpiDevice) {
                                     kpiDevice.innerText = (info.device || 'CPU').toUpperCase();
@@ -2257,7 +2257,7 @@
                         const kpiCountSub = document.getElementById('kpi-dt-count-sub');
 
                         if (kpiDevice) kpiDevice.innerText = (modelInfo.device || 'CPU').toUpperCase();
-                        if (kpiDeviceSub) kpiDeviceSub.innerText = `${modelInfo.model_name || 'yolov8n.pt'} (Conf ≥ ${modelInfo.confidence_threshold})`;
+                        if (kpiDeviceSub) kpiDeviceSub.innerText = `${modelInfo.model_name || 'yolo11s.pt'} (Conf ≥ ${modelInfo.confidence_threshold})`;
                         if (kpiInfer) kpiInfer.innerText = `${perf.inference_ms || 0} ms`;
                         if (kpiTotal) kpiTotal.innerText = `${perf.total_ms || 0} ms`;
                         if (kpiCount) kpiCount.innerText = detections.length;

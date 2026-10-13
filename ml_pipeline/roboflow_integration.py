@@ -16,7 +16,7 @@ def download_dataset(api_key, workspace_name, project_name, version_num=1):
     project = rf.workspace(workspace_name).project(project_name)
     version = project.version(version_num)
     
-    print("Downloading dataset in YOLOv8 format...")
+    print("Downloading dataset in Ultralytics YOLO format (for YOLO11)...")
     # This will download the dataset and return the dataset object
     dataset = version.download("yolov8")
     

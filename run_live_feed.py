@@ -44,8 +44,7 @@ def run_live_feed():
             print("Failed to grab frame")
             break
             
-        # Process frame through WARLOG Engine
-        # YOLO-World zero-shot classes in this build include "box", "bundle", "pallet", etc.
+        # Process frame through WARLOG YOLO11 Identity Engine
         result = identity_service.process_frame(
             frame_input=frame,
             camera_id="LIVE-CAM-01",

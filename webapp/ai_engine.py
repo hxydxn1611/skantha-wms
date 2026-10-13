@@ -84,19 +84,15 @@ class SmartCamera:
                 SmartCamera.active_model_name = "yolo11s.pt"
                 print("Successfully loaded YOLO11 (yolo11s.pt)!")
             except Exception as e1:
-                print("YOLO11 load attempt error, trying YOLO-World:", e1)
+                print("YOLO11 (yolo11s.pt) load attempt error, trying YOLO11 Nano (yolo11n.pt):", e1)
                 try:
-                    SmartCamera.vehicle_model = YOLO('yolov8s-world.pt')
-                    SmartCamera.vehicle_model.set_classes([
-                        "box", "bundle", "pallet", "car part", "engine block", 
-                        "windshield", "bumper", "screw box", "steering wheel", 
-                        "tire bundle", "hood", "truck", "forklift", "person", "license plate"
-                    ])
-                    SmartCamera.active_model_name = "yolov8s-world.pt"
+                    SmartCamera.vehicle_model = YOLO('yolo11n.pt')
+                    SmartCamera.active_model_name = "yolo11n.pt"
+                    print("Successfully loaded YOLO11 Nano (yolo11n.pt)!")
                 except Exception as e2:
-                    print("Falling back to yolov8n.pt due to error:", e2)
-                    SmartCamera.vehicle_model = YOLO('yolov8n.pt')
-                    SmartCamera.active_model_name = "yolov8n.pt"
+                    print("Falling back to yolo11n.pt due to error:", e2)
+                    SmartCamera.vehicle_model = YOLO('yolo11n.pt')
+                    SmartCamera.active_model_name = "yolo11n.pt"
             if os.environ.get("WARLOG_TEST_MODE") == "1":
                 SmartCamera.ocr_reader = None
             else:
