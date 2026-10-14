@@ -138,14 +138,24 @@ def is_point_in_polygon(point: Dict[str, float], polygon: List[Dict[str, float]]
     return inside
 
 
+from model_loader import (
+    resolve_model_path,
+    load_yolo_model,
+    get_shared_detector,
+    DEFAULT_VERIFIED_MODEL,
+    CONFIGURED_MODEL_PREFERENCE,
+    MODEL_CAPABILITIES
+)
+
 class ObjectDetectionEngine:
     """
     Modular Object Detection Engine wrapping Ultralytics YOLO.
     Maintains clean separation from HTTP routes and data persistence.
     """
 
-    def __init__(self, model_name: str = "yolo11s.pt", device: str = "auto", conf_threshold: float = 0.25):
-        self.model_name = model_name
+    def __init__(self, model_name: Optional[str] = None, device: str = "auto", conf_threshold: float = 0.25):
+        self.requested_model_name = model_name or CONFIGURED_MODEL_PREFERENCE
+        self.model_name = self.requested_model_name
         self.device_preference = device
         self.conf_threshold = conf_threshold
         self.model = None
@@ -153,6 +163,7 @@ class ObjectDetectionEngine:
         self.class_mapping = dict(DEFAULT_CLASS_MAPPING)
         self.is_loaded = False
         self.last_load_error = None
+        self.resolved_model_path = None
 
         self._select_device()
         self._load_model()
@@ -180,7 +191,8 @@ class ObjectDetectionEngine:
 
     def _load_model(self) -> bool:
         """
-        Initialize and load the YOLO detector model.
+        Initialize and load the YOLO detector model using consolidated model_loader.
+        Avoids duplicate memory allocations and prevents runtime internet downloads.
         """
         if not ULTRALYTICS_AVAILABLE:
             self.last_load_error = "Ultralytics package is not installed."
@@ -188,15 +200,25 @@ class ObjectDetectionEngine:
             return False
 
         try:
-            # Determine path (look in current dir, webapp dir, or download cache)
-            model_path = self.model_name
-            if not os.path.isabs(model_path):
-                webapp_path = os.path.join(os.path.dirname(__file__), model_path)
-                if os.path.exists(webapp_path):
-                    model_path = webapp_path
+            model, active_name, active_path, err = load_yolo_model(
+                requested_model=self.requested_model_name,
+                fallback_model=DEFAULT_VERIFIED_MODEL,
+                allow_fallback=True,
+                device=self.active_device
+            )
 
-            self.model = YOLO(model_path)
-            
+            if model is None or err:
+                self.is_loaded = False
+                self.last_load_error = err or "Unknown model loading error"
+                logger.error(f"Detector loading failed: {self.last_load_error}")
+                return False
+
+            self.model = model
+            self.model_name = active_name
+            self.resolved_model_path = active_path
+            self.is_loaded = True
+            self.last_load_error = None
+
             # If using YOLO-World, set zero-shot custom classes
             if 'world' in self.model_name.lower():
                 custom_classes = [
@@ -206,31 +228,13 @@ class ObjectDetectionEngine:
                 ]
                 self.model.set_classes(custom_classes)
                 logger.info(f"YOLO-World zero-shot classes set: {custom_classes}")
-                
-            self.is_loaded = True
-            self.last_load_error = None
-            logger.info(f"Loaded YOLO model '{self.model_name}' on device '{self.active_device}'")
+
+            logger.info(f"Loaded YOLO model '{self.model_name}' (path: {active_path}) on device '{self.active_device}'")
             return True
         except Exception as e:
-            if self.model_name == "yolo11s.pt":
-                logger.warning(f"Failed to load '{self.model_name}': {e}. Attempting fallback to 'yolo11n.pt'...")
-                try:
-                    fallback_path = "yolo11n.pt"
-                    if not os.path.isabs(fallback_path):
-                        webapp_path = os.path.join(os.path.dirname(__file__), fallback_path)
-                        if os.path.exists(webapp_path):
-                            fallback_path = webapp_path
-                    self.model = YOLO(fallback_path)
-                    self.model_name = "yolo11n.pt"
-                    self.is_loaded = True
-                    self.last_load_error = None
-                    logger.info(f"Loaded fallback YOLO11 model 'yolo11n.pt' on device '{self.active_device}'")
-                    return True
-                except Exception as fallback_e:
-                    logger.error(f"Fallback to 'yolo11n.pt' also failed: {fallback_e}")
             self.is_loaded = False
             self.last_load_error = str(e)
-            logger.error(f"Failed to load YOLO model '{self.model_name}': {e}")
+            logger.error(f"Failed to load YOLO model '{self.requested_model_name}': {e}")
             return False
 
     def reload(self, model_name: Optional[str] = None, device: Optional[str] = None, conf_threshold: Optional[float] = None) -> Tuple[bool, Optional[str]]:
@@ -238,6 +242,7 @@ class ObjectDetectionEngine:
         Reload model with new parameters.
         """
         if model_name:
+            self.requested_model_name = model_name
             self.model_name = model_name
         if device:
             self.device_preference = device

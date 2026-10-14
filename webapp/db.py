@@ -256,6 +256,8 @@ def init_db():
             camera_id TEXT NOT NULL,
             shape_type TEXT NOT NULL DEFAULT 'POLYGON',
             coordinates TEXT NOT NULL,
+            is_enabled INTEGER DEFAULT 1,
+            crossing_direction TEXT DEFAULT 'BOTH',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(zone_id, camera_id),
@@ -265,6 +267,21 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_vision_rois_zone ON vision_zone_camera_rois(zone_id);
         CREATE INDEX IF NOT EXISTS idx_vision_rois_cam ON vision_zone_camera_rois(camera_id);
+
+        -- SKU Master Reference Images for AI Vision & Warehouse Tracking
+        CREATE TABLE IF NOT EXISTS sku_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER DEFAULT 0,
+            mime_type TEXT,
+            is_primary INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(sku_id) REFERENCES skus(sku_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_sku_images_sku ON sku_images(sku_id);
         """)
         
         # Alter existing tables if needed
@@ -296,6 +313,27 @@ def init_db():
             pass
         try:
             conn.execute("ALTER TABLE cameras ADD COLUMN bin_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE vision_zone_camera_rois ADD COLUMN is_enabled INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE vision_zone_camera_rois ADD COLUMN crossing_direction TEXT DEFAULT 'BOTH'")
+        except sqlite3.OperationalError:
+            pass
+
+        # SKU Master enhancements for AI Vision & Item Master Data
+        for col, col_type in [("uom", "TEXT DEFAULT 'EA'"), ("status", "TEXT DEFAULT 'Active'"), ("updated_at", "TIMESTAMP")]:
+            try:
+                conn.execute(f"ALTER TABLE skus ADD COLUMN {col} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+        try:
+            conn.execute("UPDATE skus SET updated_at = created_at WHERE updated_at IS NULL")
         except sqlite3.OperationalError:
             pass
         
@@ -1631,11 +1669,16 @@ def get_zone_camera_roi(zone_identifier, camera_identifier):
     except Exception:
         coords = []
 
+    is_enabled = bool(d.get('is_enabled', 1) if d.get('is_enabled') is not None else 1)
+    crossing_direction = str(d.get('crossing_direction') or 'BOTH').strip().upper()
+
     return {
         "configured": True,
         "roi_configured": True,
         "shape_type": d['shape_type'],
         "coordinates": coords,
+        "is_enabled": is_enabled,
+        "crossing_direction": crossing_direction,
         "zone_id": zone['id'],
         "zone_code": zone['zone_code'],
         "zone_name": zone['zone_name'],
@@ -1651,6 +1694,8 @@ def get_zone_camera_roi(zone_identifier, camera_identifier):
             "shape_type": d['shape_type'],
             "coordinates": coords,
             "point_count": len(coords),
+            "is_enabled": is_enabled,
+            "crossing_direction": crossing_direction,
             "created_at": d['created_at'],
             "updated_at": d['updated_at']
         }
@@ -1684,19 +1729,34 @@ def save_zone_camera_roi(zone_identifier, camera_identifier, data):
         conn.close()
         return None, f"Camera '{camera_code}' is not associated with zone '{zone['zone_code']}'."
 
-    shape_type = str(data.get('shape_type', 'POLYGON')).strip().upper()
-    if shape_type not in ('POLYGON', 'RECTANGLE'):
+    raw_shape = str(data.get('shape_type', 'POLYGON')).strip().upper()
+    if raw_shape in ('TRIPWIRE', 'LINE'):
+        shape_type = 'TRIPWIRE'
+        min_pts = 2
+    elif raw_shape == 'RECTANGLE':
+        shape_type = 'RECTANGLE'
+        min_pts = 4
+    else:
         shape_type = 'POLYGON'
+        min_pts = 3
 
     raw_coords = data.get('coordinates', [])
     if not isinstance(raw_coords, list):
         conn.close()
         return None, "Coordinates must be provided as a list of points."
 
-    min_pts = 4 if shape_type == 'RECTANGLE' else 3
     if len(raw_coords) < min_pts:
         conn.close()
         return None, f"At least {min_pts} points are required for a {shape_type.lower()}."
+
+    # Parse enabled flag & crossing direction
+    raw_enabled = data.get('is_enabled', True)
+    is_enabled = 1 if raw_enabled in (True, 1, '1', 'true', 'True', 'on') else 0
+
+    raw_direction = str(data.get('crossing_direction', 'BOTH')).strip().upper()
+    if raw_direction not in ('BOTH', 'INBOUND_ONLY', 'OUTBOUND_ONLY'):
+        raw_direction = 'BOTH'
+    crossing_direction = raw_direction
 
     clean_coords = []
     for idx, pt in enumerate(raw_coords):
@@ -1725,13 +1785,15 @@ def save_zone_camera_roi(zone_identifier, camera_identifier, data):
 
     with conn:
         conn.execute("""
-            INSERT INTO vision_zone_camera_rois (zone_id, camera_id, shape_type, coordinates, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO vision_zone_camera_rois (zone_id, camera_id, shape_type, coordinates, is_enabled, crossing_direction, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(zone_id, camera_id) DO UPDATE SET
                 shape_type = excluded.shape_type,
                 coordinates = excluded.coordinates,
+                is_enabled = excluded.is_enabled,
+                crossing_direction = excluded.crossing_direction,
                 updated_at = excluded.updated_at
-        """, (zone['id'], camera_id, shape_type, coords_json, now, now))
+        """, (zone['id'], camera_id, shape_type, coords_json, is_enabled, crossing_direction, now, now))
     conn.close()
 
     res, _ = get_zone_camera_roi(zone['id'], camera_id)
@@ -1789,6 +1851,8 @@ def get_camera_rois(camera_identifier):
             coords = json.loads(d['coordinates'])
         except Exception:
             coords = []
+        is_en = bool(d.get('is_enabled', 1) if d.get('is_enabled') is not None else 1)
+        cross_dir = str(d.get('crossing_direction') or 'BOTH').strip().upper()
         rois.append({
             "id": d['id'],
             "zone_id": d['zone_id'],
@@ -1797,7 +1861,9 @@ def get_camera_rois(camera_identifier):
             "zone_type": d['zone_type'],
             "warehouse": d['warehouse'],
             "shape_type": d['shape_type'],
-            "coordinates": coords
+            "coordinates": coords,
+            "is_enabled": is_en,
+            "crossing_direction": cross_dir
         })
     return rois
 
@@ -2069,5 +2135,310 @@ def get_activities(limit=50):
         return _in_memory_activities[:limit]
     finally:
         conn.close()
+
+
+# ============================================================================
+# PHASE 3: SKU MASTER DATA & PRODUCT IMAGE MAPPING (AI VISION)
+# ============================================================================
+
+def get_sku_master_records(search=None, category=None, status=None, image_status=None, page=1, limit=20):
+    """
+    Retrieve paginated SKU master records joined with image summary metadata.
+    Does NOT touch inventory transactions or stock quantities.
+    """
+    conn = get_db()
+    query = """
+        SELECT s.sku_id, s.name, s.description, s.category, s.unit_weight, s.unit_volume,
+               COALESCE(s.uom, 'EA') as uom, COALESCE(s.status, 'Active') as status,
+               s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at,
+               COUNT(si.id) as image_count,
+               MAX(CASE WHEN si.is_primary = 1 THEN si.file_path ELSE NULL END) as primary_image_path,
+               MAX(CASE WHEN si.is_primary = 1 THEN si.id ELSE NULL END) as primary_image_id,
+               MIN(si.file_path) as fallback_image_path
+        FROM skus s
+        LEFT JOIN sku_images si ON s.sku_id = si.sku_id
+        WHERE 1=1
+    """
+    params = []
+    if search and str(search).strip():
+        term = f"%{str(search).strip()}%"
+        query += " AND (s.sku_id LIKE ? OR s.name LIKE ? OR s.description LIKE ?)"
+        params.extend([term, term, term])
+
+    if category and str(category).strip():
+        query += " AND s.category = ?"
+        params.append(str(category).strip())
+
+    if status and str(status).strip():
+        query += " AND COALESCE(s.status, 'Active') = ?"
+        params.append(str(status).strip())
+
+    query += " GROUP BY s.sku_id"
+
+    if image_status == 'mapped':
+        query += " HAVING COUNT(si.id) > 0"
+    elif image_status == 'unmapped':
+        query += " HAVING COUNT(si.id) = 0"
+
+    # Count total matching
+    count_query = f"SELECT COUNT(*) FROM ({query})"
+    total_count = conn.execute(count_query, tuple(params)).fetchone()[0]
+
+    # Order and paginate
+    query += " ORDER BY s.sku_id ASC LIMIT ? OFFSET ?"
+    offset = max(0, (int(page) - 1) * int(limit))
+    params.extend([int(limit), offset])
+
+    rows = conn.execute(query, tuple(params)).fetchall()
+    conn.close()
+
+    items = []
+    for r in rows:
+        d = dict(r)
+        d['primary_image_path'] = d['primary_image_path'] or d['fallback_image_path']
+        d['has_image'] = bool(d['image_count'] > 0)
+        items.append(d)
+
+    total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+    return {
+        "items": items,
+        "total_count": total_count,
+        "page": int(page),
+        "limit": int(limit),
+        "total_pages": max(1, total_pages)
+    }
+
+def get_sku_by_id(sku_id):
+    """Retrieve detailed SKU master record with all associated images."""
+    conn = get_db()
+    row = conn.execute("""
+        SELECT s.sku_id, s.name, s.description, s.category, s.unit_weight, s.unit_volume,
+               COALESCE(s.uom, 'EA') as uom, COALESCE(s.status, 'Active') as status,
+               s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at
+        FROM skus s WHERE s.sku_id = ?
+    """, (str(sku_id).strip(),)).fetchone()
+
+    if not row:
+        conn.close()
+        return None
+
+    sku_dict = dict(row)
+    img_rows = conn.execute("""
+        SELECT id, sku_id, filename, original_filename, file_path, file_size, mime_type, is_primary, created_at
+        FROM sku_images WHERE sku_id = ? ORDER BY is_primary DESC, id ASC
+    """, (sku_dict['sku_id'],)).fetchall()
+    conn.close()
+
+    sku_dict['images'] = [dict(img) for img in img_rows]
+    sku_dict['image_count'] = len(sku_dict['images'])
+    sku_dict['primary_image'] = next((img for img in sku_dict['images'] if img['is_primary']), (sku_dict['images'][0] if sku_dict['images'] else None))
+    return sku_dict
+
+def save_sku_master_record(data):
+    """Create or update single SKU master record without touching inventory balances."""
+    from datetime import datetime
+    sku_id = str(data.get('sku_id', '')).strip().upper()
+    name = str(data.get('name', '')).strip()
+    if not sku_id:
+        return None, "SKU Code is required."
+    if not name:
+        return None, "Product Name is required."
+
+    description = str(data.get('description', '')).strip()
+    category = str(data.get('category', 'General')).strip()
+    uom = str(data.get('uom', 'EA')).strip().upper()
+    status = str(data.get('status', 'Active')).strip()
+    try:
+        unit_weight = float(data.get('unit_weight', 0.0) or 0.0)
+    except (ValueError, TypeError):
+        unit_weight = 0.0
+    try:
+        unit_volume = float(data.get('unit_volume', 0.0) or 0.0)
+    except (ValueError, TypeError):
+        unit_volume = 0.0
+
+    conn = get_db()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with conn:
+        conn.execute("""
+            INSERT INTO skus (sku_id, name, description, category, uom, unit_weight, unit_volume, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(sku_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                category = excluded.category,
+                uom = excluded.uom,
+                unit_weight = excluded.unit_weight,
+                unit_volume = excluded.unit_volume,
+                status = excluded.status,
+                updated_at = excluded.updated_at
+        """, (sku_id, name, description, category, uom, unit_weight, unit_volume, status, now, now))
+    conn.close()
+    return get_sku_by_id(sku_id), None
+
+def delete_sku_master_record(sku_id):
+    """Deletes an SKU and associated image records (if not referenced by inventory)."""
+    conn = get_db()
+    inv_count = conn.execute("SELECT COUNT(*) FROM inventory WHERE sku_id = ?", (str(sku_id),)).fetchone()[0]
+    if inv_count > 0:
+        conn.close()
+        return False, f"Cannot delete SKU '{sku_id}' because it has active inventory records. You may set status to Disabled instead."
+
+    with conn:
+        conn.execute("DELETE FROM sku_images WHERE sku_id = ?", (str(sku_id),))
+        conn.execute("DELETE FROM skus WHERE sku_id = ?", (str(sku_id),))
+    conn.close()
+    return True, None
+
+def batch_import_sku_records(skus_list, duplicate_policy='skip'):
+    """
+    Transactional batch import of SKU master records from validated Excel data.
+    duplicate_policy: 'skip' (ignore existing) or 'update' (overwrite attributes of existing).
+    Returns structured summary with row-level error reporting.
+    """
+    from datetime import datetime
+    conn = get_db()
+    inserted = 0
+    updated = 0
+    skipped = 0
+    failed = 0
+    errors = []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with conn:
+        for idx, item in enumerate(skus_list):
+            row_num = item.get('row_num', idx + 1)
+            sku_id = str(item.get('sku_id', '')).strip().upper()
+            name = str(item.get('name', '')).strip()
+
+            if not sku_id or not name:
+                failed += 1
+                errors.append({"row": row_num, "sku_id": sku_id, "error": "SKU Code and Product Name are mandatory."})
+                continue
+
+            existing = conn.execute("SELECT sku_id FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+            if existing:
+                if duplicate_policy == 'skip':
+                    skipped += 1
+                    continue
+                elif duplicate_policy == 'update':
+                    conn.execute("""
+                        UPDATE skus SET
+                            name = ?,
+                            description = ?,
+                            category = ?,
+                            uom = ?,
+                            unit_weight = ?,
+                            unit_volume = ?,
+                            status = ?,
+                            updated_at = ?
+                        WHERE sku_id = ?
+                    """, (
+                        name,
+                        item.get('description', ''),
+                        item.get('category', 'General'),
+                        str(item.get('uom', 'EA')).upper(),
+                        float(item.get('unit_weight', 0.0) or 0.0),
+                        float(item.get('unit_volume', 0.0) or 0.0),
+                        item.get('status', 'Active'),
+                        now,
+                        sku_id
+                    ))
+                    updated += 1
+            else:
+                conn.execute("""
+                    INSERT INTO skus (sku_id, name, description, category, uom, unit_weight, unit_volume, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    sku_id,
+                    name,
+                    item.get('description', ''),
+                    item.get('category', 'General'),
+                    str(item.get('uom', 'EA')).upper(),
+                    float(item.get('unit_weight', 0.0) or 0.0),
+                    float(item.get('unit_volume', 0.0) or 0.0),
+                    item.get('status', 'Active'),
+                    now,
+                    now
+                ))
+                inserted += 1
+
+    conn.close()
+    return {
+        "success": True,
+        "total_rows": len(skus_list),
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors
+    }
+
+def get_sku_images(sku_id):
+    """Retrieve all mapped images for an SKU."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM sku_images WHERE sku_id = ? ORDER BY is_primary DESC, id ASC
+    """, (str(sku_id).strip(),)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def add_sku_image(sku_id, filename, original_filename, file_path, file_size=0, mime_type=None, is_primary=0):
+    """Associate a reference image with an SKU."""
+    conn = get_db()
+    sku = conn.execute("SELECT sku_id FROM skus WHERE sku_id = ?", (str(sku_id).strip(),)).fetchone()
+    if not sku:
+        conn.close()
+        return None, f"SKU '{sku_id}' does not exist."
+
+    # If first image for SKU, make it primary automatically
+    existing_count = conn.execute("SELECT COUNT(*) FROM sku_images WHERE sku_id = ?", (sku['sku_id'],)).fetchone()[0]
+    if existing_count == 0:
+        is_primary = 1
+
+    with conn:
+        if is_primary:
+            conn.execute("UPDATE sku_images SET is_primary = 0 WHERE sku_id = ?", (sku['sku_id'],))
+        cursor = conn.execute("""
+            INSERT INTO sku_images (sku_id, filename, original_filename, file_path, file_size, mime_type, is_primary)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (sku['sku_id'], filename, original_filename, file_path, file_size, mime_type, 1 if is_primary else 0))
+        img_id = cursor.lastrowid
+    conn.close()
+    return {"id": img_id, "sku_id": sku['sku_id'], "file_path": file_path, "is_primary": bool(is_primary)}, None
+
+def delete_sku_image(image_id):
+    """Remove an image mapping and return the file_path for cleanup."""
+    conn = get_db()
+    row = conn.execute("SELECT id, sku_id, file_path, is_primary FROM sku_images WHERE id = ?", (int(image_id),)).fetchone()
+    if not row:
+        conn.close()
+        return None, "Image mapping not found."
+
+    d = dict(row)
+    with conn:
+        conn.execute("DELETE FROM sku_images WHERE id = ?", (int(image_id),))
+        # If deleted image was primary, designate another image as primary
+        if d['is_primary']:
+            next_img = conn.execute("SELECT id FROM sku_images WHERE sku_id = ? ORDER BY id ASC LIMIT 1", (d['sku_id'],)).fetchone()
+            if next_img:
+                conn.execute("UPDATE sku_images SET is_primary = 1 WHERE id = ?", (next_img['id'],))
+    conn.close()
+    return d, None
+
+def set_sku_primary_image(sku_id, image_id):
+    """Set specified image as the primary image for this SKU."""
+    conn = get_db()
+    row = conn.execute("SELECT id FROM sku_images WHERE id = ? AND sku_id = ?", (int(image_id), str(sku_id))).fetchone()
+    if not row:
+        conn.close()
+        return False, f"Image {image_id} does not belong to SKU '{sku_id}'."
+
+    with conn:
+        conn.execute("UPDATE sku_images SET is_primary = 0 WHERE sku_id = ?", (str(sku_id),))
+        conn.execute("UPDATE sku_images SET is_primary = 1 WHERE id = ?", (int(image_id),))
+    conn.close()
+    return True, None
+
 
 

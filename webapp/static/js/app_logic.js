@@ -130,6 +130,8 @@
                 if (typeof window.fetchOutboundOrders === 'function') window.fetchOutboundOrders();
             } else if (tabId === 'inbound-flow') {
                 if (typeof refreshInboundAutomation === 'function') refreshInboundAutomation();
+            } else if (tabId === 'ai-vision') {
+                if (typeof fetchSkuMaster === 'function') fetchSkuMaster(1);
             } else if (tabId === 'ai-vision-master') {
                 if (typeof fetchObjectClasses === 'function') fetchObjectClasses();
                 if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
