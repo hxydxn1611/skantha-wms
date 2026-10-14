@@ -1,8 +1,10 @@
-from flask import Flask, render_template, Response, request, jsonify
+from flask import Flask, render_template, Response, request, jsonify, send_file
+from werkzeug.utils import secure_filename
 from ai_engine import SmartCamera
 import logging
 import time
 import uuid
+import io
 import cv2
 import numpy as np
 import os
@@ -16,7 +18,12 @@ app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 
+# SKU Image Upload Directory
+SKU_IMAGE_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'sku_images')
+os.makedirs(SKU_IMAGE_UPLOAD_DIR, exist_ok=True)
+
 import db
+import sku_master_service
 from detection_service import get_detection_engine
 from tracking_service import get_tracking_service
 from identity_service import get_identity_service
@@ -514,6 +521,23 @@ def handle_vision_zone_cameras(identifier):
     })
 
 # ----------------- Visual Zone / ROI Editor APIs -----------------
+def _notify_camera_roi_refresh(cam_id):
+    try:
+        for c in active_cameras.values():
+            if getattr(c, 'camera_id', None) == cam_id or getattr(c, 'camera_code', None) == cam_id:
+                if hasattr(c, 'refresh_tripwire'):
+                    c.refresh_tripwire()
+    except Exception:
+        pass
+    try:
+        from vision_runtime_service import get_vision_runtime_service
+        svc = get_vision_runtime_service()
+        sess = svc.get_session(cam_id)
+        if sess and hasattr(sess, 'refresh_configuration'):
+            sess.refresh_configuration()
+    except Exception:
+        pass
+
 @app.route('/api/vision/zones/<zone_id>/cameras/<camera_id>/roi', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def handle_zone_camera_roi(zone_id, camera_id):
     if request.method == 'GET':
@@ -526,6 +550,7 @@ def handle_zone_camera_roi(zone_id, camera_id):
         success, err = db.delete_zone_camera_roi(zone_id, camera_id)
         if not success:
             return jsonify({'success': False, 'message': err}), 400
+        _notify_camera_roi_refresh(camera_id)
         return jsonify({'success': True, 'message': f"ROI for camera '{camera_id}' cleared."})
 
     # POST / PUT
@@ -533,6 +558,7 @@ def handle_zone_camera_roi(zone_id, camera_id):
     saved_roi, err = db.save_zone_camera_roi(zone_id, camera_id, data)
     if err:
         return jsonify({'success': False, 'message': err}), 400
+    _notify_camera_roi_refresh(camera_id)
     return jsonify({
         'success': True,
         'message': f"ROI saved for zone '{saved_roi['zone_code']}' on camera '{saved_roi['camera_code']}'.",
@@ -545,6 +571,208 @@ def get_zone_all_rois(zone_id):
     if err:
         return jsonify({'success': False, 'message': err}), 404
     return jsonify({'success': True, 'rois': rois})
+
+# ============================================================================
+# PHASE 3: SKU MASTER DATA & PRODUCT IMAGE MAPPING APIS
+# ============================================================================
+
+@app.route('/api/sku_master', methods=['GET'])
+def api_get_sku_master():
+    search = request.args.get('search', '').strip()
+    category = request.args.get('category', '').strip()
+    status = request.args.get('status', '').strip()
+    image_status = request.args.get('image_status', '').strip()
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        limit = max(1, min(100, int(request.args.get('limit', 20))))
+    except (ValueError, TypeError):
+        limit = 20
+
+    result = db.get_sku_master_records(search, category, status, image_status, page, limit)
+    return jsonify({'success': True, 'data': result})
+
+@app.route('/api/sku_master/<sku_id>', methods=['GET'])
+def api_get_sku_detail(sku_id):
+    sku = db.get_sku_by_id(sku_id)
+    if not sku:
+        return jsonify({'success': False, 'message': f"SKU '{sku_id}' not found."}), 404
+    return jsonify({'success': True, 'data': sku})
+
+@app.route('/api/sku_master', methods=['POST'])
+def api_save_sku():
+    data = request.json or {}
+    saved, err = db.save_sku_master_record(data)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'data': saved, 'message': f"SKU '{saved['sku_id']}' saved successfully."})
+
+@app.route('/api/sku_master/<sku_id>', methods=['DELETE'])
+def api_delete_sku(sku_id):
+    ok, err = db.delete_sku_master_record(sku_id)
+    if not ok:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'message': f"SKU '{sku_id}' deleted successfully."})
+
+@app.route('/api/sku_master/excel/template', methods=['GET'])
+def api_download_sku_template():
+    excel_bytes = sku_master_service.generate_sku_excel_template()
+    return send_file(
+        io.BytesIO(excel_bytes),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="sku_master_template.xlsx"
+    )
+
+@app.route('/api/sku_master/excel/preview', methods=['POST'])
+def api_preview_sku_excel():
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': 'No file uploaded.'}), 400
+    file = request.files['file']
+    if not file.filename or not file.filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({'success': False, 'message': 'Invalid file format. Please upload an Excel (.xlsx) file.'}), 400
+
+    duplicate_policy = request.form.get('duplicate_policy', 'skip').strip().lower()
+    if duplicate_policy not in ('skip', 'update'):
+        duplicate_policy = 'skip'
+
+    content = file.read()
+    if len(content) > 15 * 1024 * 1024:
+        return jsonify({'success': False, 'message': 'File exceeds maximum size of 15MB.'}), 400
+
+    preview = sku_master_service.parse_and_validate_sku_excel(content, duplicate_policy)
+    return jsonify(preview)
+
+@app.route('/api/sku_master/excel/import', methods=['POST'])
+def api_confirm_sku_excel_import():
+    data = request.json or {}
+    rows = data.get('rows', [])
+    duplicate_policy = data.get('duplicate_policy', 'skip')
+    if not rows or not isinstance(rows, list):
+        return jsonify({'success': False, 'message': 'No rows provided for import.'}), 400
+
+    result = db.batch_import_sku_records(rows, duplicate_policy=duplicate_policy)
+    return jsonify(result)
+
+@app.route('/api/sku_master/images/match_preview', methods=['POST'])
+def api_preview_image_matches():
+    data = request.json or {}
+    filenames = data.get('filenames', [])
+    if not isinstance(filenames, list):
+        return jsonify({'success': False, 'message': 'Expected list of filenames.'}), 400
+    matches = sku_master_service.match_bulk_images_to_skus(filenames)
+    return jsonify({'success': True, 'matches': matches})
+
+@app.route('/api/sku_master/images/upload', methods=['POST'])
+def api_upload_sku_images():
+    uploaded_files = request.files.getlist('images')
+    if not uploaded_files:
+        if 'image' in request.files:
+            uploaded_files = [request.files['image']]
+        elif 'file' in request.files:
+            uploaded_files = [request.files['file']]
+
+    if not uploaded_files:
+        return jsonify({'success': False, 'message': 'No image files provided.'}), 400
+
+    target_sku_id = request.form.get('sku_id')
+    import json
+    manual_mappings = {}
+    if request.form.get('mappings'):
+        try:
+            manual_mappings = json.loads(request.form.get('mappings'))
+        except Exception:
+            pass
+
+    results = []
+    errors = []
+
+    for f in uploaded_files:
+        if not f.filename:
+            continue
+        orig_name = secure_filename(f.filename) or "image.jpg"
+        ext = os.path.splitext(orig_name)[1].lower()
+        if ext not in sku_master_service.ALLOWED_IMAGE_EXTENSIONS:
+            errors.append(f"Skipped '{orig_name}': unsupported image format '{ext}'.")
+            continue
+
+        sku_for_file = target_sku_id
+        if not sku_for_file and orig_name in manual_mappings:
+            sku_for_file = manual_mappings[orig_name]
+        if not sku_for_file:
+            match_res = sku_master_service.match_bulk_images_to_skus([orig_name])
+            if match_res and match_res[0].get('status') == 'MATCHED':
+                sku_for_file = match_res[0].get('matched_sku_id')
+
+        if not sku_for_file:
+            errors.append(f"Image '{orig_name}' could not be matched to an existing SKU.")
+            continue
+
+        sku_exists = db.get_sku_by_id(sku_for_file)
+        if not sku_exists:
+            errors.append(f"Target SKU '{sku_for_file}' for image '{orig_name}' does not exist.")
+            continue
+
+        safe_filename = f"{sku_for_file}_{uuid.uuid4().hex[:8]}{ext}"
+        dest_path = os.path.join(SKU_IMAGE_UPLOAD_DIR, safe_filename)
+        try:
+            f.seek(0)
+            f.save(dest_path)
+            f_size = os.path.getsize(dest_path)
+            rel_path = f"/static/uploads/sku_images/{safe_filename}"
+            is_pri = 1 if request.form.get('is_primary') in ('1', 'true', True) else 0
+
+            img_rec, err = db.add_sku_image(
+                sku_id=sku_for_file,
+                filename=safe_filename,
+                original_filename=orig_name,
+                file_path=rel_path,
+                file_size=f_size,
+                mime_type=f.content_type,
+                is_primary=is_pri
+            )
+            if err:
+                errors.append(f"Error saving image for '{sku_for_file}': {err}")
+            else:
+                results.append(img_rec)
+        except Exception as e:
+            errors.append(f"Failed saving '{orig_name}': {str(e)}")
+
+    return jsonify({
+        'success': len(results) > 0,
+        'uploaded_count': len(results),
+        'results': results,
+        'errors': errors,
+        'message': f"Uploaded {len(results)} images. ({len(errors)} issues)"
+    })
+
+@app.route('/api/sku_master/images/<int:image_id>', methods=['DELETE'])
+def api_delete_sku_image(image_id):
+    rec, err = db.delete_sku_image(image_id)
+    if err:
+        return jsonify({'success': False, 'message': err}), 404
+    try:
+        if rec and rec.get('file_path'):
+            local_rel = rec['file_path'].lstrip('/')
+            full_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), local_rel)
+            if os.path.isfile(full_path):
+                os.remove(full_path)
+    except Exception:
+        pass
+    return jsonify({'success': True, 'message': 'Image mapping deleted successfully.'})
+
+@app.route('/api/sku_master/images/<int:image_id>/set_primary', methods=['POST'])
+def api_set_sku_primary_image(image_id):
+    data = request.json or {}
+    sku_id = data.get('sku_id')
+    if not sku_id:
+        return jsonify({'success': False, 'message': 'SKU ID is required.'}), 400
+    ok, err = db.set_sku_primary_image(sku_id, image_id)
+    if not ok:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'message': f"Image {image_id} set as primary image for SKU '{sku_id}'."})
 
 @app.route('/api/vision/cameras/<camera_id>/preview_info', methods=['GET'])
 def get_camera_preview_info(camera_id):

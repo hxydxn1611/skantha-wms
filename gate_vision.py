@@ -11,16 +11,23 @@ import numpy as np
 def main():
     print("Loading AI Models... This might take a moment on the first run.")
     
-    # 1. Load YOLO11 for Vehicle Detection (Flagship yolo11s with fallback to yolo11n)
+    # 1. Load YOLO for Vehicle Detection via consolidated model_loader
     # COCO dataset classes: 2=car, 3=motorcycle, 5=bus, 7=truck
     try:
-        vehicle_model = YOLO('yolo11s.pt') 
-    except Exception as e:
-        print(f"Error loading YOLO11 (yolo11s.pt), falling back to yolo11n: {e}")
-        try:
-            vehicle_model = YOLO('yolo11n.pt')
-        except Exception:
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'webapp'))
+        from model_loader import get_shared_detector, DEFAULT_VERIFIED_MODEL
+        vehicle_model, active_model_name, err = get_shared_detector(
+            requested_model='yolo11s.pt',
+            fallback_model=DEFAULT_VERIFIED_MODEL,
+            allow_fallback=True
+        )
+        if vehicle_model is None:
+            print(f"Error loading vehicle detector: {err}")
             return
+        print(f"Vehicle detector loaded successfully using '{active_model_name}'!")
+    except Exception as e:
+        print(f"Error loading vehicle detector: {e}")
+        return
 
     # 2. Load EasyOCR for reading license plates
     # Using 'en' for English characters

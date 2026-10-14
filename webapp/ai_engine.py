@@ -10,6 +10,7 @@ from scipy.signal import find_peaks
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial import cKDTree
 from identity_service import get_identity_service
+from zone_engine import get_camera_tripwire, evaluate_tripwire_crossing
 
 class SmartCamera:
     def __init__(self, camera_id, name, url, location, cam_type="IP Camera", vendor="Unknown", bin_id=None):
@@ -41,7 +42,10 @@ class SmartCamera:
         self.consecutive_zeros = 0
         self.seen_package_ids = set()
         self.total_unloaded = 0
-        self.tripwire_y = 240  # Counting tripwire line y-coordinate
+        
+        # Phase 2: Database-driven dynamic tripwire (no hardcoded defaults)
+        self.active_tripwire = None
+        self.last_tripwire_check = 0.0
         self.tracked_centroids = {}
 
         # Gate Camera & ANPR Configuration (Gate camera strictly does NOT count items)
@@ -77,27 +81,34 @@ class SmartCamera:
         self.latest_boxes = []
         self.lock = threading.Lock()
 
-        if not hasattr(SmartCamera, 'vehicle_model'):
-            print("Loading YOLO11 (Flagship Ultralytics Detector)...")
+        if not hasattr(SmartCamera, 'vehicle_model') or SmartCamera.vehicle_model is None:
             try:
-                SmartCamera.vehicle_model = YOLO('yolo11s.pt')
-                SmartCamera.active_model_name = "yolo11s.pt"
-                print("Successfully loaded YOLO11 (yolo11s.pt)!")
-            except Exception as e1:
-                print("YOLO11 (yolo11s.pt) load attempt error, trying YOLO11 Nano (yolo11n.pt):", e1)
-                try:
-                    SmartCamera.vehicle_model = YOLO('yolo11n.pt')
-                    SmartCamera.active_model_name = "yolo11n.pt"
-                    print("Successfully loaded YOLO11 Nano (yolo11n.pt)!")
-                except Exception as e2:
-                    print("Falling back to yolo11n.pt due to error:", e2)
-                    SmartCamera.vehicle_model = YOLO('yolo11n.pt')
-                    SmartCamera.active_model_name = "yolo11n.pt"
+                from model_loader import get_shared_detector, DEFAULT_VERIFIED_MODEL
+                model, active_name, err = get_shared_detector(
+                    requested_model="yolo11s.pt",
+                    fallback_model=DEFAULT_VERIFIED_MODEL,
+                    allow_fallback=True
+                )
+                SmartCamera.vehicle_model = model
+                SmartCamera.active_model_name = active_name or DEFAULT_VERIFIED_MODEL
+                if err:
+                    print(f"[SmartCamera] Model loader notice: {err}")
+                else:
+                    print(f"[SmartCamera] Successfully loaded detector '{SmartCamera.active_model_name}'!")
+            except Exception as e_load:
+                print(f"[SmartCamera] Model loading error: {e_load}")
+                SmartCamera.vehicle_model = None
+                SmartCamera.active_model_name = "None"
+
             if os.environ.get("WARLOG_TEST_MODE") == "1":
                 SmartCamera.ocr_reader = None
             else:
-                print("Loading EasyOCR...")
-                SmartCamera.ocr_reader = easyocr.Reader(['en'], gpu=False)
+                try:
+                    print("Loading EasyOCR...")
+                    SmartCamera.ocr_reader = easyocr.Reader(['en'], gpu=False)
+                except Exception as e_ocr:
+                    print(f"Warning: EasyOCR failed to initialize: {e_ocr}")
+                    SmartCamera.ocr_reader = None
 
     def toggle_freeze(self):
         with self.lock:
@@ -131,6 +142,14 @@ class SmartCamera:
                 get_shared_frame_bus().publish_frame(self.camera_id, frame, source_type="PUSH_DEVICE")
             except Exception:
                 pass
+
+    def refresh_tripwire(self):
+        """Forces immediate refresh of active tripwire configuration from database."""
+        try:
+            self.active_tripwire = get_camera_tripwire(self.camera_id, 640, 480)
+            self.last_tripwire_check = time.time()
+        except Exception as e:
+            print(f"[{self.camera_id}] Error refreshing tripwire: {e}")
 
     def stop(self):
         self.is_running = False
@@ -382,14 +401,18 @@ class SmartCamera:
 
     def _ai_loop(self):
         ocr_counter = 0
-        self.tripwire_y = 240 # Middle of 480p frame
         self.tracked_centroids = {}
         self.active_audits = {}
+        self.refresh_tripwire()
         frame_idx = 0
 
         while self.is_running:
             frame_idx += 1
             t_loop_start = time.time()
+            now_t = time.time()
+            if (now_t - self.last_tripwire_check) > 2.0:
+                self.refresh_tripwire()
+
             with self.lock:
                 if self.raw_frame is None:
                     ai_frame = None
@@ -542,35 +565,34 @@ class SmartCamera:
                         self.track_motion_vectors[track_id] = (dx, dy)
                         self.track_last_seen[track_id] = frame_idx
 
-                        # Directional Live Counting for Stocks (Addition & Subtraction in Milliseconds)
-                        if is_stock or (not is_person):
-                            prev_y = prev_pos[1]
-                            curr_y = cy
-                            deadband = 12
+                        # Directional Live Counting for Stocks via Database-Driven Tripwire
+                        if (is_stock or (not is_person)) and self.active_tripwire and self.active_tripwire.get('is_enabled'):
+                            crossing = evaluate_tripwire_crossing(
+                                p1=self.active_tripwire['p1'],
+                                p2=self.active_tripwire['p2'],
+                                prev_pos=prev_pos,
+                                curr_pos=(cx, cy),
+                                allowed_direction=self.active_tripwire.get('crossing_direction', 'BOTH')
+                            )
 
-                            # Direction 1: Moving Downward (Inbound / Stock Added +1)
-                            if prev_y < (self.tripwire_y - deadband) and curr_y >= (self.tripwire_y + 4):
-                                if self.counted_track_states.get(track_id) != 'IN':
-                                    self.inbound_count += 1
-                                    self.counted_track_states[track_id] = 'IN'
-                                    self.flash_counters.append({
-                                        'text': '+1 IN (STOCK ADDED)',
-                                        'pos': (cx, cy),
-                                        'ttl': 24,
-                                        'color': (0, 255, 128)
-                                    })
-
-                            # Direction 2: Moving Upward (Outbound / Stock Subtracted -1)
-                            elif prev_y > (self.tripwire_y + deadband) and curr_y <= (self.tripwire_y - 4):
-                                if self.counted_track_states.get(track_id) != 'OUT':
-                                    self.outbound_count += 1
-                                    self.counted_track_states[track_id] = 'OUT'
-                                    self.flash_counters.append({
-                                        'text': '-1 OUT (STOCK SUBTRACTED)',
-                                        'pos': (cx, cy),
-                                        'ttl': 24,
-                                        'color': (0, 140, 255)
-                                    })
+                            if crossing == 'IN' and self.counted_track_states.get(track_id) != 'IN':
+                                self.inbound_count += 1
+                                self.counted_track_states[track_id] = 'IN'
+                                self.flash_counters.append({
+                                    'text': '+1 IN (STOCK ADDED)',
+                                    'pos': (cx, cy),
+                                    'ttl': 24,
+                                    'color': (0, 255, 128)
+                                })
+                            elif crossing == 'OUT' and self.counted_track_states.get(track_id) != 'OUT':
+                                self.outbound_count += 1
+                                self.counted_track_states[track_id] = 'OUT'
+                                self.flash_counters.append({
+                                    'text': '-1 OUT (STOCK SUBTRACTED)',
+                                    'pos': (cx, cy),
+                                    'ttl': 24,
+                                    'color': (0, 140, 255)
+                                })
 
                     new_boxes.append({
                         "x1": x1, "y1": y1, "x2": x2, "y2": y2,
@@ -880,12 +902,25 @@ class SmartCamera:
         # =========================================================================
         # 2. WAREHOUSE CAMERA DISPLAY: LIVE Multi-Object Tracking & Millisecond Counting
         # =========================================================================
-        trip_y = self.tripwire_y
+        # Draw Database-Configured Directional Tripwire Line (if configured and enabled)
+        if self.active_tripwire and self.active_tripwire.get('is_enabled'):
+            p1 = self.active_tripwire['p1']
+            p2 = self.active_tripwire['p2']
+            dir_mode = self.active_tripwire.get('crossing_direction', 'BOTH')
+            cv2.line(display_frame, p1, p2, (0, 220, 255), 2)
+            cv2.circle(display_frame, p1, 4, (0, 255, 255), -1)
+            cv2.circle(display_frame, p2, 4, (0, 255, 255), -1)
 
-        # Draw directional tripwire line across frame
-        cv2.line(display_frame, (0, trip_y), (640, trip_y), (0, 220, 255), 2)
-        cv2.putText(display_frame, "INBOUND (ADDITION +1)  >>>", (14, trip_y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 128), 1)
-        cv2.putText(display_frame, "<<<  OUTBOUND (SUBTRACTION -1)", (390, trip_y + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 140, 255), 1)
+            mid_x = int((p1[0] + p2[0]) / 2)
+            mid_y = int((p1[1] + p2[1]) / 2)
+            z_label = self.active_tripwire.get('zone_code', 'TRIPWIRE')
+            if dir_mode == 'BOTH':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 120), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 128), 1)
+                cv2.putText(display_frame, f"<<< OUT (-1)", (min(display_frame.shape[1] - 140, mid_x + 10), min(display_frame.shape[0] - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 140, 255), 1)
+            elif dir_mode == 'INBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 80), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 128), 1)
+            elif dir_mode == 'OUTBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] <<< OUT (-1)", (max(10, mid_x - 80), min(display_frame.shape[0] - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 140, 255), 1)
 
         # Draw Live Motion Trails (Trajectories)
         for tid, points in trajectories.items():

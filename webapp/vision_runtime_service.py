@@ -691,10 +691,17 @@ class VisionPipelineExecutor:
         """Draws bounding boxes, track IDs, validation badges, ROI polygon, and HUD metrics."""
         h, w = frame.shape[:2]
 
-        # Draw ROI polygon boundary if configured
-        if primary_roi and len(primary_roi) >= 3:
-            pts = np.array([[int(p['x'] * w), int(p['y'] * h)] for p in primary_roi], np.int32)
-            cv2.polylines(frame, [pts], isClosed=True, color=(0, 255, 255), thickness=2)
+        # Draw ROI boundary (polygon or tripwire line) if configured
+        if primary_roi:
+            if len(primary_roi) >= 3:
+                pts = np.array([[int(p['x'] * w), int(p['y'] * h)] for p in primary_roi], np.int32)
+                cv2.polylines(frame, [pts], isClosed=True, color=(0, 255, 255), thickness=2)
+            elif len(primary_roi) == 2:
+                p1 = (int(primary_roi[0]['x'] * w), int(primary_roi[0]['y'] * h))
+                p2 = (int(primary_roi[1]['x'] * w), int(primary_roi[1]['y'] * h))
+                cv2.line(frame, p1, p2, color=(0, 220, 255), thickness=2)
+                cv2.circle(frame, p1, 4, (0, 255, 255), -1)
+                cv2.circle(frame, p2, 4, (0, 255, 255), -1)
 
         # Draw tracks
         for t in tracks:
@@ -793,6 +800,11 @@ class CameraRuntimeSession:
         self.latest_annotated_jpeg: Optional[bytes] = None
         self.last_context: Dict[str, Any] = {}
         self.last_frame_time: Optional[float] = None
+        self.need_roi_refresh = False
+
+    def refresh_configuration(self):
+        """Forces worker thread to immediately reload database zone and ROI configuration."""
+        self.need_roi_refresh = True
 
     @property
     def is_running(self) -> bool:
@@ -933,21 +945,37 @@ class CameraRuntimeSession:
         last_process_time = 0.0
         fps_tracker_times: List[float] = []
 
-        # Resolve camera zone and ROI metadata once
+        # Resolve camera zone and ROI metadata (with dynamic database refresh)
         primary_roi = None
         primary_zone_code = None
         camera_zones = []
-        try:
-            rois = get_camera_rois(self.camera_id)
-            if rois:
-                primary_roi = rois[0].get("coordinates")
-                primary_zone_code = rois[0].get("zone_code")
-                camera_zones = rois
-        except Exception:
-            pass
+        last_roi_refresh_time = 0.0
+
+        def _reload_rois():
+            nonlocal primary_roi, primary_zone_code, camera_zones, last_roi_refresh_time
+            try:
+                rois = get_camera_rois(self.camera_id)
+                if rois:
+                    primary_roi = rois[0].get("coordinates")
+                    primary_zone_code = rois[0].get("zone_code")
+                    camera_zones = rois
+                else:
+                    primary_roi = None
+                    primary_zone_code = None
+                    camera_zones = []
+            except Exception:
+                pass
+            last_roi_refresh_time = time.time()
+            self.need_roi_refresh = False
+
+        _reload_rois()
 
         while not self.stop_event.is_set():
             now = time.time()
+            # Periodic or signaled refresh of database ROI configuration
+            if self.need_roi_refresh or (now - last_roi_refresh_time) > 3.0:
+                _reload_rois()
+
             elapsed_since_last = now - last_process_time
 
             # Rate limit to configured processing FPS
