@@ -17,8 +17,12 @@ venv/
 env/
 .DS_Store
 webapp/*.pt
+!webapp/yolo11s.pt
+!webapp/yolo11n.pt
 webapp/weights/
 *.pt
+!yolo11s.pt
+!yolo11n.pt
 weights/
 webapp/static/captures/
 *.db

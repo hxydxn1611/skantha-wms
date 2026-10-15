@@ -17,26 +17,18 @@ WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(WEBAPP_DIR)
 
 # Default model configurations
-DEFAULT_VERIFIED_MODEL = "yolov8n.pt"
-CONFIGURED_MODEL_PREFERENCE = os.environ.get("VISION_MODEL_NAME", "yolov8n.pt")
+DEFAULT_VERIFIED_MODEL = "yolo11n.pt"
+CONFIGURED_MODEL_PREFERENCE = os.environ.get("VISION_MODEL_NAME", "yolo11s.pt")
 
 # Model capability registry documenting actual trained datasets
 MODEL_CAPABILITIES = {
-    "yolov8n.pt": {
-        "architecture": "Ultralytics YOLOv8 Nano",
-        "dataset": "COCO 80-Class Pretrained",
-        "natively_supported": ["person", "car", "truck", "bus", "motorcycle", "bicycle"],
-        "proxy_classes": ["suitcase (box proxy)", "backpack (box proxy)"],
-        "warehouse_native_classes": False,
-        "notes": "Verified local baseline weights. Does not natively recognize pallets, forklifts, or specific automotive SKUs."
-    },
     "yolo11s.pt": {
         "architecture": "Ultralytics YOLO11 Small",
         "dataset": "COCO 80-Class Pretrained",
         "natively_supported": ["person", "car", "truck", "bus", "motorcycle"],
         "proxy_classes": ["suitcase (box proxy)", "backpack (box proxy)"],
         "warehouse_native_classes": False,
-        "notes": "Flagship YOLO11 weights. Requires local weights file."
+        "notes": "Flagship YOLO11 weights. High accuracy multi-class detector."
     },
     "yolo11n.pt": {
         "architecture": "Ultralytics YOLO11 Nano",
@@ -44,7 +36,7 @@ MODEL_CAPABILITIES = {
         "natively_supported": ["person", "car", "truck", "bus"],
         "proxy_classes": ["suitcase", "backpack"],
         "warehouse_native_classes": False,
-        "notes": "Lightweight YOLO11 weights. Requires local weights file."
+        "notes": "Verified local baseline weights. Lightweight YOLO11 weights."
     }
 }
 

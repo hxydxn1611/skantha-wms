@@ -46,6 +46,8 @@ active_cameras = {}
 
 def init_active_cameras():
     try:
+        mgr = get_vision_runtime_manager()
+        mgr.refresh_cameras()
         cams = db.get_all_cameras()
         for cam in cams:
             cid = cam.get('camera_id')
@@ -61,6 +63,7 @@ def init_active_cameras():
                 )
                 sc.start()
                 active_cameras[cid] = sc
+                mgr.start_camera(cid)
                 logger.info(f"Initialized active camera {cid} ({cam.get('location')})")
     except Exception as e:
         logger.warning(f"Error initializing active cameras from DB: {e}")
@@ -3154,10 +3157,11 @@ def add_camera():
     new_camera.start()
     active_cameras[cam_id] = new_camera
 
-    # Refresh W.A.R.L.O.G. Vision Runtime Manager
+    # Refresh and start W.A.R.L.O.G. Vision Runtime Manager
     try:
         mgr = get_vision_runtime_manager()
         mgr.refresh_cameras()
+        mgr.start_camera(cam_id)
     except Exception as e:
         logger.warning(f"Could not refresh VisionRuntimeManager for new camera {cam_id}: {e}")
     

@@ -27,12 +27,15 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple, Union
 from datetime import datetime
 
+import re
+import copy
 import cv2
 import numpy as np
 
 # Ensure local imports work regardless of execution directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import db
 from db import get_all_vision_cameras, get_camera_rois
 from detection_service import get_detection_engine, ObjectDetectionEngine
 from tracking_service import get_tracking_service, MultiObjectTrackingService
@@ -44,6 +47,32 @@ from box_bin_association_service import get_box_bin_association_service, MultiOb
 from material_association_service import get_material_association_service, MultiObjectMaterialAssociationService
 from movement_event_service import get_movement_event_service, MultiObjectMovementEventService
 from material_traceability_service import get_material_traceability_service, MaterialTraceabilityService
+from zone_engine import get_camera_tripwire, evaluate_tripwire_crossing
+
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+
+_GATE_OCR_READER = None
+_GATE_OCR_LOCK = threading.Lock()
+
+def get_gate_ocr_reader():
+    """Lazily loaded shared EasyOCR reader for gate license plate reading."""
+    global _GATE_OCR_READER
+    if os.environ.get("WARLOG_TEST_MODE") == "1":
+        return None
+    if not EASYOCR_AVAILABLE:
+        return None
+    with _GATE_OCR_LOCK:
+        if _GATE_OCR_READER is None:
+            try:
+                _GATE_OCR_READER = easyocr.Reader(['en'], gpu=False, download_enabled=False)
+            except Exception as e:
+                logger.warning(f"EasyOCR initialization failed: {e}")
+                _GATE_OCR_READER = None
+    return _GATE_OCR_READER
 
 logger = logging.getLogger("vision_runtime_service")
 logger.setLevel(logging.INFO)
@@ -192,7 +221,7 @@ class OpenCVStreamFrameSource(BaseFrameSource):
         self._connect()
 
     def _connect(self):
-        if not self.stream_url:
+        if not self.stream_url or str(self.stream_url).lower().startswith("device:"):
             self.is_connected = False
             return
 
@@ -802,9 +831,51 @@ class CameraRuntimeSession:
         self.last_frame_time: Optional[float] = None
         self.need_roi_refresh = False
 
+        # Phase 2 & 15: Database-driven dynamic tripwire (no hardcoded defaults)
+        self.active_tripwire: Optional[Dict[str, Any]] = None
+        self.last_tripwire_check = 0.0
+
+        # Authoritative Directional Counting & Spatial Motion Tracking
+        self.inbound_count = 0
+        self.outbound_count = 0
+        self.net_stock_count = 0
+        self.counted_track_states: Dict[Any, str] = {}
+        self.flash_counters: List[Dict[str, Any]] = []
+        self.tracked_centroids: Dict[Any, Tuple[int, int]] = {}
+        self.track_trajectories: Dict[Any, List[Tuple[int, int]]] = {}
+        self.track_motion_vectors: Dict[Any, Tuple[int, int]] = {}
+        self.track_last_seen: Dict[Any, int] = {}
+        self.active_workers_count = 0
+        self.active_stocks_count = 0
+        self.visible_packages = 0
+        self.visible_boxes = 0
+        self.latest_boxes: List[Dict[str, Any]] = []
+
+        # Gate Camera & Live ANPR Configuration (Authoritative Pipeline)
+        loc_str = str(self.location or '').strip().lower()
+        name_str = str(self.name or '').strip().lower()
+        cid_str = str(self.camera_id or '').strip().lower()
+        self.is_gate_camera = (loc_str == 'gate' or 'gate' in name_str or 'gate' in cid_str or 'anpr' in name_str)
+        self.last_detected_plate: Optional[str] = None
+        self.last_gate_pass_id: Optional[str] = None
+        self.last_gate_pass_time = 0.0
+        self.last_plate_prob = 0.0
+        self.anpr_in_flight = False
+        self.last_anpr_run_time = 0.0
+        self.events: List[Dict[str, Any]] = []
+
+    def refresh_tripwire(self):
+        """Forces immediate refresh of active tripwire configuration from database."""
+        try:
+            self.active_tripwire = get_camera_tripwire(self.camera_id, 640, 480)
+            self.last_tripwire_check = time.time()
+        except Exception as e:
+            logger.warning(f"[{self.camera_id}] Error refreshing tripwire: {e}")
+
     def refresh_configuration(self):
         """Forces worker thread to immediately reload database zone and ROI configuration."""
         self.need_roi_refresh = True
+        self.refresh_tripwire()
 
     @property
     def is_running(self) -> bool:
@@ -822,7 +893,7 @@ class CameraRuntimeSession:
         if self.test_mode or not self.stream_url:
             self.frame_source = TestSyntheticFrameSource(self.camera_id, self.location)
             self.source_state = "TEST_SYNTHETIC"
-        elif self.stream_url.lower().startswith("push") or self.stream_url == "client":
+        elif self.stream_url.lower().startswith(("push", "device:", "client")) or self.stream_url == "client":
             self.frame_source = SharedBusFrameSource(self.camera_id)
             self.source_state = "SHARED_BUS_PUSH"
         else:
@@ -939,6 +1010,262 @@ class CameraRuntimeSession:
                 time.sleep(0.2)
             time.sleep(sleep_interval)
 
+    def _run_live_gate_anpr_worker(self, frame: np.ndarray, vehicle_boxes: List[Dict[str, Any]]):
+        """Dedicated high-precision ANPR worker running on the LIVE feed.
+        Extracts real license plates and auto-creates connected Gate Passes in DB."""
+        try:
+            fh, fw = frame.shape[:2]
+            if fh < 80 or fw < 80:
+                return
+
+            candidate_crops = []
+            v_type_candidate = "Heavy Commercial (HCV)"
+
+            # 1. Inspect vehicle crops if detected by YOLO
+            for vb in vehicle_boxes:
+                x1, y1, x2, y2 = vb['x1'], vb['y1'], vb['x2'], vb['y2']
+                vw = max(1, x2 - x1)
+                vh = max(1, y2 - y1)
+                if 'Light Vehicle' in vb.get('type', ''):
+                    v_type_candidate = "Light Vehicle (LMV)"
+
+                # Plate is typically mounted on lower 60% of the vehicle
+                py1 = max(0, int(y1 + vh * 0.35))
+                py2 = min(fh, y2)
+                px1 = max(0, x1)
+                px2 = min(fw, x2)
+                v_crop = frame[py1:py2, px1:px2]
+                if v_crop.size > 0:
+                    candidate_crops.append(v_crop)
+
+            # 2. Always inspect central frame (for close-up license plates, phones, printed test cards)
+            center_crop = frame[int(fh * 0.10):int(fh * 0.90), int(fw * 0.10):int(fw * 0.90)]
+            if center_crop.size > 0:
+                candidate_crops.append(center_crop)
+
+            # 3. Full frame fallback
+            candidate_crops.append(frame)
+
+            best_plate: str = ""
+            best_prob: float = 0.0
+
+            reader = get_gate_ocr_reader()
+            if reader is not None:
+                for crop in candidate_crops:
+                    if best_plate != "":
+                        break
+                    ch, cw = crop.shape[:2]
+                    if ch < 30 or cw < 60:
+                        continue
+
+                    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                    try:
+                        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+                        enhanced = clahe.apply(gray)
+                    except Exception:
+                        enhanced = gray
+
+                    scale = 2.0 if max(ch, cw) < 350 else 1.2
+                    resized = cv2.resize(enhanced, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                    filtered = cv2.bilateralFilter(resized, 7, 50, 50)
+
+                    try:
+                        ocr_res = reader.readtext(filtered)
+                    except Exception:
+                        ocr_res = []
+
+                    clean_tokens = []
+                    for (_, text, prob) in ocr_res:
+                        clean_text = "".join(c for c in text if c.isalnum()).upper()
+                        if len(clean_text) >= 2 and prob > 0.15:
+                            clean_tokens.append(clean_text)
+
+                        # Match strict Indian license plate regex on token
+                        m = re.search(r'[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{3,4}', clean_text)
+                        if m and prob > 0.20:
+                            if prob > best_prob:
+                                best_plate = m.group(0)
+                                best_prob = float(prob)
+                        elif 4 <= len(clean_text) <= 12 and prob > 0.35:
+                            has_num = any(c.isdigit() for c in clean_text)
+                            has_alpha = any(c.isalpha() for c in clean_text)
+                            if has_num and has_alpha and prob > best_prob:
+                                best_plate = clean_text
+                                best_prob = float(prob)
+
+                    # Multi-line token recombination (e.g. ['MH', '12', 'PQ', '9988'] -> 'MH12PQ9988')
+                    if not best_plate and clean_tokens:
+                        combined = "".join(clean_tokens)
+                        m = re.search(r'[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{3,4}', combined)
+                        if m:
+                            best_plate = m.group(0)
+                            best_prob = 0.85
+                        elif 5 <= len(combined) <= 12 and any(c.isdigit() for c in combined) and any(c.isalpha() for c in combined):
+                            best_plate = combined
+                            best_prob = 0.75
+
+            # Standardize Indian format with hyphens (e.g. MH12PQ9988 -> MH-12-PQ-9988)
+            if best_plate != "":
+                m_ind = re.match(r'^([A-Z]{2})([0-9]{1,2})([A-Z]{1,3})([0-9]{3,4})$', best_plate)
+                if m_ind:
+                    best_plate = f"{m_ind.group(1)}-{m_ind.group(2)}-{m_ind.group(3)}-{m_ind.group(4)}"
+                else:
+                    m_short = re.match(r'^([A-Z]{2})([0-9]{2})([0-9]{4})$', best_plate)
+                    if m_short:
+                        best_plate = f"{m_short.group(1)}-{m_short.group(2)}-{m_short.group(3)}"
+
+            # If a plate was detected from the live feed:
+            if best_plate != "":
+                now_t = time.time()
+                # Deduplication: only issue a new pass if plate is different or > 45s since last pass
+                if best_plate != self.last_detected_plate or (now_t - self.last_gate_pass_time) > 45.0:
+                    existing_gp = db.get_pending_gate_pass_by_plate(best_plate)
+                    if existing_gp:
+                        gp_id = existing_gp.get('id', 'GP-PENDING')
+                        logger.info(f"[{self.camera_id} GATE ANPR] Linking active Gate Pass {gp_id} for plate: {best_plate}")
+                    else:
+                        new_gp = db.create_gate_pass({
+                            "plate": best_plate,
+                            "type": v_type_candidate,
+                            "activity": "Unloading",
+                            "status": "Pending",
+                            "driver_name": "Verified Driver",
+                            "dock": "Dock 1"
+                        })
+                        gp_id = new_gp.get('id', 'GP-AUTO')
+                        db.create_vehicle_log(gp_id, best_plate, "Verified Driver")
+                        logger.info(f"[{self.camera_id} GATE ANPR] Created Gate Pass {gp_id} for plate: {best_plate}")
+
+                    with self.lock:
+                        self.last_gate_pass_id = gp_id
+                        self.last_detected_plate = best_plate
+                        self.last_gate_pass_time = now_t
+                        self.last_plate_prob = best_prob
+                        
+                        event = {
+                            "time": time.strftime("%H:%M:%S"),
+                            "type": v_type_candidate,
+                            "plate": best_plate,
+                            "gate_pass_id": gp_id,
+                            "status": "GATE PASS ISSUED (LIVE FEED)",
+                            "camera": self.name
+                        }
+                        self.events.insert(0, event)
+            else:
+                now_t = time.time()
+                if (now_t - self.last_gate_pass_time) > 12.0:
+                    with self.lock:
+                        self.last_detected_plate = None
+                        self.last_gate_pass_id = None
+        except Exception as e:
+            logger.error(f"[{self.camera_id} GATE ANPR WORKER ERROR]: {e}")
+        finally:
+            self.anpr_in_flight = False
+
+    def _render_hud(self, base_frame: np.ndarray, timing_ms: float) -> np.ndarray:
+        """Renders comprehensive HUD: gate ANPR card or warehouse directional tripwire + motion vectors."""
+        display_frame = base_frame.copy()
+        h, w = display_frame.shape[:2]
+
+        if self.is_gate_camera:
+            # 1. GATE CAMERA DISPLAY: ANPR & Vehicle Access Control (ZERO Counting HUD)
+            cv2.rectangle(display_frame, (0, 0), (w, 36), (20, 24, 32), -1)
+            cv2.putText(display_frame, "GATE 01 | ANPR & VEHICLE ACCESS CONTROL | ZERO COUNTING", (14, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 220, 255), 2)
+            cv2.putText(display_frame, f"{timing_ms}ms", (max(10, w - 70), 24), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 128), 1)
+
+            # Draw vehicle bounding boxes
+            for box in self.latest_boxes:
+                x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
+                cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 128), 2)
+                cv2.putText(display_frame, box.get('type', 'Vehicle'), (x1, max(18, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 128), 2)
+
+            # Prominent License Plate & Gate Pass Card (Bottom Left)
+            card_x, card_y = 14, max(10, h - 105)
+            cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (15, 18, 24), -1)
+            cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (0, 220, 255), 1)
+
+            if self.last_detected_plate:
+                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (245, 230, 60), -1)
+                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (10, 10, 10), 2)
+                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 36, card_y + 44), (180, 50, 0), -1)
+                cv2.putText(display_frame, "IND", (card_x + 12, card_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                cv2.putText(display_frame, self.last_detected_plate, (card_x + 42, card_y + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (10, 10, 10), 2)
+
+                pass_text = f"GATE PASS: {self.last_gate_pass_id or 'GENERATING...'}"
+                cv2.putText(display_frame, pass_text, (card_x + 10, card_y + 64), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 128), 2)
+                cv2.putText(display_frame, "STATUS: LIVE ARRIVAL (PASS CREATED)", (card_x + 10, card_y + 82), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
+            else:
+                cv2.putText(display_frame, "LIVE ANPR ACTIVE", (card_x + 12, card_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (0, 220, 255), 2)
+                cv2.putText(display_frame, "Monitoring Live Feed for Incoming Vehicle/Plate", (card_x + 12, card_y + 54), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
+                cv2.putText(display_frame, "Gate pass will auto-generate upon plate detection", (card_x + 12, card_y + 74), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (140, 140, 140), 1)
+                scan_offset = int((time.time() * 120) % 330)
+                cv2.line(display_frame, (card_x + 10 + scan_offset, card_y + 6), (card_x + 10 + scan_offset, card_y + 84), (0, 220, 255), 1)
+
+            return display_frame
+
+        # 2. WAREHOUSE CAMERA DISPLAY: LIVE Multi-Object Tracking & Millisecond Counting
+        if self.active_tripwire and self.active_tripwire.get('is_enabled'):
+            p1 = self.active_tripwire['p1']
+            p2 = self.active_tripwire['p2']
+            dir_mode = self.active_tripwire.get('crossing_direction', 'BOTH')
+            cv2.line(display_frame, p1, p2, (0, 220, 255), 2)
+            cv2.circle(display_frame, p1, 4, (0, 255, 255), -1)
+            cv2.circle(display_frame, p2, 4, (0, 255, 255), -1)
+
+            mid_x = int((p1[0] + p2[0]) / 2)
+            mid_y = int((p1[1] + p2[1]) / 2)
+            z_label = self.active_tripwire.get('zone_code', 'TRIPWIRE')
+            if dir_mode == 'BOTH':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 120), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 128), 1)
+                cv2.putText(display_frame, f"<<< OUT (-1)", (min(w - 140, mid_x + 10), min(h - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 140, 255), 1)
+            elif dir_mode == 'INBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 80), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 128), 1)
+            elif dir_mode == 'OUTBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] <<< OUT (-1)", (max(10, mid_x - 80), min(h - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 140, 255), 1)
+
+        # Draw Live Motion Trails (Trajectories)
+        for tid, points in self.track_trajectories.items():
+            if len(points) >= 2:
+                vec = self.track_motion_vectors.get(tid, (0, 0))
+                speed = (vec[0]**2 + vec[1]**2)**0.5
+                trail_color = (0, 255, 128) if speed > 1.5 else (0, 180, 255)
+                for p_idx in range(1, len(points)):
+                    cv2.line(display_frame, points[p_idx - 1], points[p_idx], trail_color, max(1, int(p_idx / 4)))
+
+        # Draw Detected Objects
+        for box in self.latest_boxes:
+            x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
+            is_person = box.get('is_person', False)
+            color = (255, 200, 0) if is_person else (0, 255, 128)
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(display_frame, box.get('type', ''), (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+            cv2.circle(display_frame, (cx, cy), 3, (255, 255, 255), -1)
+
+            tid = box.get('track_id')
+            if tid in self.track_motion_vectors:
+                mv_x, mv_y = self.track_motion_vectors[tid]
+                if abs(mv_x) > 1 or abs(mv_y) > 1:
+                    arrow_end = (cx + int(mv_x * 2.5), cy + int(mv_y * 2.5))
+                    cv2.arrowedLine(display_frame, (cx, cy), arrow_end, color, 2, tipLength=0.35)
+
+        # Draw Floating Flash Indicators
+        for fc in self.flash_counters:
+            f_text = fc.get('text', '')
+            fx, fy = fc.get('pos', (int(w / 2), int(h / 2)))
+            f_col = fc.get('color', (0, 255, 128))
+            cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 3)
+            cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, f_col, 2)
+
+        # Top HUD Banner
+        cam_tag = self.name or self.camera_id
+        hud_text = f"[{cam_tag}] LIVE ({timing_ms}ms) | IN: +{self.inbound_count} | OUT: -{self.outbound_count} | NET STOCK: {self.net_stock_count} | WORKERS: {self.active_workers_count}"
+        cv2.rectangle(display_frame, (0, 0), (w, 32), (18, 22, 28), -1)
+        cv2.putText(display_frame, hud_text, (12, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 200), 2)
+
+        return display_frame
+
     def _worker_loop(self):
         """Consumer loop: executes canonical W.A.R.L.O.G. pipeline at target FPS."""
         frame_interval = 1.0 / self.configured_fps
@@ -969,12 +1296,17 @@ class CameraRuntimeSession:
             self.need_roi_refresh = False
 
         _reload_rois()
+        self.refresh_tripwire()
 
         while not self.stop_event.is_set():
             now = time.time()
             # Periodic or signaled refresh of database ROI configuration
             if self.need_roi_refresh or (now - last_roi_refresh_time) > 3.0:
                 _reload_rois()
+
+            # Periodic refresh of tripwire
+            if (now - self.last_tripwire_check) > 2.0:
+                self.refresh_tripwire()
 
             elapsed_since_last = now - last_process_time
 
@@ -998,18 +1330,165 @@ class CameraRuntimeSession:
                     primary_zone_code=primary_zone_code
                 )
                 last_process_time = time.time()
+                timing_ms = result.get("timing", {}).get("total_ms", 0.0)
+                raw_tracks = result.get("tracks") or []
+
+                new_boxes = []
+                box_count = 0
+                workers_count = 0
+                active_stock_count = 0
+
+                if self.is_gate_camera:
+                    for t in raw_tracks:
+                        cls_code = str(t.get("class_code", "")).upper()
+                        if cls_code in ("TRUCK", "CAR", "BUS", "VEHICLE"):
+                            bb = t.get("bbox", {})
+                            tid = t.get("track_id")
+                            x1, y1 = max(0, int(bb.get("x1", 0))), max(0, int(bb.get("y1", 0)))
+                            x2, y2 = min(640, int(bb.get("x2", 640))), min(480, int(bb.get("y2", 480)))
+                            label = f"Heavy Commercial (HCV) #{tid}" if cls_code in ("TRUCK", "BUS") else f"Light Vehicle (LMV) #{tid}"
+                            new_boxes.append({
+                                "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+                                "type": label,
+                                "is_package": False,
+                                "is_vehicle": True,
+                                "track_id": tid
+                            })
+
+                    # Trigger real-time Gate ANPR worker
+                    now_t = time.time()
+                    if not self.anpr_in_flight and (now_t - self.last_anpr_run_time >= 0.8):
+                        self.anpr_in_flight = True
+                        self.last_anpr_run_time = now_t
+                        v_boxes_copy = copy.deepcopy(new_boxes)
+                        threading.Thread(
+                            target=self._run_live_gate_anpr_worker,
+                            args=(frame.copy(), v_boxes_copy),
+                            daemon=True
+                        ).start()
+
+                    with self.lock:
+                        self.latest_boxes = new_boxes
+                        self.visible_boxes = 0
+                        self.visible_packages = 0
+                        self.active_workers_count = 0
+                        self.active_stocks_count = 0
+                        self.inbound_count = 0
+                        self.outbound_count = 0
+                        self.net_stock_count = 0
+                else:
+                    for t in raw_tracks:
+                        cls_code = str(t.get("class_code", "")).upper()
+                        is_person = (cls_code == "WORKER")
+                        is_stock = not is_person
+                        tid = t.get("track_id")
+                        bb = t.get("bbox", {})
+                        x1, y1 = max(0, int(bb.get("x1", 0))), max(0, int(bb.get("y1", 0)))
+                        x2, y2 = min(640, int(bb.get("x2", 640))), min(480, int(bb.get("y2", 480)))
+                        cx = int((x1 + x2) / 2)
+                        cy = int((y1 + y2) / 2)
+
+                        if is_person:
+                            workers_count += 1
+                            v_type = f"Worker #{tid}" if tid is not None else "Worker"
+                        else:
+                            active_stock_count += 1
+                            box_count += 1
+                            v_type = f"Stock #{tid}" if tid is not None else "Stock"
+
+                        if tid is not None:
+                            self.tracked_centroids[tid] = (cx, cy)
+                            if tid not in self.track_trajectories:
+                                self.track_trajectories[tid] = []
+                            traj = self.track_trajectories[tid]
+                            prev_pos = traj[-1] if traj else (cx, cy)
+                            traj.append((cx, cy))
+                            if len(traj) > 18:
+                                traj.pop(0)
+
+                            dx = cx - prev_pos[0]
+                            dy = cy - prev_pos[1]
+                            self.track_motion_vectors[tid] = (dx, dy)
+                            self.track_last_seen[tid] = self.frames_processed
+
+                            # Directional Live Counting for Stocks via Database-Driven Tripwire
+                            if is_stock and self.active_tripwire and self.active_tripwire.get('is_enabled'):
+                                crossing = evaluate_tripwire_crossing(
+                                    p1=self.active_tripwire['p1'],
+                                    p2=self.active_tripwire['p2'],
+                                    prev_pos=prev_pos,
+                                    curr_pos=(cx, cy),
+                                    allowed_direction=self.active_tripwire.get('crossing_direction', 'BOTH')
+                                )
+                                if crossing == 'IN' and self.counted_track_states.get(tid) != 'IN':
+                                    self.inbound_count += 1
+                                    self.counted_track_states[tid] = 'IN'
+                                    self.flash_counters.append({
+                                        'text': '+1 IN (STOCK ADDED)',
+                                        'pos': (cx, cy),
+                                        'ttl': 24,
+                                        'color': (0, 255, 128)
+                                    })
+                                elif crossing == 'OUT' and self.counted_track_states.get(tid) != 'OUT':
+                                    self.outbound_count += 1
+                                    self.counted_track_states[tid] = 'OUT'
+                                    self.flash_counters.append({
+                                        'text': '-1 OUT (STOCK SUBTRACTED)',
+                                        'pos': (cx, cy),
+                                        'ttl': 24,
+                                        'color': (0, 140, 255)
+                                    })
+
+                        new_boxes.append({
+                            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+                            "type": v_type,
+                            "is_package": is_stock,
+                            "is_person": is_person,
+                            "track_id": tid
+                        })
+
+                    # Calculate Net Live Inventory
+                    self.net_stock_count = max(0, self.inbound_count - self.outbound_count)
+
+                    # Decay floating flash counters
+                    for fc in self.flash_counters:
+                        fc['ttl'] -= 1
+                    self.flash_counters = [fc for fc in self.flash_counters if fc['ttl'] > 0]
+
+                    # Prune stale tracks that haven't been observed for > 30 frames
+                    dead_tids = [tid for tid, lseen in self.track_last_seen.items() if (self.frames_processed - lseen) > 30]
+                    for tid in dead_tids:
+                        self.track_trajectories.pop(tid, None)
+                        self.track_motion_vectors.pop(tid, None)
+                        self.track_last_seen.pop(tid, None)
+                        self.counted_track_states.pop(tid, None)
+
+                    with self.lock:
+                        self.latest_boxes = new_boxes
+                        self.visible_boxes = box_count
+                        self.visible_packages = box_count
+                        self.active_workers_count = workers_count
+                        self.active_stocks_count = active_stock_count
+
+                # Render rich HUD
+                hud_frame = self._render_hud(frame, timing_ms)
+                ret, buf = cv2.imencode('.jpg', hud_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                annotated_jpeg = buf.tobytes() if ret else result.get("annotated_jpeg")
 
                 with self.lock:
                     self.frames_processed += 1
-                    self.last_inference_ms = result.get("timing", {}).get("total_ms", 0.0)
+                    self.last_inference_ms = timing_ms
                     self.last_processing_timestamp = result.get("timestamp")
-                    self.latest_annotated_jpeg = result.get("annotated_jpeg")
+                    self.latest_annotated_jpeg = annotated_jpeg
                     self.last_context = {
                         "frame_index": result.get("frame_index"),
                         "timestamp": result.get("timestamp"),
                         "detections_count": result.get("detections_count"),
                         "tracks_count": result.get("tracks_count"),
                         "events_count": result.get("events_count"),
+                        "inbound_count": self.inbound_count,
+                        "outbound_count": self.outbound_count,
+                        "net_stock_count": self.net_stock_count,
                         "truck_box_assocs": result.get("truck_box_assocs_count"),
                         "worker_box_assocs": result.get("worker_box_assocs_count"),
                         "box_bin_assocs": result.get("box_bin_assocs_count"),
@@ -1061,6 +1540,31 @@ class CameraRuntimeSession:
                 return buf.tobytes() if ret else None
         return None
 
+    def get_perception_state(self) -> Dict[str, Any]:
+        """Thread-safely returns the canonical perception state for SmartCamera synchronization."""
+        with self.lock:
+            return {
+                "camera_id": self.camera_id,
+                "latest_boxes": list(self.latest_boxes),
+                "visible_boxes": self.visible_boxes,
+                "visible_packages": self.visible_packages,
+                "active_workers_count": self.active_workers_count,
+                "active_stocks_count": self.active_stocks_count,
+                "inbound_count": self.inbound_count,
+                "outbound_count": self.outbound_count,
+                "net_stock_count": self.net_stock_count,
+                "flash_counters": list(self.flash_counters),
+                "track_trajectories": {k: list(v) for k, v in self.track_trajectories.items()},
+                "track_motion_vectors": dict(self.track_motion_vectors),
+                "last_detected_plate": self.last_detected_plate,
+                "last_gate_pass_id": self.last_gate_pass_id,
+                "events": list(self.events),
+                "inference_latency_ms": self.last_inference_ms,
+                "fps": self.actual_processing_fps,
+                "annotated_jpeg": self.latest_annotated_jpeg,
+                "is_gate_camera": self.is_gate_camera
+            }
+
     def to_dict(self) -> Dict[str, Any]:
         """Telemetry representation conforming to Section 12."""
         uptime = round(time.time() - self.start_time, 1) if (self.start_time and self.runtime_state == RuntimeState.RUNNING) else 0.0
@@ -1086,6 +1590,16 @@ class CameraRuntimeSession:
             "last_inference_ms": self.last_inference_ms,
             "last_error": self.last_error,
             "consecutive_failures": self.consecutive_failures,
+            "inbound_count": self.inbound_count,
+            "outbound_count": self.outbound_count,
+            "net_stock_count": self.net_stock_count,
+            "active_workers_count": self.active_workers_count,
+            "active_stocks_count": self.active_stocks_count,
+            "visible_packages": self.visible_packages,
+            "visible_boxes": self.visible_boxes,
+            "is_gate_camera": self.is_gate_camera,
+            "last_detected_plate": self.last_detected_plate,
+            "last_gate_pass_id": self.last_gate_pass_id,
             "last_context": self.last_context
         }
 
@@ -1161,6 +1675,34 @@ class VisionRuntimeManager:
     def has_session(self, camera_id: str) -> bool:
         with self.lock:
             return camera_id in self.sessions
+
+    def get_or_create_session(
+        self,
+        camera_id: str,
+        name: Optional[str] = None,
+        location: Optional[str] = None,
+        stream_url: str = "",
+        configured_fps: int = 5,
+        test_mode: Optional[bool] = None
+    ) -> CameraRuntimeSession:
+        """Retrieves existing session or dynamically initializes a session for requested camera."""
+        with self.lock:
+            if camera_id in self.sessions:
+                return self.sessions[camera_id]
+            is_test = test_mode if test_mode is not None else (
+                os.environ.get("WARLOG_TEST_MODE", "").lower() in ("1", "true") or not bool(stream_url)
+            )
+            sess = CameraRuntimeSession(
+                camera_id=camera_id,
+                camera_code=camera_id,
+                name=name or f"Camera {camera_id}",
+                location=location or "General",
+                stream_url=stream_url,
+                configured_fps=configured_fps,
+                test_mode=is_test
+            )
+            self.sessions[camera_id] = sess
+            return sess
 
     def start_camera(self, camera_id: str) -> Tuple[bool, str]:
         """Starts a specific camera session."""
