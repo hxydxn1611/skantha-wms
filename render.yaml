@@ -7,6 +7,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python -m waitress --listen=0.0.0.0:$PORT webapp.app:app
     plan: free
+    autoDeploy: true
     region: oregon
     healthCheckPath: /api/cameras
     envVars:
