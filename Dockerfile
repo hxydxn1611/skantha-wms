@@ -41,9 +41,13 @@ COPY ml_pipeline /app/ml_pipeline
 RUN python3 -c "import os; from ultralytics import YOLO; [YOLO(m) for m in ['yolo11s.pt', 'yolo11n.pt'] if not os.path.exists(f'/app/webapp/{m}')]" && \
     mv -f yolo11*.pt /app/webapp/ 2>/dev/null || true
 
-# Create persistent storage directories
-RUN mkdir -p /app/webapp/static/uploads/sku_images && \
-    mkdir -p /app/webapp/models
+# Create persistent storage directories and non-root user (UID 1000) for Hugging Face Spaces
+RUN useradd -m -u 1000 user && \
+    mkdir -p /app/webapp/static/uploads/sku_images && \
+    mkdir -p /app/webapp/models && \
+    chown -R user:user /app
+
+USER user
 
 EXPOSE 5000
 
