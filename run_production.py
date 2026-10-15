@@ -11,7 +11,6 @@ Supports:
 
 import os
 import sys
-import socket
 import logging
 
 # Ensure UTF-8 output on Windows for terminal QR code and Unicode logs
@@ -34,59 +33,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("production_runner")
 
-def get_lan_ip_addresses():
-    """Detect all non-loopback IPv4 addresses on the host system."""
-    ip_list = []
-    try:
-        hostname = socket.gethostname()
-        for ip in socket.gethostbyname_ex(hostname)[2]:
-            if not ip.startswith("127.") and not ip.startswith("169.254."):
-                ip_list.append(ip)
-    except Exception:
-        pass
-
-    # Fallback method using UDP socket to determine default routing interface
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.1)
-        s.connect(("8.8.8.8", 80))
-        default_ip = s.getsockname()[0]
-        s.close()
-        if default_ip and default_ip not in ip_list:
-            ip_list.insert(0, default_ip)
-    except Exception:
-        pass
-
-    return ip_list or ["127.0.0.1"]
-
-def print_banner(host, port, lan_ips):
+def print_banner(host, port):
     banner = "=" * 70
     print("\n" + banner)
-    print(" 🚀 SKANTHA WMS & W.A.R.L.O.G. — ENTERPRISE PRODUCTION SERVER")
+    print(" 🚀 SKANTHA WMS & W.A.R.L.O.G. — PRODUCTION SERVER")
     print(" Model: YOLO11s (Flagship) | WSGI: Waitress Multi-Threaded Engine")
     print(banner)
-    print(f" • Local Access:    http://localhost:{port}")
-    for ip in lan_ips:
-        print(f" • LAN / Wi-Fi:     http://{ip}:{port}")
+    print(f" • Access URL:    http://localhost:{port}")
     print(banner)
-    print(" 📱 MOBILE PHONE ACCESS INSTRUCTIONS:")
-    print(f" 1. Connect your phone to the same Wi-Fi network as this PC.")
-    print(f" 2. Open phone browser and enter: http://{lan_ips[0]}:{port}")
-    print(f"    Or scan the QR code below using your mobile phone camera:")
-    print(banner + "\n")
-
-    try:
-        import qrcode
-        qr = qrcode.QRCode(border=2)
-        target_url = f"http://{lan_ips[0]}:{port}"
-        qr.add_data(target_url)
-        qr.print_ascii(invert=True)
-    except Exception as e:
-        print(f" (Install 'qrcode' library to see interactive terminal QR code: {e})")
-
-    print("\n" + banner)
-    print(" Server is actively listening on all interfaces (0.0.0.0). Press CTRL+C to stop.")
-    print(banner + "\n")
+    print(" Server is actively listening. Press CTRL+C to stop.\n")
 
 def main():
     port = int(os.environ.get("PORT", 5000))
@@ -96,8 +51,7 @@ def main():
     # Import Flask app
     import app as flask_app_module
 
-    lan_ips = get_lan_ip_addresses()
-    print_banner(host, port, lan_ips)
+    print_banner(host, port)
 
     try:
         from waitress import serve
