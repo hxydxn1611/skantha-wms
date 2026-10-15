@@ -5,7 +5,8 @@
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
-   1. DESKTOP BASELINE DEFAULTS (Hidden on Desktop)
+   1. DESKTOP BASELINE ISOLATION (>= 1025px)
+   Guarantees 0% regression on desktop workstations, monitors, and laptops.
    -------------------------------------------------------------------------- */
 @media screen and (min-width: 1025px) {
     .mobile-nav-toggle-btn {
@@ -21,39 +22,51 @@
 
 /* --------------------------------------------------------------------------
    2. TABLET & MOBILE UNIVERSAL RULES (<= 1024px)
+   Smooth off-canvas drawer, fluid container scaling, touch-safe targets.
    -------------------------------------------------------------------------- */
 @media screen and (max-width: 1024px) {
+    /* Root Viewport & Container Containment (Eliminates page-level blowout) */
+    html, body {
+        width: 100%;
+        max-width: 100vw;
+        overflow-x: hidden !important;
+        position: relative;
+    }
+
     /* Touch Target & Ergonomics */
     button, input, select, textarea {
         min-height: 42px;
         box-sizing: border-box;
     }
     .tab-btn {
-        min-height: 46px;
-        font-size: 0.92rem;
-        padding: 0.75rem 1rem;
+        min-height: 44px;
+        font-size: 0.9rem;
+        padding: 0.7rem 0.95rem;
     }
 
     /* Topbar Layout */
     .dashboard-topbar {
-        height: 64px !important;
+        height: 62px !important;
         padding: 0 1rem !important;
         gap: 0.75rem !important;
+        width: 100% !important;
+        max-width: 100vw !important;
+        box-sizing: border-box !important;
     }
     .mobile-nav-toggle-btn {
         display: inline-flex !important;
         align-items: center;
         justify-content: center;
-        width: 42px;
-        height: 42px;
+        width: 40px;
+        height: 40px;
         border-radius: 8px;
         background: var(--panel-subtle, #f1f5f9);
         border: 1px solid var(--border-light, #e2e8f0);
         color: var(--primary-navy, #0f172a);
-        font-size: 1.25rem;
+        font-size: 1.15rem;
         cursor: pointer;
         flex-shrink: 0;
-        margin-right: 0.5rem;
+        margin-right: 0.4rem;
         transition: all 0.2s ease;
     }
     .mobile-nav-toggle-btn:active {
@@ -61,7 +74,7 @@
         background: var(--border-light, #e2e8f0);
     }
     .topbar-center {
-        max-width: 280px !important;
+        max-width: 240px !important;
     }
     .search-kbd-shortcut {
         display: none !important;
@@ -70,24 +83,36 @@
         display: none !important;
     }
 
-    /* Off-Canvas Slide-out Sidebar */
+    /* Off-Canvas Slide-out Sidebar Drawer */
     #main-header {
         position: fixed !important;
         top: 0 !important;
         bottom: 0 !important;
-        left: -300px !important;
-        width: 285px !important;
-        height: 100vh !important;
+        left: -320px !important;
+        width: 280px !important;
+        max-width: 82vw !important;
+        height: 100% !important;
+        height: 100dvh !important;
         z-index: 10001 !important;
-        box-shadow: 5px 0 30px rgba(0, 0, 0, 0.4) !important;
-        transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        box-shadow: 6px 0 32px rgba(0, 0, 0, 0.45) !important;
+        transition: left 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
         display: flex !important;
+        flex-direction: column !important;
         background: var(--panel-bg, #ffffff) !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch;
+        padding: 1.25rem 1rem !important;
+        padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem)) !important;
+        box-sizing: border-box !important;
     }
     #main-header.mobile-open {
         left: 0 !important;
+    }
+    #main-header .tabs {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0.3rem !important;
+        flex-wrap: nowrap !important;
     }
 
     /* Mobile Sidebar Header & Close Button */
@@ -95,8 +120,8 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-bottom: 0.75rem;
-        margin-bottom: 0.75rem;
+        padding-bottom: 0.65rem;
+        margin-bottom: 0.65rem;
         border-bottom: 1px solid var(--border-light);
     }
 
@@ -119,72 +144,105 @@
     }
 
     /* App Layout & Content Containers */
-    body {
-        overflow-y: auto !important;
-        height: auto !important;
-        min-height: 100vh !important;
-    }
     .app-layout {
+        display: flex !important;
         flex-direction: column !important;
+        width: 100% !important;
+        max-width: 100vw !important;
         height: auto !important;
-        min-height: calc(100vh - 64px) !important;
+        min-height: calc(100vh - 62px) !important;
         overflow: visible !important;
+        box-sizing: border-box !important;
     }
+    #main-container,
     .container {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        max-width: 100vw !important;
         padding: 1rem !important;
         gap: 1rem !important;
         height: auto !important;
         min-height: auto !important;
+        min-width: 0 !important;
         overflow: visible !important;
+        box-sizing: border-box !important;
     }
     .view-section {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
         height: auto !important;
         overflow: visible !important;
+        box-sizing: border-box !important;
     }
-
-    /* Dashboard Metrics & Camera Grids */
-    .metrics-grid {
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 0.85rem !important;
-        margin-bottom: 1.25rem !important;
-    }
-    .metric-card {
+    .glass-panel {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
         padding: 1.15rem 1rem !important;
-    }
-    .metric-card .value {
-        font-size: 1.85rem !important;
+        border-radius: 10px !important;
     }
 
-    /* Responsive Tables with Horizontal Touch Scrolling */
+    /* Stack Split-Screen Asides (Deliveries Pre-Registration & Outbound) */
+    #deliveries-view > div,
+    #outbound-view > div {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 1.25rem !important;
+        width: 100% !important;
+    }
+    #deliveries-view aside.glass-panel,
+    #outbound-view aside.glass-panel {
+        flex: 1 1 auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* Camera Junction: Stack Side Panel and Video Matrix */
+    #cam-sub-view {
+        flex-direction: column !important;
+        height: auto !important;
+        min-height: auto !important;
+    }
+    #cam-sub-view > div:first-child {
+        width: 100% !important;
+        height: auto !important;
+        border-right: none !important;
+        border-bottom: 1px solid #333 !important;
+    }
+    #hikvision-cam-list {
+        max-height: 160px !important;
+        flex: none !important;
+    }
+    #cameraGrid {
+        width: 100% !important;
+        height: auto !important;
+        min-height: 320px !important;
+    }
+
+    /* Responsive Tables with Guaranteed Horizontal Touch Scrolling */
     .table-container,
     .table-responsive,
-    .data-table-wrap {
+    .data-table-wrap,
+    .glass-panel > div[style*="overflow-x:auto"],
+    .sub-master-section > div[style*="overflow-x:auto"] {
         width: 100% !important;
+        max-width: 100% !important;
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch !important;
-        margin-top: 0.75rem !important;
+        margin-top: 0.5rem !important;
         border-radius: 8px !important;
         border: 1px solid var(--border-light, #e2e8f0);
+        box-sizing: border-box !important;
     }
     table {
-        min-width: 650px !important;
+        display: table;
+        width: 100% !important;
+        min-width: 580px !important;
         margin-top: 0 !important;
-    }
-
-    /* Sub-tabs horizontal touch scroll */
-    .sub-tabs-container,
-    .vision-sub-tabs,
-    .master-sub-tabs {
-        display: flex !important;
-        flex-wrap: nowrap !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        gap: 0.5rem !important;
-        padding-bottom: 6px !important;
-    }
-    .sub-tab-btn {
-        flex-shrink: 0 !important;
-        white-space: nowrap !important;
+        border-collapse: collapse;
     }
 
     /* Modals & Dialogs */
@@ -194,74 +252,233 @@
         margin: 1rem auto !important;
         max-height: 90vh !important;
         overflow-y: auto !important;
+        box-sizing: border-box !important;
     }
 }
 
 /* --------------------------------------------------------------------------
    3. SMARTPHONE SPECIFIC RULES (<= 768px)
+   Compact topbar, clean 2-column KPI cards, full-width inputs, touch tuning.
    -------------------------------------------------------------------------- */
 @media screen and (max-width: 768px) {
-    /* Prevent iOS auto-zoom on input focus */
+    /* Prevent iOS Safari auto-zoom on input focus */
     input[type="text"],
     input[type="password"],
     input[type="number"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="date"],
     select,
     textarea {
         font-size: 16px !important;
     }
 
-    /* Compact Mobile Topbar */
+    /* Streamlined Mobile Topbar */
     .dashboard-topbar {
-        height: 58px !important;
-        padding: 0 0.75rem !important;
+        height: 56px !important;
+        padding: 0 0.5rem !important;
+        gap: 0.4rem !important;
+        justify-content: space-between !important;
     }
-    .topbar-center {
-        display: none !important; /* Conceal desktop spotlight search on small phones */
+    .topbar-left {
+        gap: 0.35rem !important;
+    }
+    .mobile-nav-toggle-btn {
+        width: 38px !important;
+        height: 38px !important;
+        font-size: 1.1rem !important;
+        margin-right: 0.2rem !important;
+    }
+    .topbar-warlog-logo {
+        height: 30px !important;
+        max-width: 36px !important;
+    }
+    .topbar-warlog-title {
+        font-size: 1.05rem !important;
+        letter-spacing: 1px !important;
     }
     .topbar-warlog-subtitle {
         display: none !important;
     }
-    .topbar-warlog-title {
-        font-size: 1.15rem !important;
-        letter-spacing: 1.5px !important;
+    .topbar-center {
+        display: none !important; /* Conceal desktop spotlight search */
+    }
+    .topbar-right {
+        gap: 0.4rem !important;
+    }
+    .topbar-skantha-brand {
+        display: none !important; /* Conserve width for core status */
+    }
+    .topbar-facility-selector {
+        display: none !important; /* Redundant on phone viewport */
     }
     .topbar-telemetry-badge {
         padding: 4px 8px !important;
-        font-size: 0.65rem !important;
+        font-size: 0.68rem !important;
+        gap: 4px !important;
     }
     .telemetry-label {
         display: none !important;
     }
-    .topbar-facility-selector {
-        padding: 4px 8px !important;
-        font-size: 0.68rem !important;
-    }
-    .topbar-facility-selector span {
-        max-width: 80px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+    .telemetry-val {
+        font-size: 0.72rem !important;
     }
 
-    /* Metrics Grid Single/Dual Column */
+    /* Section Headers */
+    .glass-panel h2 {
+        font-size: 1.15rem !important;
+        line-height: 1.3 !important;
+    }
+    .glass-panel h3 {
+        font-size: 1rem !important;
+    }
+    .glass-panel p {
+        font-size: 0.78rem !important;
+    }
+
+    /* Metrics Grid: Clean, Compact 2-Column Grid (Not giant 1-col cards) */
     .metrics-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 0.65rem !important;
+        margin-bottom: 1.1rem !important;
+    }
+    .metric-card {
+        padding: 0.75rem 0.6rem !important;
+        border-radius: 8px !important;
+    }
+    .metric-card h3 {
+        font-size: 0.66rem !important;
+        margin-bottom: 0.25rem !important;
+        letter-spacing: 0.4px !important;
+    }
+    .metric-card .value {
+        font-size: 1.55rem !important;
+        line-height: 1.1 !important;
+    }
+
+    /* Deliveries Pre-Registration Form */
+    #addDeliveryForm {
         grid-template-columns: 1fr !important;
         gap: 0.75rem !important;
+    }
+    #addDeliveryForm > div {
+        grid-column: 1 / -1 !important;
+    }
+
+    /* Dynamic Manifest Line Rows */
+    #manifestLinesContainer > div {
+        display: grid !important;
+        grid-template-columns: 2fr 1fr 32px !important;
+        gap: 6px !important;
+        align-items: center !important;
+    }
+    #manifestLinesContainer > div > div:first-child {
+        grid-column: 1 / -1 !important;
+    }
+
+    /* Grids with rigid minmax converted to 1fr on mobile */
+    #gatePassGrid {
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
+    }
+    #inbound-docks-container {
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
+    }
+    #miniGateCamContainer {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        aspect-ratio: 16/9 !important;
+    }
+
+    /* Sub-tabs with smooth horizontal scrolling pill rows */
+    #master-hub-view .glass-panel > div:first-of-type > div:first-child {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding-bottom: 6px !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    #master-hub-view .sub-tab-btn {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+        padding: 6px 12px !important;
+        font-size: 0.8rem !important;
+    }
+    #master-hub-view #masterHubSearch {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-top: 6px !important;
+    }
+
+    /* AI Vision Master Navigation Strips */
+    .vision-navigation-container > div {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding-bottom: 6px !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    .vision-navigation-container span[style*="min-width"] {
+        min-width: auto !important;
+        flex-shrink: 0 !important;
+        font-size: 0.68rem !important;
+    }
+    .vision-sub-btn {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+        padding: 4px 10px !important;
+        font-size: 0.78rem !important;
+    }
+
+    /* SKU Master Filters & Toolbar in AI Vision */
+    #ai-vision-view .glass-panel:nth-of-type(2) > div {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+    }
+    #ai-vision-view .glass-panel:nth-of-type(2) > div > div {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    #ai-vision-view [style*="min-width:320px"] {
+        min-width: 0 !important;
+        width: 100% !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+    #ai-vision-view [style*="min-width:200px"] {
+        min-width: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+    #skuMasterSearchInput {
+        width: 100% !important;
+    }
+    #skuMasterCategoryFilter,
+    #skuMasterStatusFilter,
+    #skuMasterImageFilter {
+        flex: 1 1 calc(50% - 6px) !important;
+        min-width: 120px !important;
+        width: auto !important;
     }
 
     /* Camera Feed Grid */
     .camera-grid {
         grid-template-columns: 1fr !important;
-        gap: 1rem !important;
+        gap: 0.75rem !important;
     }
     .video-container {
         aspect-ratio: 16/9 !important;
-    }
-
-    /* Card Panels */
-    .glass-panel {
-        padding: 1rem !important;
-        border-radius: 10px !important;
     }
 
     /* Fullscreen Camera Modal */
@@ -275,10 +492,15 @@
         text-align: center !important;
     }
 
-    /* Login Page Mobile Stacking */
+    /* Clean Mobile Login */
     #login-overlay {
         flex-direction: column !important;
         overflow-y: auto !important;
+        overflow-x: hidden !important;
+        height: 100% !important;
+        min-height: 100vh !important;
+        padding: 1.5rem 0 2rem 0 !important;
+        box-sizing: border-box !important;
     }
     .login-left {
         flex: none !important;
@@ -297,7 +519,8 @@
         text-align: center !important;
     }
     .login-hero-title {
-        font-size: 2rem !important;
+        font-size: 1.85rem !important;
+        letter-spacing: 2px !important;
     }
     .login-hero-desc {
         display: none !important;
@@ -311,7 +534,7 @@
     .login-right {
         flex: none !important;
         width: 100% !important;
-        padding: 1rem !important;
+        padding: 0 1rem 1.5rem 1rem !important;
         box-sizing: border-box !important;
     }
     .login-top-links {
@@ -319,14 +542,66 @@
     }
     .login-card-container {
         width: 100% !important;
-        max-width: 100% !important;
+        max-width: 400px !important;
+        margin: 0 auto !important;
     }
     .login-card {
-        padding: 1.5rem 1.25rem !important;
+        padding: 1.35rem 1.15rem !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
 
-    /* Safe Area Insets for iPhones */
+    /* Safe Area Insets for Mobile Home Bars */
     body {
         padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   4. ULTRA-COMPACT MOBILE PHONES (<= 400px, e.g. 360px & 390px)
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 400px) {
+    .container {
+        padding: 0.65rem !important;
+        gap: 0.65rem !important;
+    }
+    .glass-panel {
+        padding: 0.85rem 0.65rem !important;
+    }
+    .metric-card .value {
+        font-size: 1.4rem !important;
+    }
+    .metric-card h3 {
+        font-size: 0.62rem !important;
+    }
+    .modal-dialog {
+        width: 96vw !important;
+        max-width: 96vw !important;
+        margin: 0.5rem auto !important;
+    }
+    .modal-body {
+        padding: 1rem 0.75rem !important;
+    }
+    .modal-footer {
+        padding: 0.75rem !important;
+        flex-wrap: wrap !important;
+    }
+    .modal-footer button {
+        flex: 1 1 45% !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   5. LANDSCAPE PHONE RULES (max-height: 500px and landscape orientation)
+   -------------------------------------------------------------------------- */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+    .dashboard-topbar {
+        height: 48px !important;
+    }
+    .modal-dialog {
+        max-height: 94vh !important;
+    }
+    #main-header {
+        padding-top: 0.5rem !important;
     }
 }
