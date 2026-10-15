@@ -431,15 +431,6 @@
 
         
 
-        /* Media queries to handle smaller screens and prevent overlap */
-        @media (max-width: 1100px) {
-            #login-overlay { flex-direction: column; }
-            .login-left, .login-right { flex: auto; width: 100%; padding: 2rem; }
-            .login-hero { margin-top: 2rem; align-items: center; text-align: center; padding-right: 0; }
-            .login-hero-logo { align-self: center; }
-            .login-top-links { position: relative; text-align: center; top: 0; right: 0; margin-bottom: 2rem; }
-            .login-brand-top { position: relative; top: 0; left: 0; justify-content: center; margin-bottom: 2rem; }
-        }
 
         /* DASHBOARD TOPBAR */
         .dashboard-topbar {
@@ -1235,22 +1226,7 @@
             color: #64748b;
         }
 
-        @media (max-width: 768px) {
-            .dashboard-topbar { padding: 0 1rem; height: 64px; }
-            .topbar-warlog-subtitle { display: none; }
-            .topbar-warlog-logo { height: 36px; }
-            .topbar-warlog-title { font-size: 1.25rem; }
-            .topbar-skantha-logo { height: 32px; }
-            .topbar-skantha-name { font-size: 0.6rem; }
-            .login-top-brand { top: 1rem; right: 1rem; }
-            .login-top-brand img.login-skantha-logo { max-height: 52px; }
-            .login-top-brand .login-skantha-name { font-size: 0.72rem; }
-            .app-layout { flex-direction: column; overflow-y: auto; height: 100%; }
-            #main-header { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-light); padding: 0.75rem 1rem; flex-shrink: 0; }
-            #main-header .tabs { flex-direction: row; flex-wrap: wrap; gap: 6px; }
-            #main-header .tabs .tab-btn { padding: 0.5rem 0.75rem; font-size: 0.82rem; border-radius: 6px; }
-            .container { padding: 1rem; height: auto; min-height: 0; overflow: visible; }
-            .metrics-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-            .vision-navigation-container > div { flex-direction: row; flex-wrap: wrap; gap: 6px; }
-        }
+        /* Responsive Integration Fallback */
+        @import url('responsive.css');
+
     
