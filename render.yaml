@@ -1,21 +1,18 @@
 # Render.com Cloud Deployment Blueprint
-# Automatic Docker Web Service with Health Checks and Storage
+# 100% Free Tier Web Service
 services:
   - type: web
     name: skantha-wms
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    plan: starter
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m waitress --listen=0.0.0.0:$PORT webapp.app:app
+    plan: free
     region: oregon
     healthCheckPath: /api/cameras
     envVars:
       - key: PORT
-        value: 5000
+        value: 10000
       - key: VISION_MODEL_NAME
-        value: yolo11s.pt
+        value: yolo11n.pt
       - key: PYTHONUNBUFFERED
         value: "1"
-    disk:
-      name: wms-storage
-      mountPath: /app/webapp/data
-      sizeGB: 1
