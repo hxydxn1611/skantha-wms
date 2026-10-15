@@ -104,7 +104,7 @@
                         <a href="#" onclick="alert('Password reset instructions sent to your registered email.')">Forgot password?</a>
                     </div>
 
-                    <button class="btn-login-main" onclick="doLogin()">Secure Login <i class="fas fa-arrow-right" style="margin-left: 5px; font-weight: 300;"></i></button>
+                    <button class="btn-login-main" onclick="doLogin()">Secure Login <i class="fas fa-arrow-right" style="margin-left: 5px;"></i></button>
 
                     <div class="login-divider-line">OR</div>
                     <button class="btn-signup-main" onclick="toggleAuthMode()">Add Fresh User</button>
@@ -1144,19 +1144,21 @@
                 </aside>
                 <div class="glass-panel" style="flex:1;">
                     <h3>Active Outbound Orders</h3>
-                    <table style="width:100%; margin-top:1rem;">
-                        <thead>
-                            <tr>
-                                <th>Order ID</th>
-                                <th>Customer</th>
-                                <th>Destination</th>
-                                <th>Items</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="outboundTableBody"></tbody>
-                    </table>
+                    <div class="table-container">
+                        <table style="width:100%; margin-top:1rem;">
+                            <thead>
+                                <tr>
+                                    <th>Order ID</th>
+                                    <th>Customer</th>
+                                    <th>Destination</th>
+                                    <th>Items</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="outboundTableBody"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1219,10 +1221,12 @@
                 </aside>
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
-                    <table>
-                        <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Vendor Email</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th><th>Connected Pass / Status</th></tr></thead>
-                        <tbody id="expectedTableBody"></tbody>
-                    </table>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Vendor Email</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th><th>Connected Pass / Status</th></tr></thead>
+                            <tbody id="expectedTableBody"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1481,14 +1485,16 @@
             <div class="glass-panel">
                 <h2>Active Docks</h2>
                 <p style="color:var(--text-muted);">Trucks assigned to docks by Gate Management appear here.</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Dock #</th><th>Vehicle</th><th>Driver</th><th>Load To Unload</th><th>Status</th><th>AI Verification</th>
-                        </tr>
-                    </thead>
-                    <tbody id="dockTableBody"></tbody>
-                </table>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Dock #</th><th>Vehicle</th><th>Driver</th><th>Load To Unload</th><th>Status</th><th>AI Verification</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dockTableBody"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -1663,26 +1669,30 @@
 
                 <div id="vehicle-master-sub" class="sub-master-section" style="display:none;">
                     <h3>Vehicle Master Log</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th><th>Gate Pass</th><th>Plate</th><th>Driver</th><th>Entry Time</th><th>Exit Time</th><th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="vehicleLogBody"></tbody>
-                    </table>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th><th>Gate Pass</th><th>Plate</th><th>Driver</th><th>Entry Time</th><th>Exit Time</th><th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vehicleLogBody"></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div id="invoice-master-sub" class="sub-master-section" style="display:none;">
                     <h3>Invoice Master</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th><th>Gate Pass</th><th>PO Number</th><th>Vendor</th><th>Email</th><th>Generated At</th><th>Download</th>
-                            </tr>
-                        </thead>
-                        <tbody id="invoicesBody"></tbody>
-                    </table>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th><th>Gate Pass</th><th>PO Number</th><th>Vendor</th><th>Email</th><th>Generated At</th><th>Download</th>
+                                </tr>
+                            </thead>
+                            <tbody id="invoicesBody"></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div id="cycle-count-sub" class="sub-master-section" style="display:none;">
