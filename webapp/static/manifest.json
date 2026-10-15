@@ -1,0 +1,22 @@
+{
+  "name": "Skantha WMS & W.A.R.L.O.G. AI Vision",
+  "short_name": "Skantha WMS",
+  "description": "Enterprise Warehouse Management System with Autonomous Computer Vision",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/warlog_w.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/warlog_w.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
