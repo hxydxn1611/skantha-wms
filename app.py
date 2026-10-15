@@ -20,13 +20,19 @@ import uvicorn
 # ZeroGPU compliance hook for Hugging Face
 try:
     import spaces
+except ImportError:
+    class spaces:
+        @staticmethod
+        def GPU(func=None, duration=None):
+            def decorator(f):
+                return f
+            if func is not None:
+                return func
+            return decorator
 
-    @spaces.GPU
-    def gpu_perception_hook(dummy=""):
-        return "ZeroGPU Active"
-except Exception:
-    def gpu_perception_hook(dummy=""):
-        return "CPU Active"
+@spaces.GPU
+def gpu_perception_hook(dummy=""):
+    return "ZeroGPU Active"
 
 
 def ensure_model_weights():
