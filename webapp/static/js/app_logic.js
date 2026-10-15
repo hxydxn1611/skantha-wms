@@ -97,8 +97,24 @@
             }
         }
 
+        // Mobile Responsive Navigation Handlers
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('main-header');
+            const backdrop = document.getElementById('mobileSidebarBackdrop');
+            if (sidebar) sidebar.classList.toggle('mobile-open');
+            if (backdrop) backdrop.classList.toggle('active');
+        }
+
+        function closeMobileSidebar() {
+            const sidebar = document.getElementById('main-header');
+            const backdrop = document.getElementById('mobileSidebarBackdrop');
+            if (sidebar) sidebar.classList.remove('mobile-open');
+            if (backdrop) backdrop.classList.remove('active');
+        }
+
         // Tab Switching & Cross-Module Deep Navigation (Part 14)
         function switchTab(tabId) {
+            closeMobileSidebar();
             document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             const targetView = document.getElementById(tabId + '-view');

@@ -1,0 +1,332 @@
+/* ==========================================================================
+   SKANTHA WMS & W.A.R.L.O.G. — RESPONSIVE ADAPTATION STYLESHEET
+   Exclusively applies to Tablets (<= 1024px) and Mobile Phones (<= 768px).
+   Desktop layouts (> 1024px) remain 100% UNCHANGED and byte-for-byte pristine.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. DESKTOP BASELINE DEFAULTS (Hidden on Desktop)
+   -------------------------------------------------------------------------- */
+@media screen and (min-width: 1025px) {
+    .mobile-nav-toggle-btn {
+        display: none !important;
+    }
+    .mobile-sidebar-backdrop {
+        display: none !important;
+    }
+    .mobile-only {
+        display: none !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   2. TABLET & MOBILE UNIVERSAL RULES (<= 1024px)
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 1024px) {
+    /* Touch Target & Ergonomics */
+    button, input, select, textarea {
+        min-height: 42px;
+        box-sizing: border-box;
+    }
+    .tab-btn {
+        min-height: 46px;
+        font-size: 0.92rem;
+        padding: 0.75rem 1rem;
+    }
+
+    /* Topbar Layout */
+    .dashboard-topbar {
+        height: 64px !important;
+        padding: 0 1rem !important;
+        gap: 0.75rem !important;
+    }
+    .mobile-nav-toggle-btn {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 8px;
+        background: var(--panel-subtle, #f1f5f9);
+        border: 1px solid var(--border-light, #e2e8f0);
+        color: var(--primary-navy, #0f172a);
+        font-size: 1.25rem;
+        cursor: pointer;
+        flex-shrink: 0;
+        margin-right: 0.5rem;
+        transition: all 0.2s ease;
+    }
+    .mobile-nav-toggle-btn:active {
+        transform: scale(0.95);
+        background: var(--border-light, #e2e8f0);
+    }
+    .topbar-center {
+        max-width: 280px !important;
+    }
+    .search-kbd-shortcut {
+        display: none !important;
+    }
+    .topbar-skantha-name {
+        display: none !important;
+    }
+
+    /* Off-Canvas Slide-out Sidebar */
+    #main-header {
+        position: fixed !important;
+        top: 0 !important;
+        bottom: 0 !important;
+        left: -300px !important;
+        width: 285px !important;
+        height: 100vh !important;
+        z-index: 10001 !important;
+        box-shadow: 5px 0 30px rgba(0, 0, 0, 0.4) !important;
+        transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        display: flex !important;
+        background: var(--panel-bg, #ffffff) !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    #main-header.mobile-open {
+        left: 0 !important;
+    }
+
+    /* Mobile Sidebar Header & Close Button */
+    .mobile-sidebar-close-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 0.75rem;
+        margin-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border-light);
+    }
+
+    /* Darkened Backdrop for Sidebar */
+    .mobile-sidebar-backdrop {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 10000;
+        transition: opacity 0.25s ease;
+    }
+    .mobile-sidebar-backdrop.active {
+        display: block !important;
+    }
+
+    /* App Layout & Content Containers */
+    body {
+        overflow-y: auto !important;
+        height: auto !important;
+        min-height: 100vh !important;
+    }
+    .app-layout {
+        flex-direction: column !important;
+        height: auto !important;
+        min-height: calc(100vh - 64px) !important;
+        overflow: visible !important;
+    }
+    .container {
+        padding: 1rem !important;
+        gap: 1rem !important;
+        height: auto !important;
+        min-height: auto !important;
+        overflow: visible !important;
+    }
+    .view-section {
+        height: auto !important;
+        overflow: visible !important;
+    }
+
+    /* Dashboard Metrics & Camera Grids */
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 0.85rem !important;
+        margin-bottom: 1.25rem !important;
+    }
+    .metric-card {
+        padding: 1.15rem 1rem !important;
+    }
+    .metric-card .value {
+        font-size: 1.85rem !important;
+    }
+
+    /* Responsive Tables with Horizontal Touch Scrolling */
+    .table-container,
+    .table-responsive,
+    .data-table-wrap {
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        margin-top: 0.75rem !important;
+        border-radius: 8px !important;
+        border: 1px solid var(--border-light, #e2e8f0);
+    }
+    table {
+        min-width: 650px !important;
+        margin-top: 0 !important;
+    }
+
+    /* Sub-tabs horizontal touch scroll */
+    .sub-tabs-container,
+    .vision-sub-tabs,
+    .master-sub-tabs {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        gap: 0.5rem !important;
+        padding-bottom: 6px !important;
+    }
+    .sub-tab-btn {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+    }
+
+    /* Modals & Dialogs */
+    .modal-dialog {
+        width: 94vw !important;
+        max-width: 94vw !important;
+        margin: 1rem auto !important;
+        max-height: 90vh !important;
+        overflow-y: auto !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   3. SMARTPHONE SPECIFIC RULES (<= 768px)
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 768px) {
+    /* Prevent iOS auto-zoom on input focus */
+    input[type="text"],
+    input[type="password"],
+    input[type="number"],
+    select,
+    textarea {
+        font-size: 16px !important;
+    }
+
+    /* Compact Mobile Topbar */
+    .dashboard-topbar {
+        height: 58px !important;
+        padding: 0 0.75rem !important;
+    }
+    .topbar-center {
+        display: none !important; /* Conceal desktop spotlight search on small phones */
+    }
+    .topbar-warlog-subtitle {
+        display: none !important;
+    }
+    .topbar-warlog-title {
+        font-size: 1.15rem !important;
+        letter-spacing: 1.5px !important;
+    }
+    .topbar-telemetry-badge {
+        padding: 4px 8px !important;
+        font-size: 0.65rem !important;
+    }
+    .telemetry-label {
+        display: none !important;
+    }
+    .topbar-facility-selector {
+        padding: 4px 8px !important;
+        font-size: 0.68rem !important;
+    }
+    .topbar-facility-selector span {
+        max-width: 80px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Metrics Grid Single/Dual Column */
+    .metrics-grid {
+        grid-template-columns: 1fr !important;
+        gap: 0.75rem !important;
+    }
+
+    /* Camera Feed Grid */
+    .camera-grid {
+        grid-template-columns: 1fr !important;
+        gap: 1rem !important;
+    }
+    .video-container {
+        aspect-ratio: 16/9 !important;
+    }
+
+    /* Card Panels */
+    .glass-panel {
+        padding: 1rem !important;
+        border-radius: 10px !important;
+    }
+
+    /* Fullscreen Camera Modal */
+    #fsToolbar {
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        width: 90vw !important;
+    }
+    #fsToolbar button {
+        flex: 1 1 40% !important;
+        text-align: center !important;
+    }
+
+    /* Login Page Mobile Stacking */
+    #login-overlay {
+        flex-direction: column !important;
+        overflow-y: auto !important;
+    }
+    .login-left {
+        flex: none !important;
+        width: 100% !important;
+        padding: 1.5rem 1rem 0.5rem 1rem !important;
+        box-sizing: border-box !important;
+    }
+    .login-brand-top {
+        position: relative !important;
+        top: 0 !important;
+        left: 0 !important;
+        margin-bottom: 0.75rem !important;
+    }
+    .login-hero {
+        align-items: center !important;
+        text-align: center !important;
+    }
+    .login-hero-title {
+        font-size: 2rem !important;
+    }
+    .login-hero-desc {
+        display: none !important;
+    }
+    .login-features {
+        display: none !important;
+    }
+    .login-cursive {
+        display: none !important;
+    }
+    .login-right {
+        flex: none !important;
+        width: 100% !important;
+        padding: 1rem !important;
+        box-sizing: border-box !important;
+    }
+    .login-top-links {
+        display: none !important;
+    }
+    .login-card-container {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    .login-card {
+        padding: 1.5rem 1.25rem !important;
+    }
+
+    /* Safe Area Insets for iPhones */
+    body {
+        padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    }
+}
