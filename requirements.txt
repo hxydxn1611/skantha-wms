@@ -24,4 +24,7 @@ fpdf2>=2.8.0
 openpyxl>=3.1.0
 psutil>=5.9.0
 qrcode>=7.4.0
-
+# ASGI & Cloud Mounts (Hugging Face Spaces)
+a2wsgi>=1.10.0
+fastapi>=0.110.0
+uvicorn>=0.28.0
