@@ -3,8 +3,8 @@ title: Skantha WMS WARLOG
 emoji: 🏭
 colorFrom: blue
 colorTo: indigo
-sdk: docker
-app_port: 5000
+sdk: gradio
+app_file: app.py
 pinned: false
 license: mit
 ---
@@ -17,7 +17,7 @@ Enterprise Warehouse Management System with Autonomous Computer Vision, Powered 
 - **Authoritative Perception Pipeline**: Single-pass YOLO11 inference with zero redundant model loops.
 - **Multi-Device & Mobile Web Support**: Full browser camera streaming (`navigator.mediaDevices.getUserMedia`) via HTTPS.
 - **Enterprise WMS Ledger**: Authoritative bin inventory, gate passes, and cycle count auditing.
-- **Production WSGI**: Powered by Waitress high-concurrency multi-threaded server.
+- **Production Performance**: 16 GB Cloud RAM with FastAPI & Uvicorn ASGI wrapper.
 
 ## Live Access
 - Default Username: `admin`
