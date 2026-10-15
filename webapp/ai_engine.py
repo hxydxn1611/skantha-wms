@@ -104,8 +104,8 @@ class SmartCamera:
                 SmartCamera.ocr_reader = None
             else:
                 try:
-                    print("Loading EasyOCR...")
-                    SmartCamera.ocr_reader = easyocr.Reader(['en'], gpu=False)
+                    from vision_runtime_service import get_gate_ocr_reader
+                    SmartCamera.ocr_reader = get_gate_ocr_reader()
                 except Exception as e_ocr:
                     print(f"Warning: EasyOCR failed to initialize: {e_ocr}")
                     SmartCamera.ocr_reader = None
@@ -183,6 +183,11 @@ class SmartCamera:
                         pass
                     time.sleep(0.05)
                 return
+
+        if not cap_source or str(cap_source).strip() in ("", "None") or str(cap_source).lower().startswith("device:"):
+            while self.is_running:
+                time.sleep(1.0)
+            return
 
         # Support integer source for USB webcams (e.g. "0")
         is_usb = False
@@ -399,437 +404,233 @@ class SmartCamera:
         finally:
             self.anpr_in_flight = False
 
-    def _ai_loop(self):
-        ocr_counter = 0
-        self.tracked_centroids = {}
-        self.active_audits = {}
-        self.refresh_tripwire()
-        frame_idx = 0
+    def _run_cross_section_counter(self, ai_frame: np.ndarray):
+        """Universal Industrial Cross-Section & Piece Counter (Zero-Dataset Concept)
+        Runs on demand in Freeze / Review mode without running YOLO."""
+        detected_heads = []
+        cluster_breakdown = {}
+        palette_bgr = [
+            (220, 20, 220), # Purple
+            (255, 144, 30), # Blue
+            (50, 205, 50),  # Green
+            (0, 140, 255)   # Orange
+        ]
+        cluster_names = ['Top Layer', 'Left Bundle', 'Centre Bundle', 'Right Bundle']
 
-        while self.is_running:
-            frame_idx += 1
-            t_loop_start = time.time()
-            now_t = time.time()
-            if (now_t - self.last_tripwire_check) > 2.0:
-                self.refresh_tripwire()
+        try:
+            gray_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
+            filtered = cv2.bilateralFilter(gray_f, 7, 45, 45)
 
-            with self.lock:
-                if self.raw_frame is None:
-                    ai_frame = None
-                else:
-                    ai_frame = self.raw_frame.copy()
+            th_dark = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 23, 4)
+            th_bright = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 23, 4)
 
-            if ai_frame is None:
-                time.sleep(0.016)
-                continue
+            kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            best_points = []
+            current_med_diam = 16.0
 
-            results = []
-            if hasattr(SmartCamera, 'vehicle_model') and SmartCamera.vehicle_model is not None:
-                try:
-                    # Run YOLO11 tracking in milliseconds (imgsz=480 for fast inference)
-                    results = SmartCamera.vehicle_model.track(ai_frame, persist=True, conf=0.20, iou=0.45, imgsz=480, verbose=False)
-                except Exception:
-                    try:
-                        results = SmartCamera.vehicle_model(ai_frame, conf=0.20, iou=0.45, imgsz=480, verbose=False)
-                    except Exception:
-                        results = []
+            for th_mask in [th_dark, th_bright]:
+                clean_mask = cv2.morphologyEx(th_mask, cv2.MORPH_OPEN, kernel3)
+                num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(clean_mask, connectivity=8)
 
-            # Measure inference latency in milliseconds
-            dt_ms = round((time.time() - t_loop_start) * 1000.0, 1)
+                cands = []
+                for i in range(1, num_labels):
+                    area = stats[i, cv2.CC_STAT_AREA]
+                    cw = stats[i, cv2.CC_STAT_WIDTH]
+                    ch = stats[i, cv2.CC_STAT_HEIGHT]
+                    aspect = float(cw) / ch if ch > 0 else 0
+                    if 18 < area < 2500 and 0.4 < aspect < 2.5:
+                        cands.append((centroids[i][0], centroids[i][1], max(cw, ch)))
 
-            new_boxes = []
-            box_count = 0
-            car_part_count = 0
-            workers_count = 0
-            active_stock_count = 0
+                if len(cands) >= 8:
+                    diams = [c[2] for c in cands]
+                    med_diam = float(np.median(diams))
+                    valid_c = [c for c in cands if 0.5 * med_diam <= c[2] <= 2.0 * med_diam]
 
-            # -----------------------------------------------------------------
-            # BRANCH 1: GATE CAMERA (Strictly ANPR & Gate Pass creation ONLY)
-            # The gate camera does NOT count any warehouse stock/boxes/parcels.
-            # -----------------------------------------------------------------
-            if self.is_gate_camera:
-                for result in results:
-                    if result.boxes.id is not None:
-                        track_ids = result.boxes.id.int().cpu().tolist()
-                    else:
-                        track_ids = [None] * len(result.boxes)
+                    if len(valid_c) >= 8:
+                        pts_arr = np.array([[c[0], c[1]] for c in valid_c])
+                        tree = cKDTree(pts_arr)
+                        dense_items = [c for c in valid_c if len(tree.query_ball_point([c[0], c[1]], r=med_diam * 3.0)) >= 3]
 
-                    for i, box in enumerate(result.boxes):
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        class_id = int(box.cls[0])
-                        track_id = track_ids[i]
-                        raw_type = SmartCamera.vehicle_model.names[class_id]
+                        if len(dense_items) >= 8:
+                            tree_d = cKDTree(np.array([[c[0], c[1]] for c in dense_items]))
+                            used_d = set()
+                            final_pts = []
+                            merge_r = max(8.0, med_diam * 0.75)
+                            for idx, c in enumerate(dense_items):
+                                if idx in used_d:
+                                    continue
+                                for n in tree_d.query_ball_point([c[0], c[1]], r=merge_r):
+                                    used_d.add(n)
+                                final_pts.append((int(c[0]), int(c[1])))
 
-                        # Only identify commercial & passenger vehicles at the entry gate
-                        if raw_type in ["bus", "truck"]:
-                            vehicle_type = "Heavy Commercial (HCV)"
-                        elif raw_type in ["car", "motorcycle"]:
-                            vehicle_type = "Light Vehicle (LMV)"
-                        else:
+                            if len(final_pts) >= 8:
+                                hull = cv2.convexHull(np.array(final_pts, dtype=np.int32))
+                                h_area = cv2.contourArea(hull)
+                                density = len(final_pts) / (h_area / 1000.0) if h_area > 0 else 0
+
+                                if density >= 0.50 and len(final_pts) > len(best_points):
+                                    best_points = final_pts
+                                    current_med_diam = med_diam
+
+            if len(best_points) >= 6:
+                matched_ids = set()
+                match_dist = max(14.0, current_med_diam * 0.75)
+
+                for pt in best_points:
+                    px, py = pt
+                    best_tid, best_d = None, float('inf')
+                    for tid, tdata in self.tracker_items.items():
+                        if tid in matched_ids:
                             continue
-
-                        label = f"{vehicle_type} #{track_id}" if track_id is not None else vehicle_type
-                        new_boxes.append({
-                            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-                            "type": label,
-                            "is_package": False,
-                            "is_vehicle": True,
-                            "track_id": track_id
-                        })
-
-                        
-                # Trigger real-time ANPR worker on LIVE gate feed
-                now_t = time.time()
-                if not self.anpr_in_flight and (now_t - self.last_anpr_run_time >= 0.8):
-                    self.anpr_in_flight = True
-                    self.last_anpr_run_time = now_t
-                    v_boxes_copy = copy.deepcopy(new_boxes)
-                    threading.Thread(
-                        target=self._run_live_gate_anpr_worker,
-                        args=(ai_frame.copy(), v_boxes_copy),
-                        daemon=True
-                    ).start()
-
-                with self.lock:
-                    self.latest_boxes = new_boxes
-                    self.visible_boxes = 0
-                    self.visible_car_parts = 0
-                    self.visible_packages = 0
-                    self.clustered_bundle_count = 0
-                    self.primary_pile_envelope = None
-                    self.detected_bar_layers = 0
-                    self.bar_layer_peaks = []
-                    self.bar_stack_bbox = None
-                    self.detected_heads = []
-                    self.cluster_breakdown = {}
-                    self.head_count = 0
-                    self.inbound_count = 0
-                    self.outbound_count = 0
-                    self.net_stock_count = 0
-                    self.inference_latency_ms = dt_ms
-                    self.fps = round(1000.0 / max(1.0, dt_ms), 1)
-
-                time.sleep(0.016)
-                continue
-
-            # -----------------------------------------------------------------
-            # BRANCH 2: WAREHOUSE / DOCK / STAGING / BIN CAMERAS
-            # Live tracking of Workers & Stocks + Millisecond In/Out Counting
-            # -----------------------------------------------------------------
-            for result in results:
-                if result.boxes.id is not None:
-                    track_ids = result.boxes.id.int().cpu().tolist()
-                else:
-                    track_ids = [None] * len(result.boxes)
-
-                for i, box in enumerate(result.boxes):
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    class_id = int(box.cls[0])
-                    track_id = track_ids[i]
-                    raw_type = SmartCamera.vehicle_model.names[class_id]
-
-                    is_person = (raw_type == "person")
-                    is_stock = raw_type in [
-                        "suitcase", "backpack", "handbag", "box", "carton", "bundle",
-                        "pallet", "crate", "package", "laptop", "book", "tv",
-                        "microwave", "oven", "refrigerator", "bottle", "car part", "chair"
-                    ]
-
-                    if is_person:
-                        workers_count += 1
-                        vehicle_type = f"Worker #{track_id}" if track_id is not None else "Worker"
-                    elif is_stock:
-                        active_stock_count += 1
-                        box_count += 1
-                        vehicle_type = f"Stock #{track_id}" if track_id is not None else "Stock"
+                        d = np.hypot(px - tdata['x'], py - tdata['y'])
+                        if d < match_dist and d < best_d:
+                            best_tid, best_d = tid, d
+                    if best_tid is not None:
+                        matched_ids.add(best_tid)
+                        self.tracker_items[best_tid]['x'] = 0.85 * self.tracker_items[best_tid]['x'] + 0.15 * px
+                        self.tracker_items[best_tid]['y'] = 0.85 * self.tracker_items[best_tid]['y'] + 0.15 * py
+                        self.tracker_items[best_tid]['hits'] += 1
+                        self.tracker_items[best_tid]['missed'] = 0
                     else:
-                        car_part_count += 1
-                        vehicle_type = f"{raw_type.title()} #{track_id}" if track_id is not None else raw_type.title()
+                        self.tracker_items[self.next_pin_id] = {
+                            'x': float(px),
+                            'y': float(py),
+                            'hits': 1,
+                            'missed': 0
+                        }
+                        self.next_pin_id += 1
 
-                    # Centroid & Motion Tracking
-                    cx = int((x1 + x2) / 2)
-                    cy = int((y1 + y2) / 2)
-
-                    if track_id is not None:
-                        self.tracked_centroids[track_id] = (cx, cy)
-                        if track_id not in self.track_trajectories:
-                            self.track_trajectories[track_id] = []
-                        traj = self.track_trajectories[track_id]
-                        prev_pos = traj[-1] if traj else (cx, cy)
-                        traj.append((cx, cy))
-                        if len(traj) > 18:
-                            traj.pop(0)
-
-                        dx = cx - prev_pos[0]
-                        dy = cy - prev_pos[1]
-                        self.track_motion_vectors[track_id] = (dx, dy)
-                        self.track_last_seen[track_id] = frame_idx
-
-                        # Directional Live Counting for Stocks via Database-Driven Tripwire
-                        if (is_stock or (not is_person)) and self.active_tripwire and self.active_tripwire.get('is_enabled'):
-                            crossing = evaluate_tripwire_crossing(
-                                p1=self.active_tripwire['p1'],
-                                p2=self.active_tripwire['p2'],
-                                prev_pos=prev_pos,
-                                curr_pos=(cx, cy),
-                                allowed_direction=self.active_tripwire.get('crossing_direction', 'BOTH')
-                            )
-
-                            if crossing == 'IN' and self.counted_track_states.get(track_id) != 'IN':
-                                self.inbound_count += 1
-                                self.counted_track_states[track_id] = 'IN'
-                                self.flash_counters.append({
-                                    'text': '+1 IN (STOCK ADDED)',
-                                    'pos': (cx, cy),
-                                    'ttl': 24,
-                                    'color': (0, 255, 128)
-                                })
-                            elif crossing == 'OUT' and self.counted_track_states.get(track_id) != 'OUT':
-                                self.outbound_count += 1
-                                self.counted_track_states[track_id] = 'OUT'
-                                self.flash_counters.append({
-                                    'text': '-1 OUT (STOCK SUBTRACTED)',
-                                    'pos': (cx, cy),
-                                    'ttl': 24,
-                                    'color': (0, 140, 255)
-                                })
-
-                    new_boxes.append({
-                        "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-                        "type": vehicle_type,
-                        "is_package": is_stock or (not is_person),
-                        "is_person": is_person,
-                        "track_id": track_id
-                    })
-
-            # Calculate Net Live Inventory
-            self.net_stock_count = max(0, self.inbound_count - self.outbound_count)
-
-            # Decay floating flash counters
-            for fc in self.flash_counters:
-                fc['ttl'] -= 1
-            self.flash_counters = [fc for fc in self.flash_counters if fc['ttl'] > 0]
-
-            # Prune stale tracks that haven't been observed for > 30 frames
-            dead_tids = [tid for tid, lseen in self.track_last_seen.items() if (frame_idx - lseen) > 30]
-            for tid in dead_tids:
-                self.track_trajectories.pop(tid, None)
-                self.track_motion_vectors.pop(tid, None)
-                self.track_last_seen.pop(tid, None)
-                self.counted_track_states.pop(tid, None)
-
-            # Fast spatial boundary envelope for packages
-            package_boxes = [b for b in new_boxes if b.get('is_package')]
-            clustered_count = len(package_boxes)
-            pile_envelope = None
-            if package_boxes:
-                pile_envelope = {
-                    'x1': max(0, min(int(b['x1']) for b in package_boxes)),
-                    'y1': max(0, min(int(b['y1']) for b in package_boxes)),
-                    'x2': min(640, max(int(b['x2']) for b in package_boxes)),
-                    'y2': min(480, max(int(b['y2']) for b in package_boxes))
-                }
-
-            # If camera is frozen in Review/Count mode, hold current frame and detections
-            if self.is_frozen:
-                time.sleep(0.04)
-                continue
-
-            # Universal Industrial Cross-Section & Piece Counter (Zero-Dataset Concept)
-            detected_heads = []
-            cluster_breakdown = {}
-            palette_bgr = [
-                (220, 20, 220), # Purple
-                (255, 144, 30), # Blue
-                (50, 205, 50),  # Green
-                (0, 140, 255)   # Orange
-            ]
-            cluster_names = ['Top Layer', 'Left Bundle', 'Centre Bundle', 'Right Bundle']
-
-            try:
-                gray_f = cv2.cvtColor(ai_frame, cv2.COLOR_BGR2GRAY)
-                filtered = cv2.bilateralFilter(gray_f, 7, 45, 45)
-
-                th_dark = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 23, 4)
-                th_bright = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 23, 4)
-
-                kernel3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-                best_points = []
-                current_med_diam = 16.0
-
-                for th_mask in [th_dark, th_bright]:
-                    clean_mask = cv2.morphologyEx(th_mask, cv2.MORPH_OPEN, kernel3)
-                    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(clean_mask, connectivity=8)
-
-                    cands = []
-                    for i in range(1, num_labels):
-                        area = stats[i, cv2.CC_STAT_AREA]
-                        cw = stats[i, cv2.CC_STAT_WIDTH]
-                        ch = stats[i, cv2.CC_STAT_HEIGHT]
-                        aspect = float(cw) / ch if ch > 0 else 0
-                        if 18 < area < 2500 and 0.4 < aspect < 2.5:
-                            cands.append((centroids[i][0], centroids[i][1], max(cw, ch)))
-
-                    if len(cands) >= 8:
-                        diams = [c[2] for c in cands]
-                        med_diam = float(np.median(diams))
-                        valid_c = [c for c in cands if 0.5 * med_diam <= c[2] <= 2.0 * med_diam]
-
-                        if len(valid_c) >= 8:
-                            pts_arr = np.array([[c[0], c[1]] for c in valid_c])
-                            tree = cKDTree(pts_arr)
-                            dense_items = [c for c in valid_c if len(tree.query_ball_point([c[0], c[1]], r=med_diam * 3.0)) >= 3]
-
-                            if len(dense_items) >= 8:
-                                # NMS to merge overlapping multi-level hits
-                                tree_d = cKDTree(np.array([[c[0], c[1]] for c in dense_items]))
-                                used_d = set()
-                                final_pts = []
-                                merge_r = max(8.0, med_diam * 0.75)
-                                for idx, c in enumerate(dense_items):
-                                    if idx in used_d:
-                                        continue
-                                    for n in tree_d.query_ball_point([c[0], c[1]], r=merge_r):
-                                        used_d.add(n)
-                                    final_pts.append((int(c[0]), int(c[1])))
-
-                                if len(final_pts) >= 8:
-                                    # Stack Convex Hull Density Check:
-                                    # Real warehouse stacks (pipes, tubes, bundles) have density >= 0.70 items / 1000px^2
-                                    # Everyday rooms / tablecloths have density < 0.45 and get rejected
-                                    hull = cv2.convexHull(np.array(final_pts, dtype=np.int32))
-                                    h_area = cv2.contourArea(hull)
-                                    density = len(final_pts) / (h_area / 1000.0) if h_area > 0 else 0
-
-                                    if density >= 0.50 and len(final_pts) > len(best_points):
-                                        best_points = final_pts
-                                        current_med_diam = med_diam
-
-                # Anti-Jitter Temporal Centroid Tracking (stops dots from jumping/running)
-                if len(best_points) >= 6:
-                    matched_ids = set()
-                    match_dist = max(14.0, current_med_diam * 0.75)
-
-                    for pt in best_points:
-                        px, py = pt
-                        best_tid, best_d = None, float('inf')
-                        for tid, tdata in self.tracker_items.items():
-                            if tid in matched_ids:
-                                continue
-                            d = np.hypot(px - tdata['x'], py - tdata['y'])
-                            if d < match_dist and d < best_d:
-                                best_tid, best_d = tid, d
-                        if best_tid is not None:
-                            matched_ids.add(best_tid)
-                            # Exponential Moving Average for smooth anchoring without jitter
-                            self.tracker_items[best_tid]['x'] = 0.85 * self.tracker_items[best_tid]['x'] + 0.15 * px
-                            self.tracker_items[best_tid]['y'] = 0.85 * self.tracker_items[best_tid]['y'] + 0.15 * py
-                            self.tracker_items[best_tid]['hits'] += 1
-                            self.tracker_items[best_tid]['missed'] = 0
-                        else:
-                            self.tracker_items[self.next_pin_id] = {
-                                'x': float(px),
-                                'y': float(py),
-                                'hits': 1,
-                                'missed': 0
-                            }
-                            self.next_pin_id += 1
-
-                    # Increment missed for unmatched pins; prune only after 6 consecutive misses
-                    to_remove = []
-                    for tid, tdata in self.tracker_items.items():
-                        if tid not in matched_ids:
-                            tdata['missed'] += 1
-                            if tdata['missed'] > 6:
-                                to_remove.append(tid)
-                    for tid in to_remove:
-                        del self.tracker_items[tid]
-                else:
-                    # No stack in view: smoothly age out tracked pins
-                    to_remove = []
-                    for tid, tdata in self.tracker_items.items():
+                to_remove = []
+                for tid, tdata in self.tracker_items.items():
+                    if tid not in matched_ids:
                         tdata['missed'] += 1
-                        if tdata['missed'] > 3:
+                        if tdata['missed'] > 6:
                             to_remove.append(tid)
-                    for tid in to_remove:
-                        del self.tracker_items[tid]
+                for tid in to_remove:
+                    del self.tracker_items[tid]
 
-                # Stable confirmed pins (seen in >= 2 frames), or all active pins for instantaneous first frame
+            stable_pins = [
+                (tid, tdata['x'], tdata['y'])
+                for tid, tdata in self.tracker_items.items()
+                if tdata['hits'] >= 2 and tdata['missed'] <= 2
+            ]
+            if len(stable_pins) < 4:
                 stable_pins = [
                     (tid, tdata['x'], tdata['y'])
                     for tid, tdata in self.tracker_items.items()
-                    if tdata['hits'] >= 2 and tdata['missed'] <= 2
+                    if tdata['missed'] <= 1
                 ]
-                if len(stable_pins) < 4:
-                    stable_pins = [
-                        (tid, tdata['x'], tdata['y'])
-                        for tid, tdata in self.tracker_items.items()
-                        if tdata['missed'] <= 1
-                    ]
 
-                if len(stable_pins) >= 4:
-                    coords = np.array([[p[1], p[2]] for p in stable_pins])
-                    k_clusters = min(4, max(1, len(stable_pins) // 25))
-                    Z = linkage(coords, method='ward')
-                    c_labels = fcluster(Z, t=k_clusters, criterion='maxclust')
+            if len(stable_pins) >= 4:
+                coords = np.array([[p[1], p[2]] for p in stable_pins])
+                k_clusters = min(4, max(1, len(stable_pins) // 25))
+                Z = linkage(coords, method='ward')
+                c_labels = fcluster(Z, t=k_clusters, criterion='maxclust')
 
-                    sorted_order = sorted(range(len(stable_pins)), key=lambda i: (stable_pins[i][2], stable_pins[i][1]))
+                sorted_order = sorted(range(len(stable_pins)), key=lambda i: (stable_pins[i][2], stable_pins[i][1]))
+                c_counts = {ci: 0 for ci in range(1, k_clusters + 1)}
+                pins = []
+                for seq, idx in enumerate(sorted_order, 1):
+                    tid, px, py = stable_pins[idx]
+                    c_id = int(c_labels[idx])
+                    c_counts[c_id] += 1
+                    pins.append({
+                        'id': tid,
+                        'x': int(round(px)),
+                        'y': int(round(py)),
+                        'seq': seq,
+                        'cluster_id': c_id,
+                        'color': palette_bgr[(c_id - 1) % len(palette_bgr)]
+                    })
 
-                    c_counts = {ci: 0 for ci in range(1, k_clusters + 1)}
-                    pins = []
-                    for seq, idx in enumerate(sorted_order, 1):
-                        tid, px, py = stable_pins[idx]
-                        c_id = int(c_labels[idx])
-                        c_counts[c_id] += 1
-                        pins.append({
-                            'id': tid,
-                            'x': int(round(px)),
-                            'y': int(round(py)),
-                            'seq': seq,
-                            'cluster_id': c_id,
-                            'color': palette_bgr[(c_id - 1) % len(palette_bgr)]
-                        })
-
-                    detected_heads = pins
-                    for ci in range(1, k_clusters + 1):
-                        c_name = cluster_names[ci - 1] if ci - 1 < len(cluster_names) else f'Bundle {ci}'
-                        cluster_breakdown[c_name] = c_counts[ci]
-            except Exception:
-                pass
-
-            bar_layers = 0
-            bar_peaks = []
-            bar_bbox = None
-
-            if detected_heads:
-                clustered_count = len(detected_heads)
-            elif bar_layers > 0:
-                clustered_count = max(clustered_count, bar_layers)
+                detected_heads = pins
+                for ci in range(1, k_clusters + 1):
+                    c_name = cluster_names[ci - 1] if ci - 1 < len(cluster_names) else f'Bundle {ci}'
+                    cluster_breakdown[c_name] = c_counts[ci]
 
             with self.lock:
-                self.latest_boxes = new_boxes
-                self.visible_boxes = box_count
-                self.visible_car_parts = car_part_count
-                self.visible_packages = box_count + car_part_count
-                self.clustered_bundle_count = clustered_count
-                self.primary_pile_envelope = pile_envelope
-                self.detected_bar_layers = bar_layers
-                self.bar_layer_peaks = bar_peaks
-                self.bar_stack_bbox = bar_bbox
                 self.detected_heads = detected_heads
                 self.cluster_breakdown = cluster_breakdown
                 self.head_count = len(detected_heads)
-                self.active_workers_count = workers_count
-                self.active_stocks_count = active_stock_count
-                self.inference_latency_ms = dt_ms
-                self.fps = round(1000.0 / max(1.0, dt_ms), 1)
+                if detected_heads:
+                    self.clustered_bundle_count = len(detected_heads)
+        except Exception:
+            pass
 
-            time.sleep(0.016) # Faster loop for 60 FPS capabilities
+    def _ai_loop(self):
+        """Authoritative Perception Synchronization Loop.
+        Delegates detection, tracking, ANPR, and tripwire counting to VisionRuntimeManager.
+        Eliminates duplicate YOLO inference loops while keeping SmartCamera synchronized."""
+        try:
+            from vision_runtime_service import get_vision_runtime_manager
+            mgr = get_vision_runtime_manager()
+        except Exception:
+            mgr = None
+
+        sess = None
+        if mgr:
+            sess = mgr.get_session(self.camera_id)
+            if not sess:
+                sess = mgr.get_or_create_session(
+                    camera_id=self.camera_id,
+                    name=self.name,
+                    location=self.location,
+                    stream_url=self.url or "",
+                    configured_fps=10,
+                    test_mode=(os.environ.get("WARLOG_TEST_MODE") == "1" or not bool(self.url))
+                )
+            if sess and not sess.is_running and self.is_running:
+                sess.start()
+
+        while self.is_running:
+            if mgr and not sess:
+                sess = mgr.get_session(self.camera_id)
+                if sess and not sess.is_running:
+                    sess.start()
+
+            if sess:
+                state = sess.get_perception_state()
+                with self.lock:
+                    self.latest_boxes = state.get("latest_boxes", [])
+                    self.visible_boxes = state.get("visible_boxes", 0)
+                    self.visible_packages = state.get("visible_packages", 0)
+                    self.active_workers_count = state.get("active_workers_count", 0)
+                    self.active_stocks_count = state.get("active_stocks_count", 0)
+                    self.inbound_count = state.get("inbound_count", 0)
+                    self.outbound_count = state.get("outbound_count", 0)
+                    self.net_stock_count = state.get("net_stock_count", 0)
+                    self.flash_counters = state.get("flash_counters", [])
+                    self.track_trajectories = state.get("track_trajectories", {})
+                    self.track_motion_vectors = state.get("track_motion_vectors", {})
+                    self.last_detected_plate = state.get("last_detected_plate")
+                    self.last_gate_pass_id = state.get("last_gate_pass_id")
+                    self.events = state.get("events", [])
+                    self.inference_latency_ms = state.get("inference_latency_ms", 0.0)
+                    self.fps = state.get("fps", 0.0)
+
+            # Universal Industrial Cross-Section & Piece Counter (Zero-Dataset Concept)
+            # Active in Freeze review mode without running YOLO
+            if self.is_frozen and self.raw_frame is not None:
+                self._run_cross_section_counter(self.raw_frame)
+
+            time.sleep(0.02)
 
     def get_frame(self):
         with self.lock:
             if self.is_frozen and self.frozen_jpeg is not None:
                 return self.frozen_jpeg
+
+        # 1. Authoritative canonical VisionRuntimeSession annotated frame
+        try:
+            from vision_runtime_service import get_vision_runtime_manager
+            sess = get_vision_runtime_manager().get_session(self.camera_id)
+            if sess and sess.latest_annotated_jpeg:
+                return sess.latest_annotated_jpeg
+        except Exception:
+            pass
+
+        # 2. Fallback local rendering with synchronized state
+        with self.lock:
             if self.raw_frame is None:
                 placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
                 cv2.putText(placeholder, "Awaiting Camera Feed...", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)

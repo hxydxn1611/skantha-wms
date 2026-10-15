@@ -18,7 +18,7 @@ def download_dataset(api_key, workspace_name, project_name, version_num=1):
     
     print("Downloading dataset in Ultralytics YOLO format (for YOLO11)...")
     # This will download the dataset and return the dataset object
-    dataset = version.download("yolov8")
+    dataset = version.download("yolo11")
     
     print(f"\n✅ Dataset downloaded successfully to: {dataset.location}")
     print(f"The YOLO data.yaml is located at: {dataset.location}/data.yaml")
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     print("Roboflow Dataset Integrator")
     print("===========================================================")
     print("You can find these details on your Roboflow dataset page")
-    print("under 'Export' -> 'Format: YOLOv8' -> 'Get Snippet'.")
+    print("under 'Export' -> 'Format: YOLO11' -> 'Get Snippet'.")
     print("===========================================================\n")
     
     api_key = input("Enter your Roboflow API Key: ").strip()
