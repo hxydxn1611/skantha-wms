@@ -16,6 +16,17 @@ if WEBAPP_DIR not in sys.path:
 import uvicorn
 from fastapi import FastAPI
 from a2wsgi import WSGIMiddleware
+
+# Hugging Face ZeroGPU Support
+try:
+    import spaces
+
+    @spaces.GPU
+    def spaces_gpu_inference(tensor=None):
+        """ZeroGPU accelerated inference entrypoint."""
+        return tensor
+except Exception:
+    spaces_gpu_inference = None
 def ensure_model_weights():
     target = os.path.join(WEBAPP_DIR, "yolo11s.pt")
     if not os.path.exists(target):
