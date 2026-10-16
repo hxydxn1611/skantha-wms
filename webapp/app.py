@@ -4698,7 +4698,7 @@ def api_create_pallet():
         ps = get_pallet_service()
         ps.set_active_pallet_for_camera(camera_id, rec['pallet_id'])
 
-    return jsonify({"success": True, "pallet": rec}), 201
+    return jsonify({"success": True, "status": "success", "pallet": rec}), 201
 
 
 @app.route('/api/pallets/<pallet_id>', methods=['GET'])
@@ -4783,6 +4783,7 @@ def api_seal_pallet(pallet_id):
 
     return jsonify({
         "success": True,
+        "status": "success",
         "pallet": rec,
         "label_url": label_url
     })
@@ -4893,7 +4894,7 @@ def api_resolve_violation(violation_id):
     if not rec:
         return jsonify({"success": False, "error": f"Violation #{violation_id} not found"}), 404
 
-    return jsonify({"success": True, "violation": rec})
+    return jsonify({"success": True, "status": "success", "violation": rec})
 
 
 if __name__ == '__main__':

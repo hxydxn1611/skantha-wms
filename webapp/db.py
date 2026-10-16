@@ -2553,6 +2553,15 @@ def create_pallet(
         return None, f"SKU '{sku_id}' does not exist in master catalog."
 
     actual_pallet_id = (pallet_id or "").strip() or generate_pallet_id()
+    sanitized_bin = str(assigned_bin_id).strip() if assigned_bin_id and str(assigned_bin_id).strip() else None
+    sanitized_cam = str(camera_id).strip() if camera_id and str(camera_id).strip() else None
+
+    # Guarantee uniqueness: if ID already exists, append unique suffix
+    existing = conn.execute("SELECT 1 FROM pallets WHERE pallet_id = ?", (actual_pallet_id,)).fetchone()
+    if existing:
+        import uuid
+        actual_pallet_id = f"{actual_pallet_id}-{uuid.uuid4().hex[:4].upper()}"
+
     pallet_name = name or f"Pallet {actual_pallet_id} ({sku['name']})"
     u_per_b = max(1, int(units_per_bundle or 1))
     t_bundles = max(1, int(target_bundles or 1))
@@ -2565,17 +2574,24 @@ def create_pallet(
         "target_bundles": t_bundles
     })
 
-    with conn:
-        conn.execute("""
-            INSERT INTO pallets (
-                pallet_id, sku_id, name, units_per_bundle, target_bundles,
-                counted_bundles, total_units, status, assigned_bin_id,
-                camera_id, qr_code, notes, created_at
-            ) VALUES (?, ?, ?, ?, ?, 0, 0, 'STACKING', ?, ?, ?, ?, datetime('now', 'localtime'))
-        """, (
-            actual_pallet_id, str(sku_id), pallet_name, u_per_b, t_bundles,
-            assigned_bin_id, camera_id, qr_payload, notes
-        ))
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO pallets (
+                    pallet_id, sku_id, name, units_per_bundle, target_bundles,
+                    counted_bundles, total_units, status, assigned_bin_id,
+                    camera_id, qr_code, notes, created_at
+                ) VALUES (?, ?, ?, ?, ?, 0, 0, 'STACKING', ?, ?, ?, ?, datetime('now', 'localtime'))
+            """, (
+                actual_pallet_id, str(sku_id), pallet_name, u_per_b, t_bundles,
+                sanitized_bin, sanitized_cam, qr_payload, notes
+            ))
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        return None, f"Database integrity error: {str(e)}"
+    except Exception as e:
+        conn.close()
+        return None, f"Failed to create pallet: {str(e)}"
 
     rec = get_pallet_by_id(actual_pallet_id)
     conn.close()
