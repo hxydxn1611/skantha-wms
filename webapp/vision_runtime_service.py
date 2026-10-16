@@ -676,6 +676,20 @@ class VisionPipelineExecutor:
         total_ms = round((time.perf_counter() - t0) * 1000, 2)
         timing["total_ms"] = total_ms
 
+        # 7.5 Autonomous Palletization & Violation Processing
+        pallet_data = None
+        try:
+            from pallet_service import get_pallet_service
+            ps = get_pallet_service()
+            pallet_data = ps.process_pallet_zone_tracks(
+                camera_id=camera_id,
+                tracks=validated_tracks,
+                frame_bgr=raw_frame,
+                pallet_zone_polygon=primary_roi
+            )
+        except Exception as e:
+            logger.debug(f"Pallet zone tracking bypass: {e}")
+
         # 8. Render Visual Annotation
         annotated_bgr = self._render_annotation(
             frame=raw_frame.copy(),
@@ -683,7 +697,8 @@ class VisionPipelineExecutor:
             camera_id=camera_id,
             timing=timing,
             events=events,
-            primary_roi=primary_roi
+            primary_roi=primary_roi,
+            pallet_data=pallet_data
         )
 
         # Encode to JPEG buffer
@@ -705,6 +720,7 @@ class VisionPipelineExecutor:
             "timing": timing,
             "tracks": validated_tracks,
             "events": events,
+            "pallet_data": pallet_data,
             "annotated_jpeg": annotated_jpeg
         }
 
@@ -715,9 +731,10 @@ class VisionPipelineExecutor:
         camera_id: str,
         timing: Dict[str, float],
         events: List[Dict[str, Any]],
-        primary_roi: Optional[List[Dict[str, float]]] = None
+        primary_roi: Optional[List[Dict[str, float]]] = None,
+        pallet_data: Optional[Dict[str, Any]] = None
     ) -> np.ndarray:
-        """Draws bounding boxes, track IDs, validation badges, ROI polygon, and HUD metrics."""
+        """Draws bounding boxes, track IDs, validation badges, ROI polygon, HUD metrics, and Pallet counters."""
         h, w = frame.shape[:2]
 
         # Draw ROI boundary (polygon or tripwire line) if configured
@@ -744,29 +761,68 @@ class VisionPipelineExecutor:
             track_id = t.get("track_id", "?")
             val_status = t.get("validation", {}).get("status", "UNVALIDATED")
 
+            # Check if this track triggered a human error violation or pallet count
+            has_violation = bool(t.get("violation"))
+            is_counted_bundle = bool(t.get("is_counted_bundle"))
+
             # Determine box color
-            if cls_code == "WORKER":
+            if has_violation:
+                color = (0, 0, 255) # Bright Neon Red for violations
+                thickness = 3
+            elif is_counted_bundle:
+                color = (0, 230, 115) # Emerald Green for verified bundle on pallet
+                thickness = 2
+            elif cls_code == "WORKER":
                 color = (255, 120, 0)
+                thickness = 2
             elif cls_code == "TRUCK":
                 color = (0, 165, 255)
+                thickness = 2
             elif val_status == "VALIDATED":
                 color = (0, 220, 0)
+                thickness = 2
             else:
                 color = (0, 200, 255)
+                thickness = 2
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
             
             # Label banner
-            ident_val = t.get("identity", {}).get("value") or ""
-            ident_str = f" [{ident_val}]" if ident_val else ""
-            label = f"#{track_id} {cls_code}{ident_str}"
+            if has_violation:
+                label = f"VIOLATION: {t.get('violation')}"
+            elif is_counted_bundle:
+                sim = int(t.get('sku_similarity', 0.8) * 100)
+                label = f"BUNDLE #{track_id} [VERIFIED {sim}%]"
+            else:
+                ident_val = t.get("identity", {}).get("value") or ""
+                ident_str = f" [{ident_val}]" if ident_val else ""
+                label = f"#{track_id} {cls_code}{ident_str}"
+
             cv2.putText(frame, label, (x1, max(18, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        # Draw HUD Panel
+        # Draw HUD Panel (Left side)
         cv2.rectangle(frame, (8, 8), (380, 52), (15, 15, 15), -1)
         cv2.rectangle(frame, (8, 8), (380, 52), (60, 60, 60), 1)
         hud_text = f"{camera_id} | Tracks: {len(tracks)} | Evts: {len(events)} | {timing.get('total_ms', 0)}ms"
         cv2.putText(frame, hud_text, (18, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 180), 2)
+
+        # Draw Autonomous Palletization HUD (Right side) if pallet is active
+        if pallet_data and pallet_data.get("active_pallet"):
+            p_id = pallet_data.get("pallet_id", "PLT")
+            c_b = pallet_data.get("counted_bundles", 0)
+            t_b = pallet_data.get("target_bundles", 0)
+            tot_u = pallet_data.get("total_units", 0)
+            sku = pallet_data.get("sku_id", "")
+
+            hud_w = 340
+            x_start = max(10, w - hud_w - 10)
+            cv2.rectangle(frame, (x_start, 8), (w - 10, 54), (20, 25, 35), -1)
+            cv2.rectangle(frame, (x_start, 8), (w - 10, 54), (0, 200, 255), 2)
+
+            p_title = f"PALLET: {p_id} ({sku})"
+            cv2.putText(frame, p_title, (x_start + 10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+            p_metrics = f"BUNDLES: {c_b}/{t_b}  |  PIECES: {tot_u} EA"
+            cv2.putText(frame, p_metrics, (x_start + 10, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 120), 2)
 
         return frame
 

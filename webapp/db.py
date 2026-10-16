@@ -2,6 +2,8 @@ import sqlite3
 import json
 import time
 import os
+from datetime import datetime
+from typing import Optional, Dict, Any, List, Tuple
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
 
@@ -282,6 +284,66 @@ def init_db():
             FOREIGN KEY(sku_id) REFERENCES skus(sku_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_sku_images_sku ON sku_images(sku_id);
+
+        -- Autonomous Palletization Master
+        CREATE TABLE IF NOT EXISTS pallets (
+            pallet_id TEXT PRIMARY KEY,
+            sku_id TEXT NOT NULL,
+            name TEXT,
+            units_per_bundle INTEGER NOT NULL DEFAULT 1,
+            target_bundles INTEGER NOT NULL DEFAULT 1,
+            counted_bundles INTEGER NOT NULL DEFAULT 0,
+            total_units INTEGER NOT NULL DEFAULT 0,
+            status TEXT DEFAULT 'STACKING',
+            assigned_bin_id TEXT,
+            camera_id TEXT,
+            qr_code TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sealed_at TIMESTAMP,
+            FOREIGN KEY (sku_id) REFERENCES skus(sku_id) ON DELETE RESTRICT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pallets_sku ON pallets(sku_id);
+        CREATE INDEX IF NOT EXISTS idx_pallets_status ON pallets(status);
+
+        -- Items / Bundles Aggregated into a Pallet
+        CREATE TABLE IF NOT EXISTS pallet_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pallet_id TEXT NOT NULL,
+            track_id INTEGER,
+            confidence REAL DEFAULT 0.0,
+            similarity_score REAL DEFAULT 0.0,
+            snapshot_path TEXT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pallet_id) REFERENCES pallets(pallet_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_pallet_items_pallet ON pallet_items(pallet_id);
+
+        -- Autonomous Human Error & Safety Violations Ledger
+        CREATE TABLE IF NOT EXISTS violations_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            violation_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            camera_id TEXT,
+            zone_code TEXT,
+            sku_id TEXT,
+            bin_id TEXT,
+            pallet_id TEXT,
+            track_id INTEGER,
+            expected_value TEXT,
+            actual_value TEXT,
+            severity TEXT DEFAULT 'HIGH',
+            snapshot_path TEXT,
+            status TEXT DEFAULT 'OPEN',
+            resolved_by TEXT,
+            resolution_notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_violations_status ON violations_log(status);
+        CREATE INDEX IF NOT EXISTS idx_violations_type ON violations_log(violation_type);
+        CREATE INDEX IF NOT EXISTS idx_violations_created ON violations_log(created_at);
         """)
         
         # Alter existing tables if needed
@@ -327,7 +389,14 @@ def init_db():
             pass
 
         # SKU Master enhancements for AI Vision & Item Master Data
-        for col, col_type in [("uom", "TEXT DEFAULT 'EA'"), ("status", "TEXT DEFAULT 'Active'"), ("updated_at", "TIMESTAMP")]:
+        for col, col_type in [
+            ("uom", "TEXT DEFAULT 'EA'"),
+            ("status", "TEXT DEFAULT 'Active'"),
+            ("updated_at", "TIMESTAMP"),
+            ("units_per_bundle", "INTEGER DEFAULT 1"),
+            ("target_bundles_per_pallet", "INTEGER DEFAULT 10"),
+            ("bundle_name", "TEXT DEFAULT 'Bundle'")
+        ]:
             try:
                 conn.execute(f"ALTER TABLE skus ADD COLUMN {col} {col_type}")
             except sqlite3.OperationalError:
@@ -2441,4 +2510,338 @@ def set_sku_primary_image(sku_id, image_id):
     return True, None
 
 
+# ==============================================================================
+# AUTONOMOUS PALLETIZATION & BUNDLE AGGREGATION HELPERS
+# ==============================================================================
 
+def generate_pallet_id():
+    """Generate sequential unique Pallet ID: PLT-YYYY-XXXX."""
+    conn = get_db()
+    year = datetime.now().strftime("%Y")
+    prefix = f"PLT-{year}-"
+    row = conn.execute(
+        "SELECT pallet_id FROM pallets WHERE pallet_id LIKE ? ORDER BY pallet_id DESC LIMIT 1",
+        (f"{prefix}%",)
+    ).fetchone()
+    conn.close()
+    if row and row['pallet_id']:
+        try:
+            last_num = int(row['pallet_id'].split('-')[-1])
+            new_num = last_num + 1
+        except Exception:
+            new_num = 1
+    else:
+        new_num = 1
+    return f"{prefix}{new_num:04d}"
+
+
+def create_pallet(
+    sku_id: str,
+    units_per_bundle: int = 1,
+    target_bundles: int = 10,
+    name: Optional[str] = None,
+    pallet_id: Optional[str] = None,
+    assigned_bin_id: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    notes: Optional[str] = None
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Create a new stacking Pallet record with bundle packaging ratios."""
+    conn = get_db()
+    sku = conn.execute("SELECT * FROM skus WHERE sku_id = ?", (str(sku_id),)).fetchone()
+    if not sku:
+        conn.close()
+        return None, f"SKU '{sku_id}' does not exist in master catalog."
+
+    actual_pallet_id = (pallet_id or "").strip() or generate_pallet_id()
+    pallet_name = name or f"Pallet {actual_pallet_id} ({sku['name']})"
+    u_per_b = max(1, int(units_per_bundle or 1))
+    t_bundles = max(1, int(target_bundles or 1))
+
+    qr_payload = json.dumps({
+        "type": "PALLET_MASTER",
+        "pallet_id": actual_pallet_id,
+        "sku_id": str(sku_id),
+        "units_per_bundle": u_per_b,
+        "target_bundles": t_bundles
+    })
+
+    with conn:
+        conn.execute("""
+            INSERT INTO pallets (
+                pallet_id, sku_id, name, units_per_bundle, target_bundles,
+                counted_bundles, total_units, status, assigned_bin_id,
+                camera_id, qr_code, notes, created_at
+            ) VALUES (?, ?, ?, ?, ?, 0, 0, 'STACKING', ?, ?, ?, ?, datetime('now', 'localtime'))
+        """, (
+            actual_pallet_id, str(sku_id), pallet_name, u_per_b, t_bundles,
+            assigned_bin_id, camera_id, qr_payload, notes
+        ))
+
+    rec = get_pallet_by_id(actual_pallet_id)
+    conn.close()
+    return rec, None
+
+
+def get_pallet_by_id(pallet_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch complete pallet record including joined SKU master data."""
+    conn = get_db()
+    row = conn.execute("""
+        SELECT p.*, s.name as sku_name, s.category as sku_category, s.uom as sku_uom,
+               (SELECT file_path FROM sku_images WHERE sku_id = p.sku_id AND is_primary = 1 LIMIT 1) as primary_image
+        FROM pallets p
+        LEFT JOIN skus s ON p.sku_id = s.sku_id
+        WHERE p.pallet_id = ?
+    """, (str(pallet_id),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_pallets(status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    """Retrieve pallets list optionally filtered by status."""
+    conn = get_db()
+    query = """
+        SELECT p.*, s.name as sku_name, s.category as sku_category, s.uom as sku_uom,
+               (SELECT file_path FROM sku_images WHERE sku_id = p.sku_id AND is_primary = 1 LIMIT 1) as primary_image
+        FROM pallets p
+        LEFT JOIN skus s ON p.sku_id = s.sku_id
+    """
+    params = []
+    if status and status.upper() != 'ALL':
+        query += " WHERE p.status = ?"
+        params.append(status.upper())
+    query += " ORDER BY p.created_at DESC LIMIT ?"
+    params.append(int(limit))
+
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_pallet_count(
+    pallet_id: str,
+    new_count: int,
+    track_id: Optional[int] = None,
+    similarity_score: float = 0.0,
+    snapshot_path: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """Update counted bundles on a pallet and recompute total pieces."""
+    conn = get_db()
+    pallet = conn.execute("SELECT * FROM pallets WHERE pallet_id = ?", (str(pallet_id),)).fetchone()
+    if not pallet:
+        conn.close()
+        return None
+
+    c_bundles = max(0, int(new_count))
+    u_per_b = pallet['units_per_bundle'] or 1
+    tot_units = c_bundles * u_per_b
+    t_bundles = pallet['target_bundles'] or 1
+
+    # Auto-seal if target reached
+    new_status = 'SEALED' if c_bundles >= t_bundles else pallet['status']
+    sealed_at_expr = "datetime('now', 'localtime')" if (new_status == 'SEALED' and pallet['status'] != 'SEALED') else "sealed_at"
+
+    with conn:
+        conn.execute(f"""
+            UPDATE pallets
+            SET counted_bundles = ?, total_units = ?, status = ?, sealed_at = {sealed_at_expr}
+            WHERE pallet_id = ?
+        """, (c_bundles, tot_units, new_status, str(pallet_id)))
+
+        if track_id is not None:
+            conn.execute("""
+                INSERT INTO pallet_items (pallet_id, track_id, similarity_score, snapshot_path)
+                VALUES (?, ?, ?, ?)
+            """, (str(pallet_id), int(track_id), float(similarity_score), snapshot_path))
+
+    rec = get_pallet_by_id(pallet_id)
+    conn.close()
+    return rec
+
+
+def seal_pallet(pallet_id: str, assigned_bin_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Manually or automatically finalize pallet stacking."""
+    conn = get_db()
+    with conn:
+        if assigned_bin_id:
+            conn.execute("""
+                UPDATE pallets
+                SET status = 'SEALED', assigned_bin_id = ?, sealed_at = datetime('now', 'localtime')
+                WHERE pallet_id = ?
+            """, (str(assigned_bin_id), str(pallet_id)))
+        else:
+            conn.execute("""
+                UPDATE pallets
+                SET status = 'SEALED', sealed_at = datetime('now', 'localtime')
+                WHERE pallet_id = ?
+            """, (str(pallet_id),))
+    rec = get_pallet_by_id(pallet_id)
+    conn.close()
+    return rec
+
+
+def delete_pallet(pallet_id: str) -> bool:
+    """Delete a pallet record and associated items."""
+    conn = get_db()
+    with conn:
+        conn.execute("DELETE FROM pallet_items WHERE pallet_id = ?", (str(pallet_id),))
+        conn.execute("DELETE FROM pallets WHERE pallet_id = ?", (str(pallet_id),))
+    conn.close()
+    return True
+
+
+def get_pallet_items(pallet_id: str) -> List[Dict[str, Any]]:
+    """Retrieve all logged bundles for a pallet."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM pallet_items WHERE pallet_id = ? ORDER BY added_at ASC",
+        (str(pallet_id),)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ==============================================================================
+# AUTONOMOUS HUMAN ERROR & SAFETY VIOLATION LEDGER HELPERS
+# ==============================================================================
+
+def log_violation(
+    violation_type: str,
+    title: str,
+    description: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    zone_code: Optional[str] = None,
+    sku_id: Optional[str] = None,
+    bin_id: Optional[str] = None,
+    pallet_id: Optional[str] = None,
+    track_id: Optional[int] = None,
+    expected_value: Optional[str] = None,
+    actual_value: Optional[str] = None,
+    severity: str = 'HIGH',
+    snapshot_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Record an authoritative human error or safety infraction into the violations ledger."""
+    conn = get_db()
+    with conn:
+        cursor = conn.execute("""
+            INSERT INTO violations_log (
+                violation_type, title, description, camera_id, zone_code,
+                sku_id, bin_id, pallet_id, track_id, expected_value,
+                actual_value, severity, snapshot_path, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', datetime('now', 'localtime'))
+        """, (
+            str(violation_type), str(title), description, camera_id, zone_code,
+            sku_id, bin_id, pallet_id, track_id, str(expected_value) if expected_value else None,
+            str(actual_value) if actual_value else None, str(severity), snapshot_path
+        ))
+        v_id = cursor.lastrowid
+
+    row = conn.execute("SELECT * FROM violations_log WHERE id = ?", (v_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def get_all_violations(status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    """Retrieve violations ledger entries optionally filtered by status."""
+    conn = get_db()
+    query = "SELECT * FROM violations_log"
+    params = []
+    if status and status.upper() != 'ALL':
+        query += " WHERE status = ?"
+        params.append(status.upper())
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(int(limit))
+
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_violation_by_id(violation_id: int) -> Optional[Dict[str, Any]]:
+    """Fetch single violation record by ID."""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM violations_log WHERE id = ?", (int(violation_id),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_open_violations_count() -> int:
+    """Return count of unresolved active violations."""
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) FROM violations_log WHERE status = 'OPEN'").fetchone()
+    conn.close()
+    return int(row[0]) if row else 0
+
+
+def resolve_violation(
+    violation_id: int,
+    resolved_by: str = "Supervisor",
+    notes: Optional[str] = None,
+    new_status: str = "RESOLVED"
+) -> Optional[Dict[str, Any]]:
+    """Mark a violation as resolved or supervisor overridden with audit note."""
+    conn = get_db()
+    with conn:
+        conn.execute("""
+            UPDATE violations_log
+            SET status = ?, resolved_by = ?, resolution_notes = ?, resolved_at = datetime('now', 'localtime')
+            WHERE id = ?
+        """, (str(new_status).upper(), str(resolved_by), notes, int(violation_id)))
+    rec = get_violation_by_id(violation_id)
+    conn.close()
+    return rec
+
+
+def check_bin_putaway_compatibility(
+    bin_id: str,
+    sku_id: str,
+    quantity: int = 1
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Validates whether an incoming SKU can be safely placed into a target Bin.
+    Intercepts human errors: wrong bin misplacement, SKU cross-contamination,
+    quarantine bin infractions, and capacity overflows.
+    Returns: (is_compatible: bool, violation_type: Optional[str], reason: Optional[str])
+    """
+    conn = get_db()
+    bin_row = conn.execute("SELECT * FROM bins WHERE bin_id = ?", (str(bin_id),)).fetchone()
+    if not bin_row:
+        conn.close()
+        return False, "UNAUTHORIZED_BIN_ACCESS", f"Bin '{bin_id}' does not exist in warehouse master."
+
+    # 1. Check Bin Status
+    if bin_row['status'] and bin_row['status'].upper() in ('QUARANTINE', 'INACTIVE', 'MAINTENANCE', 'LOCKED'):
+        conn.close()
+        return False, "UNAUTHORIZED_BIN_ACCESS", f"Bin '{bin_id}' is currently marked as {bin_row['status'].upper()} and blocked for putaway."
+
+    # 2. Check SKU Cross-Contamination
+    existing_inv = conn.execute(
+        "SELECT * FROM inventory WHERE bin_id = ? AND quantity > 0",
+        (str(bin_id),)
+    ).fetchall()
+
+    for item in existing_inv:
+        if item['sku_id'] and item['sku_id'].strip().upper() != str(sku_id).strip().upper():
+            conn.close()
+            return (
+                False,
+                "WRONG_BIN_PUTAWAY",
+                f"Bin '{bin_id}' is reserved for SKU '{item['sku_id']}'. Placing SKU '{sku_id}' causes warehouse cross-contamination."
+            )
+
+    # 3. Check Capacity / Volume Limit
+    sku_row = conn.execute("SELECT unit_volume FROM skus WHERE sku_id = ?", (str(sku_id),)).fetchone()
+    unit_vol = float(sku_row['unit_volume']) if (sku_row and sku_row['unit_volume']) else 1.0
+    added_vol = float(quantity) * unit_vol
+    max_vol = float(bin_row['max_volume']) if bin_row['max_volume'] else 100.0
+    curr_vol = float(bin_row['current_volume']) if bin_row['current_volume'] else 0.0
+
+    if (curr_vol + added_vol) > (max_vol * 1.05): # 5% safety margin
+        conn.close()
+        return (
+            False,
+            "OVER_CAPACITY",
+            f"Bin '{bin_id}' capacity exceeded. Current volume: {curr_vol:.1f}, Added: {added_vol:.1f}, Max allowed: {max_vol:.1f}."
+        )
+
+    conn.close()
+    return True, None, None

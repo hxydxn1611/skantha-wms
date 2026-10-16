@@ -152,6 +152,13 @@
                 if (typeof fetchObjectClasses === 'function') fetchObjectClasses();
                 if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
                 if (typeof fetchVisionZones === 'function') fetchVisionZones();
+            } else if (tabId === 'palletization') {
+                if (window.palletModule) {
+                    window.palletModule.loadPallets();
+                    window.palletModule.loadPalletSkus();
+                    window.palletModule.loadPalletBins();
+                    window.palletModule.loadPalletCameras();
+                }
             }
         }
         window.switchTab = switchTab;

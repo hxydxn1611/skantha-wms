@@ -85,16 +85,18 @@ class CameraTrackingSession:
         track_high_thresh: float = 0.25,
         track_low_thresh: float = 0.10,
         new_track_thresh: float = 0.25,
-        track_buffer: int = 30,
-        match_thresh: float = 0.80
+        track_buffer: int = 60,
+        match_thresh: float = 0.80,
+        smoothing_alpha: float = 0.70
     ):
         self.camera_id = camera_id
         self.session_id = f"sess_{camera_id}_{uuid.uuid4().hex[:8]}"
         self.created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.frame_index = 0
         self.total_tracks_spawned = 0
+        self.smoothing_alpha = float(smoothing_alpha)
 
-        # Tracker configuration arguments
+        # Tracker configuration arguments (60-frame occlusion memory buffer)
         self.args = SimpleNamespace(
             track_high_thresh=float(track_high_thresh),
             track_low_thresh=float(track_low_thresh),
@@ -118,6 +120,10 @@ class CameraTrackingSession:
         # In-memory trajectory centers (max 25 recent points per track)
         self.trajectories: Dict[int, deque] = {}
 
+        # Smoothed bounding boxes across frames to eliminate jitter (EMA filter)
+        self.smoothed_bboxes: Dict[int, List[float]] = {}
+        self.track_last_seen: Dict[int, int] = {}
+
         # Cache of latest active track records
         self.latest_tracks: List[Dict[str, Any]] = []
 
@@ -137,6 +143,8 @@ class CameraTrackingSession:
         self._raw_to_local_id.clear()
         self._next_local_id = 1
         self.trajectories.clear()
+        self.smoothed_bboxes.clear()
+        self.track_last_seen.clear()
         self.latest_tracks.clear()
         if BYTETRACKER_AVAILABLE:
             self.tracker = BYTETracker(self.args)
@@ -214,15 +222,26 @@ class CameraTrackingSession:
             # Bounding box coordinates from ByteTrack top-left-width-height [tl_x, tl_y, w, h]
             tlwh = strack.tlwh
             x1 = int(round(max(0, float(tlwh[0]))))
-            y1 = int(round(max(0, float(tlwh[1]))))
-            x2 = int(round(min(frame_width, float(tlwh[0] + tlwh[2]))))
-            y2 = int(round(min(frame_height, float(tlwh[1] + tlwh[3]))))
+            # Map raw track ID to camera-isolated local Track ID
+            local_id = self.get_local_track_id(int(strack.track_id))
 
-            # Ensure valid box dimensions
-            if x2 <= x1:
-                x2 = min(frame_width, x1 + 10)
-            if y2 <= y1:
-                y2 = min(frame_height, y1 + 10)
+            # Apply Exponential Moving Average (EMA) smoothing to eliminate bounding box jitter
+            if local_id in self.smoothed_bboxes:
+                prev_b = self.smoothed_bboxes[local_id]
+                x1_f = self.smoothing_alpha * float(x1) + (1.0 - self.smoothing_alpha) * prev_b[0]
+                y1_f = self.smoothing_alpha * float(y1) + (1.0 - self.smoothing_alpha) * prev_b[1]
+                x2_f = self.smoothing_alpha * float(x2) + (1.0 - self.smoothing_alpha) * prev_b[2]
+                y2_f = self.smoothing_alpha * float(y2) + (1.0 - self.smoothing_alpha) * prev_b[3]
+            else:
+                x1_f, y1_f, x2_f, y2_f = float(x1), float(y1), float(x2), float(y2)
+
+            self.smoothed_bboxes[local_id] = [x1_f, y1_f, x2_f, y2_f]
+            self.track_last_seen[local_id] = self.frame_index
+
+            x1 = int(round(max(0, x1_f)))
+            y1 = int(round(max(0, y1_f)))
+            x2 = int(round(min(frame_width, x2_f)))
+            y2 = int(round(min(frame_height, y2_f)))
 
             # Normalized bounding box [0.0 - 1.0]
             norm_x1 = round(float(x1) / max(1, frame_width), 4)
@@ -235,9 +254,6 @@ class CameraTrackingSession:
             cy = int(round((y1 + y2) / 2.0))
             norm_cx = round(float(cx) / max(1, frame_width), 4)
             norm_cy = round(float(cy) / max(1, frame_height), 4)
-
-            # Map raw track ID to camera-isolated local Track ID
-            local_id = self.get_local_track_id(int(strack.track_id))
 
             # Class code & name
             cls_idx = int(round(float(strack.cls))) if hasattr(strack, 'cls') else 0
@@ -302,6 +318,16 @@ class CameraTrackingSession:
                 "trajectory_length": len(self.trajectories[local_id])
             }
             current_tracks.append(track_record)
+
+        # Periodic cleanup of stale smoothed boxes older than track_buffer frames
+        if self.frame_index % 60 == 0:
+            stale_ids = [
+                tid for tid, last_f in self.track_last_seen.items()
+                if (self.frame_index - last_f) > self.args.track_buffer
+            ]
+            for tid in stale_ids:
+                self.smoothed_bboxes.pop(tid, None)
+                self.track_last_seen.pop(tid, None)
 
         self.latest_tracks = current_tracks
         return current_tracks
