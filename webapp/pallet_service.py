@@ -274,9 +274,9 @@ class AutonomousPalletizationService:
 
             # 2. Verified SKU Bundle: Check if already counted
             if track_id not in counted_set:
-                # Check Over-Capacity violation
+                # Check Over-Capacity violation (only if a target cap was explicitly specified)
                 current_count = len(counted_set)
-                if current_count >= target_bundles:
+                if target_bundles > 0 and current_count >= target_bundles:
                     trk['violation'] = 'OVER_CAPACITY'
                     v_title = f"Pallet {pallet_id} Exceeded Target Capacity"
                     v_desc = f"Bundle #{current_count + 1} added to Pallet {pallet_id}, which has reached its max capacity of {target_bundles} bundles."
