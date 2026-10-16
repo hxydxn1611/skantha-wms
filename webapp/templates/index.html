@@ -5936,18 +5936,20 @@ window.switchSubTab = switchSubTab;
                         <div>
                             <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Declared Units Per Bundle</label>
                             <input type="number" id="newPalletUnitsPerBundle" required min="1" value="10" style="width:100%; padding:8px 10px; font-weight:700;" oninput="calculateNewPalletTotalPreview()">
-                            <span style="font-size:0.72rem; color:var(--text-muted);">E.g. 1 bundle = 10 pcs</span>
+                            <span style="font-size:0.72rem; color:var(--text-muted);">E.g. 1 box/bundle = 10 pieces</span>
                         </div>
                         <div>
-                            <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Target Bundles Per Pallet</label>
-                            <input type="number" id="newPalletTargetBundles" required min="1" value="50" style="width:100%; padding:8px 10px; font-weight:700;" oninput="calculateNewPalletTotalPreview()">
-                            <span style="font-size:0.72rem; color:var(--text-muted);">Full pallet capacity</span>
+                            <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">
+                                Target Capacity Cap <span style="font-weight:normal; color:var(--text-muted);">(Optional)</span>
+                            </label>
+                            <input type="number" id="newPalletTargetBundles" min="1" placeholder="Leave empty for open count" style="width:100%; padding:8px 10px;" oninput="calculateNewPalletTotalPreview()">
+                            <span style="font-size:0.72rem; color:var(--text-muted);">AI counts bundles dynamically as stacked</span>
                         </div>
                     </div>
 
                     <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:6px; padding:10px 14px; text-align:center;">
-                        <span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Calculated Pallet Yield</span>
-                        <b id="newPalletTotalPiecesPreview" style="font-size:1.1rem; color:#10b981; font-family:'JetBrains Mono',monospace;">500 Total Pieces (at 50 bundles)</b>
+                        <span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Autonomous Multiplier Mode</span>
+                        <b id="newPalletTotalPiecesPreview" style="font-size:0.95rem; color:#10b981; font-family:'JetBrains Mono',monospace;">Continuous Open Count (10 individual pieces per detected bundle)</b>
                     </div>
 
                     <div>

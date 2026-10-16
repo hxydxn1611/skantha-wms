@@ -821,7 +821,7 @@ class VisionPipelineExecutor:
 
             p_title = f"PALLET: {p_id} ({sku})"
             cv2.putText(frame, p_title, (x_start + 10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
-            p_metrics = f"BUNDLES: {c_b}/{t_b}  |  PIECES: {tot_u} EA"
+            p_metrics = f"BUNDLES: {c_b} (LIVE)  |  PIECES: {tot_u} EA" if not t_b or t_b <= 0 else f"BUNDLES: {c_b}/{t_b}  |  PIECES: {tot_u} EA"
             cv2.putText(frame, p_metrics, (x_start + 10, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 120), 2)
 
         return frame

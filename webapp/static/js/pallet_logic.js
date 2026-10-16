@@ -338,18 +338,19 @@
         const bundles = p.counted_bundles !== undefined ? p.counted_bundles : (p.current_bundles || 0);
         const unitsPer = p.units_per_bundle || 1;
         const totalPcs = p.total_units !== undefined ? p.total_units : (p.total_pieces || (bundles * unitsPer));
-        const target = p.target_bundles || 1;
-        const pct = Math.min(100, Math.round((bundles / target) * 100));
+        const target = p.target_bundles || 0;
+        const isDynamic = !target || target <= 0;
+        const pct = isDynamic ? 100 : Math.min(100, Math.round((bundles / target) * 100));
 
         if (idElem) idElem.textContent = p.pallet_id;
         if (skuElem) skuElem.textContent = `${p.sku_id} - ${p.sku_name || ''}`;
         if (bundleCountElem) bundleCountElem.textContent = bundles;
         if (unitsPerBundleElem) unitsPerBundleElem.textContent = unitsPer;
         if (totalPiecesElem) totalPiecesElem.textContent = totalPcs;
-        if (targetBundlesElem) targetBundlesElem.textContent = target;
-        if (barFill) barFill.style.width = `${pct}%`;
-        if (pctElem) pctElem.textContent = `${pct}%`;
-        if (hudBundles) hudBundles.textContent = `${bundles} / ${target}`;
+        if (targetBundlesElem) targetBundlesElem.textContent = isDynamic ? 'Open Count' : target;
+        if (barFill) barFill.style.width = isDynamic ? '100%' : `${pct}%`;
+        if (pctElem) pctElem.textContent = isDynamic ? 'DYNAMIC TALLY' : `${pct}%`;
+        if (hudBundles) hudBundles.textContent = isDynamic ? `${bundles} Bundles` : `${bundles} / ${target}`;
         if (hudPieces) hudPieces.textContent = `${totalPcs} EA`;
 
         if (statusElem) {
@@ -384,6 +385,8 @@
             const target = p.target_bundles || 0;
             const unitsPer = p.units_per_bundle || 1;
             const total = p.total_units !== undefined ? p.total_units : (p.total_pieces || (bundles * unitsPer));
+            const isDynamic = !target || target <= 0;
+            const bundlesDisplay = isDynamic ? `<b>${bundles}</b> <span style="font-size:0.75rem; color:var(--text-muted);">(Open)</span>` : `<b>${bundles}</b> / ${target}`;
 
             return `
                 <tr style="${isSelected ? 'background:rgba(99,102,241,0.06); font-weight:600;' : ''}">
@@ -398,7 +401,7 @@
                         </span>
                     </td>
                     <td>
-                        <b>${bundles}</b> / ${target}
+                        ${bundlesDisplay}
                     </td>
                     <td style="color:var(--text-muted); font-size:0.82rem;">
                         ${unitsPer} ea
@@ -451,21 +454,24 @@
         if (!opt) return;
 
         const units = opt.getAttribute('data-units') || 10;
-        const target = opt.getAttribute('data-target') || 50;
-
         const unitsInput = document.getElementById('newPalletUnitsPerBundle');
         const targetInput = document.getElementById('newPalletTargetBundles');
         if (unitsInput) unitsInput.value = units;
-        if (targetInput) targetInput.value = target;
+        if (targetInput) targetInput.value = ''; // Left empty for dynamic live count
         window.calculateNewPalletTotalPreview();
     };
 
     window.calculateNewPalletTotalPreview = function() {
         const units = parseInt(document.getElementById('newPalletUnitsPerBundle')?.value || 0, 10);
-        const target = parseInt(document.getElementById('newPalletTargetBundles')?.value || 0, 10);
+        const targetVal = document.getElementById('newPalletTargetBundles')?.value;
+        const target = targetVal ? parseInt(targetVal, 10) : 0;
         const preview = document.getElementById('newPalletTotalPiecesPreview');
         if (preview) {
-            preview.textContent = `${target * units} Total Pieces (at ${target} bundles)`;
+            if (target > 0) {
+                preview.textContent = `${target * units} Total Pieces (Target Cap: ${target} bundles)`;
+            } else {
+                preview.textContent = `Continuous Open Count (${units} individual pieces per detected bundle)`;
+            }
         }
     };
 
@@ -475,7 +481,8 @@
         const skuSelect = document.getElementById('newPalletSkuSelect');
         const skuId = (skuSelect?.value || '').trim();
         const unitsPer = parseInt(document.getElementById('newPalletUnitsPerBundle')?.value || '10', 10);
-        const target = parseInt(document.getElementById('newPalletTargetBundles')?.value || '50', 10);
+        const targetVal = document.getElementById('newPalletTargetBundles')?.value;
+        const target = targetVal ? parseInt(targetVal, 10) : 0;
         const binSelect = document.getElementById('newPalletBinSelect');
         const binId = (binSelect?.value || '').trim() || null;
 
