@@ -561,6 +561,73 @@
         }
     };
 
+    window.handlePalletImageUpload = async function(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        const inputElem = event.target;
+        const targetId = activePalletId;
+        const camSelect = document.getElementById('palletCameraSelect');
+        const camId = camSelect ? camSelect.value : 'cam_inbound_01';
+
+        const formData = new FormData();
+        formData.append('image', file);
+        if (targetId) formData.append('pallet_id', targetId);
+        if (camId) formData.append('camera_id', camId);
+
+        showToast('Analyzing pallet image for bundles & pieces...', 'info');
+        const hudBundles = document.getElementById('hudPalletBundles');
+        if (hudBundles) hudBundles.textContent = 'DETECTING...';
+
+        try {
+            const endpoint = targetId ? `/api/pallets/${targetId}/count_image` : '/api/pallets/count_image';
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                showToast(`Image counting error: ${data.error || 'Failed to analyze image'}`, 'error');
+                if (targetId) setActivePallet(targetId);
+                return;
+            }
+
+            // Immediately display annotated result with bounding boxes in live feed view
+            const img = document.getElementById('palletLiveFeedImg');
+            if (img && data.annotated_image_url) {
+                img.src = `${data.annotated_image_url}?t=${Date.now()}`;
+            }
+
+            if (data.pallet) {
+                activePalletId = data.pallet.pallet_id;
+                updatePalletMonitorUI(data.pallet);
+            }
+            loadPallets();
+
+            const msg = `Counted ${data.counted_bundles} bundles (${data.total_pieces} pieces total) on pallet ${data.pallet_id}!`;
+            showToast(msg, 'success');
+
+            if (data.violations_triggered && data.violations_triggered.length > 0) {
+                showToast(`Warning: ${data.violations_triggered.length} safety/SKU discrepancy flag(s) logged!`, 'warning');
+                pollViolations();
+            }
+        } catch (err) {
+            console.error('[Pallet Image Upload] Error:', err);
+            showToast(`Upload failed: ${err.message}`, 'error');
+        } finally {
+            inputElem.value = '';
+        }
+    };
+
+    window.resetPalletLiveFeed = function() {
+        const camSelect = document.getElementById('palletCameraSelect');
+        const camId = camSelect ? camSelect.value : 'cam_inbound_01';
+        updateCameraStreamFeed(camId);
+        showToast(`Switched back to live camera feed (${camId})`, 'info');
+    };
+
+
     // Initialize timers and event listeners on DOM ready
     function init() {
         // Violations Poller (every 4 seconds)
