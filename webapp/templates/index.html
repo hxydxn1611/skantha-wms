@@ -5917,7 +5917,7 @@ window.switchSubTab = switchSubTab;
                 </h3>
                 <button type="button" class="modal-close-btn" onclick="closeNewPalletModal()">&times;</button>
             </div>
-            <form onsubmit="handleCreatePalletSubmit(event)">
+            <form onsubmit="handleCreatePalletSubmit(event); return false;">
                 <div class="modal-body" style="padding:1.5rem; display:flex; flex-direction:column; gap:14px;">
                     <div>
                         <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Pallet ID (Auto-Generated)</label>

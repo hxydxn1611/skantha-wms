@@ -10,6 +10,29 @@
     let knownViolationIds = new Set();
     let audioContext = null;
 
+    // Toast Notification System
+    function showToast(msg, type = 'info') {
+        let container = document.getElementById('palletToastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'palletToastContainer';
+            container.style.cssText = 'position:fixed; top:24px; right:24px; z-index:999999; display:flex; flex-direction:column; gap:10px; pointer-events:none;';
+            document.body.appendChild(container);
+        }
+        const toast = document.createElement('div');
+        const bg = type === 'error' ? '#ef4444' : (type === 'success' ? '#10b981' : '#6366f1');
+        const icon = type === 'error' ? 'fa-triangle-exclamation' : (type === 'success' ? 'fa-circle-check' : 'fa-circle-info');
+        toast.style.cssText = `background:${bg}; color:#fff; padding:12px 18px; border-radius:8px; font-weight:600; font-size:0.85rem; box-shadow:0 8px 24px rgba(0,0,0,0.25); display:flex; align-items:center; gap:8px; pointer-events:auto; font-family:inherit; transition:opacity 0.3s ease, transform 0.3s ease;`;
+        toast.innerHTML = `<i class="fas ${icon}"></i> <span>${msg}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-10px)';
+            setTimeout(() => toast.remove(), 350);
+        }, 3800);
+    }
+    window.showToast = showToast;
+
     // Web Audio Synthesized Alert Buzzer (Zero external audio asset dependency)
     function playViolationBuzzer() {
         try {
@@ -43,7 +66,8 @@
         try {
             const res = await fetch('/api/violations?status=OPEN');
             if (!res.ok) return;
-            const violations = await res.json();
+            const raw = await res.json();
+            const violations = Array.isArray(raw) ? raw : (raw.violations || []);
             
             // Update Topbar Badge
             const btn = document.getElementById('navViolationsBtn');
@@ -71,10 +95,7 @@
 
             if (hasNew && violations.length > 0) {
                 playViolationBuzzer();
-                // Optionally show toast or notification
-                if (typeof showToast === 'function') {
-                    showToast(`🚨 Human Error Violation Intercepted: ${violations[0].violation_type}`, 'error');
-                }
+                showToast(`🚨 Human Error Intercepted: ${violations[0].violation_type}`, 'error');
             }
 
             // Render drawer body if open
@@ -102,24 +123,24 @@
         body.innerHTML = violations.map(v => {
             const sevColor = v.severity === 'CRITICAL' ? '#dc2626' : (v.severity === 'HIGH' ? '#ef4444' : '#f59e0b');
             const sevBg = v.severity === 'CRITICAL' ? 'rgba(220,38,38,0.1)' : 'rgba(245,158,11,0.1)';
-            const timeStr = new Date(v.created_at).toLocaleTimeString();
+            const timeStr = new Date(v.created_at || Date.now()).toLocaleTimeString();
             return `
                 <div class="violation-card severity-${(v.severity||'medium').toLowerCase()}">
                     <div class="violation-card-top">
                         <span class="violation-type-badge" style="background:${sevBg}; color:${sevColor}; border:1px solid ${sevColor};">
-                            ${v.violation_type.replace(/_/g, ' ')}
+                            ${(v.violation_type || 'VIOLATION').replace(/_/g, ' ')}
                         </span>
                         <span>${timeStr}</span>
                     </div>
-                    <div class="violation-card-title">${v.violation_type.replace(/_/g, ' ')}</div>
-                    <div class="violation-card-desc">${v.details || 'Human error caught by Autonomous Vision pipeline.'}</div>
+                    <div class="violation-card-title">${v.title || (v.violation_type || 'Infraction').replace(/_/g, ' ')}</div>
+                    <div class="violation-card-desc">${v.description || v.details || 'Human error caught by Autonomous Vision pipeline.'}</div>
                     <div class="violation-card-meta">
                         ${v.pallet_id ? `<span>PLT: <b>${v.pallet_id}</b></span>` : ''}
                         ${v.bin_id ? `<span>BIN: <b>${v.bin_id}</b></span>` : ''}
                         ${v.sku_id ? `<span>SKU: <b>${v.sku_id}</b></span>` : ''}
                         ${v.camera_id ? `<span>CAM: <b>${v.camera_id}</b></span>` : ''}
                     </div>
-                    <div style="margin-top:4px; display:flex; justify-content:flex-end;">
+                    <div style="margin-top:6px; display:flex; justify-content:flex-end;">
                         <button type="button" class="btn-secondary" style="font-size:0.75rem; padding:4px 10px;" onclick="window.resolveViolationModal(${v.id}, '${v.violation_type}')">
                             <i class="fas fa-check"></i> Acknowledge &amp; Resolve
                         </button>
@@ -155,17 +176,18 @@
             const res = await fetch(`/api/violations/${id}/resolve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ resolution_notes: resolution })
+                body: JSON.stringify({ notes: resolution, resolved_by: 'Supervisor' })
             });
             const data = await res.json();
-            if (data.status === 'success') {
-                if (typeof showToast === 'function') showToast(`Violation #${id} resolved successfully.`, 'success');
+            if (res.ok && (data.success || data.status === 'success')) {
+                showToast(`Violation #${id} resolved successfully.`, 'success');
                 pollViolations();
             } else {
-                alert(`Error: ${data.message}`);
+                alert(`Error: ${data.error || data.message || 'Failed to resolve violation'}`);
             }
         } catch(e) {
             console.error('Resolution error:', e);
+            alert(`Network error: ${e.message}`);
         }
     };
 
@@ -176,10 +198,11 @@
         try {
             const res = await fetch('/api/pallets');
             if (!res.ok) return;
-            const pallets = await res.json();
+            const raw = await res.json();
+            const pallets = Array.isArray(raw) ? raw : (raw.pallets || []);
             renderPalletTable(pallets);
 
-            // If no active pallet selected, select the first OPEN/IN_PROGRESS pallet
+            // If no active pallet selected, select the first STACKING/IN_PROGRESS pallet
             if (!activePalletId && pallets.length > 0) {
                 const openPallet = pallets.find(p => p.status !== 'SEALED') || pallets[0];
                 setActivePallet(openPallet.pallet_id);
@@ -196,7 +219,8 @@
         try {
             const res = await fetch('/api/skus');
             if (!res.ok) return;
-            const skus = await res.json();
+            const raw = await res.json();
+            const skus = Array.isArray(raw) ? raw : (raw.skus || []);
             const select = document.getElementById('newPalletSkuSelect');
             if (!select) return;
 
@@ -214,7 +238,8 @@
         try {
             const res = await fetch('/api/bins');
             if (!res.ok) return;
-            const bins = await res.json();
+            const raw = await res.json();
+            const bins = Array.isArray(raw) ? raw : (raw.bins || []);
             const select = document.getElementById('newPalletBinSelect');
             if (!select) return;
 
@@ -230,9 +255,16 @@
         try {
             const res = await fetch('/api/cameras');
             if (!res.ok) return;
-            const cams = await res.json();
+            const raw = await res.json();
+            const cams = Array.isArray(raw) ? raw : (raw.cameras || []);
             const select = document.getElementById('palletCameraSelect');
             if (!select) return;
+
+            if (cams.length === 0) {
+                select.innerHTML = '<option value="cam_inbound_01">cam_inbound_01 (Pallet Zone)</option>';
+                updateCameraStreamFeed('cam_inbound_01');
+                return;
+            }
 
             select.innerHTML = cams.map(c => {
                 return `<option value="${c.camera_id}">${c.camera_id} - ${c.name} (${c.location || 'Palletizing Zone'})</option>`;
@@ -243,9 +275,7 @@
                 updateCameraStreamFeed(this.value);
             };
 
-            if (cams.length > 0) {
-                updateCameraStreamFeed(cams[0].camera_id);
-            }
+            updateCameraStreamFeed(cams[0].camera_id);
         } catch(e) {
             console.error('[Pallet Cameras] Error:', e);
         }
@@ -272,7 +302,8 @@
         try {
             const res = await fetch(`/api/pallets/${palletId}`);
             if (!res.ok) return;
-            const p = await res.json();
+            const raw = await res.json();
+            const p = raw.pallet || raw;
             updatePalletMonitorUI(p);
 
             // Bind current camera
@@ -299,13 +330,14 @@
         const totalPiecesElem = document.getElementById('palletTotalPieces');
         const targetBundlesElem = document.getElementById('palletTargetBundles');
         const barFill = document.getElementById('palletProgressBarFill');
+        const pctElem = document.getElementById('palletFillPct');
         const hudBundles = document.getElementById('hudPalletBundles');
         const hudPieces = document.getElementById('hudPalletPieces');
         const sealBtn = document.getElementById('btnSealPallet');
 
-        const bundles = p.current_bundles || 0;
+        const bundles = p.counted_bundles !== undefined ? p.counted_bundles : (p.current_bundles || 0);
         const unitsPer = p.units_per_bundle || 1;
-        const totalPcs = p.total_pieces || (bundles * unitsPer);
+        const totalPcs = p.total_units !== undefined ? p.total_units : (p.total_pieces || (bundles * unitsPer));
         const target = p.target_bundles || 1;
         const pct = Math.min(100, Math.round((bundles / target) * 100));
 
@@ -316,8 +348,9 @@
         if (totalPiecesElem) totalPiecesElem.textContent = totalPcs;
         if (targetBundlesElem) targetBundlesElem.textContent = target;
         if (barFill) barFill.style.width = `${pct}%`;
+        if (pctElem) pctElem.textContent = `${pct}%`;
         if (hudBundles) hudBundles.textContent = `${bundles} / ${target}`;
-        if (hudPieces) hudPieces.textContent = totalPcs;
+        if (hudPieces) hudPieces.textContent = `${totalPcs} EA`;
 
         if (statusElem) {
             statusElem.textContent = p.status;
@@ -347,10 +380,10 @@
         tbody.innerHTML = pallets.map(p => {
             const isSelected = p.pallet_id === activePalletId;
             const isSealed = p.status === 'SEALED';
-            const bundles = p.current_bundles || 0;
+            const bundles = p.counted_bundles !== undefined ? p.counted_bundles : (p.current_bundles || 0);
             const target = p.target_bundles || 0;
             const unitsPer = p.units_per_bundle || 1;
-            const total = p.total_pieces || (bundles * unitsPer);
+            const total = p.total_units !== undefined ? p.total_units : (p.total_pieces || (bundles * unitsPer));
 
             return `
                 <tr style="${isSelected ? 'background:rgba(99,102,241,0.06); font-weight:600;' : ''}">
@@ -437,15 +470,17 @@
     };
 
     window.handleCreatePalletSubmit = async function(e) {
-        e.preventDefault();
-        const palletId = document.getElementById('newPalletIdInput').value.trim();
-        const skuId = document.getElementById('newPalletSkuSelect').value;
-        const unitsPer = parseInt(document.getElementById('newPalletUnitsPerBundle').value, 10);
-        const target = parseInt(document.getElementById('newPalletTargetBundles').value, 10);
-        const binId = document.getElementById('newPalletBinSelect').value;
+        if (e && e.preventDefault) e.preventDefault();
+        const palletId = (document.getElementById('newPalletIdInput')?.value || '').trim();
+        const skuSelect = document.getElementById('newPalletSkuSelect');
+        const skuId = (skuSelect?.value || '').trim();
+        const unitsPer = parseInt(document.getElementById('newPalletUnitsPerBundle')?.value || '10', 10);
+        const target = parseInt(document.getElementById('newPalletTargetBundles')?.value || '50', 10);
+        const binSelect = document.getElementById('newPalletBinSelect');
+        const binId = (binSelect?.value || '').trim() || null;
 
-        if (!palletId || !skuId) {
-            alert('Please specify a Pallet ID and select a target SKU.');
+        if (!skuId) {
+            alert('Please select a target SKU to palletize.');
             return;
         }
 
@@ -454,7 +489,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    pallet_id: palletId,
+                    pallet_id: palletId || null,
                     sku_id: skuId,
                     units_per_bundle: unitsPer,
                     target_bundles: target,
@@ -462,16 +497,19 @@
                 })
             });
             const data = await res.json();
-            if (data.status === 'success') {
-                if (typeof showToast === 'function') showToast(`Pallet ${palletId} initiated. Autonomous counting active.`, 'success');
+            if (res.ok && (data.success || data.status === 'success')) {
+                const createdId = data.pallet?.pallet_id || palletId;
+                showToast(`Pallet ${createdId} initiated. Autonomous counting active.`, 'success');
                 window.closeNewPalletModal();
-                activePalletId = palletId;
+                activePalletId = createdId;
                 loadPallets();
             } else {
-                alert(`Error: ${data.message}`);
+                const errMsg = data.error || data.message || `Server responded with status ${res.status}`;
+                alert(`Error: ${errMsg}`);
             }
         } catch(err) {
             console.error('Create pallet error:', err);
+            alert(`Network or Server error: ${err.message}`);
         }
     };
 
@@ -490,18 +528,19 @@
                 body: JSON.stringify({})
             });
             const data = await res.json();
-            if (data.status === 'success') {
-                if (typeof showToast === 'function') showToast(`Pallet ${targetId} SEALED successfully.`, 'success');
+            if (res.ok && (data.success || data.status === 'success')) {
+                showToast(`Pallet ${targetId} SEALED successfully.`, 'success');
                 loadPallets();
                 // Prompt print label
                 if (confirm(`Pallet sealed! Open and print Master Pallet QR label now?`)) {
                     window.printPalletMasterLabel(targetId);
                 }
             } else {
-                alert(`Error: ${data.message}`);
+                alert(`Error: ${data.error || data.message || 'Failed to seal pallet'}`);
             }
         } catch(e) {
             console.error('Seal error:', e);
+            alert(`Network error: ${e.message}`);
         }
     };
 
