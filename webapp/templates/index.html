@@ -25,6 +25,7 @@
     </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2.3">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v=2.3">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pallet_violations.css') }}?v=1.0">
 </head>
 <body>
 
@@ -839,6 +840,10 @@
         </div>
 
         <div class="topbar-right">
+            <button id="navViolationsBtn" class="topbar-violations-btn" onclick="toggleViolationsDrawer()" title="View Real-Time Human Error Violations" style="display:none;">
+                <i class="fas fa-triangle-exclamation"></i>
+                <span id="navViolationsCount">0</span> Violations
+            </button>
             <div class="topbar-telemetry-badge">
                 <span class="telemetry-live-dot"></span>
                 <span class="telemetry-label">AI Matrix:</span>
@@ -903,6 +908,10 @@
                 </button>
                 <button class="tab-btn" onclick="switchTab('outbound')">
                     <span class="tab-btn-content"><i class="fas fa-boxes-packing tab-icon"></i> Outbound Flow</span>
+                </button>
+                <button class="tab-btn" onclick="switchTab('palletization')">
+                    <span class="tab-btn-content"><i class="fas fa-pallet tab-icon"></i> Palletization</span>
+                    <span class="pulse-indicator-pill" style="background:rgba(16,185,129,0.15); color:#10b981; border-color:rgba(16,185,129,0.3);"><span class="pulse-dot" style="background:#10b981;"></span>BUNDLE AI</span>
                 </button>
 
                 <div class="nav-category-header">ENTERPRISE CONFIG</div>
@@ -5259,6 +5268,174 @@ window.switchSubTab = switchSubTab;
                 <script src="{{ url_for('static', filename='js/vision_ui.js') }}"></script>
             </div>
 
+        <!-- ======================================================== -->
+        <!-- AUTONOMOUS PALLETIZATION & BUNDLE COUNTER VIEW -->
+        <!-- ======================================================== -->
+        <div id="palletization-view" class="view-section">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:12px;">
+                <div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <h2 style="margin:0; font-size:1.4rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-pallet" style="color:#10b981;"></i>
+                            <span>Autonomous Palletization &amp; Bundle Counter</span>
+                        </h2>
+                        <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.75rem; padding:4px 10px;">
+                            <i class="fas fa-microchip"></i> ZERO-RETRAIN AI
+                        </span>
+                    </div>
+                    <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.85rem;">
+                        Real-time bundle counting via visual matching, declared piece multipliers, zero human recount, and instant Master Pallet QR label generation.
+                    </p>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button type="button" class="btn-primary" onclick="openNewPalletModal()" style="background:#6366f1; border-color:#6366f1; font-size:0.82rem; padding:7px 16px;">
+                        <i class="fas fa-plus"></i> Build New Pallet
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="printPalletMasterLabel()" style="font-size:0.82rem; padding:7px 14px;">
+                        <i class="fas fa-print"></i> Master Label
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="palletModule.loadPallets()" style="font-size:0.82rem; padding:7px 10px;" title="Refresh Pallets">
+                        <i class="fas fa-arrows-rotate"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pallet Hero Monitor & Multiplier Calculator -->
+            <div class="pallet-hero-grid">
+                <!-- LEFT: Camera Live Stream with EMA Tracking & HUD -->
+                <div class="pallet-monitor-card">
+                    <div class="pallet-monitor-header">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span class="telemetry-live-dot"></span>
+                            <span style="font-size:0.8rem; font-weight:700; color:#fff;" id="palletFeedCamLabel">CAM: cam_inbound_01</span>
+                            <span style="font-size:0.72rem; color:#94a3b8; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:12px;">EMA α=0.70 Smooth</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:0.72rem; color:#cbd5e1; margin:0;">Feed:</label>
+                            <select id="palletCameraSelect" style="background:rgba(0,0,0,0.5); color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:0.75rem; padding:3px 6px;">
+                                <option value="cam_inbound_01">cam_inbound_01 (Pallet Zone)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="pallet-feed-wrap">
+                        <img id="palletLiveFeedImg" src="/video_feed/cam_inbound_01" class="pallet-feed-img" alt="Pallet Vision Stream">
+                        <div class="pallet-feed-overlay-hud">
+                            <div>
+                                <span style="color:#94a3b8;">ACTIVE PALLET:</span>
+                                <b id="palletMonitorId" style="color:#38bdf8; margin-left:4px;">PLT-ACTIVE</b>
+                            </div>
+                            <div>
+                                <span style="color:#94a3b8;">SKU:</span>
+                                <b id="palletMonitorSku" style="color:#a78bfa; margin-left:4px;">--</b>
+                            </div>
+                            <div>
+                                <span style="color:#94a3b8;">BUNDLES:</span>
+                                <b id="hudPalletBundles" style="color:#34d399; margin-left:4px;">0 / 0</b>
+                            </div>
+                            <div>
+                                <span style="color:#94a3b8;">TOTAL PIECES:</span>
+                                <b id="hudPalletPieces" style="color:#4ade80; margin-left:4px;">0 EA</b>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT: Pallet Status & Declared Multiplier Formula Card -->
+                <div class="pallet-control-card">
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
+                            <div>
+                                <span style="font-size:0.72rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">Active Build Session</span>
+                                <h3 style="margin:2px 0 0 0; font-size:1.2rem; color:var(--primary-navy);" id="palletControlTitle">Pallet Progress</h3>
+                            </div>
+                            <span id="palletMonitorStatus" class="pallet-status-pill" style="background:rgba(99,102,241,0.12); color:#6366f1;">
+                                IN PROGRESS
+                            </span>
+                        </div>
+
+                        <!-- Autonomous Multiplier Box -->
+                        <div class="pallet-calc-box">
+                            <span style="font-size:0.72rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Autonomous Quantity Formula</span>
+                            <div class="pallet-calc-formula">
+                                <div class="pallet-calc-item">
+                                    <span class="pallet-calc-val" id="palletCountBundles">0</span>
+                                    <span class="pallet-calc-label">Bundles Detected</span>
+                                </div>
+                                <span class="pallet-calc-op">&times;</span>
+                                <div class="pallet-calc-item">
+                                    <span class="pallet-calc-val" id="palletUnitsPerBundle">10</span>
+                                    <span class="pallet-calc-label">Declared Pcs/Bundle</span>
+                                </div>
+                                <span class="pallet-calc-op">=</span>
+                                <div class="pallet-calc-item">
+                                    <span class="pallet-calc-val highlight-green" id="palletTotalPieces">0</span>
+                                    <span class="pallet-calc-label">Total Realized Pieces</span>
+                                </div>
+                            </div>
+
+                            <div style="margin-top:8px;">
+                                <div style="display:flex; justify-content:space-between; font-size:0.78rem;">
+                                    <span style="color:var(--text-muted);">Target Fill: <b id="palletTargetBundles">50</b> Bundles</span>
+                                    <span style="font-weight:700; color:var(--accent);" id="palletFillPct">0%</span>
+                                </div>
+                                <div class="pallet-progress-bar-bg">
+                                    <div id="palletProgressBarFill" class="pallet-progress-bar-fill" style="width:0%;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="background:var(--panel-subtle); border-radius:6px; padding:10px 12px; font-size:0.8rem; color:var(--text-muted); line-height:1.4; margin-bottom:1rem;">
+                            <i class="fas fa-shield-halved" style="color:#10b981; margin-right:4px;"></i>
+                            <b>Automated Verification:</b> Visual matcher cross-checks HSV chromatic profiles and contour gradients against SKU reference images to verify bundle identity and catch contamination.
+                        </div>
+                    </div>
+
+                    <div style="display:flex; gap:10px; margin-top:1rem;">
+                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="sealPalletAction()" style="flex:1; background:#10b981; border-color:#10b981; font-size:0.85rem; padding:10px 16px;">
+                            <i class="fas fa-box-archive" style="margin-right:6px;"></i> Seal &amp; Finalize Pallet
+                        </button>
+                        <button type="button" class="btn-secondary" onclick="printPalletMasterLabel()" style="font-size:0.85rem; padding:10px 16px;">
+                            <i class="fas fa-qrcode" style="margin-right:4px;"></i> Master Label
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pallet Registry Ledger Table -->
+            <div class="glass-panel" style="padding:1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                    <div>
+                        <h3 style="margin:0; font-size:1.1rem; color:var(--primary-navy);">Pallet Ledger &amp; Inventory Traceability</h3>
+                        <p style="color:var(--text-muted); margin:3px 0 0 0; font-size:0.82rem;">Authoritative record of completed, sealed, and building master pallets.</p>
+                    </div>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.84rem;">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--border-light); background:var(--panel-subtle); text-align:left;">
+                                <th style="padding:10px 12px;">Pallet ID</th>
+                                <th style="padding:10px 12px;">Target SKU</th>
+                                <th style="padding:10px 12px;">Status</th>
+                                <th style="padding:10px 12px;">Bundles Counted</th>
+                                <th style="padding:10px 12px;">Declared Pcs/Bundle</th>
+                                <th style="padding:10px 12px;">Total Pieces</th>
+                                <th style="padding:10px 12px;">Assigned Bin</th>
+                                <th style="padding:10px 12px; text-align:right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="palletTableBody">
+                            <tr>
+                                <td colspan="8" style="text-align:center; padding:2rem; color:var(--text-muted);">Loading pallets...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     </main>
     </div> <!-- End #app-layout -->
     <script src="{{ url_for('static', filename='js/app_logic.js') }}"></script>
@@ -5711,6 +5888,87 @@ window.switchSubTab = switchSubTab;
             </div>
         </div>
     </div>
+
+    <!-- ======================================================== -->
+    <!-- SLIDE-OUT HUMAN ERROR VIOLATIONS DRAWER -->
+    <!-- ======================================================== -->
+    <div id="violationsDrawerBackdrop" class="violations-drawer-backdrop" onclick="toggleViolationsDrawer(false)"></div>
+    <div id="violationsDrawer" class="violations-drawer">
+        <div class="violations-drawer-header">
+            <div class="violations-drawer-title">
+                <i class="fas fa-triangle-exclamation"></i>
+                <span>Human Error Interceptor</span>
+            </div>
+            <button type="button" class="modal-close-btn" onclick="toggleViolationsDrawer(false)">&times;</button>
+        </div>
+        <div id="violationsDrawerBody" class="violations-drawer-body">
+            <!-- Dynamic violations loaded by pollViolations() -->
+        </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- BUILD NEW PALLET MODAL -->
+    <!-- ======================================================== -->
+    <div id="newPalletModal" class="modal-overlay" onclick="if(event.target===this) closeNewPalletModal()">
+        <div class="modal-dialog" style="max-width: 540px;">
+            <div class="modal-header">
+                <h3 style="margin:0; font-size:1.15rem; color:var(--primary-navy);">
+                    <i class="fas fa-pallet" style="color:#6366f1; margin-right:6px;"></i> Initiate Master Pallet Build
+                </h3>
+                <button type="button" class="modal-close-btn" onclick="closeNewPalletModal()">&times;</button>
+            </div>
+            <form onsubmit="handleCreatePalletSubmit(event)">
+                <div class="modal-body" style="padding:1.5rem; display:flex; flex-direction:column; gap:14px;">
+                    <div>
+                        <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Pallet ID (Auto-Generated)</label>
+                        <input type="text" id="newPalletIdInput" required style="width:100%; font-family:'JetBrains Mono',monospace; padding:8px 10px; font-weight:700;">
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Target SKU to Palletize</label>
+                        <select id="newPalletSkuSelect" required style="width:100%; padding:8px 10px;" onchange="onNewPalletSkuChange()">
+                            <option value="">-- Choose SKU --</option>
+                        </select>
+                        <span style="font-size:0.75rem; color:var(--text-muted); margin-top:2px; display:block;">Reference visual signature will be loaded for live bundle validation.</span>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                        <div>
+                            <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Declared Units Per Bundle</label>
+                            <input type="number" id="newPalletUnitsPerBundle" required min="1" value="10" style="width:100%; padding:8px 10px; font-weight:700;" oninput="calculateNewPalletTotalPreview()">
+                            <span style="font-size:0.72rem; color:var(--text-muted);">E.g. 1 bundle = 10 pcs</span>
+                        </div>
+                        <div>
+                            <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Target Bundles Per Pallet</label>
+                            <input type="number" id="newPalletTargetBundles" required min="1" value="50" style="width:100%; padding:8px 10px; font-weight:700;" oninput="calculateNewPalletTotalPreview()">
+                            <span style="font-size:0.72rem; color:var(--text-muted);">Full pallet capacity</span>
+                        </div>
+                    </div>
+
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:6px; padding:10px 14px; text-align:center;">
+                        <span style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Calculated Pallet Yield</span>
+                        <b id="newPalletTotalPiecesPreview" style="font-size:1.1rem; color:#10b981; font-family:'JetBrains Mono',monospace;">500 Total Pieces (at 50 bundles)</b>
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.8rem; font-weight:700; color:var(--text-main); display:block; margin-bottom:4px;">Assigned Storage Bin (Optional)</label>
+                        <select id="newPalletBinSelect" style="width:100%; padding:8px 10px;">
+                            <option value="">-- None / Assign on Seal --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding:1rem 1.5rem; display:flex; justify-content:flex-end; gap:8px;">
+                    <button type="button" class="btn-secondary" onclick="closeNewPalletModal()">Cancel</button>
+                    <button type="submit" class="btn-primary" style="background:#6366f1; border-color:#6366f1;">
+                        <i class="fas fa-check"></i> Start Autonomous Palletizing
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Palletization & Violation Logic -->
+    <script src="{{ url_for('static', filename='js/pallet_logic.js') }}"></script>
 
     <!-- SKU Master UI Logic -->
     <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}"></script>

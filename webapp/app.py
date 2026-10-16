@@ -37,6 +37,7 @@ from material_traceability_service import get_material_traceability_service
 from integration_service import get_integration_service
 from vision_runtime_service import get_vision_runtime_manager, get_shared_frame_bus
 from cycle_count_service import get_cycle_count_service
+from pallet_service import get_pallet_service
 
 # Initialize SQLite database schema
 db.init_db()
@@ -4645,6 +4646,254 @@ def api_inbound_complete_receipt():
         })
     finally:
         conn.close()
+
+
+# ==============================================================================
+# AUTONOMOUS PALLETIZATION & BUNDLE MULTIPLIER API ENDPOINTS
+# ==============================================================================
+
+@app.route('/api/pallets', methods=['GET'])
+def api_get_pallets():
+    """Retrieve all pallets, optionally filtered by status."""
+    status = request.args.get('status')
+    pallets = db.get_all_pallets(status=status)
+    return jsonify({
+        "success": True,
+        "count": len(pallets),
+        "pallets": pallets
+    })
+
+
+@app.route('/api/pallets', methods=['POST'])
+def api_create_pallet():
+    """Create a new pallet with packaging bundle multipliers."""
+    data = request.get_json(force=True) or {}
+    sku_id = data.get('sku_id')
+    if not sku_id:
+        return jsonify({"success": False, "error": "sku_id is required"}), 400
+
+    pallet_id = data.get('pallet_id')
+    units_per_bundle = data.get('units_per_bundle', 1)
+    target_bundles = data.get('target_bundles', 10)
+    name = data.get('name')
+    assigned_bin_id = data.get('assigned_bin_id')
+    camera_id = data.get('camera_id')
+    notes = data.get('notes')
+
+    rec, err = db.create_pallet(
+        sku_id=sku_id,
+        units_per_bundle=units_per_bundle,
+        target_bundles=target_bundles,
+        name=name,
+        pallet_id=pallet_id,
+        assigned_bin_id=assigned_bin_id,
+        camera_id=camera_id,
+        notes=notes
+    )
+    if err:
+        return jsonify({"success": False, "error": err}), 400
+
+    # Auto-bind to camera if camera_id provided
+    if camera_id and rec:
+        ps = get_pallet_service()
+        ps.set_active_pallet_for_camera(camera_id, rec['pallet_id'])
+
+    return jsonify({"success": True, "pallet": rec}), 201
+
+
+@app.route('/api/pallets/<pallet_id>', methods=['GET'])
+def api_get_single_pallet(pallet_id):
+    """Retrieve details and aggregated items for a specific pallet."""
+    pallet = db.get_pallet_by_id(pallet_id)
+    if not pallet:
+        return jsonify({"success": False, "error": f"Pallet '{pallet_id}' not found"}), 404
+    items = db.get_pallet_items(pallet_id)
+    return jsonify({
+        "success": True,
+        "pallet": pallet,
+        "items": items
+    })
+
+
+@app.route('/api/pallets/<pallet_id>', methods=['DELETE'])
+def api_delete_pallet(pallet_id):
+    """Delete a pallet record."""
+    success = db.delete_pallet(pallet_id)
+    return jsonify({"success": success})
+
+
+@app.route('/api/pallets/<pallet_id>/count', methods=['POST'])
+def api_update_pallet_count(pallet_id):
+    """Update pallet counted bundles and recalculate total pieces."""
+    data = request.get_json(force=True) or {}
+    new_count = data.get('counted_bundles') if data.get('counted_bundles') is not None else data.get('current_bundles')
+    if new_count is None:
+        return jsonify({"success": False, "error": "counted_bundles is required"}), 400
+
+    rec = db.update_pallet_count(
+        pallet_id=pallet_id,
+        new_count=int(new_count),
+        track_id=data.get('track_id'),
+        similarity_score=float(data.get('similarity_score', 0.0)),
+        snapshot_path=data.get('snapshot_path')
+    )
+    if not rec:
+        return jsonify({"success": False, "error": f"Pallet '{pallet_id}' not found"}), 404
+
+    return jsonify({"success": True, "pallet": rec})
+
+
+@app.route('/api/pallets/<pallet_id>/seal', methods=['POST'])
+def api_seal_pallet(pallet_id):
+    """Manually seal a pallet and assign a destination bin."""
+    data = request.get_json(force=True) or {}
+    assigned_bin_id = data.get('assigned_bin_id')
+
+    # Intercept human error if bin is not compatible
+    pallet = db.get_pallet_by_id(pallet_id)
+    if pallet and assigned_bin_id:
+        is_compat, v_type, v_reason = db.check_bin_putaway_compatibility(
+            bin_id=assigned_bin_id,
+            sku_id=pallet['sku_id'],
+            quantity=pallet['total_units']
+        )
+        if not is_compat:
+            v_rec = db.log_violation(
+                violation_type=v_type or 'WRONG_BIN_PUTAWAY',
+                title=f"Incompatible Putaway Bin for Pallet {pallet_id}",
+                description=v_reason,
+                sku_id=pallet['sku_id'],
+                bin_id=assigned_bin_id,
+                pallet_id=pallet_id,
+                severity='HIGH'
+            )
+            return jsonify({
+                "success": False,
+                "error": v_reason,
+                "violation": v_rec
+            }), 400
+
+    rec = db.seal_pallet(pallet_id, assigned_bin_id=assigned_bin_id)
+    if not rec:
+        return jsonify({"success": False, "error": f"Pallet '{pallet_id}' not found"}), 404
+
+    # Generate master label automatically
+    ps = get_pallet_service()
+    label_url, _ = ps.generate_pallet_master_label_pdf(pallet_id)
+
+    return jsonify({
+        "success": True,
+        "pallet": rec,
+        "label_url": label_url
+    })
+
+
+@app.route('/api/pallets/<pallet_id>/label', methods=['GET'])
+def api_get_pallet_label(pallet_id):
+    """Generate and return download URL for Master Pallet Label PDF with QR code."""
+    ps = get_pallet_service()
+    label_url, err = ps.generate_pallet_master_label_pdf(pallet_id)
+    if err:
+        return jsonify({"success": False, "error": err}), 500
+    return jsonify({
+        "success": True,
+        "pallet_id": pallet_id,
+        "label_url": label_url
+    })
+
+
+@app.route('/api/pallets/camera/<camera_id>/bind', methods=['POST', 'GET'])
+def api_camera_pallet_bind(camera_id):
+    """Bind or query the active stacking pallet for a camera's staging area."""
+    ps = get_pallet_service()
+    if request.method == 'POST':
+        data = request.get_json(force=True) or {}
+        pallet_id = data.get('pallet_id')
+        if not pallet_id:
+            return jsonify({"success": False, "error": "pallet_id is required"}), 400
+        ps.set_active_pallet_for_camera(camera_id, pallet_id)
+        pallet = db.get_pallet_by_id(pallet_id)
+        return jsonify({"success": True, "active_pallet": pallet})
+    else:
+        active = ps.get_active_pallet_for_camera(camera_id)
+        return jsonify({"success": True, "active_pallet": active})
+
+
+# ==============================================================================
+# HUMAN ERROR & SAFETY VIOLATION LEDGER API ENDPOINTS
+# ==============================================================================
+
+@app.route('/api/violations', methods=['GET'])
+def api_get_violations():
+    """Retrieve violations log."""
+    status = request.args.get('status')
+    limit = int(request.args.get('limit', 100))
+    violations = db.get_all_violations(status=status, limit=limit)
+    open_count = db.get_open_violations_count()
+    return jsonify({
+        "success": True,
+        "count": len(violations),
+        "open_count": open_count,
+        "violations": violations
+    })
+
+
+@app.route('/api/violations', methods=['POST'])
+def api_log_violation():
+    """Manually or algorithmically record a human error infraction."""
+    data = request.get_json(force=True) or {}
+    v_type = data.get('violation_type', 'HUMAN_ERROR')
+    title = data.get('title') or v_type.replace('_', ' ')
+    desc = data.get('description') or data.get('details') or 'Human error recorded by autonomous vision system.'
+
+    rec = db.log_violation(
+        violation_type=v_type,
+        title=title,
+        description=desc,
+        camera_id=data.get('camera_id'),
+        zone_code=data.get('zone_code'),
+        sku_id=data.get('sku_id'),
+        bin_id=data.get('bin_id'),
+        pallet_id=data.get('pallet_id'),
+        track_id=data.get('track_id'),
+        expected_value=data.get('expected_value'),
+        actual_value=data.get('actual_value'),
+        severity=data.get('severity', 'HIGH'),
+        snapshot_path=data.get('snapshot_path')
+    )
+    return jsonify({"success": True, "violation": rec}), 201
+
+
+@app.route('/api/violations/summary', methods=['GET'])
+def api_get_violations_summary():
+    """Lightweight endpoint for navbar alert badge polling."""
+    open_count = db.get_open_violations_count()
+    recent = db.get_all_violations(status='OPEN', limit=5)
+    return jsonify({
+        "success": True,
+        "open_count": open_count,
+        "recent_violations": recent
+    })
+
+
+@app.route('/api/violations/<int:violation_id>/resolve', methods=['POST'])
+def api_resolve_violation(violation_id):
+    """Resolve or supervisor-override an active human error violation."""
+    data = request.get_json(force=True) or {}
+    resolved_by = data.get('resolved_by', 'Supervisor')
+    notes = data.get('notes', 'Resolved by warehouse operator')
+    new_status = data.get('status', 'RESOLVED')
+
+    rec = db.resolve_violation(
+        violation_id=violation_id,
+        resolved_by=resolved_by,
+        notes=notes,
+        new_status=new_status
+    )
+    if not rec:
+        return jsonify({"success": False, "error": f"Violation #{violation_id} not found"}), 404
+
+    return jsonify({"success": True, "violation": rec})
 
 
 if __name__ == '__main__':
