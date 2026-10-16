@@ -11,6 +11,7 @@ import os
 import random
 from datetime import datetime
 from fpdf import FPDF
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,8 @@ def init_active_cameras():
     except Exception as e:
         logger.warning(f"Error initializing active cameras from DB: {e}")
 
-init_active_cameras()
+# Start active cameras in background thread so server boots immediately
+threading.Thread(target=init_active_cameras, daemon=True).start()
 
 @app.route('/')
 def index():
@@ -3264,10 +3266,46 @@ def delete_camera(camera_id):
     conn.close()
     return jsonify({"success": True})
 
+def _generate_standby_frame(camera_id: str) -> bytes:
+    h, w = 480, 854
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    img[:] = (18, 24, 38) # Dark navy canvas
+
+    # Subtle radar grid
+    for x in range(0, w, 60):
+        cv2.line(img, (x, 0), (x, h), (26, 34, 52), 1)
+    for y in range(0, h, 60):
+        cv2.line(img, (0, y), (w, y), (26, 34, 52), 1)
+
+    # Header banner
+    cv2.rectangle(img, (20, 16), (w - 20, 68), (30, 41, 59), -1)
+    cv2.rectangle(img, (20, 16), (w - 20, 68), (99, 102, 241), 1)
+    cv2.putText(img, "W.A.R.L.O.G. AI VISION NODE", (35, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (255, 255, 255), 2)
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cv2.putText(img, f"FEED: {camera_id.upper()}  |  TIME: {now_str}", (35, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (148, 163, 184), 1)
+
+    # Pulsing dot
+    dot_on = int(time.time() * 2) % 2 == 0
+    dot_color = (0, 220, 130) if dot_on else (0, 120, 70)
+    cv2.circle(img, (45, 150), 7, dot_color, -1)
+    cv2.putText(img, "CAMERA STANDBY - WAITING FOR RTSP OR IMAGE UPLOAD", (65, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (226, 232, 240), 2)
+
+    # Action helper box
+    cv2.rectangle(img, (140, 200), (w - 140, 350), (30, 41, 59), -1)
+    cv2.rectangle(img, (140, 200), (w - 140, 350), (71, 85, 105), 1)
+    cv2.putText(img, "COUNT BUNDLES FROM PHOTO:", (w // 2 - 160, 245), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (56, 189, 248), 2)
+    cv2.putText(img, "Click [Upload Image to Count] button", (w // 2 - 180, 290), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+    cv2.putText(img, "or drag and drop pallet photo onto this screen", (w // 2 - 200, 325), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (148, 163, 184), 1)
+
+    ret, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return buf.tobytes() if ret else b''
+
 def generate_frames(camera_id):
     mgr = get_vision_runtime_manager()
     bus = get_shared_frame_bus()
     while True:
+        # 1. Vision runtime session
         sess = mgr.get_session(camera_id)
         if sess and sess.runtime_state.value in ("RUNNING", "DEGRADED"):
             jpeg = sess.get_latest_jpeg()
@@ -3276,23 +3314,32 @@ def generate_frames(camera_id):
                        b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
                 time.sleep(1.0 / max(1, sess.configured_fps))
                 continue
+
+        # 2. Camera instance
         if camera_id in active_cameras:
             frame = active_cameras[camera_id].get_frame()
             if frame:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            else:
-                time.sleep(0.016)
-        else:
-            bus_frame = bus.get_latest_frame(camera_id, copy=False, max_age_seconds=5.0)
-            if bus_frame is not None:
-                ret, buf = cv2.imencode('.jpg', bus_frame)
-                if ret:
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
-                    time.sleep(0.033)
-                    continue
-            time.sleep(0.1)
+                time.sleep(0.033)
+                continue
+
+        # 3. Frame bus (recent frame from detection / upload)
+        bus_frame = bus.get_latest_frame(camera_id, copy=False, max_age_seconds=10.0)
+        if bus_frame is not None:
+            ret, buf = cv2.imencode('.jpg', bus_frame)
+            if ret:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+                time.sleep(0.033)
+                continue
+
+        # 4. Fallback: Live animated standby card with clock & radar
+        standby_jpeg = _generate_standby_frame(camera_id)
+        if standby_jpeg:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + standby_jpeg + b'\r\n')
+        time.sleep(0.33)
 
 @app.route('/video_feed/<camera_id>')
 def video_feed(camera_id):
@@ -4818,6 +4865,64 @@ def api_camera_pallet_bind(camera_id):
     else:
         active = ps.get_active_pallet_for_camera(camera_id)
         return jsonify({"success": True, "active_pallet": active})
+
+
+@app.route('/api/pallets/<pallet_id>/count_image', methods=['POST'])
+@app.route('/api/pallets/count_image', methods=['POST'])
+def api_count_pallet_image(pallet_id=None):
+    """
+    Process an uploaded pallet image, detect bundles, match against SKU reference,
+    calculate pieces, record violations if any, and return annotated image with bounding boxes.
+    """
+    ps = get_pallet_service()
+    
+    target_pallet_id = pallet_id or request.form.get('pallet_id')
+    camera_id = request.form.get('camera_id')
+    
+    if not target_pallet_id and camera_id:
+        target_pallet_id = ps.get_active_pallet_for_camera(camera_id)
+        
+    if not target_pallet_id:
+        open_pallets = db.get_all_pallets(status='BUILDING')
+        if open_pallets:
+            target_pallet_id = open_pallets[0]['pallet_id']
+        else:
+            all_pallets = db.get_all_pallets()
+            if all_pallets:
+                target_pallet_id = all_pallets[0]['pallet_id']
+                
+    if not target_pallet_id:
+        return jsonify({"success": False, "error": "No pallet found to associate counting. Please create a pallet first."}), 400
+
+    file = request.files.get('image') or request.files.get('file')
+    if not file or file.filename == '':
+        return jsonify({"success": False, "error": "No image file uploaded"}), 400
+
+    file_bytes = np.frombuffer(file.read(), np.uint8)
+    image_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    if image_bgr is None:
+        return jsonify({"success": False, "error": "Invalid or corrupted image format"}), 400
+
+    result = ps.process_pallet_image(target_pallet_id, image_bgr)
+    
+    cam_to_update = camera_id or (result.get('pallet') or {}).get('camera_id')
+    if cam_to_update:
+        try:
+            bus = get_shared_frame_bus()
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            rel_ann = result.get('annotated_image_url', '').lstrip('/')
+            full_ann_path = os.path.join(app_dir, rel_ann)
+            if os.path.exists(full_ann_path):
+                ann_img = cv2.imread(full_ann_path)
+                if ann_img is not None:
+                    ret, buf = cv2.imencode('.jpg', ann_img)
+                    if ret:
+                        bus.publish(cam_to_update, buf.tobytes())
+        except Exception as e:
+            logger.warning(f"Error publishing image count to bus: {e}")
+
+    return jsonify(result)
+
 
 
 # ==============================================================================

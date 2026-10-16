@@ -5316,6 +5316,13 @@ window.switchSubTab = switchSubTab;
                             <select id="palletCameraSelect" style="background:rgba(0,0,0,0.5); color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:0.75rem; padding:3px 6px;">
                                 <option value="cam_inbound_01">cam_inbound_01 (Pallet Zone)</option>
                             </select>
+                            <button type="button" class="btn-primary" onclick="document.getElementById('palletImageFileInput').click()" style="background:#10b981; border-color:#059669; font-size:0.75rem; padding:4px 10px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Upload photo to count bundles">
+                                <i class="fas fa-camera"></i> Count from Image
+                            </button>
+                            <button type="button" id="btnPalletResetLiveFeed" class="btn-secondary" onclick="resetPalletLiveFeed()" style="font-size:0.75rem; padding:4px 8px; color:#cbd5e1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);" title="Switch back to live feed">
+                                <i class="fas fa-video"></i> Live Feed
+                            </button>
+                            <input type="file" id="palletImageFileInput" accept="image/*" style="display:none;" onchange="handlePalletImageUpload(event)">
                         </div>
                     </div>
 
@@ -5339,6 +5346,18 @@ window.switchSubTab = switchSubTab;
                                 <b id="hudPalletPieces" style="color:#4ade80; margin-left:4px;">0 EA</b>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Bottom Snapshot Action Bar -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#0f172a; padding:8px 14px; border-top:1px solid rgba(255,255,255,0.1); border-bottom-left-radius:8px; border-bottom-right-radius:8px;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-file-image" style="color:#38bdf8; font-size:0.85rem;"></i>
+                            <span style="font-size:0.75rem; color:#cbd5e1; font-weight:500;">Offline or Photo Counting:</span>
+                            <span style="font-size:0.72rem; color:#94a3b8;">Upload Pallet snapshot to detect & count bundles</span>
+                        </div>
+                        <button type="button" onclick="document.getElementById('palletImageFileInput').click()" style="background:#10b981; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:600; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+                            <i class="fas fa-upload"></i> Upload Image to Count
+                        </button>
                     </div>
                 </div>
 

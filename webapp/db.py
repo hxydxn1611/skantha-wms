@@ -2649,11 +2649,11 @@ def update_pallet_count(
 
     c_bundles = max(0, int(new_count))
     u_per_b = pallet['units_per_bundle'] or 1
+    t_bundles = pallet['target_bundles'] or 0
     tot_units = c_bundles * u_per_b
-    t_bundles = pallet['target_bundles'] or 1
 
-    # Auto-seal if target reached
-    new_status = 'SEALED' if c_bundles >= t_bundles else pallet['status']
+    # Auto-seal if target reached (only when target capacity > 0 was declared)
+    new_status = 'SEALED' if (t_bundles > 0 and c_bundles >= t_bundles) else pallet['status']
     sealed_at_expr = "datetime('now', 'localtime')" if (new_status == 'SEALED' and pallet['status'] != 'SEALED') else "sealed_at"
 
     with conn:

@@ -25,6 +25,9 @@ webapp/weights/
 !yolo11n.pt
 weights/
 webapp/static/captures/
+webapp/static/uploads/*
+!webapp/static/uploads/sku_images/
+webapp/static/invoices/Pallet_Label_*.pdf
 *.db
 *.db-wal
 *.db-shm
