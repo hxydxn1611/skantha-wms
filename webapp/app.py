@@ -5171,10 +5171,32 @@ def api_count_pallet_pieces():
         service = get_pallet_vision_counting_service()
 
         test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'test_scenes')
-        sample_name = request.form.get('sample_name', '')
-        sensitivity = float(request.form.get('sensitivity', 0.5))
-        target_clusters = int(request.form.get('clusters', 4)) if request.form.get('clusters') else None
-        pallet_id = request.form.get('pallet_id')
+        
+        # Support both form data and json payload
+        data = request.get_json(silent=True) or {}
+        sample_name = request.form.get('sample_name') or data.get('sample_name', '')
+        counting_mode = request.form.get('counting_mode') or data.get('counting_mode', 'auto')
+        sensitivity = float(request.form.get('sensitivity') or data.get('sensitivity', 0.5))
+        target_clusters = request.form.get('clusters') or data.get('clusters')
+        target_clusters = int(target_clusters) if target_clusters else None
+        pallet_id = request.form.get('pallet_id') or data.get('pallet_id')
+        
+        # ROI bounding box support
+        roi = None
+        roi_raw = request.form.get('roi') or data.get('roi')
+        if roi_raw:
+            if isinstance(roi_raw, str):
+                import json as pyjson
+                try:
+                    roi = pyjson.loads(roi_raw)
+                except Exception:
+                    pass
+            elif isinstance(roi_raw, dict):
+                roi = roi_raw
+
+        # Auto-detect boxes from sample name if mode is auto
+        if counting_mode == 'auto' and ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
+            counting_mode = 'boxes'
 
         image_bgr = None
         if 'image' in request.files and request.files['image'].filename:
@@ -5195,6 +5217,8 @@ def api_count_pallet_pieces():
 
         result = service.count_individual_pieces(
             image_bgr,
+            counting_mode=counting_mode,
+            roi=roi,
             sensitivity=sensitivity,
             target_clusters=target_clusters
         )
@@ -5205,6 +5229,40 @@ def api_count_pallet_pieces():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error counting individual pieces")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/pallets/re-render-pieces', methods=['POST'])
+def api_re_render_pallet_pieces():
+    """
+    Re-renders piece annotations and legend after user manually clicked to add/delete badges.
+    Enforces 100% human-verified accuracy on factory floor before WMS reconciliation.
+    """
+    try:
+        from pallet_vision_counting_service import get_pallet_vision_counting_service
+        service = get_pallet_vision_counting_service()
+
+        data = request.get_json(silent=True) or {}
+        raw_image_url = data.get('raw_image_url', '')
+        pieces = data.get('pieces', [])
+
+        if not raw_image_url:
+            return jsonify({"success": False, "error": "Missing raw_image_url"}), 400
+
+        # Resolve raw image file path
+        rel_path = raw_image_url.lstrip('/').replace('/', os.sep)
+        full_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), rel_path)
+        if not os.path.isfile(full_path):
+            return jsonify({"success": False, "error": f"Image file not found: {raw_image_url}"}), 404
+
+        raw_img = cv2.imread(full_path)
+        if raw_img is None:
+            return jsonify({"success": False, "error": "Failed to decode raw image"}), 400
+
+        result = service.re_render_piece_annotations(raw_img, pieces=pieces)
+        return jsonify(result), 200
+    except Exception as e:
+        logger.exception("Error re-rendering pieces")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

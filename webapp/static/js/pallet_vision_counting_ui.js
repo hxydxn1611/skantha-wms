@@ -98,21 +98,25 @@
         reader.readAsDataURL(file);
     };
 
-    window.loadSamplePiecesImage = function() {
-        // Load the 229 pcs steel tube stack reference (Image 1)
+    let currentPiecesList = [];
+    let currentRawImageUrl = '';
+
+    window.loadSamplePiecesImage = function(sampleFileName = 'sample_individual_pipes_229.jpg', mode = 'auto') {
         const previewImg = document.getElementById('piecesPreviewImg');
         const placeholder = document.getElementById('piecesPlaceholder');
         if (previewImg) {
-            previewImg.src = '/static/test_scenes/sample_individual_pipes_229.jpg';
+            previewImg.src = `/static/test_scenes/${sampleFileName}`;
             previewImg.style.display = 'block';
         }
         if (placeholder) placeholder.style.display = 'none';
 
-        // Auto execute count
-        window.executePieceCount(true);
+        const modeSelect = document.getElementById('piecesCountingModeSelect');
+        if (modeSelect) modeSelect.value = mode;
+
+        window.executePieceCount(true, sampleFileName, mode);
     };
 
-    window.executePieceCount = async function(useSample = false) {
+    window.executePieceCount = async function(useSample = false, sampleNameOverride = null, modeOverride = null) {
         const btn = document.getElementById('btnRunPieceCount');
         const spinner = document.getElementById('piecesProcessingStatus');
         const resultContainer = document.getElementById('piecesResultContainer');
@@ -125,21 +129,24 @@
             const formData = new FormData();
             const sens = document.getElementById('piecesSensitivitySlider')?.value || '0.5';
             const clust = document.getElementById('piecesClusterSelect')?.value || '4';
-            
+            const mode = modeOverride || document.getElementById('piecesCountingModeSelect')?.value || 'auto';
+
             formData.append('sensitivity', sens);
             formData.append('clusters', clust);
+            formData.append('counting_mode', mode);
+
+            const sampleFile = sampleNameOverride || 'sample_individual_pipes_229.jpg';
 
             if (useSample) {
                 formData.append('use_sample', 'true');
-                formData.append('sample_name', 'sample_individual_pipes_229.jpg');
+                formData.append('sample_name', sampleFile);
             } else {
                 const f = document.getElementById('filePiecesImage')?.files[0];
                 if (f) {
                     formData.append('image', f);
                 } else {
-                    // Fall back to sample if no file uploaded
                     formData.append('use_sample', 'true');
-                    formData.append('sample_name', 'sample_individual_pipes_229.jpg');
+                    formData.append('sample_name', sampleFile);
                 }
             }
 
@@ -154,6 +161,9 @@
             }
 
             latestPiecesResult = data;
+            currentPiecesList = data.pieces || [];
+            currentRawImageUrl = data.raw_image_url || data.annotated_image_url || '';
+
             renderPiecesResults(data);
 
         } catch (err) {
@@ -174,19 +184,33 @@
         // Total badge
         const badge = document.getElementById('piecesTotalBadge');
         if (badge) {
-            badge.textContent = `${data.total_pieces} PCS`;
+            const countLabel = data.mode === 'BOX_GRID' && data.total_3d_pallet 
+                ? `${data.total_3d_pallet} BOXES (3D Pallet)` 
+                : `${data.total_pieces} PCS`;
+            badge.textContent = countLabel;
         }
 
         // Annotated Image URL
         const imgElem = document.getElementById('piecesResultImg');
         if (imgElem && data.annotated_image_url) {
             imgElem.src = `${data.annotated_image_url}?t=${Date.now()}`;
+            imgElem.onload = () => {
+                renderInteractiveBadgesOverlay();
+            };
         }
 
         // Cluster breakdown pills
+        updatePiecesClustersPills(data.clusters);
+
+        resultContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function updatePiecesClustersPills(clusters) {
         const pillsContainer = document.getElementById('piecesClustersPills');
-        if (pillsContainer && data.clusters) {
-            pillsContainer.innerHTML = data.clusters.map(cl => {
+        if (!pillsContainer) return;
+
+        if (clusters && clusters.length > 0) {
+            pillsContainer.innerHTML = clusters.map(cl => {
                 return `
                     <div style="background:rgba(255,255,255,0.06); border:1px solid ${cl.color_hex}; border-radius:6px; padding:6px 12px; display:inline-flex; align-items:center; gap:8px;">
                         <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${cl.color_hex};"></span>
@@ -196,18 +220,165 @@
                 `;
             }).join('');
         }
-
-        resultContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
+    function renderInteractiveBadgesOverlay() {
+        const overlay = document.getElementById('piecesBadgesOverlay');
+        const imgElem = document.getElementById('piecesResultImg');
+        if (!overlay || !imgElem) return;
+
+        overlay.innerHTML = '';
+        const imgW = imgElem.naturalWidth || imgElem.clientWidth || 1;
+        const imgH = imgElem.naturalHeight || imgElem.clientHeight || 1;
+
+        currentPiecesList.forEach((p, idx) => {
+            const leftPct = (p.x / imgW) * 100;
+            const topPct = (p.y / imgH) * 100;
+
+            const badge = document.createElement('div');
+            badge.className = 'interactive-piece-badge';
+            badge.style.cssText = `
+                position: absolute;
+                left: ${leftPct}%;
+                top: ${topPct}%;
+                transform: translate(-50%, -50%);
+                width: 22px;
+                height: 22px;
+                border-radius: 50%;
+                background: ${p.color_hex || '#0284c7'};
+                border: 2px solid #ffffff;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 800;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                pointer-events: auto;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+                user-select: none;
+                transition: transform 0.15s, background 0.15s;
+            `;
+            badge.title = `Piece #${p.id || (idx + 1)} (${p.cluster || 'Item'})\nClick to Delete`;
+            badge.textContent = p.id || (idx + 1);
+
+            badge.onmouseenter = () => {
+                badge.style.transform = 'translate(-50%, -50%) scale(1.4)';
+                badge.style.background = '#ef4444'; // Red delete indicator
+            };
+            badge.onmouseleave = () => {
+                badge.style.transform = 'translate(-50%, -50%) scale(1)';
+                badge.style.background = p.color_hex || '#0284c7';
+            };
+            badge.onclick = (e) => {
+                e.stopPropagation();
+                window.removePieceBadge(idx);
+            };
+
+            overlay.appendChild(badge);
+        });
+    }
+
+    window.handleImageCanvasClick = function(event) {
+        const imgElem = document.getElementById('piecesResultImg');
+        if (!imgElem) return;
+
+        const rect = imgElem.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+
+        const imgW = imgElem.naturalWidth || imgElem.clientWidth || 1;
+        const imgH = imgElem.naturalHeight || imgElem.clientHeight || 1;
+
+        const naturalX = Math.round((clickX / rect.width) * imgW);
+        const naturalY = Math.round((clickY / rect.height) * imgH);
+
+        // Add verified point
+        const newIdx = currentPiecesList.length + 1;
+        currentPiecesList.push({
+            id: newIdx,
+            x: naturalX,
+            y: naturalY,
+            cluster: 'Verified item',
+            color_hex: '#10b981'
+        });
+
+        updateLocalPiecesState();
+        renderInteractiveBadgesOverlay();
+    };
+
+    window.removePieceBadge = function(index) {
+        if (index >= 0 && index < currentPiecesList.length) {
+            currentPiecesList.splice(index, 1);
+            // Renumber remaining pieces sequentially
+            currentPiecesList.forEach((p, i) => { p.id = i + 1; });
+            updateLocalPiecesState();
+            renderInteractiveBadgesOverlay();
+        }
+    };
+
+    function updateLocalPiecesState() {
+        const total = currentPiecesList.length;
+        const badge = document.getElementById('piecesTotalBadge');
+        if (badge) badge.textContent = `${total} PCS`;
+
+        // Recalculate clusters
+        const clusterMap = {};
+        currentPiecesList.forEach(p => {
+            const cname = p.cluster || 'Verified piece';
+            if (!clusterMap[cname]) {
+                clusterMap[cname] = { name: cname, count: 0, color_hex: p.color_hex || '#0284c7' };
+            }
+            clusterMap[cname].count++;
+        });
+
+        updatePiecesClustersPills(Object.values(clusterMap));
+
+        if (latestPiecesResult) {
+            latestPiecesResult.total_pieces = total;
+        }
+    }
+
+    window.recertifyAndSavePieces = async function() {
+        if (!currentRawImageUrl || currentPiecesList.length === 0) {
+            alert('No pieces loaded to certify.');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/pallets/re-render-pieces', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    raw_image_url: currentRawImageUrl,
+                    pieces: currentPiecesList
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const imgElem = document.getElementById('piecesResultImg');
+                if (imgElem && data.annotated_image_url) {
+                    imgElem.src = `${data.annotated_image_url}?t=${Date.now()}`;
+                }
+                alert(`Certified 100% Verified! Total Count: ${data.total_pieces} Pieces.`);
+            } else {
+                alert(`Re-render error: ${data.error || 'Failed to re-render'}`);
+            }
+        } catch (err) {
+            console.error('Recertify error:', err);
+            alert(`Error: ${err.message}`);
+        }
+    };
+
     window.syncPiecesCountToPallet = async function() {
-        if (!latestPiecesResult) {
+        if (!latestPiecesResult && currentPiecesList.length === 0) {
             alert('Please run piece count first.');
             return;
         }
 
-        const count = latestPiecesResult.total_pieces;
-        const confirmSync = confirm(`Reconcile Active Pallet with Verified Piece Count?\n\nDetected Total: ${count} Pieces\nThis will record piece inventory in WMS.`);
+        const count = currentPiecesList.length || (latestPiecesResult ? latestPiecesResult.total_pieces : 0);
+        const confirmSync = confirm(`Reconcile Active Pallet with Verified Piece Count?\n\nVerified Total: ${count} Units\nThis will record certified inventory in WMS.`);
         if (!confirmSync) return;
 
         try {
@@ -222,7 +393,7 @@
 
             const data = await res.json();
             if (res.ok && data.success) {
-                alert(`Success! Reconciled with ${count} pieces.`);
+                alert(`Success! Reconciled with ${count} verified pieces.`);
                 closeVisionCountingModal();
                 if (typeof window.palletModule !== 'undefined' && window.palletModule.loadPallets) {
                     window.palletModule.loadPallets();
