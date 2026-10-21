@@ -37,6 +37,22 @@ MODEL_CAPABILITIES = {
         "proxy_classes": ["suitcase", "backpack"],
         "warehouse_native_classes": False,
         "notes": "Verified local baseline weights. Lightweight YOLO11 weights."
+    },
+    "best.pt": {
+        "architecture": "Custom Fine-Tuned YOLO",
+        "dataset": "WARLOG Custom Automotive / Warehouse Dataset",
+        "natively_supported": ["PALLET", "BOX", "CRATE", "TOTE", "TIRE", "WHEEL", "BUMPER", "DOOR", "BONNET", "HEADLAMP", "TAIL_LAMP", "SEAT", "BATTERY", "ENGINE", "TRANSMISSION", "BRAKE_DISC", "BRAKE_CALIPER", "CONTROL_ARM", "SHOCK_ABSORBER", "EXHAUST_COMPONENT"],
+        "proxy_classes": [],
+        "warehouse_native_classes": True,
+        "notes": "Custom trained fine-tuned model for genuine warehouse and automotive parts."
+    },
+    "yolov8s-world.pt": {
+        "architecture": "Ultralytics YOLOv8-World Small",
+        "dataset": "Open-Vocabulary Zero-Shot Object Detector",
+        "natively_supported": ["bundle", "pallet", "metal frame", "box", "carton", "crate", "package", "steel bar bundle", "truck", "forklift", "person"],
+        "proxy_classes": [],
+        "warehouse_native_classes": True,
+        "notes": "Open-vocabulary zero-shot detector capable of detecting bundles, pallets, boxes, and metal frames."
     }
 }
 
@@ -55,7 +71,11 @@ def get_candidate_search_directories() -> List[str]:
         os.path.join(WEBAPP_DIR, "models"),
         PROJECT_ROOT,
         os.path.join(PROJECT_ROOT, "ml_pipeline"),
-        os.path.join(PROJECT_ROOT, "models")
+        os.path.join(PROJECT_ROOT, "ml_pipeline", "weights"),
+        os.path.join(PROJECT_ROOT, "models"),
+        os.path.join(PROJECT_ROOT, "warlog_vision", "automotive_finetune", "weights"),
+        os.path.join(PROJECT_ROOT, "runs", "detect", "train", "weights"),
+        os.path.join(PROJECT_ROOT, "runs", "detect", "automotive_finetune", "weights")
     ]
     # Filter to existing directories preserving order
     seen = set()
@@ -156,6 +176,21 @@ def load_yolo_model(
         return None, "", None, err
 
     target_name = (requested_model or CONFIGURED_MODEL_PREFERENCE).strip()
+    
+    # Priority auto-detection:
+    # 1. If custom fine-tuned model 'best.pt' exists, prioritize it
+    # 2. If 'yolov8s-world.pt' exists, prioritize it for native bundle & pallet detection over generic COCO
+    if (not requested_model or requested_model in ("yolo11s.pt", "yolo11n.pt")) and "VISION_MODEL_NAME" not in os.environ:
+        best_path = resolve_model_path("best.pt")
+        if best_path is not None:
+            logger.info(f"Custom trained model 'best.pt' detected at {best_path}. Prioritizing over stock COCO model.")
+            target_name = "best.pt"
+        else:
+            world_path = resolve_model_path("yolov8s-world.pt")
+            if world_path is not None:
+                logger.info(f"YOLO-World open-vocabulary model detected at {world_path}. Prioritizing for bundle & pallet detection.")
+                target_name = "yolov8s-world.pt"
+
     resolved_path = resolve_model_path(target_name)
 
     # Case A: Requested model exists locally

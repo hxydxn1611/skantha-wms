@@ -2564,7 +2564,10 @@ def create_pallet(
 
     pallet_name = name or f"Pallet {actual_pallet_id} ({sku['name']})"
     u_per_b = max(1, int(units_per_bundle or 1))
-    t_bundles = max(1, int(target_bundles or 1))
+    try:
+        t_bundles = max(0, int(target_bundles)) if target_bundles is not None else 0
+    except (ValueError, TypeError):
+        t_bundles = 0
 
     qr_payload = json.dumps({
         "type": "PALLET_MASTER",

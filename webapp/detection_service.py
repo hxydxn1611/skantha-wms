@@ -33,16 +33,40 @@ logger = logging.getLogger(__name__)
 
 # Default mapping from pretrained YOLO / COCO class labels to Skandha Object Class Codes
 DEFAULT_CLASS_MAPPING = {
-    # COCO class -> Skandha Master Code
-    "person": "WORKER",
-    "truck": "TRUCK",
-    "car": "TRUCK",         # Transport vehicle proxy in yard
-    "bus": "TRUCK",
-    "suitcase": "BOX",      # Packaging / bundle proxy in COCO
-    "backpack": "BOX",
-    "box": "BOX",
+    # Core Warehouse Logistics Classes
     "bundle": "BUNDLE",
     "pallet": "PALLET",
+    "box": "BOX",
+    "carton": "BOX",
+    "crate": "BOX",
+    "package": "BOX",
+    "metal frame": "BUNDLE",
+    "steel bar bundle": "BUNDLE",
+    "steel bar": "BUNDLE",
+    "forklift": "FORKLIFT",
+    "worker": "WORKER",
+    "person": "WORKER",
+    "truck": "TRUCK",
+    "car": "TRUCK",
+    "bus": "TRUCK",
+    "license plate": "LICENSE_PLATE",
+
+    # Intelligent COCO proxies for warehouse scenes
+    "surfboard": "BUNDLE",   # Long metal frame / profile / rebar proxy in COCO
+    "bench": "BUNDLE",       # Frame stack / heavy bundle proxy in COCO
+    "skis": "BUNDLE",        # Long metal profile / rod proxy in COCO
+    "snowboard": "BUNDLE",   # Wide structural panel / frame bundle proxy in COCO
+    "baseball bat": "BUNDLE",# Bar / pipe / profile proxy in COCO
+    "bed": "PALLET",         # Pallet base / palletized unit load proxy in COCO
+    "dining table": "PALLET",# Pallet platform / staging base proxy in COCO
+    "suitcase": "BOX",       # Packaging / carton proxy in COCO
+    "backpack": "BOX",       # Package proxy in COCO
+    "handbag": "BOX",        # Small parcel proxy in COCO
+    "book": "BOX",           # Small flat package proxy in COCO
+    "refrigerator": "BOX",   # Large industrial crate proxy in COCO
+    "tv": "BOX",             # Large flat box proxy in COCO
+
+    # Automotive & Industrial Components
     "engine block": "ENGINE_BLOCK",
     "windshield": "WINDSHIELD",
     "bumper": "BUMPER",
@@ -50,9 +74,6 @@ DEFAULT_CLASS_MAPPING = {
     "steering wheel": "STEERING_WHEEL",
     "tire bundle": "TIRE_BUNDLE",
     "hood": "HOOD",
-    "forklift": "FORKLIFT",
-    "worker": "WORKER",
-    "license plate": "LICENSE_PLATE",
     "bin": "BIN",
     "material": "MATERIAL",
     "glass": "GLASS",
@@ -222,12 +243,14 @@ class ObjectDetectionEngine:
             # If using YOLO-World, set zero-shot custom classes
             if 'world' in self.model_name.lower():
                 custom_classes = [
-                    "box", "bundle", "pallet", "engine block", 
-                    "windshield", "bumper", "screw box", "steering wheel", 
-                    "tire bundle", "hood", "truck", "forklift", "person", "license plate"
+                    "bundle", "pallet", "metal frame", "box", "carton", "crate", 
+                    "package", "steel bar bundle", "truck", "forklift", "person", "license plate"
                 ]
-                self.model.set_classes(custom_classes)
-                logger.info(f"YOLO-World zero-shot classes set: {custom_classes}")
+                try:
+                    self.model.set_classes(custom_classes)
+                    logger.info(f"YOLO-World zero-shot classes set: {custom_classes}")
+                except Exception as e:
+                    logger.warning(f"Could not set YOLO-World classes: {e}")
 
             logger.info(f"Loaded YOLO model '{self.model_name}' (path: {active_path}) on device '{self.active_device}'")
             return True
@@ -391,10 +414,17 @@ class ObjectDetectionEngine:
                     confidence = float(confs[i])
 
                     # Map raw model class to Skandha Object Class Code
-                    mapped_code = self.class_mapping.get(raw_class_name)
+                    mapped_code = self.class_mapping.get(raw_class_name) or self.class_mapping.get(raw_class_name.lower())
                     if not mapped_code:
-                        # Skip classes unmapped to warehouse taxonomy unless testing
-                        continue
+                        if getattr(self, "model_name", "") == "best.pt":
+                            # Auto-adopt custom trained class names from fine-tuned weights
+                            mapped_code = raw_class_name.upper().replace(' ', '_')
+                        else:
+                            # Drop non-warehouse classes (e.g. chair, couch, cell phone, remote, toilet, animal, etc.)
+                            # This strictly prevents recognizing random background objects as warehouse items.
+                            continue
+                    if mapped_code not in active_class_names:
+                        active_class_names[mapped_code] = raw_class_name.replace('_', ' ').title()
 
                     # Bounding box in integer display pixels
                     x1 = max(0, round(float(xyxy[i][0])))

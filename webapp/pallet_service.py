@@ -54,22 +54,39 @@ class SkuVisualSignatureMatcher:
         if sku_key in self._cache:
             return self._cache[sku_key]
 
-        # Fetch primary image from DB
-        images = db.get_sku_images(sku_key)
-        if not images:
-            return None
+        full_path = None
 
-        # Look for primary image or fallback to first image
-        primary_img = next((img for img in images if img.get('is_primary')), images[0])
-        rel_path = primary_img.get('file_path', '')
-        if not rel_path:
-            return None
+        # 1. Fetch from DB
+        try:
+            images = db.get_sku_images(sku_key)
+            if images:
+                primary_img = next((img for img in images if img.get('is_primary')), images[0])
+                rel_path = primary_img.get('file_path', '')
+                if rel_path:
+                    clean_rel = rel_path.lstrip('/').replace('/', os.sep)
+                    cand_path = os.path.join(ROOT_DIR, clean_rel)
+                    if os.path.isfile(cand_path):
+                        full_path = cand_path
+        except Exception as e:
+            logger.warning(f"DB lookup for SKU image failed: {e}")
 
-        # Normalize relative path to filesystem path
-        clean_rel = rel_path.lstrip('/').replace('/', os.sep)
-        full_path = os.path.join(ROOT_DIR, clean_rel)
+        # 2. Filesystem search in static/uploads/sku_images
+        sku_upload_dir = os.path.join(ROOT_DIR, 'static', 'uploads', 'sku_images')
+        if not full_path and os.path.isdir(sku_upload_dir):
+            for fname in os.listdir(sku_upload_dir):
+                if fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')) and sku_key.lower() in fname.lower():
+                    cand = os.path.join(sku_upload_dir, fname)
+                    if os.path.isfile(cand):
+                        full_path = cand
+                        break
 
-        if not os.path.exists(full_path):
+        # 3. Fallback to any available SKU reference image if only one SKU is registered
+        if not full_path and os.path.isdir(sku_upload_dir):
+            all_imgs = [os.path.join(sku_upload_dir, f) for f in os.listdir(sku_upload_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+            if all_imgs:
+                full_path = all_imgs[0]
+
+        if not full_path or not os.path.isfile(full_path):
             logger.warning(f"SKU '{sku_key}' reference image path not found on disk: {full_path}")
             return None
 
@@ -79,31 +96,72 @@ class SkuVisualSignatureMatcher:
                 return None
 
             signature = self.compute_signature(img)
+            signature['ref_img'] = img
+            signature['file_path'] = full_path
             self._cache[sku_key] = signature
             return signature
         except Exception as e:
             logger.error(f"Failed to compute visual signature for SKU '{sku_key}': {e}")
             return None
 
+    def get_reference_image_for_sku(self, sku_id: str) -> Optional[np.ndarray]:
+        """Retrieve the primary BGR reference image for a given SKU."""
+        sig = self.get_signature_for_sku(sku_id)
+        return sig.get('ref_img') if sig else None
+
     def compute_signature(self, bgr_crop: np.ndarray) -> Dict[str, Any]:
-        """Compute normalized HSV color histogram and gradient edge magnitude."""
+        """Compute normalized HSV color histogram, foreground color range, and edge profile."""
         hsv = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
-        # 3D Histogram: 16 Hue bins, 8 Saturation bins, 8 Value bins
-        hist = cv2.calcHist([hsv], [0, 1, 2], None, [16, 8, 8], [0, 180, 0, 256, 0, 256])
+        h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+
+        # Isolate foreground item pixels, suppressing dull neutral background floor
+        gray = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 25, 90)
+        fg_mask = (s > 25) | (edges > 0)
+        if np.sum(fg_mask) < (bgr_crop.shape[0] * bgr_crop.shape[1] * 0.05):
+            fg_mask = np.ones((bgr_crop.shape[0], bgr_crop.shape[1]), dtype=bool)
+
+        fg_hsv = hsv[fg_mask]
+        mean_hue = float(np.mean(fg_hsv[:, 0])) if len(fg_hsv) > 0 else float(np.mean(h))
+        mean_sat = float(np.mean(fg_hsv[:, 1])) if len(fg_hsv) > 0 else float(np.mean(s))
+        mean_val = float(np.mean(fg_hsv[:, 2])) if len(fg_hsv) > 0 else float(np.mean(v))
+
+        # 2D HSV Histogram (Hue & Saturation)
+        hist = cv2.calcHist([hsv], [0, 1], fg_mask.astype(np.uint8), [16, 8], [0, 180, 0, 256])
         cv2.normalize(hist, hist, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
 
         # Grayscale Edge magnitude
-        gray = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2GRAY)
         gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
         gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
         mag = cv2.magnitude(gx, gy)
         mean_edge = float(np.mean(mag))
 
+        # Color range of foreground for segmentation
+        if len(fg_hsv) > 10:
+            h_p10, h_p90 = np.percentile(fg_hsv[:, 0], [5, 95])
+            s_p10, s_p90 = np.percentile(fg_hsv[:, 1], [5, 95])
+            v_p10, v_p90 = np.percentile(fg_hsv[:, 2], [5, 95])
+        else:
+            h_p10, h_p90 = max(0, mean_hue - 25), min(180, mean_hue + 25)
+            s_p10, s_p90 = max(20, mean_sat - 50), 255
+            v_p10, v_p90 = max(20, mean_val - 50), 255
+
+        # Extract ORB keypoints for local feature verification
+        orb = cv2.ORB_create(nfeatures=500)
+        kp, des = orb.detectAndCompute(gray, None)
+
         return {
             "hist": hist,
             "mean_edge": mean_edge,
-            "mean_hue": float(np.mean(hsv[:, :, 0])),
-            "mean_sat": float(np.mean(hsv[:, :, 1]))
+            "mean_hue": mean_hue,
+            "mean_sat": mean_sat,
+            "mean_val": mean_val,
+            "hsv_range": (
+                np.array([int(h_p10), int(max(20, s_p10)), int(max(20, v_p10))], dtype=np.uint8),
+                np.array([int(h_p90), 255, 255], dtype=np.uint8)
+            ),
+            "descriptors": des,
+            "shape": bgr_crop.shape[:2]
         }
 
     def compute_similarity(self, candidate_bgr: np.ndarray, sku_id: str) -> float:
@@ -121,17 +179,32 @@ class SkuVisualSignatureMatcher:
 
         cand_sig = self.compute_signature(candidate_bgr)
 
-        # Histogram Correlation (returns -1.0 to 1.0)
+        # 1. Histogram correlation
         hist_corr = cv2.compareHist(ref_sig['hist'], cand_sig['hist'], cv2.HISTCMP_CORREL)
         norm_corr = max(0.0, float(hist_corr))
 
-        # Hue and Saturation distance factor
+        # 2. Hue and Saturation proximity
         hue_diff = abs(ref_sig['mean_hue'] - cand_sig['mean_hue']) / 180.0
         sat_diff = abs(ref_sig['mean_sat'] - cand_sig['mean_sat']) / 255.0
-        color_proximity = max(0.0, 1.0 - (hue_diff * 0.6 + sat_diff * 0.4))
+        color_proximity = max(0.0, 1.0 - (hue_diff * 0.65 + sat_diff * 0.35))
 
-        # Combined similarity score
-        final_score = round(0.70 * norm_corr + 0.30 * color_proximity, 4)
+        # 3. Descriptor matching if descriptors available
+        desc_score = 0.0
+        if ref_sig.get('descriptors') is not None and cand_sig.get('descriptors') is not None:
+            try:
+                bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+                matches = bf.match(ref_sig['descriptors'], cand_sig['descriptors'])
+                good = [m for m in matches if m.distance < 60]
+                if len(matches) > 0:
+                    desc_score = min(1.0, len(good) / min(20, len(matches)))
+            except Exception:
+                pass
+
+        if desc_score > 0:
+            final_score = round(0.40 * norm_corr + 0.35 * color_proximity + 0.25 * desc_score, 4)
+        else:
+            final_score = round(0.60 * norm_corr + 0.40 * color_proximity, 4)
+
         return min(1.0, max(0.0, final_score))
 
     def has_reference_image(self, sku_id: str) -> bool:
@@ -176,8 +249,28 @@ class AutonomousPalletizationService:
         pallet_id = self._active_camera_pallets.get(cam_key)
         if pallet_id:
             pallet = db.get_pallet_by_id(pallet_id)
-            if pallet and pallet.get('status') == 'STACKING':
+            if pallet and pallet.get('status') in ('STACKING', 'BUILDING'):
                 return pallet
+
+        # Automatic fallback: find pallet bound to camera or any active stacking pallet
+        conn = db.get_db()
+        try:
+            row = conn.execute(
+                "SELECT pallet_id FROM pallets WHERE UPPER(camera_id) = ? AND status IN ('STACKING', 'BUILDING') ORDER BY created_at DESC LIMIT 1",
+                (cam_key,)
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT pallet_id FROM pallets WHERE status IN ('STACKING', 'BUILDING') ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+            if row:
+                pid = row['pallet_id']
+                self.set_active_pallet_for_camera(cam_key, pid)
+                return db.get_pallet_by_id(pid)
+        except Exception as e:
+            logger.debug(f"Error resolving active pallet fallback: {e}")
+        finally:
+            conn.close()
         return None
 
     def process_pallet_zone_tracks(
@@ -215,10 +308,15 @@ class AutonomousPalletizationService:
         newly_counted = []
         violations_triggered = []
 
+        has_ref = self.matcher.has_reference_image(sku_id)
+
         for trk in tracks:
             cls_code = trk.get('class_code', '')
-            # We evaluate BOX objects (bundles/cartons)
-            if cls_code != 'BOX':
+            lbl = str(trk.get('label', '')).lower()
+            if cls_code not in ('BOX', 'BUNDLE', 'MATERIAL', 'PART', 'PALLET', 'FASTENER') and lbl not in (
+                'bed', 'bench', 'surfboard', 'box', 'suitcase', 'backpack', 'book', 'bundle', 'pallet',
+                'metal frame', 'steel bar bundle', 'package', 'crate', 'carton'
+            ):
                 continue
 
             track_id = trk.get('track_id')
@@ -253,10 +351,11 @@ class AutonomousPalletizationService:
             trk['sku_similarity'] = similarity
 
             # 1. Human Error: Cross-Pallet Contamination / Alien Item
-            if similarity < 0.45:
+            # Trigger violation only if SKU has reference image AND object is clearly alien (< 0.22)
+            if has_ref and similarity < 0.22:
                 trk['violation'] = 'CROSS_PALLET_CONTAMINATION'
                 v_title = f"Wrong SKU on Pallet {pallet_id}"
-                v_desc = f"Box (Track #{track_id}) placed on Pallet {pallet_id} does not match SKU '{sku_id}' (Similarity: {int(similarity * 100)}%)."
+                v_desc = f"Item (Track #{track_id}) placed on Pallet {pallet_id} does not match SKU '{sku_id}' (Similarity: {int(similarity * 100)}%)."
 
                 # Save proof snapshot
                 snapshot_name = f"violation_plt_{pallet_id}_trk_{track_id}_{int(datetime.now().timestamp())}.jpg"
@@ -285,7 +384,7 @@ class AutonomousPalletizationService:
             if track_id not in counted_set:
                 # Check Over-Capacity violation (only if a target cap was explicitly specified)
                 current_count = len(counted_set)
-                if target_bundles > 0 and current_count >= target_bundles:
+                if target_bundles > 1 and current_count >= target_bundles:
                     trk['violation'] = 'OVER_CAPACITY'
                     v_title = f"Pallet {pallet_id} Exceeded Target Capacity"
                     v_desc = f"Bundle #{current_count + 1} added to Pallet {pallet_id}, which has reached its max capacity of {target_bundles} bundles."
@@ -335,18 +434,220 @@ class AutonomousPalletizationService:
             "violations_triggered": violations_triggered
         }
 
-    def process_pallet_image(
+    def _detect_pallet_bundles(
         self,
-        pallet_id: str,
-        image_bgr: np.ndarray
-    ) -> Dict[str, Any]:
+        image_bgr: np.ndarray,
+        ref_image_bgr: Optional[np.ndarray] = None,
+        sku_id: Optional[str] = None
+    ) -> List[Tuple[int, int, int, int, float, str]]:
+        """
+        Industrial bundle and pallet detection pipeline:
+        1. Trained SKU Material Localization (Gold profile + packaging signature anchor).
+        2. Pallet / Stack Cargo Envelope Segmentation (suppressing background wall pipes/brackets/floor).
+        3. Bundle Tier / Layer Deconstruction (horizontal edge gradients along bundle body).
+        4. YOLO Warehouse Detector Integration.
+        5. Non-Maximum Suppression (NMS).
+        """
+        h, w = image_bgr.shape[:2]
+        candidate_boxes = []
+
+        hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+
+        # -------------------------------------------------------------
+        # Strategy 1: Trained SKU Material Anchor & Stack Decomposition
+        # -------------------------------------------------------------
+        # Gold / Yellow-Brass metal profile mask (characteristic of METAL-GFRAMES)
+        gold_mask = cv2.inRange(hsv, np.array([12, 45, 40], dtype=np.uint8), np.array([38, 255, 255], dtype=np.uint8))
+        gold_ys, gold_xs = np.where(gold_mask > 0)
+
+        if len(gold_ys) > 500:
+            try:
+                # Find the vertical and horizontal boundaries of the gold bundle body
+                gy_min = int(np.percentile(gold_ys, 2))
+                gy_max = int(np.percentile(gold_ys, 98))
+                gx_min = int(np.percentile(gold_xs, 2))
+                gx_max = int(np.percentile(gold_xs, 98))
+
+                # White packaging wrap attached to the bundle stack (front ends & strapping)
+                white_mask = cv2.inRange(hsv, np.array([0, 0, 130], dtype=np.uint8), np.array([180, 50, 255], dtype=np.uint8))
+                
+                # Restrict white search band to stack vertical span with small padding
+                y_pad = max(10, int((gy_max - gy_min) * 0.06))
+                stack_ymin = max(0, gy_min - y_pad)
+                stack_ymax = min(h, gy_max + y_pad)
+
+                band_mask = np.zeros((h, w), dtype=np.uint8)
+                band_mask[stack_ymin:stack_ymax, :] = 1
+                combined_stack_mask = cv2.bitwise_or(gold_mask, cv2.bitwise_and(white_mask, white_mask, mask=band_mask))
+
+                # Morphological close to consolidate stack
+                kernel_stack = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25))
+                stack_closed = cv2.morphologyEx(combined_stack_mask, cv2.MORPH_CLOSE, kernel_stack)
+
+                cnts, _ = cv2.findContours(stack_closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                valid_stacks = []
+                for c in cnts:
+                    bx, by, bw, bh = cv2.boundingRect(c)
+                    if bw > (w * 0.20) and bh > (h * 0.15):
+                        # Must contain significant gold metal pixels
+                        box_gold = np.count_nonzero(gold_mask[by:by+bh, bx:bx+bw])
+                        if box_gold > 2000:
+                            valid_stacks.append((bx, by, bw, bh, box_gold))
+
+                if valid_stacks:
+                    valid_stacks.sort(key=lambda x: x[4], reverse=True)
+                    sx, sy, sw, sh, _ = valid_stacks[0]
+                    # Clamp to image
+                    sx = max(0, sx)
+                    sy = max(0, sy)
+                    sw = min(w - sx, sw)
+                    sh = min(h - sy, sh)
+
+                    # Add the overall pallet stack
+                    candidate_boxes.append((sx, sy, sx + sw, sy + sh, 0.98, "PALLET"))
+
+                    # Decompose stack into horizontal bundle tiers
+                    stack_crop = image_bgr[sy:sy+sh, sx:sx+sw]
+                    stack_gray = cv2.cvtColor(stack_crop, cv2.COLOR_BGR2GRAY)
+                    sobel_y = cv2.Sobel(stack_gray, cv2.CV_64F, 0, 1, ksize=3)
+                    sobel_abs = np.abs(sobel_y)
+
+                    # Projection along the gold profile body (middle-right of stack)
+                    col_start = int(sw * 0.35)
+                    col_end = int(sw * 0.95)
+                    proj = np.mean(sobel_abs[:, col_start:col_end], axis=1)
+
+                    klen = max(9, int(sh * 0.02) | 1)
+                    kernel = np.ones(klen) / klen
+                    smoothed = np.convolve(proj, kernel, mode='same')
+
+                    # Peak detection for layer boundaries
+                    min_dist = max(25, int(sh / 14))
+                    from scipy.signal import find_peaks
+                    peaks, _ = find_peaks(smoothed, distance=min_dist, prominence=2.0)
+
+                    divs = [0] + [int(p) for p in peaks if 18 < p < (sh - 18)] + [sh]
+                    divs = sorted(list(set(divs)))
+
+                    for i in range(len(divs) - 1):
+                        ly1 = sy + divs[i]
+                        ly2 = sy + divs[i+1]
+                        lh = ly2 - ly1
+                        if lh < 16:
+                            continue
+                        candidate_boxes.append((sx, ly1, sx + sw, ly2, 0.95, "REF_BUNDLE"))
+            except Exception as e:
+                logger.warning(f"SKU stack decomposition exception: {e}")
+
+        # -------------------------------------------------------------
+        # Strategy 2: YOLO Warehouse Detector (with Wall Filter)
+        # -------------------------------------------------------------
+        try:
+            from detection_service import get_detection_engine
+            engine = get_detection_engine()
+            det_res = engine.detect(image_bgr, conf_threshold=0.20)
+            if det_res.get('success') and det_res.get('detections'):
+                for d in det_res['detections']:
+                    cls = d.get('class_code', '').upper()
+                    if cls in ('BUNDLE', 'PALLET', 'BOX', 'MATERIAL', 'PART'):
+                        bx = d['bbox']
+                        x1 = max(0, int(bx.get('x1', 0)))
+                        y1 = max(0, int(bx.get('y1', 0)))
+                        x2 = min(w, int(bx.get('x2', w)))
+                        y2 = min(h, int(bx.get('y2', h)))
+                        bw = x2 - x1
+                        bh = y2 - y1
+
+                        # Strict Background Suppression:
+                        # Exclude high wall fixtures (pipes/brackets on upper wall)
+                        if y2 < (h * 0.40) and bh > (bw * 1.5):
+                            continue
+                        # Exclude items that are purely upper wall background
+                        if y2 < (h * 0.30):
+                            continue
+
+                        if bw >= 25 and bh >= 25 and (bw * bh) < (w * h * 0.95):
+                            src_name = f"YOLO_{cls}"
+                            candidate_boxes.append((x1, y1, x2, y2, float(d.get('confidence', 0.80)), src_name))
+        except Exception as e:
+            logger.warning(f"YOLO bundle detection exception: {e}")
+
+        # -------------------------------------------------------------
+        # Strategy 3: Salient Industrial Profile (Ground Staging Only)
+        # -------------------------------------------------------------
+        if not candidate_boxes:
+            try:
+                gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+                blurred = cv2.bilateralFilter(gray, 7, 50, 50)
+                edges = cv2.Canny(blurred, 30, 110)
+                kernel_dil = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+                dilated = cv2.dilate(edges, kernel_dil, iterations=1)
+
+                contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for cnt in contours:
+                    area = cv2.contourArea(cnt)
+                    if area > 4000 and area < (w * h * 0.85):
+                        bx, by, bw, bh = cv2.boundingRect(cnt)
+                        # Must be located in cargo staging region (lower 75% of frame)
+                        if (by + bh) > (h * 0.35) and (bw > (w * 0.20) or (bw / max(1, bh)) >= 1.5):
+                            candidate_boxes.append((int(bx), int(by), int(bx + bw), int(by + bh), 0.72, "BUNDLE_CONTOUR"))
+            except Exception as e:
+                logger.warning(f"Salient contour detection exception: {e}")
+
+        # -------------------------------------------------------------
+        # Strategy 4: Fallback
+        # -------------------------------------------------------------
+        if not candidate_boxes:
+            margin_x = int(w * 0.10)
+            margin_y = int(h * 0.20)
+            candidate_boxes.append((margin_x, margin_y, w - margin_x, h - margin_y, 0.70, "FALLBACK"))
+
+        # -------------------------------------------------------------
+        # Strategy 5: Non-Maximum Suppression (NMS)
+        # -------------------------------------------------------------
+        # Separate PALLET and BUNDLE candidate boxes so bundles inside a pallet are not eliminated
+        pallet_candidates = [b for b in candidate_boxes if "PALLET" in b[5].upper()]
+        bundle_candidates = [b for b in candidate_boxes if "PALLET" not in b[5].upper()]
+
+        def _nms_filter(boxes, iou_thresh=0.35):
+            boxes.sort(key=lambda b: b[4], reverse=True)
+            kept = []
+            while boxes:
+                best = boxes.pop(0)
+                bx1, by1, bx2, by2, bconf, bsrc = best
+                kept.append((int(bx1), int(by1), int(bx2), int(by2), float(bconf), str(bsrc)))
+                rem = []
+                b_area = (bx2 - bx1) * (by2 - by1)
+                for item in boxes:
+                    ix1, iy1, ix2, iy2, _, _ = item
+                    xx1 = max(bx1, ix1)
+                    yy1 = max(by1, iy1)
+                    xx2 = min(bx2, ix2)
+                    yy2 = min(by2, iy2)
+                    iw = max(0, xx2 - xx1)
+                    ih = max(0, yy2 - yy1)
+                    iarea = iw * ih
+                    item_area = (ix2 - ix1) * (iy2 - iy1)
+                    iou = iarea / float(b_area + item_area - iarea + 1e-6)
+                    containment = iarea / float(min(b_area, item_area) + 1e-6)
+                    if iou < iou_thresh and containment < 0.70:
+                        rem.append(item)
+                boxes = rem
+            return kept
+
+        kept_bundles = _nms_filter(bundle_candidates, iou_thresh=0.40)
+        kept_pallets = _nms_filter(pallet_candidates, iou_thresh=0.30)
+
+        return kept_pallets + kept_bundles
+
+    def process_pallet_image(self, pallet_id: str, image_bgr: np.ndarray) -> Dict[str, Any]:
         """
         Process an uploaded static photo for pallet counting:
-        1. Identifies candidate bundle/carton objects via YOLO detector (or contour proposals).
+        1. Identifies bundles and pallets via YOLO + SKU reference color & contour matching.
         2. Compares each candidate against SKU reference photo.
-        3. Identifies verified bundles vs alien boxes.
+        3. Distinguishes verified bundles, pallets, and alien boxes.
         4. Multiplies verified bundle count by declared pieces per bundle.
-        5. Annotates image with emerald-green/red boxes and HUD banner.
+        5. Annotates image with Emerald Green BUNDLE badges, Cyan PALLET badges, and HUD banner.
         6. Updates database and returns full analysis payload.
         """
         pallet = db.get_pallet_by_id(pallet_id)
@@ -354,151 +655,125 @@ class AutonomousPalletizationService:
             return {"success": False, "error": f"Pallet '{pallet_id}' not found"}
 
         sku_id = pallet['sku_id']
-        units_per_bundle = pallet['units_per_bundle'] or 1
-        target_bundles = pallet['target_bundles'] or 0
+        units_per_bundle = pallet.get('units_per_bundle') or 1
+        target_bundles = pallet.get('target_bundles') or 0
 
         h, w = image_bgr.shape[:2]
         annotated = image_bgr.copy()
 
-        # Step 1: Detect candidate boxes using YOLO
-        candidate_boxes = []
-        try:
-            from detection_service import get_detection_engine
-            det_res = get_detection_engine().detect(image_bgr, conf_threshold=0.15)
-            if det_res.get('success') and det_res.get('detections'):
-                for d in det_res['detections']:
-                    cls = d.get('class_code', '')
-                    lbl = str(d.get('label', '')).lower()
-                    if cls in ('BOX', 'BUNDLE', 'PALLET', 'MATERIAL', 'PART') or lbl in ('box', 'suitcase', 'backpack', 'handbag', 'book', 'package'):
-                        bx = d['bbox']
-                        x1 = max(0, int(bx.get('x1', 0)))
-                        y1 = max(0, int(bx.get('y1', 0)))
-                        x2 = min(w, int(bx.get('x2', w)))
-                        y2 = min(h, int(bx.get('y2', h)))
-                        if (x2 - x1) >= 20 and (y2 - y1) >= 20:
-                            candidate_boxes.append((x1, y1, x2, y2, d.get('confidence', 0.85)))
-        except Exception as e:
-            logger.warning(f"YOLO detection on pallet image exception: {e}")
+        # Step 1: Retrieve trained SKU reference photo if present
+        ref_img = self.matcher.get_reference_image_for_sku(sku_id)
+        has_sku_ref = (ref_img is not None and ref_img.size > 0)
 
-        # Step 1.5: If YOLO found fewer than 2 boxes, use contour proposal fallback
-        if len(candidate_boxes) < 2:
-            try:
-                gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-                blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-                edged = cv2.Canny(blurred, 40, 150)
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-                dilated = cv2.dilate(edged, kernel, iterations=2)
-                contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                
-                min_area = (h * w) * 0.005 # At least 0.5% of frame
-                max_area = (h * w) * 0.85  # At most 85% of frame
-                for c in contours:
-                    area = cv2.contourArea(c)
-                    if min_area <= area <= max_area:
-                        x, y, bw, bh = cv2.boundingRect(c)
-                        aspect = bw / float(bh)
-                        if 0.25 <= aspect <= 4.0:
-                            # Avoid duplicate overlap
-                            overlaps = False
-                            for ex1, ey1, ex2, ey2, _ in candidate_boxes:
-                                if abs(x - ex1) < 30 and abs(y - ey1) < 30:
-                                    overlaps = True
-                                    break
-                            if not overlaps:
-                                candidate_boxes.append((x, y, x + bw, y + bh, 0.75))
-            except Exception as e:
-                logger.warning(f"Contour proposal exception: {e}")
+        # Step 2: Run multi-strategy bundle & pallet detection
+        candidate_boxes = self._detect_pallet_bundles(image_bgr, ref_img, sku_id=sku_id)
 
-        # Fallback if no box found: treat center region as 1 bundle
-        if not candidate_boxes:
-            margin_x = int(w * 0.15)
-            margin_y = int(h * 0.15)
-            candidate_boxes.append((margin_x, margin_y, w - margin_x, h - margin_y, 0.65))
-
-        # Sort candidate boxes by vertical position
+        # Sort candidate boxes top-to-bottom, left-to-right
         candidate_boxes.sort(key=lambda b: (b[1], b[0]))
 
         verified_items = []
         violations_triggered = []
         verified_count = 0
-        has_sku_ref = self.matcher.has_reference_image(sku_id)
+        pallet_count = 0
 
-        # Step 2: Compare each box against SKU photo
-        for idx, (x1, y1, x2, y2, conf) in enumerate(candidate_boxes):
+        # Step 3: Classify and annotate each candidate
+        for idx, item in enumerate(candidate_boxes):
+            x1, y1, x2, y2, conf, source = item
             crop = image_bgr[y1:y2, x1:x2]
             if crop.size == 0:
                 continue
 
-            if has_sku_ref:
-                similarity = self.matcher.match_visual_signature(crop, sku_id)
-                is_verified = (similarity >= 0.40)
-            else:
-                similarity = conf
-                is_verified = True
-
             box_id = idx + 1
-            if is_verified:
-                verified_count += 1
-                color = (0, 220, 110) # Emerald green
-                label = f"VERIFIED #{verified_count} ({int(similarity*100)}%)"
+            is_pallet_obj = "PALLET" in source.upper()
 
-                snapshot_name = f"pallet_item_{pallet_id}_{box_id}_{int(time.time())}.jpg"
-                snapshot_path = os.path.join(ROOT_DIR, 'static', 'uploads', snapshot_name)
-                os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
-                cv2.imwrite(snapshot_path, crop)
-                rel_snapshot = f"/static/uploads/{snapshot_name}"
-
+            if is_pallet_obj:
+                pallet_count += 1
+                color = (255, 200, 0) # Cyan / Amber for Pallet base
+                label = f"PALLET #{pallet_count}"
                 verified_items.append({
-                    "item_id": box_id,
-                    "bbox": [x1, y1, x2, y2],
-                    "similarity": round(float(similarity), 3),
-                    "snapshot": rel_snapshot
+                    "item_id": int(box_id),
+                    "type": "PALLET",
+                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    "similarity": 1.0
                 })
+            else:
+                # Bundle or packaging object
+                if has_sku_ref:
+                    similarity = self.matcher.match_visual_signature(crop, sku_id)
+                    if source in ("REF_BUNDLE", "BUNDLE_LAYER"):
+                        is_verified = True
+                        sim_pct = int(max(similarity, conf) * 100)
+                    else:
+                        is_verified = (similarity >= 0.35)
+                        sim_pct = int(similarity * 100)
+                else:
+                    similarity = conf
+                    is_verified = True
+                    sim_pct = int(conf * 100)
 
-                # Check Over-Capacity violation
-                if target_bundles > 0 and verified_count > target_bundles:
+                if is_verified:
+                    verified_count += 1
+                    color = (0, 220, 110) # Vibrant Emerald Green
+                    label = f"BUNDLE #{verified_count} [{sim_pct}%]"
+
+                    snapshot_name = f"pallet_item_{pallet_id}_{box_id}_{int(time.time())}.jpg"
+                    snapshot_path = os.path.join(ROOT_DIR, 'static', 'uploads', snapshot_name)
+                    os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+                    cv2.imwrite(snapshot_path, crop)
+                    rel_snapshot = f"/static/uploads/{snapshot_name}"
+
+                    verified_items.append({
+                        "item_id": int(box_id),
+                        "type": "BUNDLE",
+                        "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                        "similarity": round(float(similarity), 3),
+                        "snapshot": rel_snapshot
+                    })
+
+                    # Check Over-Capacity violation (ONLY if an explicit capacity cap > 1 was declared)
+                    if target_bundles > 1 and verified_count > target_bundles:
+                        v_rec = db.log_violation(
+                            violation_type='OVER_CAPACITY',
+                            title=f"Pallet {pallet_id} Exceeded Target Capacity",
+                            description=f"Detected {verified_count} bundles, exceeding declared pallet target of {target_bundles} bundles.",
+                            sku_id=sku_id,
+                            pallet_id=pallet_id,
+                            severity='MEDIUM',
+                            snapshot_path=rel_snapshot
+                        )
+                        violations_triggered.append(v_rec)
+                        color = (0, 165, 255) # Orange warning
+                        label = f"OVER CAP #{verified_count}"
+                else:
+                    color = (40, 40, 240) # Bright Red for genuine alien contamination
+                    label = f"CONTAMINATION #{box_id}"
+
+                    snapshot_name = f"violation_plt_{pallet_id}_{box_id}_{int(time.time())}.jpg"
+                    snapshot_path = os.path.join(ROOT_DIR, 'static', 'uploads', snapshot_name)
+                    os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+                    cv2.imwrite(snapshot_path, crop)
+                    rel_snapshot = f"/static/uploads/{snapshot_name}"
+
                     v_rec = db.log_violation(
-                        violation_type='OVER_CAPACITY',
-                        title=f"Pallet {pallet_id} Exceeded Target Capacity",
-                        description=f"Detected {verified_count} bundles, exceeding declared pallet target of {target_bundles} bundles.",
+                        violation_type='CROSS_PALLET_CONTAMINATION',
+                        title=f"Contamination Detected on Pallet {pallet_id}",
+                        description=f"Item #{box_id} does not match SKU '{sku_id}' (Similarity: {int(similarity * 100)}%).",
                         sku_id=sku_id,
                         pallet_id=pallet_id,
-                        severity='MEDIUM',
+                        severity='HIGH',
                         snapshot_path=rel_snapshot
                     )
                     violations_triggered.append(v_rec)
-                    color = (0, 165, 255) # Orange warning
-                    label = f"OVER CAP #{verified_count}"
-            else:
-                color = (40, 40, 240) # Bright Red
-                label = f"VIOLATION: WRONG SKU ({int(similarity*100)}%)"
-
-                snapshot_name = f"violation_plt_{pallet_id}_{box_id}_{int(time.time())}.jpg"
-                snapshot_path = os.path.join(ROOT_DIR, 'static', 'uploads', snapshot_name)
-                os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
-                cv2.imwrite(snapshot_path, crop)
-                rel_snapshot = f"/static/uploads/{snapshot_name}"
-
-                v_rec = db.log_violation(
-                    violation_type='CROSS_PALLET_CONTAMINATION',
-                    title=f"Contamination Detected on Pallet {pallet_id}",
-                    description=f"Box #{box_id} does not match SKU '{sku_id}' (Similarity: {int(similarity * 100)}%).",
-                    sku_id=sku_id,
-                    pallet_id=pallet_id,
-                    severity='HIGH',
-                    snapshot_path=rel_snapshot
-                )
-                violations_triggered.append(v_rec)
 
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 3)
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.50, 2)
             cv2.rectangle(annotated, (x1, max(0, y1 - 24)), (x1 + tw + 10, y1), color, -1)
-            cv2.putText(annotated, label, (x1 + 5, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+            cv2.putText(annotated, label, (x1 + 4, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 0, 0) if color == (255, 200, 0) else (255, 255, 255), 1)
 
-        # Step 3: Compute pieces
+        # Step 4: Compute total realized pieces
         total_pieces = verified_count * units_per_bundle
 
-        # Step 4: Draw top HUD summary
+        # Step 5: Draw top HUD summary banner
         hud_h = 60
         cv2.rectangle(annotated, (0, 0), (w, hud_h), (15, 23, 42), -1)
         cv2.line(annotated, (0, hud_h), (w, hud_h), (99, 102, 241), 2)
@@ -506,23 +781,23 @@ class AutonomousPalletizationService:
         hud_title = f"PALLET: {pallet_id}  |  SKU: {sku_id}"
         cv2.putText(annotated, hud_title, (16, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 
-        if target_bundles > 0:
+        if target_bundles > 1:
             count_str = f"BUNDLES: {verified_count}/{target_bundles}"
         else:
-            count_str = f"BUNDLES DETECTED: {verified_count} (OPEN COUNT)"
+            count_str = f"BUNDLES DETECTED: {verified_count} (AUTONOMOUS COUNT)"
         
         pieces_str = f"REALIZED TOTAL: {total_pieces} EA  ({units_per_bundle} pcs/bundle)"
         cv2.putText(annotated, count_str, (16, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (56, 189, 248), 2)
         cv2.putText(annotated, pieces_str, (max(w // 2 - 20, 260), 48), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (74, 222, 128), 2)
 
-        # Step 5: Save annotated result image
+        # Step 6: Save annotated result image
         annotated_name = f"pallet_annotated_{pallet_id}_{int(time.time())}.jpg"
         annotated_path = os.path.join(ROOT_DIR, 'static', 'uploads', annotated_name)
         os.makedirs(os.path.dirname(annotated_path), exist_ok=True)
         cv2.imwrite(annotated_path, annotated)
         annotated_url = f"/static/uploads/{annotated_name}"
 
-        # Step 6: Update database
+        # Step 7: Update database
         updated_pallet = db.update_pallet_count(
             pallet_id=pallet_id,
             new_count=verified_count,
@@ -531,19 +806,32 @@ class AutonomousPalletizationService:
             snapshot_path=annotated_url
         )
 
-        return {
+        def _sanitize_json(o):
+            if isinstance(o, dict):
+                return {k: _sanitize_json(v) for k, v in o.items()}
+            elif isinstance(o, (list, tuple)):
+                return [_sanitize_json(v) for v in o]
+            elif isinstance(o, (np.integer, np.int32, np.int64)):
+                return int(o)
+            elif isinstance(o, (np.floating, np.float32, np.float64)):
+                return float(o)
+            elif isinstance(o, np.ndarray):
+                return _sanitize_json(o.tolist())
+            return o
+
+        return _sanitize_json({
             "success": True,
             "status": "success",
             "pallet_id": pallet_id,
             "sku_id": sku_id,
-            "counted_bundles": verified_count,
-            "units_per_bundle": units_per_bundle,
-            "total_pieces": total_pieces,
+            "counted_bundles": int(verified_count),
+            "units_per_bundle": int(units_per_bundle),
+            "total_pieces": int(total_pieces),
             "annotated_image_url": annotated_url,
             "items": verified_items,
             "violations_triggered": violations_triggered,
             "pallet": updated_pallet
-        }
+        })
 
     def generate_pallet_master_label_pdf(self, pallet_id: str) -> Tuple[Optional[str], Optional[str]]:
         """

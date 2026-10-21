@@ -26,7 +26,19 @@ def train_warlog_model(model_weights='yolo11s.pt', data_yaml='data.yaml', epochs
         exist_ok=True
     )
     
-    print("Training complete! Model saved to warlog_vision/automotive_finetune/weights/best.pt")
+    best_pt_path = os.path.join('warlog_vision', 'automotive_finetune', 'weights', 'best.pt')
+    print(f"Training complete! Model saved to {best_pt_path}")
+    
+    # Auto-deploy to webapp directory so live vision immediately loads it
+    try:
+        import shutil
+        proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        webapp_dest = os.path.join(proj_root, 'webapp', 'best.pt')
+        if os.path.isfile(best_pt_path):
+            shutil.copy2(best_pt_path, webapp_dest)
+            print(f"-> Automatically deployed custom model weights to webapp: {webapp_dest}")
+    except Exception as e:
+        print(f"Note: Manual copy needed to webapp: {e}")
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train WARLOG YOLO Model")
