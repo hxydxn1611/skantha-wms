@@ -19,6 +19,31 @@
 
         // Login Logic
         
+        function togglePassword(inputId, triggerEl) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            const isPassword = input.type === 'password';
+            input.type = isPassword ? 'text' : 'password';
+
+            let icon = triggerEl;
+            if (!icon || !icon.classList) {
+                const parent = input.closest('.input-group') || input.parentElement;
+                if (parent) icon = parent.querySelector('.password-toggle');
+            }
+            if (icon) {
+                if (isPassword) {
+                    icon.classList.remove('fa-eye-slash');
+                    icon.classList.add('fa-eye');
+                    icon.setAttribute('title', 'Hide password');
+                } else {
+                    icon.classList.remove('fa-eye');
+                    icon.classList.add('fa-eye-slash');
+                    icon.setAttribute('title', 'Show password');
+                }
+            }
+        }
+        window.togglePassword = togglePassword;
+
         function toggleAuthMode() {
             const signin = document.getElementById('form-signin');
             const signup = document.getElementById('form-signup');
