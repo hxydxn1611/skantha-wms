@@ -5379,12 +5379,12 @@ window.switchSubTab = switchSubTab;
                             <span style="font-size:0.75rem; color:#cbd5e1; font-weight:500;">Offline or Photo Counting:</span>
                             <span style="font-size:0.72rem; color:#94a3b8;">Upload Pallet snapshot to detect & count bundles</span>
                         </div>
-                        <div style="display:flex; gap:8px;">
-                            <button type="button" onclick="document.getElementById('palletImageFileInput').click()" style="background:#10b981; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:600; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-                                <i class="fas fa-upload"></i> Single Photo
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button type="button" onclick="openVisionCountingModal('pieces')" style="background:#8b5cf6; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:700; padding:6px 14px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(139,92,246,0.3);">
+                                <i class="fas fa-circle-dot"></i> 🔘 Individual Piece Counter
                             </button>
-                            <button type="button" onclick="openMultiAngleAuditModal()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:600; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-                                <i class="fas fa-cubes-stacked"></i> 📸 3D Multi-Angle Audit
+                            <button type="button" onclick="openVisionCountingModal('bundles')" style="background:#0284c7; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:700; padding:6px 14px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(2,132,199,0.3);">
+                                <i class="fas fa-cubes-stacked"></i> 📦 Bundle &amp; 3D Stack Counter
                             </button>
                         </div>
                     </div>
@@ -6020,195 +6020,346 @@ window.switchSubTab = switchSubTab;
     <!-- ======================================================== -->
     <!-- 3D MULTI-ANGLE VOLUMETRIC BUNDLE AUDIT MODAL -->
     <!-- ======================================================== -->
-    <div id="modalMultiAngleAudit" class="modal-overlay" onclick="if(event.target===this) closeMultiAngleAuditModal()">
-        <div class="modal-dialog" style="max-width: 1040px; width:95%; max-height:92vh; overflow-y:auto;">
-            <div class="modal-header" style="background:#0f172a; color:#f8fafc; border-bottom:1px solid rgba(255,255,255,0.1);">
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <div style="width:36px; height:36px; border-radius:8px; background:rgba(14,165,233,0.15); border:1px solid #0ea5e9; display:flex; align-items:center; justify-content:center; color:#38bdf8;">
-                        <i class="fas fa-cubes-stacked"></i>
+    <!-- ======================================================== -->
+    <!-- AI PALLETIZATION DUAL-MODE VISION COUNTING MODAL -->
+    <!-- Option 1: Individual Piece Counting (Image 1 Style) -->
+    <!-- Option 2: Bundle Counting & Multi-View Deconstruction (Images 2 & 3 Style) -->
+    <!-- ======================================================== -->
+    <div id="modalVisionCounting" class="modal-overlay" onclick="if(event.target===this) closeVisionCountingModal()">
+        <div class="modal-dialog" style="max-width: 1100px; width:95%; max-height:92vh; overflow-y:auto;">
+            
+            <!-- Header -->
+            <div class="modal-header" style="background:#0f172a; color:#f8fafc; border-bottom:1px solid rgba(255,255,255,0.1); padding:1rem 1.5rem;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="width:40px; height:40px; border-radius:8px; background:rgba(139,92,246,0.18); border:1px solid #8b5cf6; display:flex; align-items:center; justify-content:center; color:#c084fc; font-size:1.1rem;">
+                        <i class="fas fa-microchip"></i>
                     </div>
                     <div>
-                        <h3 style="margin:0; font-size:1.15rem; color:#f8fafc;">3D Multi-Angle Volumetric Bundle Audit</h3>
-                        <p style="margin:2px 0 0 0; font-size:0.75rem; color:#94a3b8;">Reconstructs 3D voxel stacks across Front + Right Side + Left Side viewpoints</p>
+                        <h3 style="margin:0; font-size:1.2rem; color:#f8fafc; display:flex; align-items:center; gap:8px;">
+                            <span>AI Palletization Dual-Mode Vision Counter</span>
+                            <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.68rem; padding:2px 8px;">ZERO-TRAIN CV</span>
+                        </h3>
+                        <p style="margin:2px 0 0 0; font-size:0.75rem; color:#94a3b8;">
+                            Universal counting without prior material training &bull; Individual piece pinpointer or multi-view bundle deconstruction
+                        </p>
                     </div>
                 </div>
-                <button type="button" class="modal-close-btn" onclick="closeMultiAngleAuditModal()" style="color:#cbd5e1;">&times;</button>
+                <button type="button" class="modal-close-btn" onclick="closeVisionCountingModal()" style="color:#cbd5e1; font-size:1.6rem; background:none; border:none; cursor:pointer;">&times;</button>
             </div>
 
+            <!-- Modal Body -->
             <div class="modal-body" style="padding:1.5rem; background:#0b1120; color:#f1f5f9; display:flex; flex-direction:column; gap:18px;">
                 
-                <!-- Target Architecture Informational Banner -->
-                <div style="background:rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.25); border-radius:8px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; gap:16px;">
-                    <div>
-                        <div style="font-weight:700; color:#38bdf8; font-size:0.85rem; margin-bottom:2px;">
-                            <i class="fas fa-shield-halved" style="margin-right:6px;"></i> High-Precision Layer &times; Depth Voxel Analysis
-                        </div>
-                        <div style="font-size:0.75rem; color:#94a3b8; line-height:1.4;">
-                            Eliminates occlusion error by combining 3 camera angles. Front view segments stack columns (A&ndash;J); Side views detect vertical layers and cross-lay multipliers.
-                        </div>
-                    </div>
-                    <button type="button" onclick="loadMultiAngleReferenceDemo()" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:white; border:none; border-radius:6px; padding:8px 14px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; box-shadow:0 4px 12px rgba(2,132,199,0.3);">
-                        <i class="fas fa-bolt"></i> Load 308-Bundle Reference Case
+                <!-- 2-Option Mode Switcher Tabs -->
+                <div style="display:flex; gap:10px; background:#0f172a; padding:6px; border-radius:8px; border:1px solid rgba(255,255,255,0.08);">
+                    <button type="button" id="tabModePieces" onclick="switchVisionCountingMode('pieces')" style="flex:1; background:#8b5cf6; color:#ffffff; border:1px solid #8b5cf6; border-radius:6px; padding:10px 14px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s;">
+                        <i class="fas fa-circle-dot"></i>
+                        <span>OPTION 1: Individual Piece Counting</span>
+                    </button>
+                    <button type="button" id="tabModeBundles" onclick="switchVisionCountingMode('bundles')" style="flex:1; background:transparent; color:#94a3b8; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:10px 14px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s;">
+                        <i class="fas fa-cubes-stacked"></i>
+                        <span>OPTION 2: Bundle &amp; Multi-View Counting</span>
                     </button>
                 </div>
 
-                <!-- Parameters Bar -->
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; background:#1e293b; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                    <div>
-                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Target SKU</label>
-                        <input type="text" id="auditSkuInput" value="AUTO-REBAR-32" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
-                    </div>
-                    <div>
-                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Bin / Staging Location</label>
-                        <input type="text" id="auditBinInput" value="A3" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
-                    </div>
-                    <div>
-                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Request / Batch #</label>
-                        <input type="text" id="auditReqInput" value="9504EA" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
-                    </div>
-                    <div>
-                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Depth Multiplier (Cross-Lay)</label>
-                        <select id="auditDepthMultiplier" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
-                            <option value="3" selected>3 Bundles / Layer (Standard Cross-Lay)</option>
-                            <option value="2">2 Bundles / Layer (Narrow Stacks)</option>
-                            <option value="4">4 Bundles / Layer (Heavy Grid)</option>
-                            <option value="1">1 Bundle / Layer (Single Depth)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- 3 Viewport Upload Slots -->
-                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:14px;">
-                    
-                    <!-- Slot 1: Front -->
-                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 1 &mdash; FRONT</span>
-                            <span style="font-size:0.65rem; color:#94a3b8;">Column Boundaries</span>
-                        </div>
-                        <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileAngle1').click()">
-                            <img id="anglePreview1" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Angle 1 Preview">
-                            <div id="anglePlaceholder1" style="text-align:center; padding:10px;">
-                                <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
-                                <div style="font-size:0.7rem; color:#94a3b8;">Upload Front View</div>
-                            </div>
-                        </div>
-                        <input type="file" id="fileAngle1" accept="image/*" style="display:none;" onchange="previewAngleImage(1, this)">
-                    </div>
-
-                    <!-- Slot 2: Right Side -->
-                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 2 &mdash; RIGHT SIDE</span>
-                            <span style="font-size:0.65rem; color:#94a3b8;">Bundle Ends / Layers</span>
-                        </div>
-                        <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileAngle2').click()">
-                            <img id="anglePreview2" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Angle 2 Preview">
-                            <div id="anglePlaceholder2" style="text-align:center; padding:10px;">
-                                <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
-                                <div style="font-size:0.7rem; color:#94a3b8;">Upload Right Side View</div>
-                            </div>
-                        </div>
-                        <input type="file" id="fileAngle2" accept="image/*" style="display:none;" onchange="previewAngleImage(2, this)">
-                    </div>
-
-                    <!-- Slot 3: Left Side -->
-                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 3 &mdash; LEFT SIDE</span>
-                            <span style="font-size:0.65rem; color:#94a3b8;">Back-Wall Occlusion</span>
-                        </div>
-                        <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileAngle3').click()">
-                            <img id="anglePreview3" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Angle 3 Preview">
-                            <div id="anglePlaceholder3" style="text-align:center; padding:10px;">
-                                <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
-                                <div style="font-size:0.7rem; color:#94a3b8;">Upload Left Side View</div>
-                            </div>
-                        </div>
-                        <input type="file" id="fileAngle3" accept="image/*" style="display:none;" onchange="previewAngleImage(3, this)">
-                    </div>
-
-                </div>
-
-                <!-- Run Action Button -->
-                <div style="display:flex; justify-content:flex-end;">
-                    <button type="button" id="btnRunMultiAngleCount" onclick="executeMultiAngleCount(false)" style="background:#0ea5e9; hover:background:#0284c7; color:white; border:none; border-radius:6px; padding:10px 22px; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 4px 14px rgba(14,165,233,0.35);">
-                        <i class="fas fa-calculator"></i> Compute 3D Volumetric Count
-                    </button>
-                </div>
-
-                <!-- Processing Spinner -->
-                <div id="auditProcessingStatus" style="display:none; text-align:center; padding:1.5rem; background:#1e293b; border-radius:8px;">
-                    <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; color:#38bdf8; margin-bottom:10px;"></i>
-                    <div style="font-weight:700; color:#f8fafc; font-size:0.9rem;">Processing 3D Multi-Angle Volumetric Inference...</div>
-                    <div style="font-size:0.75rem; color:#94a3b8;">Segmenting stack columns &bull; Detecting cross-section heads &bull; Computing 3D Voxel formula</div>
-                </div>
-
-                <!-- RESULTS SECTION -->
-                <div id="auditResultContainer" style="display:none; display:flex; flex-direction:column; gap:16px;">
-                    
-                    <!-- Grand Total Banner -->
-                    <div style="background:#0f172a; border:2px solid #eab308; border-radius:8px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <span style="font-size:0.75rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">Certified 3D Multi-View Audit Count</span>
-                            <div style="font-size:1.8rem; font-weight:900; color:#facc15; font-family:'JetBrains Mono',monospace;" id="auditTotalBundlesBadge">
-                                308 BUNDLES
-                            </div>
-                        </div>
-                        <div style="display:flex; gap:10px;">
-                            <button type="button" onclick="openAuditImageFullscreen()" style="background:#334155; color:#f8fafc; border:none; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
-                                <i class="fas fa-expand"></i> View High-Res
-                            </button>
-                            <button type="button" onclick="syncAuditCountToPallet()" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:0.82rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(16,185,129,0.3);">
-                                <i class="fas fa-check-double"></i> Sync to Pallet &amp; WMS
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Split Layout: Generated Audit Sheet & Itemized Table -->
-                    <div style="display:grid; grid-template-columns: 1.2fr 1fr; gap:16px;">
+                <!-- ========================================================= -->
+                <!-- PANEL 1: INDIVIDUAL PIECE COUNTING (IMAGE 1 STYLE) -->
+                <!-- ========================================================= -->
+                <div id="panelModePieces" style="display:block;">
+                    <div style="display:flex; flex-direction:column; gap:16px;">
                         
-                        <!-- Left: Combined Audit Board Canvas Display -->
-                        <div style="background:#020617; border-radius:8px; border:1px solid #1e293b; padding:8px; display:flex; flex-direction:column; gap:6px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; padding:0 4px;">
-                                <span style="font-size:0.72rem; color:#94a3b8; font-weight:600;">Combined Audit Board (3 Angles + 3D Layout)</span>
-                                <span style="font-size:0.68rem; color:#38bdf8;">Click image to enlarge</span>
+                        <!-- Info Banner -->
+                        <div style="background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.25); border-radius:8px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                            <div>
+                                <div style="font-weight:700; color:#c084fc; font-size:0.85rem; margin-bottom:2px;">
+                                    <i class="fas fa-bullseye" style="margin-right:6px;"></i> Material-Agnostic Piece Pinpointer
+                                </div>
+                                <div style="font-size:0.75rem; color:#94a3b8; line-height:1.4;">
+                                    Counts individual repeating cross-sections (hollow square/rectangular tubes, round pipes, steel bars, rods, billets, cartons). Numbers every piece sequentially (1..N) and clusters into bundles with a top-left summary legend.
+                                </div>
                             </div>
-                            <div style="max-height:480px; overflow:hidden; border-radius:6px; cursor:pointer; border:1px solid #334155;" onclick="openAuditImageFullscreen()">
-                                <img id="auditBoardResultImg" src="" style="width:100%; height:auto; display:block;" alt="Audit Board Result">
-                            </div>
+                            <button type="button" onclick="loadSamplePiecesImage()" style="background:linear-gradient(135deg, #8b5cf6, #6366f1); color:white; border:none; border-radius:6px; padding:8px 14px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; box-shadow:0 4px 12px rgba(139,92,246,0.3);">
+                                <i class="fas fa-bolt"></i> ⚡ Try Sample: 229 pcs Tube Stack (Image 1)
+                            </button>
                         </div>
 
-                        <!-- Right: Stacks Breakdown Table -->
-                        <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.06); padding:12px; display:flex; flex-direction:column; gap:8px;">
-                            <span style="font-size:0.75rem; color:#f8fafc; font-weight:700; text-transform:uppercase;">Stack-by-Stack Layer Decomposition</span>
-                            <div style="max-height:440px; overflow-y:auto;">
-                                <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
-                                    <thead>
-                                        <tr style="border-bottom:1px solid #334155; color:#94a3b8; text-align:left;">
-                                            <th style="padding:6px 4px;">Stack Name</th>
-                                            <th style="padding:6px 4px; text-align:center;">Layers</th>
-                                            <th style="padding:6px 4px; text-align:center;">Formula</th>
-                                            <th style="padding:6px 4px; text-align:right;">Bundles</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="auditStacksTableBody">
-                                        <!-- Rendered dynamically -->
-                                    </tbody>
-                                </table>
+                        <!-- Settings & Upload Row -->
+                        <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:14px;">
+                            
+                            <!-- Upload Box -->
+                            <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:12px; display:flex; flex-direction:column; gap:8px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-size:0.75rem; font-weight:700; color:#c084fc;">IMAGE SOURCE</span>
+                                    <span style="font-size:0.68rem; color:#94a3b8;">Click to upload photo of pieces / pipes</span>
+                                </div>
+                                <div style="height:150px; background:#0f172a; border-radius:6px; border:1px dashed #475569; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('filePiecesImage').click()">
+                                    <img id="piecesPreviewImg" style="width:100%; height:100%; object-fit:contain; display:none;" alt="Pieces Preview">
+                                    <div id="piecesPlaceholder" style="text-align:center; padding:10px;">
+                                        <i class="fas fa-camera" style="color:#64748b; font-size:1.8rem; margin-bottom:6px;"></i>
+                                        <div style="font-size:0.75rem; color:#cbd5e1; font-weight:600;">Upload photo to count pieces</div>
+                                        <div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">Square/rectangular tubes, round pipes, billets, or cross-sections</div>
+                                    </div>
+                                </div>
+                                <input type="file" id="filePiecesImage" accept="image/*" style="display:none;" onchange="previewPiecesImage(this)">
                             </div>
+
+                            <!-- Parameters -->
+                            <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:12px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+                                <div>
+                                    <span style="font-size:0.75rem; font-weight:700; color:#f8fafc; display:block; margin-bottom:8px;">TUNING CONTROLS</span>
+                                    
+                                    <div style="margin-bottom:10px;">
+                                        <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:#94a3b8; margin-bottom:4px;">
+                                            <span>Detection Sensitivity:</span>
+                                            <b id="lblPiecesSensitivity" style="color:#c084fc;">0.50</b>
+                                        </div>
+                                        <input type="range" id="piecesSensitivitySlider" min="0.2" max="0.8" step="0.05" value="0.5" style="width:100%; cursor:pointer;" oninput="document.getElementById('lblPiecesSensitivity').textContent = this.value">
+                                    </div>
+
+                                    <div>
+                                        <label style="font-size:0.72rem; color:#94a3b8; display:block; margin-bottom:4px;">Bundle / Cluster Partitioning</label>
+                                        <select id="piecesClusterSelect" style="width:100%; padding:6px 10px; font-size:0.8rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
+                                            <option value="4" selected>4 Bundles (Top Layer, Left, Centre, Right)</option>
+                                            <option value="3">3 Bundles (Left, Centre, Right)</option>
+                                            <option value="2">2 Bundles (Left, Right)</option>
+                                            <option value="1">1 Single Continuous Bundle</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <button type="button" id="btnRunPieceCount" onclick="executePieceCount(false)" style="background:#8b5cf6; hover:background:#7c3aed; color:white; border:none; border-radius:6px; padding:10px 18px; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 4px 14px rgba(139,92,246,0.35);">
+                                    <i class="fas fa-calculator"></i> Run Individual Piece Count
+                                </button>
+                            </div>
+
+                        </div>
+
+                        <!-- Spinner -->
+                        <div id="piecesProcessingStatus" style="display:none; text-align:center; padding:1.5rem; background:#1e293b; border-radius:8px;">
+                            <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; color:#c084fc; margin-bottom:10px;"></i>
+                            <div style="font-weight:700; color:#f8fafc; font-size:0.9rem;">Executing Distance Transform &amp; Cross-Section Peak Finding...</div>
+                            <div style="font-size:0.75rem; color:#94a3b8;">Pinpointing centroids &bull; Generating numbered markers &bull; Partitioning bundle clusters</div>
+                        </div>
+
+                        <!-- Results Container for Pieces -->
+                        <div id="piecesResultContainer" style="display:none; flex-direction:column; gap:16px;">
+                            
+                            <!-- Total Banner -->
+                            <div style="background:#0f172a; border:2px solid #8b5cf6; border-radius:8px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                                <div>
+                                    <span style="font-size:0.75rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">Verified Piece Count</span>
+                                    <div style="font-size:1.9rem; font-weight:900; color:#c084fc; font-family:'JetBrains Mono',monospace;" id="piecesTotalBadge">
+                                        229 PCS
+                                    </div>
+                                </div>
+
+                                <!-- Cluster Pills -->
+                                <div id="piecesClustersPills" style="display:flex; gap:8px; flex-wrap:wrap;">
+                                    <!-- Rendered dynamically -->
+                                </div>
+
+                                <div style="display:flex; gap:10px;">
+                                    <button type="button" onclick="openPiecesImageFullscreen()" style="background:#334155; color:#f8fafc; border:none; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                                        <i class="fas fa-expand"></i> Enlarge
+                                    </button>
+                                    <button type="button" onclick="syncPiecesCountToPallet()" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:0.82rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(16,185,129,0.3);">
+                                        <i class="fas fa-check-double"></i> Apply Pieces to Active Pallet
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Annotated Image Canvas with Numbered Markers -->
+                            <div style="background:#020617; border-radius:8px; border:1px solid #1e293b; padding:10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span style="font-size:0.75rem; color:#94a3b8; font-weight:600;">Numbered Pinpoint Canvas (with Top-Left Cluster Legend)</span>
+                                    <span style="font-size:0.7rem; color:#38bdf8;">Matching Image 1 Standard</span>
+                                </div>
+                                <div style="max-height:560px; overflow:hidden; border-radius:6px; border:1px solid #334155; cursor:pointer;" onclick="openPiecesImageFullscreen()">
+                                    <img id="piecesResultImg" src="" style="width:100%; height:auto; display:block;" alt="Annotated Pieces Canvas">
+                                </div>
+                            </div>
+
                         </div>
 
                     </div>
+                </div>
 
+
+                <!-- ========================================================= -->
+                <!-- PANEL 2: BUNDLE COUNTING & MULTI-VIEW AUDIT (IMAGES 2 & 3) -->
+                <!-- ========================================================= -->
+                <div id="panelModeBundles" style="display:none;">
+                    <div style="display:flex; flex-direction:column; gap:16px;">
+                        
+                        <!-- Info Banner -->
+                        <div style="background:rgba(2,132,199,0.08); border:1px solid rgba(2,132,199,0.25); border-radius:8px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                            <div>
+                                <div style="font-weight:700; color:#38bdf8; font-size:0.85rem; margin-bottom:2px;">
+                                    <i class="fas fa-cubes-stacked" style="margin-right:6px;"></i> Layer Deconstruction &amp; 3D Isometric Layout
+                                </div>
+                                <div style="font-size:0.75rem; color:#94a3b8; line-height:1.4;">
+                                    Counts stacked bundles across viewpoints. Renders Angle 1 (Front) + Angle 2 (Side), 3D isometric layout diagram, human vs model count comparison, and itemized stack table.
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <button type="button" onclick="loadBundleSampleDemo('timber_48')" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:white; border:none; border-radius:6px; padding:8px 12px; font-size:0.72rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; box-shadow:0 3px 10px rgba(2,132,199,0.3);">
+                                    <i class="fas fa-bolt"></i> ⚡ Sample: 48 Bundles (Image 2)
+                                </button>
+                                <button type="button" onclick="loadBundleSampleDemo('multistack_84')" style="background:linear-gradient(135deg, #0ea5e9, #0284c7); color:white; border:none; border-radius:6px; padding:8px 12px; font-size:0.72rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; box-shadow:0 3px 10px rgba(2,132,199,0.3);">
+                                    <i class="fas fa-bolt"></i> ⚡ Sample: 84 Bundles (Image 3)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Dual Angle Upload Slots -->
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px;">
+                            
+                            <!-- Slot 1: Front -->
+                            <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 1 &mdash; FRONT VIEW</span>
+                                    <span style="font-size:0.65rem; color:#94a3b8;">Bundle Ends / Width</span>
+                                </div>
+                                <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileBundleAngle1').click()">
+                                    <img id="bundleAnglePreview1" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Front Preview">
+                                    <div id="bundleAnglePlaceholder1" style="text-align:center; padding:10px;">
+                                        <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
+                                        <div style="font-size:0.7rem; color:#94a3b8;">Upload Front View</div>
+                                    </div>
+                                </div>
+                                <input type="file" id="fileBundleAngle1" accept="image/*" style="display:none;" onchange="previewBundleAngle(1, this)">
+                            </div>
+
+                            <!-- Slot 2: Side -->
+                            <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 2 &mdash; SIDE VIEW</span>
+                                    <span style="font-size:0.65rem; color:#94a3b8;">Vertical Layers / Depth</span>
+                                </div>
+                                <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileBundleAngle2').click()">
+                                    <img id="bundleAnglePreview2" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Side Preview">
+                                    <div id="bundleAnglePlaceholder2" style="text-align:center; padding:10px;">
+                                        <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
+                                        <div style="font-size:0.7rem; color:#94a3b8;">Upload Side View</div>
+                                    </div>
+                                </div>
+                                <input type="file" id="fileBundleAngle2" accept="image/*" style="display:none;" onchange="previewBundleAngle(2, this)">
+                            </div>
+
+                        </div>
+
+                        <!-- Run Action Bar -->
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:10px 14px; border-radius:8px;">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label style="font-size:0.75rem; color:#94a3b8; margin:0;">Depth / Cross-Lay Multiplier:</label>
+                                <select id="bundleDepthMultiplier" style="padding:4px 8px; font-size:0.78rem; background:#0f172a; color:#fff; border:1px solid #334155; border-radius:4px;">
+                                    <option value="1" selected>Auto / Single Depth</option>
+                                    <option value="3">3 Bundles Deep (Standard Cross-Lay)</option>
+                                    <option value="2">2 Bundles Deep</option>
+                                    <option value="10">10 Bundles Deep</option>
+                                </select>
+                            </div>
+
+                            <button type="button" id="btnRunBundleCount" onclick="executeBundleCount(null)" style="background:#0284c7; hover:background:#0369a1; color:white; border:none; border-radius:6px; padding:9px 20px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 3px 12px rgba(2,132,199,0.35);">
+                                <i class="fas fa-cubes-stacked"></i> Compute Bundle Audit &amp; 3D Model
+                            </button>
+                        </div>
+
+                        <!-- Spinner -->
+                        <div id="bundleProcessingStatus" style="display:none; text-align:center; padding:1.5rem; background:#1e293b; border-radius:8px;">
+                            <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; color:#38bdf8; margin-bottom:10px;"></i>
+                            <div style="font-weight:700; color:#f8fafc; font-size:0.9rem;">Deconstructing Stacks &amp; Generating 3D Isometric Model...</div>
+                            <div style="font-size:0.75rem; color:#94a3b8;">Analyzing layer lines &bull; Solving multi-view correlation &bull; Composing audit board</div>
+                        </div>
+
+                        <!-- Results Container for Bundles -->
+                        <div id="bundleResultContainer" style="display:none; flex-direction:column; gap:16px;">
+                            
+                            <!-- Total Banner -->
+                            <div style="background:#0f172a; border:2px solid #eab308; border-radius:8px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                                <div style="display:flex; align-items:center; gap:20px;">
+                                    <div>
+                                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">Certified Bundle Audit</span>
+                                        <div style="font-size:1.9rem; font-weight:900; color:#facc15; font-family:'JetBrains Mono',monospace;" id="bundleTotalBundlesBadge">
+                                            48 BUNDLES
+                                        </div>
+                                    </div>
+                                    <div style="background:rgba(234,179,8,0.12); border:1px solid #eab308; border-radius:6px; padding:6px 12px; font-weight:800; font-size:0.85rem; color:#facc15;" id="bundleDifferenceBadge">
+                                        DIFFERENCE 0
+                                    </div>
+                                </div>
+
+                                <div style="display:flex; gap:10px;">
+                                    <button type="button" onclick="openBundleImageFullscreen()" style="background:#334155; color:#f8fafc; border:none; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                                        <i class="fas fa-expand"></i> Enlarge Board
+                                    </button>
+                                    <button type="button" onclick="syncBundlesCountToPallet()" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:0.82rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(16,185,129,0.3);">
+                                        <i class="fas fa-check-double"></i> Sync Bundles to Pallet &amp; WMS
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Split: Generated Combined Board (Images 2 & 3 Replica) & Table -->
+                            <div style="display:grid; grid-template-columns: 1.25fr 1fr; gap:16px;">
+                                
+                                <div style="background:#020617; border-radius:8px; border:1px solid #1e293b; padding:8px; display:flex; flex-direction:column; gap:6px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; padding:0 4px;">
+                                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:600;">Combined Audit Board (Dual Angles + 3D Layout + Comparison)</span>
+                                        <span style="font-size:0.68rem; color:#38bdf8;">Click to expand</span>
+                                    </div>
+                                    <div style="max-height:500px; overflow:hidden; border-radius:6px; cursor:pointer; border:1px solid #334155;" onclick="openBundleImageFullscreen()">
+                                        <img id="bundleAuditBoardImg" src="" style="width:100%; height:auto; display:block;" alt="Audit Board Canvas">
+                                    </div>
+                                </div>
+
+                                <!-- Right: Stack Table & Rule Breakdown -->
+                                <div style="display:flex; flex-direction:column; gap:12px;">
+                                    
+                                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.06); padding:12px;">
+                                        <span style="font-size:0.75rem; color:#f8fafc; font-weight:700; text-transform:uppercase; display:block; margin-bottom:8px;">Stack Decomposition Table</span>
+                                        <div style="max-height:220px; overflow-y:auto;">
+                                            <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+                                                <thead>
+                                                    <tr style="border-bottom:1px solid #334155; color:#94a3b8; text-align:left;">
+                                                        <th style="padding:6px 4px;">Stack</th>
+                                                        <th style="padding:6px 4px; text-align:center;">Layers</th>
+                                                        <th style="padding:6px 4px; text-align:center;">Formula</th>
+                                                        <th style="padding:6px 4px; text-align:right;">Bundles</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="bundleStacksTableBody">
+                                                    <!-- Dynamic rows -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.06); padding:12px;">
+                                        <span style="font-size:0.75rem; color:#38bdf8; font-weight:700; text-transform:uppercase; display:block; margin-bottom:6px;">Rule &amp; Cross-Check Summary</span>
+                                        <div id="bundleRuleSummaryText" style="font-size:0.72rem; color:#cbd5e1; line-height:1.4; white-space:pre-line; max-height:160px; overflow-y:auto;">
+                                            Rule verified across viewpoints.
+                                        </div>
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
                 </div>
 
             </div>
+
+            <!-- Footer -->
             <div class="modal-footer" style="padding:1rem 1.5rem; background:#0f172a; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:flex-end;">
-                <button type="button" class="btn-secondary" onclick="closeMultiAngleAuditModal()">Close</button>
+                <button type="button" class="btn-secondary" onclick="closeVisionCountingModal()">Close</button>
             </div>
         </div>
     </div>
+
+    <div id="modalMultiAngleAudit" style="display:none;"></div>
 
     <!-- Palletization & Violation Logic -->
     <script src="{{ url_for('static', filename='js/pallet_logic.js') }}"></script>
@@ -6216,8 +6367,12 @@ window.switchSubTab = switchSubTab;
     <!-- SKU Master UI Logic -->
     <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}"></script>
 
+    <!-- Universal Pallet Vision Counting UI Logic (Dual Mode) -->
+    <script src="{{ url_for('static', filename='js/pallet_vision_counting_ui.js') }}"></script>
+
     <!-- Multi-Angle 3D Audit UI Logic -->
     <script src="{{ url_for('static', filename='js/multi_angle_audit_ui.js') }}"></script>
+
 
 </body>
 </html>
