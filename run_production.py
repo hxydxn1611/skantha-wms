@@ -33,20 +33,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger("production_runner")
 
+def get_local_ip():
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
 def print_banner(host, port):
+    local_ip = get_local_ip()
     banner = "=" * 70
     print("\n" + banner)
     print(" 🚀 SKANTHA WMS & W.A.R.L.O.G. — PRODUCTION SERVER")
     print(" Model: YOLO11s (Flagship) | WSGI: Waitress Multi-Threaded Engine")
     print(banner)
-    print(f" • Access URL:    http://localhost:{port}")
+    print(f" • Local Access:   http://localhost:{port}")
+    print(f" • Network Access: http://{local_ip}:{port}")
     print(banner)
-    print(" Server is actively listening. Press CTRL+C to stop.\n")
+    print(" Server is actively listening on all interfaces (0.0.0.0). Press CTRL+C to stop.\n")
 
 def main():
     port = int(os.environ.get("PORT", 5000))
     host = os.environ.get("HOST", "0.0.0.0")
-    threads = int(os.environ.get("THREADS", 8))
+    threads = int(os.environ.get("THREADS", 32))
 
     # Import Flask app
     import app as flask_app_module
