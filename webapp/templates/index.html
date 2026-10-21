@@ -5379,9 +5379,14 @@ window.switchSubTab = switchSubTab;
                             <span style="font-size:0.75rem; color:#cbd5e1; font-weight:500;">Offline or Photo Counting:</span>
                             <span style="font-size:0.72rem; color:#94a3b8;">Upload Pallet snapshot to detect & count bundles</span>
                         </div>
-                        <button type="button" onclick="document.getElementById('palletImageFileInput').click()" style="background:#10b981; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:600; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-                            <i class="fas fa-upload"></i> Upload Image to Count
-                        </button>
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" onclick="document.getElementById('palletImageFileInput').click()" style="background:#10b981; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:600; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+                                <i class="fas fa-upload"></i> Single Photo
+                            </button>
+                            <button type="button" onclick="openMultiAngleAuditModal()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:600; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+                                <i class="fas fa-cubes-stacked"></i> 📸 3D Multi-Angle Audit
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -6012,11 +6017,208 @@ window.switchSubTab = switchSubTab;
         </div>
     </div>
 
+    <!-- ======================================================== -->
+    <!-- 3D MULTI-ANGLE VOLUMETRIC BUNDLE AUDIT MODAL -->
+    <!-- ======================================================== -->
+    <div id="modalMultiAngleAudit" class="modal-overlay" onclick="if(event.target===this) closeMultiAngleAuditModal()">
+        <div class="modal-dialog" style="max-width: 1040px; width:95%; max-height:92vh; overflow-y:auto;">
+            <div class="modal-header" style="background:#0f172a; color:#f8fafc; border-bottom:1px solid rgba(255,255,255,0.1);">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="width:36px; height:36px; border-radius:8px; background:rgba(14,165,233,0.15); border:1px solid #0ea5e9; display:flex; align-items:center; justify-content:center; color:#38bdf8;">
+                        <i class="fas fa-cubes-stacked"></i>
+                    </div>
+                    <div>
+                        <h3 style="margin:0; font-size:1.15rem; color:#f8fafc;">3D Multi-Angle Volumetric Bundle Audit</h3>
+                        <p style="margin:2px 0 0 0; font-size:0.75rem; color:#94a3b8;">Reconstructs 3D voxel stacks across Front + Right Side + Left Side viewpoints</p>
+                    </div>
+                </div>
+                <button type="button" class="modal-close-btn" onclick="closeMultiAngleAuditModal()" style="color:#cbd5e1;">&times;</button>
+            </div>
+
+            <div class="modal-body" style="padding:1.5rem; background:#0b1120; color:#f1f5f9; display:flex; flex-direction:column; gap:18px;">
+                
+                <!-- Target Architecture Informational Banner -->
+                <div style="background:rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.25); border-radius:8px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; gap:16px;">
+                    <div>
+                        <div style="font-weight:700; color:#38bdf8; font-size:0.85rem; margin-bottom:2px;">
+                            <i class="fas fa-shield-halved" style="margin-right:6px;"></i> High-Precision Layer &times; Depth Voxel Analysis
+                        </div>
+                        <div style="font-size:0.75rem; color:#94a3b8; line-height:1.4;">
+                            Eliminates occlusion error by combining 3 camera angles. Front view segments stack columns (A&ndash;J); Side views detect vertical layers and cross-lay multipliers.
+                        </div>
+                    </div>
+                    <button type="button" onclick="loadMultiAngleReferenceDemo()" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:white; border:none; border-radius:6px; padding:8px 14px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; box-shadow:0 4px 12px rgba(2,132,199,0.3);">
+                        <i class="fas fa-bolt"></i> Load 308-Bundle Reference Case
+                    </button>
+                </div>
+
+                <!-- Parameters Bar -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; background:#1e293b; padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                    <div>
+                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Target SKU</label>
+                        <input type="text" id="auditSkuInput" value="AUTO-REBAR-32" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Bin / Staging Location</label>
+                        <input type="text" id="auditBinInput" value="A3" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Request / Batch #</label>
+                        <input type="text" id="auditReqInput" value="9504EA" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.72rem; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Depth Multiplier (Cross-Lay)</label>
+                        <select id="auditDepthMultiplier" style="width:100%; padding:6px 10px; font-size:0.82rem; background:#0f172a; color:#f8fafc; border:1px solid #334155; border-radius:4px;">
+                            <option value="3" selected>3 Bundles / Layer (Standard Cross-Lay)</option>
+                            <option value="2">2 Bundles / Layer (Narrow Stacks)</option>
+                            <option value="4">4 Bundles / Layer (Heavy Grid)</option>
+                            <option value="1">1 Bundle / Layer (Single Depth)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 3 Viewport Upload Slots -->
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:14px;">
+                    
+                    <!-- Slot 1: Front -->
+                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 1 &mdash; FRONT</span>
+                            <span style="font-size:0.65rem; color:#94a3b8;">Column Boundaries</span>
+                        </div>
+                        <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileAngle1').click()">
+                            <img id="anglePreview1" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Angle 1 Preview">
+                            <div id="anglePlaceholder1" style="text-align:center; padding:10px;">
+                                <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
+                                <div style="font-size:0.7rem; color:#94a3b8;">Upload Front View</div>
+                            </div>
+                        </div>
+                        <input type="file" id="fileAngle1" accept="image/*" style="display:none;" onchange="previewAngleImage(1, this)">
+                    </div>
+
+                    <!-- Slot 2: Right Side -->
+                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 2 &mdash; RIGHT SIDE</span>
+                            <span style="font-size:0.65rem; color:#94a3b8;">Bundle Ends / Layers</span>
+                        </div>
+                        <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileAngle2').click()">
+                            <img id="anglePreview2" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Angle 2 Preview">
+                            <div id="anglePlaceholder2" style="text-align:center; padding:10px;">
+                                <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
+                                <div style="font-size:0.7rem; color:#94a3b8;">Upload Right Side View</div>
+                            </div>
+                        </div>
+                        <input type="file" id="fileAngle2" accept="image/*" style="display:none;" onchange="previewAngleImage(2, this)">
+                    </div>
+
+                    <!-- Slot 3: Left Side -->
+                    <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 3 &mdash; LEFT SIDE</span>
+                            <span style="font-size:0.65rem; color:#94a3b8;">Back-Wall Occlusion</span>
+                        </div>
+                        <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileAngle3').click()">
+                            <img id="anglePreview3" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Angle 3 Preview">
+                            <div id="anglePlaceholder3" style="text-align:center; padding:10px;">
+                                <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
+                                <div style="font-size:0.7rem; color:#94a3b8;">Upload Left Side View</div>
+                            </div>
+                        </div>
+                        <input type="file" id="fileAngle3" accept="image/*" style="display:none;" onchange="previewAngleImage(3, this)">
+                    </div>
+
+                </div>
+
+                <!-- Run Action Button -->
+                <div style="display:flex; justify-content:flex-end;">
+                    <button type="button" id="btnRunMultiAngleCount" onclick="executeMultiAngleCount(false)" style="background:#0ea5e9; hover:background:#0284c7; color:white; border:none; border-radius:6px; padding:10px 22px; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 4px 14px rgba(14,165,233,0.35);">
+                        <i class="fas fa-calculator"></i> Compute 3D Volumetric Count
+                    </button>
+                </div>
+
+                <!-- Processing Spinner -->
+                <div id="auditProcessingStatus" style="display:none; text-align:center; padding:1.5rem; background:#1e293b; border-radius:8px;">
+                    <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; color:#38bdf8; margin-bottom:10px;"></i>
+                    <div style="font-weight:700; color:#f8fafc; font-size:0.9rem;">Processing 3D Multi-Angle Volumetric Inference...</div>
+                    <div style="font-size:0.75rem; color:#94a3b8;">Segmenting stack columns &bull; Detecting cross-section heads &bull; Computing 3D Voxel formula</div>
+                </div>
+
+                <!-- RESULTS SECTION -->
+                <div id="auditResultContainer" style="display:none; display:flex; flex-direction:column; gap:16px;">
+                    
+                    <!-- Grand Total Banner -->
+                    <div style="background:#0f172a; border:2px solid #eab308; border-radius:8px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <span style="font-size:0.75rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">Certified 3D Multi-View Audit Count</span>
+                            <div style="font-size:1.8rem; font-weight:900; color:#facc15; font-family:'JetBrains Mono',monospace;" id="auditTotalBundlesBadge">
+                                308 BUNDLES
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:10px;">
+                            <button type="button" onclick="openAuditImageFullscreen()" style="background:#334155; color:#f8fafc; border:none; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                                <i class="fas fa-expand"></i> View High-Res
+                            </button>
+                            <button type="button" onclick="syncAuditCountToPallet()" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:0.82rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(16,185,129,0.3);">
+                                <i class="fas fa-check-double"></i> Sync to Pallet &amp; WMS
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Split Layout: Generated Audit Sheet & Itemized Table -->
+                    <div style="display:grid; grid-template-columns: 1.2fr 1fr; gap:16px;">
+                        
+                        <!-- Left: Combined Audit Board Canvas Display -->
+                        <div style="background:#020617; border-radius:8px; border:1px solid #1e293b; padding:8px; display:flex; flex-direction:column; gap:6px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; padding:0 4px;">
+                                <span style="font-size:0.72rem; color:#94a3b8; font-weight:600;">Combined Audit Board (3 Angles + 3D Layout)</span>
+                                <span style="font-size:0.68rem; color:#38bdf8;">Click image to enlarge</span>
+                            </div>
+                            <div style="max-height:480px; overflow:hidden; border-radius:6px; cursor:pointer; border:1px solid #334155;" onclick="openAuditImageFullscreen()">
+                                <img id="auditBoardResultImg" src="" style="width:100%; height:auto; display:block;" alt="Audit Board Result">
+                            </div>
+                        </div>
+
+                        <!-- Right: Stacks Breakdown Table -->
+                        <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.06); padding:12px; display:flex; flex-direction:column; gap:8px;">
+                            <span style="font-size:0.75rem; color:#f8fafc; font-weight:700; text-transform:uppercase;">Stack-by-Stack Layer Decomposition</span>
+                            <div style="max-height:440px; overflow-y:auto;">
+                                <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+                                    <thead>
+                                        <tr style="border-bottom:1px solid #334155; color:#94a3b8; text-align:left;">
+                                            <th style="padding:6px 4px;">Stack Name</th>
+                                            <th style="padding:6px 4px; text-align:center;">Layers</th>
+                                            <th style="padding:6px 4px; text-align:center;">Formula</th>
+                                            <th style="padding:6px 4px; text-align:right;">Bundles</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="auditStacksTableBody">
+                                        <!-- Rendered dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+            <div class="modal-footer" style="padding:1rem 1.5rem; background:#0f172a; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:flex-end;">
+                <button type="button" class="btn-secondary" onclick="closeMultiAngleAuditModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Palletization & Violation Logic -->
     <script src="{{ url_for('static', filename='js/pallet_logic.js') }}"></script>
 
     <!-- SKU Master UI Logic -->
     <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}"></script>
 
+    <!-- Multi-Angle 3D Audit UI Logic -->
+    <script src="{{ url_for('static', filename='js/multi_angle_audit_ui.js') }}"></script>
+
 </body>
 </html>
+

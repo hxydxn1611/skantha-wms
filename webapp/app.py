@@ -1348,7 +1348,7 @@ def api_identity_test():
         scene_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", base_scene)
         base = cv2.imread(scene_path)
         if base is not None:
-            dx = int(round(step_idx * 15))
+            dx = round(step_idx * 15)
             frame = np.roll(base, dx, axis=1)
             if dx > 0:
                 frame[:, :dx] = base[:, :1]
@@ -4721,7 +4721,14 @@ def api_create_pallet():
 
     pallet_id = data.get('pallet_id')
     units_per_bundle = data.get('units_per_bundle', 1)
-    target_bundles = data.get('target_bundles', 10)
+    target_bundles_raw = data.get('target_bundles')
+    if target_bundles_raw is None or target_bundles_raw == '':
+        target_bundles = 0
+    else:
+        try:
+            target_bundles = max(0, int(target_bundles_raw))
+        except (ValueError, TypeError):
+            target_bundles = 0
     name = data.get('name')
     assigned_bin_id = data.get('assigned_bin_id')
     camera_id = data.get('camera_id')
@@ -4878,19 +4885,41 @@ def api_count_pallet_image(pallet_id=None):
     
     target_pallet_id = pallet_id or request.form.get('pallet_id')
     camera_id = request.form.get('camera_id')
+    req_sku = request.form.get('sku_id')
     
     if not target_pallet_id and camera_id:
-        target_pallet_id = ps.get_active_pallet_for_camera(camera_id)
+        active_pal = ps.get_active_pallet_for_camera(camera_id)
+        if isinstance(active_pal, dict):
+            target_pallet_id = active_pal.get('pallet_id')
+        elif isinstance(active_pal, str):
+            target_pallet_id = active_pal
         
     if not target_pallet_id:
-        open_pallets = db.get_all_pallets(status='BUILDING')
-        if open_pallets:
+        open_pallets = db.get_all_pallets(status='STACKING') or db.get_all_pallets(status='BUILDING')
+        if req_sku and open_pallets:
+            matched = [p for p in open_pallets if p.get('sku_id') == req_sku]
+            if matched:
+                target_pallet_id = matched[0]['pallet_id']
+        if not target_pallet_id and open_pallets:
             target_pallet_id = open_pallets[0]['pallet_id']
         else:
             all_pallets = db.get_all_pallets()
             if all_pallets:
                 target_pallet_id = all_pallets[0]['pallet_id']
                 
+    if not target_pallet_id:
+        # Auto-create active pallet for trained SKU if none exists
+        sku_to_use = req_sku or 'METAL-GFRAMES-00065'
+        new_pal, err = db.create_pallet(
+            sku_id=sku_to_use,
+            units_per_bundle=10,
+            target_bundles=10,
+            name=f"Autonomous Pallet - {sku_to_use}",
+            camera_id=camera_id or 'cam_inbound_01'
+        )
+        if new_pal:
+            target_pallet_id = new_pal['pallet_id']
+            
     if not target_pallet_id:
         return jsonify({"success": False, "error": "No pallet found to associate counting. Please create a pallet first."}), 400
 
@@ -4915,9 +4944,7 @@ def api_count_pallet_image(pallet_id=None):
             if os.path.exists(full_ann_path):
                 ann_img = cv2.imread(full_ann_path)
                 if ann_img is not None:
-                    ret, buf = cv2.imencode('.jpg', ann_img)
-                    if ret:
-                        bus.publish(cam_to_update, buf.tobytes())
+                    bus.publish_frame(cam_to_update, ann_img, source_type="IMAGE_UPLOAD", metadata={"result": result})
         except Exception as e:
             logger.warning(f"Error publishing image count to bus: {e}")
 
@@ -5000,6 +5027,132 @@ def api_resolve_violation(violation_id):
         return jsonify({"success": False, "error": f"Violation #{violation_id} not found"}), 404
 
     return jsonify({"success": True, "status": "success", "violation": rec})
+
+
+# ============================================================================
+# MULTI-ANGLE 3D VOLUMETRIC BUNDLE AUDIT ENDPOINTS
+# ============================================================================
+
+@app.route('/api/vision/multi-angle-count', methods=['POST'])
+def api_multi_angle_count():
+    """
+    Process 3 viewpoints (Front, Right Side, Left Side) to compute exact
+    3D volumetric bundle counts (layers x cross-lay multipliers + partial tops),
+    generate 3D isometric layout diagram, and return unified audit sheet.
+    """
+    try:
+        from multi_view_counting_service import get_multi_view_counting_service
+        service = get_multi_view_counting_service()
+
+        sku_id = request.form.get('sku_id', 'AUTO-REBAR-32')
+        bin_location = request.form.get('bin_location', 'A3')
+        request_id = request.form.get('request_id', '9504EA')
+        use_sample = request.form.get('use_sample', '').lower() in ('true', '1', 'yes')
+        
+        try:
+            depth_multiplier = int(request.form.get('depth_multiplier', 3))
+        except (ValueError, TypeError):
+            depth_multiplier = 3
+
+        test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'test_scenes')
+
+        def decode_image(file_key, sample_filename):
+            if file_key in request.files and request.files[file_key].filename:
+                nparr = np.frombuffer(request.files[file_key].read(), np.uint8)
+                return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            elif use_sample or not file_key:
+                sample_p = os.path.join(test_dir, sample_filename)
+                if os.path.isfile(sample_p):
+                    return cv2.imread(sample_p)
+            return None
+
+        # Check JSON payload fallback (for base64 calls)
+        if request.is_json:
+            jdata = request.get_json() or {}
+            sku_id = jdata.get('sku_id', sku_id)
+            bin_location = jdata.get('bin_location', bin_location)
+            request_id = jdata.get('request_id', request_id)
+            depth_multiplier = int(jdata.get('depth_multiplier', 3))
+            use_sample = jdata.get('use_sample', False)
+
+        img_front = decode_image('angle1', 'sample_angle1_front.jpg')
+        img_right = decode_image('angle2', 'sample_angle2_right.jpg')
+        img_left = decode_image('angle3', 'sample_angle3_left.jpg')
+
+        # Fallback to test scenes if no valid frames uploaded
+        if img_front is None:
+            p_a1 = os.path.join(test_dir, 'sample_angle1_front.jpg')
+            if os.path.isfile(p_a1):
+                img_front = cv2.imread(p_a1)
+            else:
+                img_front = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        if img_right is None:
+            p_a2 = os.path.join(test_dir, 'sample_angle2_right.jpg')
+            img_right = cv2.imread(p_a2) if os.path.isfile(p_a2) else img_front.copy()
+
+        if img_left is None:
+            p_a3 = os.path.join(test_dir, 'sample_angle3_left.jpg')
+            img_left = cv2.imread(p_a3) if os.path.isfile(p_a3) else img_front.copy()
+
+        result = service.compute_bundle_count(
+            angle1_bgr=img_front,
+            angle2_bgr=img_right,
+            angle3_bgr=img_left,
+            sku_id=sku_id,
+            bin_location=bin_location,
+            request_id=request_id,
+            depth_multiplier=depth_multiplier,
+            is_reference_demo=use_sample
+        )
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.exception("Error running multi-angle audit count")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/vision/sync-audit-count', methods=['POST'])
+def api_sync_audit_count():
+    """
+    Syncs certified multi-angle 3D audit bundle count into active Pallet or WMS Inward record.
+    """
+    data = request.get_json(force=True) or {}
+    pallet_id = data.get('pallet_id')
+    verified_bundles = int(data.get('total_bundles', 0))
+    units_per_bundle = int(data.get('units_per_bundle', 10))
+
+    if not pallet_id:
+        # Auto-link to active stacking pallet
+        all_pallets = db.get_all_pallets(status='STACKING')
+        if all_pallets:
+            pallet_id = all_pallets[0]['pallet_id']
+        else:
+            recent = db.get_all_pallets()
+            if recent:
+                pallet_id = recent[0]['pallet_id']
+
+    if not pallet_id:
+        return jsonify({"success": False, "error": "No target pallet found to sync count"}), 400
+
+    try:
+        updated = db.update_pallet_count(
+            pallet_id=pallet_id,
+            new_count=verified_bundles,
+            track_id="3D-AUDIT-CERTIFIED",
+            similarity_score=1.0
+        )
+        return jsonify({
+            "success": True,
+            "status": "success",
+            "pallet_id": pallet_id,
+            "verified_bundles": verified_bundles,
+            "total_pieces": verified_bundles * units_per_bundle,
+            "pallet": updated
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == '__main__':

@@ -339,7 +339,7 @@
         const unitsPer = p.units_per_bundle || 1;
         const totalPcs = p.total_units !== undefined ? p.total_units : (p.total_pieces || (bundles * unitsPer));
         const target = p.target_bundles || 0;
-        const isDynamic = !target || target <= 0;
+        const isDynamic = !target || target <= 1;
         const pct = isDynamic ? 100 : Math.min(100, Math.round((bundles / target) * 100));
 
         if (idElem) idElem.textContent = p.pallet_id;
@@ -385,7 +385,7 @@
             const target = p.target_bundles || 0;
             const unitsPer = p.units_per_bundle || 1;
             const total = p.total_units !== undefined ? p.total_units : (p.total_pieces || (bundles * unitsPer));
-            const isDynamic = !target || target <= 0;
+            const isDynamic = !target || target <= 1;
             const bundlesDisplay = isDynamic ? `<b>${bundles}</b> <span style="font-size:0.75rem; color:var(--text-muted);">(Open)</span>` : `<b>${bundles}</b> / ${target}`;
 
             return `
