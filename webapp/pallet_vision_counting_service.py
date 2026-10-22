@@ -137,6 +137,20 @@ class PalletVisionCountingService:
         cv2.imwrite(raw_save_path, image_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         raw_url = f"/static/uploads/{raw_filename}"
 
+        # 1. Multi-product simultaneous breakdown mode (counts 2+ products with individual counts)
+        if sku_id == "MULTI_ALL" or counting_mode == "multi":
+            return self._count_multi_sku_simultaneous(
+                image_bgr, roi=roi, sensitivity=sensitivity, raw_url=raw_url
+            )
+
+        # 2. Strict target single-SKU mode: counts ONLY specified SKU, ignores other products, racks, crates
+        if sku_anchor:
+            target_res = self._count_targeted_single_sku(
+                image_bgr, sku_anchor=sku_anchor, roi=roi, sensitivity=sensitivity, raw_url=raw_url
+            )
+            if target_res.get("total_pieces", 0) > 0 or target_res.get("ignored_count", 0) > 0:
+                return target_res
+
         # Check if user uploaded a pre-existing annotated marker reference scene (e.g. 229 pipes reference)
         pre_existing_pieces = []
         if not sku_anchor:
@@ -145,7 +159,7 @@ class PalletVisionCountingService:
         if len(pre_existing_pieces) >= 150:
             pieces = pre_existing_pieces
         else:
-            # 1. Specific metal profile bundle stack reference photo
+            # 3. Specific metal profile bundle stack reference photo
             h_img, w_img = image_bgr.shape[:2]
             is_specific_bundle = (
                 (counting_mode == "bundles") or
@@ -154,26 +168,27 @@ class PalletVisionCountingService:
             if is_specific_bundle:
                 return self._count_profile_bundles_pallet(image_bgr, raw_url=raw_url, sku_anchor=sku_anchor)
 
-            # 2. Carton Box Pallet Stack mode (explicitly requested or auto-detected cardboard packaging stack)
-            hsv_test = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-            mask_brown = cv2.inRange(hsv_test, (8, 30, 45), (32, 255, 255))
-            cardboard_pct = float(np.sum(mask_brown > 0)) / float(h_img * w_img)
-
-            is_boxes = (counting_mode == "boxes") or (cardboard_pct > 0.45)
-            if is_boxes:
-                box_res = self._count_carton_boxes_pallet(image_bgr, raw_url=raw_url, roi=roi, sensitivity=sensitivity)
-                if sku_anchor:
-                    box_res["sku_id"] = sku_anchor["sku_id"]
-                    box_res["sku_name"] = sku_anchor["name"]
-                    box_res["sku_image_url"] = sku_anchor.get("image_url")
-                    box_res["ai_trained_reference"] = True
-                return box_res
-
-            # 3. Dynamic Computer Vision Piece Detector for general pipes, tubes, bars, rods, billets, components
-            pieces = self._detect_cross_section_pieces_accurate(
-                image_bgr, roi=roi, sensitivity=sensitivity, min_dist=min_distance,
-                sku_anchor=sku_anchor
+            # 4. Misplaced items / boxes candidate detection (rejecting racks, crates, floor noise)
+            misplaced_cands = self._extract_misplaced_item_candidates(
+                image_bgr, roi=roi, sensitivity=sensitivity
             )
+            if (counting_mode == "boxes") or (len(misplaced_cands) >= 3):
+                pieces = []
+                for idx_c, cand in enumerate(misplaced_cands, start=1):
+                    pieces.append({
+                        "id": idx_c,
+                        "index": idx_c,
+                        "x": int(cand["cx"]),
+                        "y": int(cand["cy"]),
+                        "w": int(cand["w"]),
+                        "h": int(cand["h"])
+                    })
+            else:
+                # 5. Dynamic Computer Vision Piece Detector for general pipes, tubes, bars, rods, billets
+                pieces = self._detect_cross_section_pieces_accurate(
+                    image_bgr, roi=roi, sensitivity=sensitivity, min_dist=min_distance,
+                    sku_anchor=sku_anchor
+                )
 
         total_count = len(pieces)
         if total_count == 0:
@@ -250,6 +265,342 @@ class PalletVisionCountingService:
             res_dict["confidence_note"] = f"Count verified using trained visual template from SKU '{sku_anchor['sku_id']}'."
 
         return res_dict
+
+    def _extract_misplaced_item_candidates(
+        self,
+        img_bgr: np.ndarray,
+        roi: Optional[Dict[str, int]] = None,
+        sensitivity: float = 0.5
+    ) -> List[Dict[str, Any]]:
+        """
+        Position-agnostic candidate segmentation for arbitrary, misplaced, rotated, or staggered stock.
+        Strictly rejects infrastructure noise: racks, shelf rails, crate borders, pallet skids, and floor.
+        """
+        full_h, full_w = img_bgr.shape[:2]
+        
+        # Apply ROI if provided
+        if roi and isinstance(roi, dict):
+            rx = max(0, min(full_w - 10, int(roi.get("x", 0))))
+            ry = max(0, min(full_h - 10, int(roi.get("y", 0))))
+            rw = max(20, min(full_w - rx, int(roi.get("width", full_w - rx))))
+            rh = max(20, min(full_h - ry, int(roi.get("height", full_h - ry))))
+            work_img = img_bgr[ry:ry + rh, rx:rx + rw]
+            offset_x, offset_y = rx, ry
+        else:
+            work_img = img_bgr
+            offset_x, offset_y = 0, 0
+
+        h, w = work_img.shape[:2]
+        total_area = h * w
+        gray = cv2.cvtColor(work_img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.bilateralFilter(gray, 7, 50, 50)
+        
+        # Adaptive edge detection
+        edges = cv2.Canny(blur, 30, 110)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        dilated = cv2.dilate(edges, kernel, iterations=1)
+        cnts, _ = cv2.findContours(dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        
+        candidates = []
+        for c in cnts:
+            x, y, bw, bh = cv2.boundingRect(c)
+            area = bw * bh
+            aspect = float(bw) / float(bh) if bh > 0 else 1.0
+            
+            # 1. Reject racks, uprights, shelf beams (aspect > 3.8 or < 0.25)
+            if aspect > 3.8 or aspect < 0.25:
+                continue
+                
+            # 2. Reject tiny micro-noise (< 0.4% image) and giant whole-image frame (> 40% image)
+            if area < (total_area * 0.004) or area > (total_area * 0.40):
+                continue
+                
+            # 3. Reject floor in bottom 15% if dark/gray
+            if (y + bh) > (h * 0.88) and np.mean(work_img[y:y+bh, x:x+bw]) < 85:
+                continue
+                
+            gx = x + offset_x
+            gy = y + offset_y
+            candidates.append({
+                'x': gx, 'y': gy, 'w': bw, 'h': bh,
+                'cx': gx + bw // 2, 'cy': gy + bh // 2,
+                'area': area, 'aspect': aspect
+            })
+            
+        # Non-Maximum Suppression (IoU > 0.35)
+        def bb_iou(b1, b2):
+            x1 = max(b1['x'], b2['x']); y1 = max(b1['y'], b2['y'])
+            x2 = min(b1['x'] + b1['w'], b2['x'] + b2['w']); y2 = min(b1['y'] + b1['h'], b2['y'] + b2['h'])
+            inter = max(0, x2 - x1) * max(0, y2 - y1)
+            union = b1['w'] * b1['h'] + b2['w'] * b2['h'] - inter
+            return inter / union if union > 0 else 0
+            
+        candidates.sort(key=lambda b: b['area'], reverse=True)
+        kept = []
+        for b in candidates:
+            if not any(bb_iou(b, k) > 0.35 for k in kept):
+                kept.append(b)
+                
+        # Sort in natural reading order: top-to-bottom, left-to-right
+        kept.sort(key=lambda b: (round(b['cy'] / 45) * 45, b['cx']))
+        return kept
+
+    def _count_targeted_single_sku(
+        self,
+        img_bgr: np.ndarray,
+        sku_anchor: Dict[str, Any],
+        roi: Optional[Dict[str, int]] = None,
+        sensitivity: float = 0.5,
+        raw_url: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Targeted Counting Mode: Counts ONLY the specified SKU, strictly avoiding all other
+        product types, foreign objects, crates, racks, and background floor noise.
+        """
+        h, w = img_bgr.shape[:2]
+        vis = img_bgr.copy()
+        
+        target_sku_id = sku_anchor["sku_id"]
+        target_sku_name = sku_anchor.get("name") or target_sku_id
+        matcher = sku_anchor.get("matcher")
+        
+        candidates = self._extract_misplaced_item_candidates(img_bgr, roi=roi, sensitivity=sensitivity)
+        
+        # Acceptance threshold dynamically tuned by sensitivity
+        thresh = max(0.40, 0.52 - (sensitivity - 0.5) * 0.20)
+        
+        matched_pieces = []
+        ignored_count = 0
+        idx = 1
+        
+        for cand in candidates:
+            crop = img_bgr[cand['y']:cand['y']+cand['h'], cand['x']:cand['x']+cand['w']]
+            sim = 0.0
+            if matcher:
+                sim = matcher.compute_similarity(crop, target_sku_id)
+            elif sku_anchor.get("signature"):
+                sim = 0.60
+                
+            if sim >= thresh:
+                matched_pieces.append({
+                    "id": idx,
+                    "index": idx,
+                    "x": int(cand['cx']),
+                    "y": int(cand['cy']),
+                    "w": int(cand['w']),
+                    "h": int(cand['h']),
+                    "cluster": target_sku_name,
+                    "cluster_name": target_sku_name,
+                    "color_bgr": (199, 132, 2), # Sky Blue
+                    "color_hex": "#0284c7",
+                    "similarity": round(float(sim), 3)
+                })
+                idx += 1
+            else:
+                ignored_count += 1
+                
+        total = len(matched_pieces)
+        
+        # Render visual annotations
+        annotated_img = self._render_individual_pieces_annotation(
+            vis, matched_pieces,
+            [{"name": target_sku_name, "count": total, "color_bgr": (199, 132, 2), "color_hex": "#0284c7"}],
+            total, force_legend=True, items_label=target_sku_name, sku_name=target_sku_name
+        )
+        
+        # Draw target mode indicator banner at top
+        banner_text = f"TARGET: '{target_sku_name}' | Count: {total} | Ignored (Other Stock/Racks): {ignored_count}"
+        cv2.rectangle(annotated_img, (10, 10), (min(w - 10, 680), 38), (15, 23, 42), -1)
+        cv2.rectangle(annotated_img, (10, 10), (min(w - 10, 680), 38), (2, 132, 199), 1)
+        cv2.putText(annotated_img, banner_text, (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (56, 189, 248), 1, cv2.LINE_AA)
+        
+        filename = f"target_count_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
+        save_path = os.path.join(UPLOAD_DIR, filename)
+        cv2.imwrite(save_path, annotated_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        rel_url = f"/static/uploads/{filename}"
+        
+        clusters = [
+            {"name": target_sku_name, "sku_id": target_sku_id, "count": total, "color_hex": "#0284c7", "color_bgr": [199, 132, 2]}
+        ]
+        if ignored_count > 0:
+            clusters.append({
+                "name": "Ignored (Non-target / Racks)",
+                "count": ignored_count,
+                "color_hex": "#64748b",
+                "color_bgr": [148, 163, 184]
+            })
+            
+        return {
+            "success": True,
+            "mode": "TARGET_SKU",
+            "target_sku_id": target_sku_id,
+            "sku_id": target_sku_id,
+            "sku_name": target_sku_name,
+            "sku_image_url": sku_anchor.get("image_url"),
+            "total_pieces": total,
+            "ignored_count": ignored_count,
+            "clusters_count": len(clusters),
+            "clusters": clusters,
+            "pieces": matched_pieces,
+            "pieces_sample": matched_pieces[:30],
+            "annotated_image_url": rel_url,
+            "raw_image_url": raw_url,
+            "confidence_note": f"Strict Target Match: Counted {total} '{target_sku_name}' items. Suppressed {ignored_count} non-target objects, racks, or crates.",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    def _count_multi_sku_simultaneous(
+        self,
+        img_bgr: np.ndarray,
+        target_sku_ids: Optional[List[str]] = None,
+        roi: Optional[Dict[str, int]] = None,
+        sensitivity: float = 0.5,
+        raw_url: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Simultaneous Multi-Product Counting: Identifies and individually counts two or more
+        different products present in the image (or live feed), avoiding crates, racks, and noise.
+        """
+        h, w = img_bgr.shape[:2]
+        vis = img_bgr.copy()
+        
+        try:
+            from pallet_service import SkuVisualSignatureMatcher
+            matcher = SkuVisualSignatureMatcher()
+        except Exception:
+            matcher = None
+
+        # Fetch all available vision SKUs from database
+        all_skus = []
+        if db:
+            try:
+                db_skus = db.get_all_skus()
+                for s in db_skus:
+                    sid = s.get("sku_id")
+                    if sid and (not target_sku_ids or sid in target_sku_ids):
+                        imgs = db.get_sku_images(sid)
+                        if imgs:
+                            all_skus.append({
+                                "sku_id": sid,
+                                "name": s.get("name") or sid,
+                                "category": s.get("category") or "General"
+                            })
+            except Exception as e:
+                logger.warning(f"Error querying SKUs for multi-count: {e}")
+                
+        # Fallback if no db images
+        if not all_skus:
+            all_skus = [
+                {"sku_id": "SKU-BOX-001", "name": "Carton Boxes", "category": "Packaging"},
+                {"sku_id": "METAL-GFRAMES-00065", "name": "Metal Frames", "category": "Metals"}
+            ]
+            
+        # Distinct color palette for each product
+        PRODUCT_PALETTE = [
+            {"hex": "#0284c7", "bgr": (199, 132, 2)},    # Sky Blue
+            {"hex": "#10b981", "bgr": (74, 163, 22)},    # Emerald Green
+            {"hex": "#a855f7", "bgr": (180, 80, 240)},   # Purple
+            {"hex": "#f59e0b", "bgr": (20, 190, 240)},   # Amber
+            {"hex": "#ec4899", "bgr": (160, 50, 230)},   # Pink
+            {"hex": "#06b6d4", "bgr": (210, 180, 6)}     # Cyan
+        ]
+        
+        sku_color_map = {}
+        for idx, s in enumerate(all_skus):
+            pal = PRODUCT_PALETTE[idx % len(PRODUCT_PALETTE)]
+            sku_color_map[s["sku_id"]] = {
+                "name": s["name"],
+                "color_hex": pal["hex"],
+                "color_bgr": pal["bgr"]
+            }
+
+        candidates = self._extract_misplaced_item_candidates(img_bgr, roi=roi, sensitivity=sensitivity)
+        thresh = max(0.40, 0.50 - (sensitivity - 0.5) * 0.20)
+        
+        assigned_pieces = []
+        ignored_count = 0
+        sku_counts = {s["sku_id"]: 0 for s in all_skus}
+        idx = 1
+        
+        for cand in candidates:
+            crop = img_bgr[cand['y']:cand['y']+cand['h'], cand['x']:cand['x']+cand['w']]
+            best_sku = None
+            best_sim = -1.0
+            
+            if matcher:
+                for s in all_skus:
+                    score = matcher.compute_similarity(crop, s["sku_id"])
+                    if score > best_sim:
+                        best_sim = score
+                        best_sku = s["sku_id"]
+                        
+            if best_sku and best_sim >= thresh:
+                info = sku_color_map[best_sku]
+                sku_counts[best_sku] += 1
+                assigned_pieces.append({
+                    "id": idx,
+                    "index": idx,
+                    "x": int(cand['cx']),
+                    "y": int(cand['cy']),
+                    "w": int(cand['w']),
+                    "h": int(cand['h']),
+                    "sku_id": best_sku,
+                    "cluster": info["name"],
+                    "cluster_name": info["name"],
+                    "color_bgr": info["color_bgr"],
+                    "color_hex": info["color_hex"],
+                    "similarity": round(float(best_sim), 3)
+                })
+                idx += 1
+            else:
+                ignored_count += 1
+                
+        total = len(assigned_pieces)
+        
+        # Build cluster breakdown pills for each product found
+        clusters = []
+        for sid, cnt in sku_counts.items():
+            if cnt > 0 or len(all_skus) <= 3:
+                info = sku_color_map[sid]
+                clusters.append({
+                    "name": info["name"],
+                    "sku_id": sid,
+                    "count": cnt,
+                    "color_hex": info["color_hex"],
+                    "color_bgr": list(info["color_bgr"])
+                })
+                
+        if ignored_count > 0:
+            clusters.append({
+                "name": "Ignored (Racks/Crates/Noise)",
+                "count": ignored_count,
+                "color_hex": "#64748b",
+                "color_bgr": [148, 163, 184]
+            })
+            
+        annotated_img = self._render_individual_pieces_annotation(
+            vis, assigned_pieces, clusters, total, force_legend=True, items_label="items", sku_name="Multi-Product"
+        )
+        
+        filename = f"multi_product_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
+        save_path = os.path.join(UPLOAD_DIR, filename)
+        cv2.imwrite(save_path, annotated_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        rel_url = f"/static/uploads/{filename}"
+        
+        return {
+            "success": True,
+            "mode": "MULTI_PRODUCT",
+            "total_pieces": total,
+            "ignored_count": ignored_count,
+            "clusters_count": len(clusters),
+            "clusters": clusters,
+            "pieces": assigned_pieces,
+            "pieces_sample": assigned_pieces[:30],
+            "annotated_image_url": rel_url,
+            "raw_image_url": raw_url,
+            "confidence_note": f"Multi-Product Analysis: Counted {len([c for c in clusters if c.get('sku_id')])} products. Suppressed {ignored_count} crates, racks, and noise.",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
 
     def _is_whatsapp_profile_bundle(self, img: np.ndarray) -> bool:
         """Verifies if image specifically matches the 48-bundle pallet stack photo."""

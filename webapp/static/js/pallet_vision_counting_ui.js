@@ -34,9 +34,10 @@
             const bSelect = document.getElementById('bundlesSkuSelect');
 
             const buildOptions = () => {
-                let html = '<option value="">-- Auto-Detect from Mapped SKUs --</option>';
+                let html = '<option value="">-- Auto-Detect (Stock Found, Racks/Crates Ignored) --</option>';
+                html += '<option value="MULTI_ALL">✨ Multi-Product Mode: Count All Products Individually</option>';
                 mappedVisionSkus.forEach(s => {
-                    html += `<option value="${s.sku_id}">${s.sku_id} &mdash; ${s.name} (${s.category})</option>`;
+                    html += `<option value="${s.sku_id}">🎯 Target Only: ${s.sku_id} &mdash; ${s.name} (${s.category})</option>`;
                 });
                 return html;
             };
@@ -76,6 +77,25 @@
         const icon = document.getElementById(isPieces ? 'piecesSkuNoThumbIcon' : 'bundlesSkuNoThumbIcon');
         const badge = document.getElementById(isPieces ? 'piecesSkuStatusBadge' : 'bundlesSkuStatusBadge');
 
+        if (skuId === 'MULTI_ALL') {
+            if (thumb) {
+                thumb.src = '';
+                thumb.style.display = 'none';
+            }
+            if (icon) {
+                icon.className = 'fas fa-layer-group';
+                icon.style.display = 'block';
+                icon.style.color = '#38bdf8';
+            }
+            if (badge) {
+                badge.innerHTML = `<i class="fas fa-layer-group"></i> Multi-Product Simultaneous Mode (Individual Counts)`;
+                badge.style.background = 'rgba(56,189,248,0.15)';
+                badge.style.color = '#38bdf8';
+                badge.style.borderColor = 'rgba(56,189,248,0.3)';
+            }
+            return;
+        }
+
         const matched = mappedVisionSkus.find(s => s.sku_id === skuId);
 
         if (matched && matched.image_url) {
@@ -85,7 +105,7 @@
             }
             if (icon) icon.style.display = 'none';
             if (badge) {
-                badge.innerHTML = `<i class="fas fa-check-circle"></i> AI Reference Active: ${matched.sku_id}`;
+                badge.innerHTML = `<i class="fas fa-crosshairs"></i> Target Match: Count ONLY ${matched.sku_id} (Ignore Others & Racks)`;
                 badge.style.background = 'rgba(16,185,129,0.15)';
                 badge.style.color = '#10b981';
                 badge.style.borderColor = 'rgba(16,185,129,0.3)';
@@ -95,9 +115,13 @@
                 thumb.src = '';
                 thumb.style.display = 'none';
             }
-            if (icon) icon.style.display = 'block';
+            if (icon) {
+                icon.className = 'fas fa-boxes-stacked';
+                icon.style.display = 'block';
+                icon.style.color = '#64748b';
+            }
             if (badge) {
-                badge.innerHTML = `<i class="fas fa-robot"></i> Multi-SKU Auto Detection`;
+                badge.innerHTML = `<i class="fas fa-robot"></i> Auto-Detect (All Stock, Racks Filtered)`;
                 badge.style.background = 'rgba(148,163,184,0.12)';
                 badge.style.color = '#94a3b8';
                 badge.style.borderColor = 'rgba(148,163,184,0.2)';
@@ -290,7 +314,12 @@
         const badge = document.getElementById('piecesTotalBadge');
         if (badge) {
             let countLabel = `${data.total_pieces} PCS`;
-            if (data.mode === 'BUNDLE_STACK' || data.items_label === 'Bundles') {
+            if (data.mode === 'MULTI_PRODUCT') {
+                const prodCount = (data.clusters || []).filter(c => c.sku_id).length;
+                countLabel = `${data.total_pieces} ITEMS (${prodCount} Products)`;
+            } else if (data.mode === 'TARGET_SKU') {
+                countLabel = `${data.total_pieces} ${data.sku_name ? data.sku_name.toUpperCase() : 'ITEMS'} (TARGET)`;
+            } else if (data.mode === 'BUNDLE_STACK' || data.items_label === 'Bundles') {
                 countLabel = `${data.total_pieces} BUNDLES`;
             } else if (data.mode === 'BOX_GRID' && data.total_3d_pallet) {
                 countLabel = `${data.total_3d_pallet} BOXES (3D Pallet)`;
@@ -301,7 +330,15 @@
         // SKU match status tag
         const skuTag = document.getElementById('piecesSkuMatchResultTag');
         if (skuTag) {
-            if (data.sku_id) {
+            if (data.mode === 'MULTI_PRODUCT') {
+                skuTag.style.display = 'inline-flex';
+                let ignoredText = data.ignored_count ? ` &bull; <span style="color:#94a3b8;"><i class="fas fa-filter"></i> ${data.ignored_count} Non-product / Racks Ignored</span>` : '';
+                skuTag.innerHTML = `<i class="fas fa-layer-group" style="color:#38bdf8;"></i> <b>Multi-Product Breakdown</b>: Individual counts active${ignoredText}`;
+            } else if (data.mode === 'TARGET_SKU') {
+                skuTag.style.display = 'inline-flex';
+                let ignoredText = data.ignored_count ? ` &bull; <span style="color:#94a3b8;"><i class="fas fa-shield-alt"></i> ${data.ignored_count} other stock & racks ignored</span>` : '';
+                skuTag.innerHTML = `<i class="fas fa-crosshairs" style="color:#10b981;"></i> <b>Strict Target Match</b>: Only '${data.sku_name || data.sku_id}' counted${ignoredText}`;
+            } else if (data.sku_id) {
                 skuTag.style.display = 'inline-flex';
                 skuTag.innerHTML = `<i class="fas fa-certificate" style="color:#10b981;"></i> Reference SKU: <b>${data.sku_id}</b> &bull; ${data.confidence_note || 'AI Trained Signature Verified'}`;
             } else {
@@ -330,14 +367,21 @@
 
         if (clusters && clusters.length > 0) {
             pillsContainer.innerHTML = clusters.map(cl => {
+                const isIgnored = cl.name && cl.name.toLowerCase().includes('ignored');
+                const borderCol = isIgnored ? 'rgba(148,163,184,0.3)' : (cl.color_hex || '#0284c7');
+                const bgCol = isIgnored ? 'rgba(148,163,184,0.08)' : 'rgba(255,255,255,0.06)';
+                const dotCol = isIgnored ? '#64748b' : (cl.color_hex || '#0284c7');
+                const icon = isIgnored ? '<i class="fas fa-filter" style="color:#64748b; font-size:0.75rem;"></i>' : `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${dotCol};"></span>`;
                 return `
-                    <div style="background:rgba(255,255,255,0.06); border:1px solid ${cl.color_hex}; border-radius:6px; padding:6px 12px; display:inline-flex; align-items:center; gap:8px;">
-                        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${cl.color_hex};"></span>
-                        <span style="font-size:0.75rem; color:#f1f5f9; font-weight:600;">${cl.name}:</span>
+                    <div style="background:${bgCol}; border:1px solid ${borderCol}; border-radius:6px; padding:6px 12px; display:inline-flex; align-items:center; gap:8px;">
+                        ${icon}
+                        <span style="font-size:0.75rem; color:${isIgnored ? '#94a3b8' : '#f1f5f9'}; font-weight:600;">${cl.name}:</span>
                         <b style="font-size:0.85rem; color:#fff; font-family:'JetBrains Mono',monospace;">${cl.count}</b>
                     </div>
                 `;
             }).join('');
+        } else {
+            pillsContainer.innerHTML = '';
         }
     }
 
