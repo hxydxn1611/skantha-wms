@@ -46,8 +46,8 @@
                 pSelect.innerHTML = buildOptions();
                 if (prev) {
                     pSelect.value = prev;
-                } else if (mappedVisionSkus.length > 0) {
-                    pSelect.value = mappedVisionSkus[0].sku_id;
+                } else {
+                    pSelect.value = "";
                 }
                 window.onVisionSkuSelected('pieces', pSelect.value);
             }
@@ -57,8 +57,8 @@
                 bSelect.innerHTML = buildOptions();
                 if (prev) {
                     bSelect.value = prev;
-                } else if (mappedVisionSkus.length > 0) {
-                    bSelect.value = mappedVisionSkus[0].sku_id;
+                } else {
+                    bSelect.value = "";
                 }
                 window.onVisionSkuSelected('bundles', bSelect.value);
             }
