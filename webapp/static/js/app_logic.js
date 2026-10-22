@@ -3406,6 +3406,13 @@ async function processPalletCameraBlob(blob) {
         formData.append('pallet_id', activeId);
     }
 
+    const activeSku = (typeof selectedPiecesSkuId !== 'undefined' && selectedPiecesSkuId) 
+        || (document.getElementById('piecesSkuSelect')?.value) 
+        || (document.getElementById('bundlesSkuSelect')?.value) || '';
+    if (activeSku) {
+        formData.append('sku_id', activeSku);
+    }
+
     try {
         const endpoint = (activeId && activeId !== '--' && activeId !== 'PLT-ACTIVE') 
             ? `/api/pallets/${activeId}/count_image` 

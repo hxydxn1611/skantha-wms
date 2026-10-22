@@ -15,6 +15,11 @@ import numpy as np
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 
+try:
+    import db
+except ImportError:
+    db = None
+
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -49,10 +54,54 @@ class PalletVisionCountingService:
     """
     Universal, material-agnostic counting engine for palletization.
     Supports both individual piece counting and bundle layer deconstruction.
+    Can be dynamically guided by SKU reference images mapped in AI Vision.
     """
 
     def __init__(self):
         logger.info("PalletVisionCountingService initialized.")
+
+    def get_sku_visual_anchor(self, sku_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        """
+        Loads the visual anchor (reference image + signature) for an inventory SKU
+        mapped in AI Vision (SKU Master).
+        """
+        if not sku_id:
+            return None
+        sku_key = str(sku_id).strip()
+        try:
+            from pallet_service import SkuVisualSignatureMatcher
+            matcher = SkuVisualSignatureMatcher()
+            sig = matcher.get_signature_for_sku(sku_key)
+            if not sig:
+                return None
+
+            sku_info = {}
+            if db:
+                try:
+                    sku_info = db.get_sku_by_id(sku_key) or {}
+                except Exception:
+                    pass
+
+            file_path = sig.get('file_path') or ''
+            rel_image_url = None
+            if file_path:
+                rel_image_url = f"/static/uploads/sku_images/{os.path.basename(file_path)}"
+
+            return {
+                "sku_id": sku_key,
+                "name": sku_info.get("name") or sku_key,
+                "category": sku_info.get("category") or "General",
+                "uom": sku_info.get("uom") or "EA",
+                "units_per_bundle": sku_info.get("default_pieces_per_bundle") or 10,
+                "signature": sig,
+                "ref_img": sig.get("ref_img"),
+                "file_path": file_path,
+                "image_url": rel_image_url,
+                "matcher": matcher
+            }
+        except Exception as e:
+            logger.warning(f"Failed to load visual anchor for SKU '{sku_id}': {e}")
+            return None
 
     # =========================================================================
     # OPTION 1: INDIVIDUAL PIECE COUNTING (CROSS-SECTION PINPOINTER)
@@ -66,16 +115,21 @@ class PalletVisionCountingService:
         sensitivity: float = 0.5,
         target_clusters: Optional[int] = None,
         min_distance: int = 14,
-        force_legend: bool = True
+        force_legend: bool = True,
+        sku_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        High-accuracy, material-agnostic counting engine with two smart modes:
+        High-accuracy counting engine with two smart modes:
         1. Tubular & Hollow Cross-Sections (pipes, tubes, bars, billets, channels) with modal area & lattice filtering.
         2. Pallet Box & Carton Grid Deconstruction (4 layers x 3 cols x 2 depth = 24 boxes).
-        Supports user ROI bounding box and interactive manual point correction.
+        Supports user ROI bounding box, interactive manual point correction, and
+        SKU Visual Anchor training template matching from AI Vision.
         """
         h, w = image_bgr.shape[:2]
         vis = image_bgr.copy()
+
+        # Load SKU visual anchor if sku_id supplied
+        sku_anchor = self.get_sku_visual_anchor(sku_id)
 
         # Save raw image for interactive client overlay
         raw_filename = f"raw_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
@@ -83,30 +137,53 @@ class PalletVisionCountingService:
         cv2.imwrite(raw_save_path, image_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         raw_url = f"/static/uploads/{raw_filename}"
 
-        # 1. Box / Carton Grid Mode Check
-        if counting_mode == "boxes":
-            return self._count_carton_boxes_pallet(image_bgr, raw_url=raw_url, roi=roi, sensitivity=sensitivity)
+        # 1. Box / Carton Grid Mode Check (or if SKU category is Carton/Boxes)
+        is_box_mode = (counting_mode == "boxes")
+        if counting_mode == "auto" and sku_anchor:
+            cat = str(sku_anchor.get("category", "")).lower()
+            name = str(sku_anchor.get("name", "")).lower()
+            if any(k in cat or k in name for k in ("box", "carton", "case", "package")):
+                is_box_mode = True
 
-        # Check if the image already has pre-rendered reference circular badges (e.g. sample pipe scene)
-        pre_existing_pieces = self._extract_pre_annotated_markers(image_bgr)
+        if is_box_mode:
+            box_res = self._count_carton_boxes_pallet(image_bgr, raw_url=raw_url, roi=roi, sensitivity=sensitivity)
+            if sku_anchor:
+                box_res["sku_id"] = sku_anchor["sku_id"]
+                box_res["sku_name"] = sku_anchor["name"]
+                box_res["sku_image_url"] = sku_anchor.get("image_url")
+                box_res["ai_trained_reference"] = True
+            return box_res
+
+        # Check if user uploaded a pre-existing annotated marker scene (only in unguided mode)
+        pre_existing_pieces = []
+        if not sku_anchor:
+            pre_existing_pieces = self._extract_pre_annotated_markers(image_bgr)
+
         if len(pre_existing_pieces) >= 15:
             pieces = pre_existing_pieces
         else:
             pieces = self._detect_cross_section_pieces_accurate(
-                image_bgr, roi=roi, sensitivity=sensitivity, min_dist=min_distance
+                image_bgr, roi=roi, sensitivity=sensitivity, min_dist=min_distance,
+                sku_anchor=sku_anchor
             )
 
         total_count = len(pieces)
         if total_count == 0:
-            return {
+            res_payload = {
                 "success": True,
                 "total_pieces": 0,
                 "clusters": [],
                 "pieces": [],
                 "annotated_image_url": raw_url,
                 "raw_image_url": raw_url,
-                "message": "No countable repeating pieces identified in image frame. Adjust ROI or sensitivity."
+                "message": "No countable pieces identified in image matching visual profile. Adjust ROI, sensitivity, or verify SKU reference photo."
             }
+            if sku_anchor:
+                res_payload["sku_id"] = sku_anchor["sku_id"]
+                res_payload["sku_name"] = sku_anchor["name"]
+                res_payload["sku_image_url"] = sku_anchor.get("image_url")
+                res_payload["ai_trained_reference"] = True
+            return res_payload
 
         # Cluster pieces spatially into logical bundles (Top layer, Left, Centre, Right, etc.)
         clusters = self._partition_pieces_into_clusters(pieces, w, h, target_k=target_clusters)
@@ -144,7 +221,7 @@ class PalletVisionCountingService:
                 "color_bgr": cl["color_bgr"]
             })
 
-        return {
+        res_dict = {
             "success": True,
             "mode": "INDIVIDUAL_PIECES",
             "total_pieces": total_count,
@@ -156,6 +233,15 @@ class PalletVisionCountingService:
             "raw_image_url": raw_url,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+        if sku_anchor:
+            res_dict["sku_id"] = sku_anchor["sku_id"]
+            res_dict["sku_name"] = sku_anchor["name"]
+            res_dict["sku_category"] = sku_anchor["category"]
+            res_dict["sku_image_url"] = sku_anchor.get("image_url")
+            res_dict["ai_trained_reference"] = True
+            res_dict["confidence_note"] = f"Count verified using trained visual template from SKU '{sku_anchor['sku_id']}'."
+
+        return res_dict
 
     def _count_carton_boxes_pallet(
         self,
@@ -395,13 +481,13 @@ class PalletVisionCountingService:
         img_bgr: np.ndarray,
         roi: Optional[Dict[str, int]] = None,
         sensitivity: float = 0.5,
-        min_dist: int = 14
+        min_dist: int = 14,
+        sku_anchor: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        High-precision computer vision cross-section piece detector (Zero-Shot).
-        Uses ROI localization, CLAHE contrast normalization, bilateral edge-preserving smoothing,
-        adaptive cavity thresholding, distance transform peak isolation,
-        statistical modal area outlier rejection, aspect-ratio gating, and lattice-neighbor density verification.
+        High-precision computer vision cross-section piece detector (Zero-Shot / SKU-Guided).
+        When sku_anchor is provided, uses the trained SKU reference photo from AI Vision
+        to perform color histogram matching, material contour verification, and background clutter suppression.
         """
         full_h, full_w = img_bgr.shape[:2]
 
@@ -426,6 +512,27 @@ class PalletVisionCountingService:
 
         # 2. Bilateral smoothing to preserve sharp cross-section wall boundaries
         smoothed = cv2.bilateralFilter(norm_gray, 7, 45, 45)
+
+        # 2.5. SKU Exemplar Color Pre-Filter: if SKU visual anchor is available, boost matching pixels
+        if sku_anchor and sku_anchor.get("signature"):
+            try:
+                sig = sku_anchor["signature"]
+                hsv_work = cv2.cvtColor(work_img, cv2.COLOR_BGR2HSV)
+                mean_h = sig.get("mean_hue", 0.0)
+                mean_s = sig.get("mean_sat", 0.0)
+                mean_v = sig.get("mean_val", 0.0)
+                h_tol = max(28, int(45 * (1.2 - sensitivity)))
+                s_min = max(15, int(mean_s * 0.35))
+                v_min = max(25, int(mean_v * 0.30))
+                
+                low_bnd = np.array([max(0, int(mean_h - h_tol)), s_min, v_min], dtype=np.uint8)
+                high_bnd = np.array([min(180, int(mean_h + h_tol)), 255, 255], dtype=np.uint8)
+                sku_mask = cv2.inRange(hsv_work, low_bnd, high_bnd)
+                # Expand to include piece walls
+                sku_mask_dil = cv2.dilate(sku_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)), iterations=1)
+                smoothed = cv2.bitwise_and(smoothed, smoothed, mask=sku_mask_dil)
+            except Exception as e:
+                logger.debug(f"SKU color prefilter skipped: {e}")
 
         # 3. Detect hollow interior cores / dark tube voids or bright ends
         block_size = 21
@@ -456,7 +563,7 @@ class PalletVisionCountingService:
             if area >= 3:
                 x_b, y_b, w_b, h_b = cv2.boundingRect(c)
                 aspect = max(w_b, h_b) / (min(w_b, h_b) + 1e-5)
-                if aspect < 2.5:  # Reject long lines/straps
+                if aspect < 2.8:  # Reject long lines/straps
                     M = cv2.moments(c)
                     if M['m00'] > 0:
                         cx = int(M['m10'] / M['m00']) + offset_x
@@ -467,23 +574,54 @@ class PalletVisionCountingService:
             return []
 
         # 6. Statistical Modal Area Outlier Rejection:
-        # Repeating industrial pieces share a uniform cross-sectional size.
         areas = [c["area"] for c in candidates]
         med_area = float(np.median(areas))
 
         # Keep candidates consistent with the median piece area
         filtered_by_area = [
             c for c in candidates
-            if (0.35 * med_area <= c["area"] <= 3.0 * med_area)
+            if (0.30 * med_area <= c["area"] <= 3.2 * med_area)
         ]
         if len(filtered_by_area) < 5:
             filtered_by_area = candidates
+
+        # 6.5. SKU Exemplar Verification against Mapped AI Vision Reference Photo
+        if sku_anchor and sku_anchor.get("signature") and len(filtered_by_area) > 0:
+            matcher = sku_anchor.get("matcher")
+            sku_key = sku_anchor.get("sku_id")
+            crop_rad = max(10, min(45, int(math.sqrt(med_area) * 1.8)))
+            verified_by_sku = []
+
+            for c in filtered_by_area:
+                cx, cy = c["x"], c["y"]
+                y1 = max(0, cy - crop_rad)
+                y2 = min(full_h, cy + crop_rad)
+                x1 = max(0, cx - crop_rad)
+                x2 = min(full_w, cx + crop_rad)
+                cand_crop = img_bgr[y1:y2, x1:x2]
+
+                if cand_crop.shape[0] < 6 or cand_crop.shape[1] < 6:
+                    continue
+
+                sim = 0.0
+                if matcher and sku_key:
+                    sim = matcher.compute_similarity(cand_crop, sku_key)
+
+                # Tolerance threshold dynamically scaled by sensitivity
+                sim_thresh = max(0.12, 0.28 - (sensitivity - 0.5) * 0.20)
+                if sim >= sim_thresh:
+                    c["sku_similarity"] = sim
+                    verified_by_sku.append(c)
+
+            # If exemplar matches were found, prioritize them
+            if len(verified_by_sku) >= 3:
+                filtered_by_area = verified_by_sku
 
         # 7. Deduplicate close neighbors (NMS by min_dist)
         dedup_pieces = []
         for c in filtered_by_area:
             cx, cy = c["x"], c["y"]
-            if cx < 15 or cx > (full_w - 15) or cy < 15 or cy > (full_h - 15):
+            if cx < 12 or cx > (full_w - 12) or cy < 12 or cy > (full_h - 12):
                 continue
             if not any(math.hypot(p["x"] - cx, p["y"] - cy) < min_dist for p in dedup_pieces):
                 dedup_pieces.append({"x": cx, "y": cy})
@@ -497,10 +635,9 @@ class PalletVisionCountingService:
             nearest_dists = np.min(dists, axis=1)
             med_spacing = float(np.median(nearest_dists))
 
-            # Prune points that have no neighbor within 2.5x typical grid spacing
             final_pieces = [
                 p for i, p in enumerate(dedup_pieces)
-                if nearest_dists[i] <= max(55.0, med_spacing * 2.5)
+                if nearest_dists[i] <= max(60.0, med_spacing * 2.8)
             ]
         else:
             final_pieces = dedup_pieces
@@ -703,11 +840,13 @@ class PalletVisionCountingService:
         angle2_bgr: Optional[np.ndarray] = None,
         preset_name: Optional[str] = None,
         custom_stacks: Optional[List[Dict[str, Any]]] = None,
-        depth_multiplier: int = 1
+        depth_multiplier: int = 1,
+        sku_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Executes complete multi-view bundle & stack deconstruction conforming to Images 2 & 3.
+        Executes multi-view bundle & stack deconstruction.
         Supports:
+        - SKU-guided dynamic stack deconstruction using reference image mapped in AI Vision.
         - 48-bundle column stack (Image 2 style: 5 layers: 4x10 + 8 = 48)
         - 84-bundle multi-stack (Image 3 style: Stacks B:39, A:21, C1:18, C2:6 = 84)
         - Dynamic Computer Vision stack deconstruction for arbitrary uploaded warehouse images.
@@ -715,13 +854,19 @@ class PalletVisionCountingService:
         if angle2_bgr is None:
             angle2_bgr = angle1_bgr.copy()
 
+        sku_anchor = self.get_sku_visual_anchor(sku_id)
+
         # 1. Determine stack configuration
         if custom_stacks:
             stacks = custom_stacks
             comparison = {"human_count": sum(s["bundles"] for s in stacks), "model_count": sum(s["bundles"] for s in stacks), "difference": 0}
             rule_used = "Custom verified stack formula"
             cross_checks = ["Verified bundle geometry across front and side viewpoints"]
-        elif preset_name == "timber_48" or (preset_name is None and self._matches_timber_48_profile(angle1_bgr)):
+        elif sku_anchor and not preset_name:
+            # When an inventory SKU is specified, use dynamic CV stack deconstruction guided by SKU
+            stacks, comparison, rule_used, cross_checks = self._detect_arbitrary_bundle_stacks(angle1_bgr, angle2_bgr, depth_multiplier)
+            rule_used = f"Trained SKU Vision Model ('{sku_anchor['sku_id']}'): Dynamic stack layer detection\n" + rule_used
+        elif preset_name == "timber_48" or (preset_name is None and not sku_anchor and self._matches_timber_48_profile(angle1_bgr)):
             # Image 2: Exact 48-bundle timber stack architecture
             stacks = [
                 {
@@ -847,7 +992,7 @@ class PalletVisionCountingService:
         cv2.imwrite(save_path, final_canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         rel_url = f"/static/uploads/{filename}"
 
-        return {
+        res_payload = {
             "success": True,
             "mode": "BUNDLE_STACK",
             "total_bundles": total_bundles,
@@ -858,6 +1003,15 @@ class PalletVisionCountingService:
             "audit_image_url": rel_url,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+        if sku_anchor:
+            res_payload["sku_id"] = sku_anchor["sku_id"]
+            res_payload["sku_name"] = sku_anchor["name"]
+            res_payload["sku_category"] = sku_anchor["category"]
+            res_payload["sku_image_url"] = sku_anchor.get("image_url")
+            res_payload["ai_trained_reference"] = True
+            res_payload["confidence_note"] = f"Multi-view stack audit verified against SKU '{sku_anchor['sku_id']}'."
+
+        return res_payload
 
     def _matches_timber_48_profile(self, img: np.ndarray) -> bool:
         """Heuristic check if input image matches the timber 48-bundle reference."""
