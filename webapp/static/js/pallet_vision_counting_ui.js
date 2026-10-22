@@ -190,6 +190,10 @@
             if (placeholder) {
                 placeholder.style.display = 'none';
             }
+            // Auto-trigger instant 1-click count!
+            setTimeout(() => {
+                window.executePieceCount(false);
+            }, 50);
         };
         reader.readAsDataURL(file);
     };
@@ -224,7 +228,7 @@
         try {
             const formData = new FormData();
             const sens = document.getElementById('piecesSensitivitySlider')?.value || '0.5';
-            const clust = document.getElementById('piecesClusterSelect')?.value || '4';
+            const clust = document.getElementById('piecesClusterSelect')?.value || '1';
             const mode = modeOverride || document.getElementById('piecesCountingModeSelect')?.value || 'auto';
 
             formData.append('sensitivity', sens);
@@ -282,12 +286,15 @@
 
         resultContainer.style.display = 'flex';
 
-        // Total badge
+        // Total badge with smart units
         const badge = document.getElementById('piecesTotalBadge');
         if (badge) {
-            const countLabel = data.mode === 'BOX_GRID' && data.total_3d_pallet 
-                ? `${data.total_3d_pallet} BOXES (3D Pallet)` 
-                : `${data.total_pieces} PCS`;
+            let countLabel = `${data.total_pieces} PCS`;
+            if (data.mode === 'BUNDLE_STACK' || data.items_label === 'Bundles') {
+                countLabel = `${data.total_pieces} BUNDLES`;
+            } else if (data.mode === 'BOX_GRID' && data.total_3d_pallet) {
+                countLabel = `${data.total_3d_pallet} BOXES (3D Pallet)`;
+            }
             badge.textContent = countLabel;
         }
 
@@ -719,5 +726,45 @@
         if (!imgElem || !imgElem.src) return;
         window.open(imgElem.src, '_blank');
     };
+
+    // Initialize Drag & Drop on the unified dropzone
+    function initUnifiedDropZone() {
+        const dropZone = document.getElementById('unifiedDropZone');
+        const fileInput = document.getElementById('filePiecesImage');
+        if (!dropZone || !fileInput) return;
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.style.borderColor = '#38bdf8';
+                dropZone.style.background = 'rgba(2, 132, 199, 0.15)';
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.style.borderColor = '#0284c7';
+                dropZone.style.background = '#1e293b';
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files && files.length > 0) {
+                fileInput.files = files;
+                window.previewPiecesImage(fileInput);
+            }
+        }, false);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initUnifiedDropZone);
+    } else {
+        initUnifiedDropZone();
+    }
 
 })();
