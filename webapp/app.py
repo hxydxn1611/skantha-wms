@@ -5320,6 +5320,30 @@ def api_count_pallet_bundles():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/api/vision/decode_ocr', methods=['POST'])
+def decode_ocr_endpoint():
+    """Decodes QR codes and barcodes from uploaded mobile camera snapshots."""
+    file = request.files.get('image')
+    if not file:
+        return jsonify({"success": False, "error": "No image provided"}), 400
+    try:
+        in_memory_bytes = file.read()
+        nparr = np.frombuffer(in_memory_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return jsonify({"success": False, "error": "Could not decode image"}), 400
+
+        detector = cv2.QRCodeDetector()
+        val, points, straight_qrcode = detector.detectAndDecode(img)
+        if val:
+            return jsonify({"success": True, "text": val})
+
+        return jsonify({"success": False, "text": "", "message": "No barcode/QR found"})
+    except Exception as e:
+        logger.exception("Error decoding image QR")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
 

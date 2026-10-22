@@ -3407,7 +3407,7 @@ window.switchSubTab = switchSubTab;
                             <!-- Upload File (When Source is Upload) -->
                             <div id="idUploadContainer" style="display:none;">
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Select Image File:</label>
-                                <input type="file" id="idFileInput" accept="image/*" style="margin-bottom:0; padding:6px; font-size:0.85rem;">
+                                <input type="file" id="idFileInput" accept="image/*" capture="environment" style="margin-bottom:0; padding:6px; font-size:0.85rem;">
                             </div>
 
                             <!-- Decoders Checkboxes -->
@@ -5340,13 +5340,16 @@ window.switchSubTab = switchSubTab;
                             <select id="palletCameraSelect" style="background:rgba(0,0,0,0.5); color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:0.75rem; padding:3px 6px;">
                                 <option value="cam_inbound_01">cam_inbound_01 (Pallet Zone)</option>
                             </select>
+                            <button type="button" class="btn-primary mobile-cam-btn" onclick="openMobileCameraScanner('pallet')" style="background:#0284c7; border-color:#0369a1; font-size:0.75rem; padding:4px 10px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Open Phone Camera to Scan Pallet">
+                                <i class="fas fa-video"></i> Scan Cam
+                            </button>
                             <button type="button" class="btn-primary" onclick="document.getElementById('palletImageFileInput').click()" style="background:#10b981; border-color:#059669; font-size:0.75rem; padding:4px 10px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Upload photo to count bundles">
                                 <i class="fas fa-camera"></i> Count from Image
                             </button>
                             <button type="button" id="btnPalletResetLiveFeed" class="btn-secondary" onclick="resetPalletLiveFeed()" style="font-size:0.75rem; padding:4px 8px; color:#cbd5e1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);" title="Switch back to live feed">
                                 <i class="fas fa-video"></i> Live Feed
                             </button>
-                            <input type="file" id="palletImageFileInput" accept="image/*" style="display:none;" onchange="handlePalletImageUpload(event)">
+                            <input type="file" id="palletImageFileInput" accept="image/*" capture="environment" style="display:none;" onchange="handlePalletImageUpload(event)">
                         </div>
                     </div>
 
@@ -6051,22 +6054,6 @@ window.switchSubTab = switchSubTab;
             <div class="modal-body" style="padding:1.5rem; background:#0b1120; color:#f1f5f9; display:flex; flex-direction:column; gap:18px;">
                 
                 <!-- 2-Option Mode Switcher Tabs -->
-                <div style="display:flex; gap:10px; background:#0f172a; padding:6px; border-radius:8px; border:1px solid rgba(255,255,255,0.08);">
-                    <button type="button" id="tabModePieces" onclick="switchVisionCountingMode('pieces')" style="flex:1; background:#8b5cf6; color:#ffffff; border:1px solid #8b5cf6; border-radius:6px; padding:10px 14px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s;">
-                        <i class="fas fa-circle-dot"></i>
-                        <span>OPTION 1: Individual Piece Counting</span>
-                    </button>
-                    <button type="button" id="tabModeBundles" onclick="switchVisionCountingMode('bundles')" style="flex:1; background:transparent; color:#94a3b8; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:10px 14px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s;">
-                        <i class="fas fa-cubes-stacked"></i>
-                        <span>OPTION 2: Bundle &amp; Multi-View Counting</span>
-                    </button>
-                </div>
-
-                <!-- ========================================================= -->
-                <!-- PANEL 1: INDIVIDUAL PIECE COUNTING (IMAGE 1 STYLE) -->
-                <!-- ========================================================= -->
-                <div id="panelModePieces" style="display:block;">
-                    <div style="display:flex; flex-direction:column; gap:16px;">
                         
                         <!-- Info Banner -->
                         <div style="background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.25); border-radius:8px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -6385,6 +6372,150 @@ window.switchSubTab = switchSubTab;
     </div>
 
     <div id="modalMultiAngleAudit" style="display:none;"></div>
+
+    <!-- MOBILE REAL-TIME CAMERA SCANNER & 3D AUDIT WALKAROUND MODAL -->
+    <div id="modalMobileScanner" class="mobile-scanner-modal" style="display:none;">
+        <div class="mobile-scanner-backdrop" onclick="closeMobileCameraScanner()"></div>
+        <div class="mobile-scanner-container">
+            <!-- Header bar with mode indicator, torch toggle, camera flip, and close button -->
+            <div class="mobile-scanner-header">
+                <div class="scanner-header-left">
+                    <span class="scanner-live-pill"><span class="scanner-live-dot"></span>LIVE</span>
+                    <span id="scannerModeTitle" class="scanner-title">Pallet Bundle Count</span>
+                </div>
+                <div class="scanner-header-actions">
+                    <button type="button" id="btnScannerTorch" class="scanner-btn-icon" onclick="toggleScannerTorch()" title="Toggle Flashlight / Torch">
+                        <i class="fas fa-bolt"></i>
+                    </button>
+                    <button type="button" id="btnScannerFlip" class="scanner-btn-icon" onclick="flipScannerCamera()" title="Switch Camera">
+                        <i class="fas fa-camera-rotate"></i>
+                    </button>
+                    <button type="button" class="scanner-btn-icon" onclick="closeMobileCameraScanner()" title="Close Scanner">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mode selector tabs inside the camera -->
+            <div class="scanner-mode-tabs">
+                <button type="button" id="tabModePallet" class="scanner-mode-tab active" data-mode="pallet" onclick="switchScannerMode('pallet')">
+                    <i class="fas fa-pallet"></i> Pallet Count
+                </button>
+                <button type="button" id="tabModeAudit3D" class="scanner-mode-tab" data-mode="audit3d" onclick="switchScannerMode('audit3d')">
+                    <i class="fas fa-cubes"></i> 3D Walkaround
+                </button>
+                <button type="button" id="tabModeBarcode" class="scanner-mode-tab" data-mode="qr" onclick="switchScannerMode('qr')">
+                    <i class="fas fa-qrcode"></i> Barcode / Gate
+                </button>
+            </div>
+
+            <!-- Walkaround step guide banner (active in audit3d mode) -->
+            <div id="scannerWalkaroundBanner" class="scanner-walkaround-banner" style="display:none;">
+                <div class="walkaround-step-indicator">
+                    <span id="stepBadge1" class="step-badge active">1. Front</span>
+                    <i class="fas fa-arrow-right step-arrow"></i>
+                    <span id="stepBadge2" class="step-badge">2. Right</span>
+                    <i class="fas fa-arrow-right step-arrow"></i>
+                    <span id="stepBadge3" class="step-badge">3. Left</span>
+                </div>
+                <div id="stepInstructionText" class="step-instruction">
+                    Step 1 of 3: Align front face of pallet bundle stack.
+                </div>
+            </div>
+
+            <!-- Viewfinder Area with Video and Framing Reticle -->
+            <div class="mobile-scanner-viewfinder">
+                <video id="scannerVideo" playsinline autoplay muted></video>
+                <canvas id="scannerCanvas" style="display:none;"></canvas>
+
+                <!-- Reticle HUD Overlay -->
+                <div class="scanner-reticle-overlay">
+                    <div class="reticle-corner reticle-tl"></div>
+                    <div class="reticle-corner reticle-tr"></div>
+                    <div class="reticle-corner reticle-bl"></div>
+                    <div class="reticle-corner reticle-br"></div>
+                    <div class="reticle-laser-line"></div>
+                    <div id="reticleHint" class="reticle-hint-box">
+                        <i class="fas fa-arrows-to-dot"></i> Frame pallet bundles inside target
+                    </div>
+                </div>
+
+                <!-- Processing state badge -->
+                <div id="scannerProcessingOverlay" class="scanner-processing-overlay" style="display:none;">
+                    <i class="fas fa-circle-notch fa-spin"></i>
+                    <span id="scannerProcessingText">Analyzing Bundles with Vision AI...</span>
+                </div>
+            </div>
+
+            <!-- Bottom Control Panel: Gallery Pick / Shutter / Multi-Angle Thumbnails -->
+            <div class="mobile-scanner-bottom-controls">
+                <div class="scanner-controls-row">
+                    <!-- Gallery upload alternative -->
+                    <button type="button" class="scanner-btn-side" onclick="triggerScannerGalleryUpload()" title="Upload from Gallery">
+                        <i class="fas fa-images"></i>
+                        <span>Gallery</span>
+                    </button>
+
+                    <!-- Big Shutter Button -->
+                    <button type="button" id="btnScannerShutter" class="scanner-shutter-btn" onclick="captureScannerPhoto()" aria-label="Take Photo">
+                        <div class="shutter-inner"></div>
+                    </button>
+
+                    <!-- Reset / Cancel action -->
+                    <button type="button" id="btnScannerSecondary" class="scanner-btn-side" onclick="handleScannerSecondaryAction()" title="Reset / Clear View">
+                        <i class="fas fa-rotate-left"></i>
+                        <span id="scannerSecondaryLabel">Reset</span>
+                    </button>
+                </div>
+
+                <!-- Mini Angle thumbnails strip (visible in audit3d mode) -->
+                <div id="scannerAuditThumbnailsStrip" class="scanner-audit-strip" style="display:none;">
+                    <div class="thumb-slot" id="thumbSlot1" onclick="retakeAngleStep(1)">
+                        <span class="thumb-label">1. Front</span>
+                        <div class="thumb-img-wrap" id="thumbWrap1"><i class="fas fa-camera"></i></div>
+                    </div>
+                    <div class="thumb-slot" id="thumbSlot2" onclick="retakeAngleStep(2)">
+                        <span class="thumb-label">2. Right</span>
+                        <div class="thumb-img-wrap" id="thumbWrap2"><i class="fas fa-camera"></i></div>
+                    </div>
+                    <div class="thumb-slot" id="thumbSlot3" onclick="retakeAngleStep(3)">
+                        <span class="thumb-label">3. Left</span>
+                        <div class="thumb-img-wrap" id="thumbWrap3"><i class="fas fa-camera"></i></div>
+                    </div>
+                    <button type="button" id="btnScannerCompute3D" class="scanner-compute-btn" onclick="finishWalkaroundAudit()" style="display:none;">
+                        <i class="fas fa-calculator"></i> Compute 3D
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MOBILE ERGONOMIC BOTTOM NAVIGATION DOCK (Phones <= 1024px) -->
+    <nav id="mobileBottomDock" class="mobile-bottom-nav" style="display:none;" aria-label="Mobile Navigation">
+        <button type="button" class="mobile-nav-item active" data-tab="dashboard" onclick="mobileDockSwitchTab('dashboard')">
+            <i class="fas fa-chart-line mobile-nav-icon"></i>
+            <span class="mobile-nav-label">Dashboard</span>
+        </button>
+        <button type="button" class="mobile-nav-item" data-tab="palletization" onclick="mobileDockSwitchTab('palletization')">
+            <i class="fas fa-pallet mobile-nav-icon"></i>
+            <span class="mobile-nav-label">Pallets</span>
+        </button>
+        <button type="button" class="mobile-nav-item mobile-nav-center-action" onclick="openMobileCameraScanner('pallet')" aria-label="Quick Camera Scan">
+            <div class="mobile-nav-center-btn">
+                <i class="fas fa-camera"></i>
+            </div>
+            <span class="mobile-nav-label">Scan AI</span>
+        </button>
+        <button type="button" class="mobile-nav-item" data-tab="gate-passes" onclick="mobileDockSwitchTab('gate-passes')">
+            <i class="fas fa-shield-halved mobile-nav-icon"></i>
+            <span class="mobile-nav-label">Gate Ops</span>
+        </button>
+        <button type="button" class="mobile-nav-item" onclick="toggleMobileSidebar()" aria-label="More Navigation Modules">
+            <i class="fas fa-bars mobile-nav-icon"></i>
+            <span class="mobile-nav-label">More</span>
+        </button>
+    </nav>
+
 
     <!-- Palletization & Violation Logic -->
     <script src="{{ url_for('static', filename='js/pallet_logic.js') }}"></script>
