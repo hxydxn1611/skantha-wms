@@ -79,6 +79,8 @@
                     if (appLayout) appLayout.style.display = 'flex';
                     document.getElementById('main-header').style.display = 'flex';
                     document.getElementById('main-container').style.display = 'flex';
+                    const mobileDock = document.getElementById('mobileBottomDock');
+                    if (mobileDock) mobileDock.style.display = 'flex';
                     pollData();
                     fetchGatePasses();
                     fetchDeliveries();
@@ -146,6 +148,11 @@
             if (targetView) targetView.classList.add('active');
             const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick')?.includes(`'${tabId}'`));
             if (targetBtn) targetBtn.classList.add('active');
+
+            // Sync Mobile Bottom Navigation Dock active item
+            document.querySelectorAll('.mobile-nav-item').forEach(el => el.classList.remove('active'));
+            const targetMobileBtn = document.querySelector(`.mobile-nav-item[data-tab="${tabId}"]`);
+            if (targetMobileBtn) targetMobileBtn.classList.add('active');
 
             if (tabId === 'deliveries') {
                 if (typeof fetchDeliveries === 'function') fetchDeliveries();
@@ -3124,4 +3131,590 @@ async function runCycleCount(bin_id) {
     selectAndInspectBin(bin_id);
 }
 window.runCycleCount = runCycleCount;
+
+
+// ==========================================================================
+// MOBILE COMPATIBILITY & REAL-TIME CAMERA SCANNER SUITE
+// ==========================================================================
+
+// 1. Tactile Haptic Vibration Feedback
+function triggerHapticFeedback(pattern = [25]) {
+    if (window.navigator && typeof window.navigator.vibrate === 'function') {
+        try {
+            window.navigator.vibrate(pattern);
+        } catch (e) {
+            // Ignore if vibration permissions are disabled
+        }
+    }
+}
+window.triggerHapticFeedback = triggerHapticFeedback;
+
+// 2. Mobile Bottom Navigation Dock Switcher
+function mobileDockSwitchTab(tabId) {
+    triggerHapticFeedback([30]);
+    if (typeof window.switchTab === 'function') {
+        window.switchTab(tabId);
+    }
+}
+window.mobileDockSwitchTab = mobileDockSwitchTab;
+
+// 3. Mobile Camera Scanner State & Controller
+let mobileScannerStream = null;
+let mobileScannerMode = 'pallet'; // 'pallet' | 'audit3d' | 'qr'
+let mobileScannerFacingMode = 'environment';
+let mobileScannerTorch = false;
+let mobileAuditCurrentStep = 1; // 1, 2, or 3
+let mobileAuditBlobs = { 1: null, 2: null, 3: null };
+
+async function openMobileCameraScanner(mode = 'pallet', initialStep = 1) {
+    triggerHapticFeedback([35]);
+    const modal = document.getElementById('modalMobileScanner');
+    if (!modal) return;
+
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    switchScannerMode(mode);
+    if (mode === 'audit3d') {
+        setAuditWalkaroundStep(initialStep || 1);
+    }
+
+    await startMobileScannerStream();
+}
+window.openMobileCameraScanner = openMobileCameraScanner;
+
+function closeMobileCameraScanner() {
+    triggerHapticFeedback([20]);
+    stopMobileScannerStream();
+    const modal = document.getElementById('modalMobileScanner');
+    if (modal) modal.style.display = 'none';
+    document.body.style.overflow = '';
+}
+window.closeMobileCameraScanner = closeMobileCameraScanner;
+
+async function startMobileScannerStream() {
+    stopMobileScannerStream();
+    const video = document.getElementById('scannerVideo');
+    if (!video) return;
+
+    const constraints = {
+        video: {
+            facingMode: { ideal: mobileScannerFacingMode },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+        },
+        audio: false
+    };
+
+    try {
+        mobileScannerStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = mobileScannerStream;
+        await video.play();
+        mobileScannerTorch = false;
+        updateTorchButtonUI();
+    } catch (err) {
+        console.warn('[Mobile Scanner] getUserMedia failed, falling back to basic video:', err);
+        try {
+            mobileScannerStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            video.srcObject = mobileScannerStream;
+            await video.play();
+        } catch (fallbackErr) {
+            console.error('[Mobile Scanner] Camera access error:', fallbackErr);
+            if (typeof showToast === 'function') {
+                showToast('Camera access denied or unavailable. You can still upload photos from gallery.', 'warning');
+            } else {
+                alert('Camera access denied or unavailable. You can use gallery upload.');
+            }
+        }
+    }
+}
+
+function stopMobileScannerStream() {
+    if (mobileScannerStream) {
+        mobileScannerStream.getTracks().forEach(track => {
+            try { track.stop(); } catch (e) {}
+        });
+        mobileScannerStream = null;
+    }
+    const video = document.getElementById('scannerVideo');
+    if (video) video.srcObject = null;
+}
+
+function switchScannerMode(mode) {
+    triggerHapticFeedback([25]);
+    mobileScannerMode = mode;
+
+    document.querySelectorAll('.scanner-mode-tab').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+    });
+
+    const titleElem = document.getElementById('scannerModeTitle');
+    const walkaroundBanner = document.getElementById('scannerWalkaroundBanner');
+    const auditStrip = document.getElementById('scannerAuditThumbnailsStrip');
+    const reticleHint = document.getElementById('reticleHint');
+
+    if (mode === 'pallet') {
+        if (titleElem) titleElem.textContent = 'Pallet Bundle Count';
+        if (walkaroundBanner) walkaroundBanner.style.display = 'none';
+        if (auditStrip) auditStrip.style.display = 'none';
+        if (reticleHint) reticleHint.innerHTML = '<i class="fas fa-arrows-to-dot"></i> Frame pallet bundles inside target';
+    } else if (mode === 'audit3d') {
+        if (titleElem) titleElem.textContent = '3D Walkaround Audit';
+        if (walkaroundBanner) walkaroundBanner.style.display = 'flex';
+        if (auditStrip) auditStrip.style.display = 'flex';
+        updateWalkaroundStepUI();
+    } else if (mode === 'qr') {
+        if (titleElem) titleElem.textContent = 'Barcode & Gate Pass';
+        if (walkaroundBanner) walkaroundBanner.style.display = 'none';
+        if (auditStrip) auditStrip.style.display = 'none';
+        if (reticleHint) reticleHint.innerHTML = '<i class="fas fa-barcode"></i> Center barcode / QR tag in frame';
+    }
+}
+window.switchScannerMode = switchScannerMode;
+
+async function toggleScannerTorch() {
+    if (!mobileScannerStream) return;
+    const track = mobileScannerStream.getVideoTracks()[0];
+    if (!track) return;
+
+    try {
+        const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+        if (capabilities.torch) {
+            mobileScannerTorch = !mobileScannerTorch;
+            await track.applyConstraints({ advanced: [{ torch: mobileScannerTorch }] });
+            triggerHapticFeedback([30]);
+            updateTorchButtonUI();
+        } else {
+            if (typeof showToast === 'function') {
+                showToast('Flashlight / torch not supported on this device/camera.', 'info');
+            }
+        }
+    } catch (e) {
+        console.warn('Torch constraint error:', e);
+    }
+}
+window.toggleScannerTorch = toggleScannerTorch;
+
+function updateTorchButtonUI() {
+    const btn = document.getElementById('btnScannerTorch');
+    if (!btn) return;
+    if (mobileScannerTorch) {
+        btn.style.background = '#eab308';
+        btn.style.color = '#000000';
+    } else {
+        btn.style.background = 'rgba(255, 255, 255, 0.12)';
+        btn.style.color = '#f8fafc';
+    }
+}
+
+async function flipScannerCamera() {
+    triggerHapticFeedback([30]);
+    mobileScannerFacingMode = (mobileScannerFacingMode === 'environment') ? 'user' : 'environment';
+    await startMobileScannerStream();
+}
+window.flipScannerCamera = flipScannerCamera;
+
+function setAuditWalkaroundStep(step) {
+    mobileAuditCurrentStep = step;
+    updateWalkaroundStepUI();
+}
+window.setAuditWalkaroundStep = setAuditWalkaroundStep;
+
+function updateWalkaroundStepUI() {
+    const instructions = {
+        1: 'Step 1 of 3: Align FRONT face of pallet stack to capture column boundaries.',
+        2: 'Step 2 of 3: Walk to RIGHT SIDE to capture bundle ends & vertical layer tiers.',
+        3: 'Step 3 of 3: Walk to LEFT SIDE to capture back-wall occlusion & depth verification.'
+    };
+
+    const instElem = document.getElementById('stepInstructionText');
+    if (instElem) instElem.textContent = instructions[mobileAuditCurrentStep] || '';
+
+    const reticleHint = document.getElementById('reticleHint');
+    if (reticleHint) {
+        const angleNames = { 1: 'FRONT Face', 2: 'RIGHT Side', 3: 'LEFT Side' };
+        reticleHint.innerHTML = `<i class="fas fa-camera"></i> Capture ${angleNames[mobileAuditCurrentStep]}`;
+    }
+
+    [1, 2, 3].forEach(s => {
+        const badge = document.getElementById(`stepBadge${s}`);
+        if (badge) {
+            badge.classList.remove('active', 'completed');
+            if (mobileAuditBlobs[s]) {
+                badge.classList.add('completed');
+            } else if (s === mobileAuditCurrentStep) {
+                badge.classList.add('active');
+            }
+        }
+    });
+
+    const computeBtn = document.getElementById('btnScannerCompute3D');
+    if (computeBtn) {
+        const allCaptured = !!(mobileAuditBlobs[1] && mobileAuditBlobs[2] && mobileAuditBlobs[3]);
+        computeBtn.style.display = allCaptured ? 'flex' : 'none';
+    }
+}
+
+function retakeAngleStep(step) {
+    triggerHapticFeedback([20]);
+    mobileAuditCurrentStep = step;
+    updateWalkaroundStepUI();
+}
+window.retakeAngleStep = retakeAngleStep;
+
+async function captureScannerPhoto() {
+    const video = document.getElementById('scannerVideo');
+    const canvas = document.getElementById('scannerCanvas');
+    if (!video || !canvas) return;
+
+    triggerHapticFeedback([40, 20, 40]);
+
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async function(blob) {
+        if (!blob) return;
+
+        if (mobileScannerMode === 'pallet') {
+            await processPalletCameraBlob(blob);
+        } else if (mobileScannerMode === 'audit3d') {
+            await processAuditAngleBlob(blob, mobileAuditCurrentStep);
+        } else if (mobileScannerMode === 'qr') {
+            await processBarcodeScanBlob(blob);
+        }
+    }, 'image/jpeg', 0.92);
+}
+window.captureScannerPhoto = captureScannerPhoto;
+
+async function processPalletCameraBlob(blob) {
+    const overlay = document.getElementById('scannerProcessingOverlay');
+    const statusText = document.getElementById('scannerProcessingText');
+    if (overlay) overlay.style.display = 'flex';
+    if (statusText) statusText.textContent = 'Vision AI Counting Pallet Bundles...';
+
+    const formData = new FormData();
+    formData.append('image', blob, 'mobile_pallet_capture.jpg');
+
+    const camSelect = document.getElementById('palletCameraSelect');
+    const camId = camSelect ? camSelect.value : 'cam_inbound_01';
+    formData.append('camera_id', camId);
+
+    const activeId = window.activePalletId || (document.getElementById('palletMonitorId')?.textContent?.trim());
+    if (activeId && activeId !== '--' && activeId !== 'PLT-ACTIVE') {
+        formData.append('pallet_id', activeId);
+    }
+
+    try {
+        const endpoint = (activeId && activeId !== '--' && activeId !== 'PLT-ACTIVE') 
+            ? `/api/pallets/${activeId}/count_image` 
+            : '/api/pallets/count_image';
+
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to analyze pallet');
+        }
+
+        triggerHapticFeedback([50, 40, 80]);
+
+        // Update live feed preview image with the annotated detection
+        const feedImg = document.getElementById('palletLiveFeedImg');
+        if (feedImg && data.annotated_image_url) {
+            feedImg.src = `${data.annotated_image_url}?t=${Date.now()}`;
+        }
+
+        if (data.pallet && typeof window.updatePalletMonitorUI === 'function') {
+            window.activePalletId = data.pallet.pallet_id;
+            window.updatePalletMonitorUI(data.pallet);
+        }
+        if (typeof window.loadPallets === 'function') {
+            window.loadPallets();
+        }
+
+        const msg = `Counted ${data.counted_bundles} bundles (${data.total_pieces} pieces) on pallet ${data.pallet_id}!`;
+        if (typeof showToast === 'function') {
+            showToast(msg, 'success');
+        } else {
+            alert(msg);
+        }
+
+        if (data.violations_triggered && data.violations_triggered.length > 0) {
+            triggerHapticFeedback([100, 50, 100, 50, 150]);
+            if (typeof showToast === 'function') {
+                showToast(`Warning: ${data.violations_triggered.length} safety/SKU discrepancy flag(s) logged!`, 'warning');
+            }
+            if (typeof window.pollViolations === 'function') {
+                window.pollViolations();
+            }
+        }
+
+        closeMobileCameraScanner();
+        if (typeof window.switchTab === 'function') {
+            window.switchTab('palletization');
+        }
+
+    } catch (err) {
+        console.error('[Pallet Camera Blob] Error:', err);
+        triggerHapticFeedback([120, 80, 120]);
+        if (typeof showToast === 'function') {
+            showToast(`Analysis failed: ${err.message}`, 'error');
+        } else {
+            alert(`Analysis failed: ${err.message}`);
+        }
+    } finally {
+        if (overlay) overlay.style.display = 'none';
+    }
+}
+
+async function processAuditAngleBlob(blob, step) {
+    mobileAuditBlobs[step] = blob;
+
+    // Update thumbnail in scanner
+    const wrap = document.getElementById(`thumbWrap${step}`);
+    const slot = document.getElementById(`thumbSlot${step}`);
+    if (wrap) {
+        const url = URL.createObjectURL(blob);
+        wrap.innerHTML = `<img src="${url}" alt="Angle ${step}">`;
+        if (slot) slot.classList.add('captured');
+    }
+
+    // Also sync preview to the desktop/modal multi-angle audit preview slot
+    const previewImg = document.getElementById(`anglePreview${step}`);
+    const placeholder = document.getElementById(`anglePlaceholder${step}`);
+    if (previewImg) {
+        previewImg.src = URL.createObjectURL(blob);
+        previewImg.style.display = 'block';
+    }
+    if (placeholder) {
+        placeholder.style.display = 'none';
+    }
+
+    triggerHapticFeedback([40, 25, 40]);
+
+    if (step === 1 && !mobileAuditBlobs[2]) {
+        setAuditWalkaroundStep(2);
+        if (typeof showToast === 'function') showToast('Angle 1 (Front) captured! Now walk to Right side.', 'info');
+    } else if (step === 2 && !mobileAuditBlobs[3]) {
+        setAuditWalkaroundStep(3);
+        if (typeof showToast === 'function') showToast('Angle 2 (Right) captured! Now walk to Left side.', 'info');
+    } else {
+        updateWalkaroundStepUI();
+        if (mobileAuditBlobs[1] && mobileAuditBlobs[2] && mobileAuditBlobs[3]) {
+            if (typeof showToast === 'function') {
+                showToast('All 3 angles captured! Tap "Compute 3D" to run volumetric inference.', 'success');
+            }
+        }
+    }
+}
+
+async function finishWalkaroundAudit() {
+    if (!mobileAuditBlobs[1] || !mobileAuditBlobs[2] || !mobileAuditBlobs[3]) {
+        alert('Please capture all 3 angles (Front, Right, Left) first.');
+        return;
+    }
+
+    triggerHapticFeedback([40, 30, 60]);
+    closeMobileCameraScanner();
+
+    // Open multi-angle audit modal
+    if (typeof window.openMultiAngleAuditModal === 'function') {
+        window.openMultiAngleAuditModal();
+    }
+
+    // Prepare FormData with the captured blobs
+    const btn = document.getElementById('btnRunMultiAngleCount');
+    const statusBox = document.getElementById('auditProcessingStatus');
+    const resultContainer = document.getElementById('auditResultContainer');
+
+    if (btn) btn.disabled = true;
+    if (statusBox) statusBox.style.display = 'block';
+    if (resultContainer) resultContainer.style.display = 'none';
+
+    try {
+        const formData = new FormData();
+        formData.append('sku_id', document.getElementById('auditSkuInput')?.value || 'AUTO-REBAR-32');
+        formData.append('bin_location', document.getElementById('auditBinInput')?.value || 'A3');
+        formData.append('request_id', document.getElementById('auditReqInput')?.value || '9504EA');
+        formData.append('depth_multiplier', document.getElementById('auditDepthMultiplier')?.value || '3');
+
+        formData.append('angle1', mobileAuditBlobs[1], 'angle1_front.jpg');
+        formData.append('angle2', mobileAuditBlobs[2], 'angle2_right.jpg');
+        formData.append('angle3', mobileAuditBlobs[3], 'angle3_left.jpg');
+
+        const res = await fetch('/api/vision/multi-angle-count', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to compute multi-angle count');
+        }
+
+        triggerHapticFeedback([60, 40, 90]);
+        if (typeof showToast === 'function') {
+            showToast(`3D Audit Complete: ${data.total_bundles} bundles verified!`, 'success');
+        }
+
+        // Render results using existing multi-angle audit renderer
+        const imgElem = document.getElementById('auditBoardResultImg');
+        if (imgElem && data.audit_image_url) {
+            imgElem.src = `${data.audit_image_url}?t=${Date.now()}`;
+        }
+        const totalElem = document.getElementById('auditTotalBundlesBadge');
+        if (totalElem) {
+            totalElem.textContent = `${data.total_bundles} BUNDLES`;
+        }
+        const tbody = document.getElementById('auditStacksTableBody');
+        if (tbody && data.stacks) {
+            tbody.innerHTML = data.stacks.map(s => {
+                const bgr = s.color_bgr || [50, 150, 250];
+                const rgbStr = `rgb(${bgr[2]}, ${bgr[1]}, ${bgr[0]})`;
+                return `
+                    <tr>
+                        <td style="display:flex; align-items:center; gap:8px;">
+                            <span style="display:inline-block; width:12px; height:12px; border-radius:2px; background:${rgbStr};"></span>
+                            <b>Stack ${s.id}</b>
+                            <span style="color:var(--text-muted); font-size:0.75rem;">(${s.name})</span>
+                        </td>
+                        <td style="text-align:center; font-weight:700;">${s.layers}</td>
+                        <td style="text-align:center; font-family:'JetBrains Mono',monospace; color:#38bdf8;">${s.formula}</td>
+                        <td style="text-align:right; font-weight:800; font-size:0.95rem; color:#10b981;">${s.bundles}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        if (resultContainer) resultContainer.style.display = 'block';
+
+    } catch (e) {
+        console.error('Audit execution error:', e);
+        alert(`Audit Error: ${e.message}`);
+    } finally {
+        if (btn) btn.disabled = false;
+        if (statusBox) statusBox.style.display = 'none';
+    }
+}
+window.finishWalkaroundAudit = finishWalkaroundAudit;
+
+async function processBarcodeScanBlob(blob) {
+    const overlay = document.getElementById('scannerProcessingOverlay');
+    const statusText = document.getElementById('scannerProcessingText');
+    if (overlay) overlay.style.display = 'flex';
+    if (statusText) statusText.textContent = 'Scanning Barcode / Gate Pass...';
+
+    // If browser supports BarcodeDetector, test local decode
+    if ('BarcodeDetector' in window) {
+        try {
+            const detector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
+            const bitmap = await createImageBitmap(blob);
+            const codes = await detector.detect(bitmap);
+            if (codes && codes.length > 0) {
+                const rawVal = codes[0].rawValue;
+                triggerHapticFeedback([60, 40, 80]);
+                handleDecodedBarcodeResult(rawVal);
+                if (overlay) overlay.style.display = 'none';
+                return;
+            }
+        } catch (e) {
+            console.warn('BarcodeDetector error, falling back to server decode:', e);
+        }
+    }
+
+    // Server OCR / Barcode decode endpoint
+    try {
+        const formData = new FormData();
+        formData.append('image', blob, 'barcode_scan.jpg');
+        const res = await fetch('/api/vision/decode_ocr', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (res.ok && data.text) {
+            triggerHapticFeedback([60, 40, 80]);
+            handleDecodedBarcodeResult(data.text);
+        } else {
+            showToast('No barcode or text detected. Try holding closer with good lighting.', 'warning');
+        }
+    } catch (err) {
+        showToast('Barcode scan error: ' + err.message, 'error');
+    } finally {
+        if (overlay) overlay.style.display = 'none';
+    }
+}
+
+function handleDecodedBarcodeResult(val) {
+    closeMobileCameraScanner();
+    if (typeof showToast === 'function') {
+        showToast(`Scanned: ${val}`, 'success');
+    } else {
+        alert(`Scanned: ${val}`);
+    }
+
+    // If it matches a delivery or gate pass ID, navigate there
+    if (val.toUpperCase().startsWith('GP-') || val.toUpperCase().startsWith('GATE')) {
+        if (typeof window.switchTab === 'function') window.switchTab('gate-passes');
+    } else if (val.toUpperCase().startsWith('DEL-') || val.toUpperCase().startsWith('PO-')) {
+        if (typeof window.switchTab === 'function') window.switchTab('deliveries');
+    } else if (val.toUpperCase().startsWith('PLT-')) {
+        if (typeof window.switchTab === 'function') window.switchTab('palletization');
+    }
+}
+
+function triggerScannerGalleryUpload() {
+    triggerHapticFeedback([20]);
+    if (mobileScannerMode === 'pallet') {
+        const input = document.getElementById('palletImageFileInput');
+        if (input) input.click();
+    } else if (mobileScannerMode === 'audit3d') {
+        const input = document.getElementById(`fileAngle${mobileAuditCurrentStep}`);
+        if (input) input.click();
+    } else {
+        const input = document.getElementById('idFileInput');
+        if (input) input.click();
+    }
+    closeMobileCameraScanner();
+}
+window.triggerScannerGalleryUpload = triggerScannerGalleryUpload;
+
+function handleScannerSecondaryAction() {
+    triggerHapticFeedback([20]);
+    if (mobileScannerMode === 'audit3d') {
+        // Reset 3D walkaround
+        mobileAuditBlobs = { 1: null, 2: null, 3: null };
+        [1, 2, 3].forEach(s => {
+            const wrap = document.getElementById(`thumbWrap${s}`);
+            const slot = document.getElementById(`thumbSlot${s}`);
+            if (wrap) wrap.innerHTML = '<i class="fas fa-camera"></i>';
+            if (slot) slot.classList.remove('captured');
+        });
+        setAuditWalkaroundStep(1);
+        if (typeof showToast === 'function') showToast('3D walkaround steps reset.', 'info');
+    } else {
+        closeMobileCameraScanner();
+    }
+}
+window.handleScannerSecondaryAction = handleScannerSecondaryAction;
+
+// Sync mobile dock display on resize and load
+function syncMobileDockDisplay() {
+    const overlay = document.getElementById('login-overlay');
+    const dock = document.getElementById('mobileBottomDock');
+    if (!dock) return;
+    const isLoginOpen = overlay && overlay.style.display !== 'none';
+    if (!isLoginOpen && window.innerWidth <= 1024) {
+        dock.style.display = 'flex';
+    } else {
+        dock.style.display = 'none';
+    }
+}
+window.syncMobileDockDisplay = syncMobileDockDisplay;
+window.addEventListener('resize', syncMobileDockDisplay);
+document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
+
 
