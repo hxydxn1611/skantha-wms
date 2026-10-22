@@ -6028,7 +6028,7 @@ window.switchSubTab = switchSubTab;
     <!-- Option 1: Individual Piece Counting (Image 1 Style) -->
     <!-- Option 2: Bundle Counting & Multi-View Deconstruction (Images 2 & 3 Style) -->
     <!-- ======================================================== -->
-    <div id="modalVisionCounting" class="modal-overlay" onclick="if(event.target===this) closeVisionCountingModal()">
+    <div id="modalVisionCounting" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeVisionCountingModal()">
         <div class="modal-dialog" style="max-width: 1100px; width:95%; max-height:92vh; overflow-y:auto;">
             
             <!-- Header -->
@@ -6054,7 +6054,23 @@ window.switchSubTab = switchSubTab;
             <div class="modal-body" style="padding:1.5rem; background:#0b1120; color:#f1f5f9; display:flex; flex-direction:column; gap:18px;">
                 
                 <!-- 2-Option Mode Switcher Tabs -->
-                        
+                <div style="display:flex; gap:10px; background:#0f172a; padding:6px; border-radius:8px; border:1px solid rgba(255,255,255,0.08);">
+                    <button type="button" id="tabModePieces" onclick="switchVisionCountingMode('pieces')" style="flex:1; background:#8b5cf6; color:#ffffff; border:1px solid #8b5cf6; border-radius:6px; padding:10px 14px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s;">
+                        <i class="fas fa-circle-dot"></i>
+                        <span>OPTION 1: Individual Piece Counting</span>
+                    </button>
+                    <button type="button" id="tabModeBundles" onclick="switchVisionCountingMode('bundles')" style="flex:1; background:transparent; color:#94a3b8; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:10px 14px; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s;">
+                        <i class="fas fa-cubes-stacked"></i>
+                        <span>OPTION 2: Bundle &amp; Multi-View Counting</span>
+                    </button>
+                </div>
+
+                <!-- ========================================================= -->
+                <!-- PANEL 1: INDIVIDUAL PIECE COUNTING (IMAGE 1 STYLE) -->
+                <!-- ========================================================= -->
+                <div id="panelModePieces" style="display:block;">
+                    <div style="display:flex; flex-direction:column; gap:16px;">
+
                         <!-- Info Banner -->
                         <div style="background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.25); border-radius:8px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                             <div>
