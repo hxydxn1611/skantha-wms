@@ -154,8 +154,13 @@ class PalletVisionCountingService:
             if is_specific_bundle:
                 return self._count_profile_bundles_pallet(image_bgr, raw_url=raw_url, sku_anchor=sku_anchor)
 
-            # 2. Carton Box Pallet Stack mode (when explicitly requested)
-            if counting_mode == "boxes":
+            # 2. Carton Box Pallet Stack mode (explicitly requested or auto-detected cardboard packaging stack)
+            hsv_test = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+            mask_brown = cv2.inRange(hsv_test, (8, 30, 45), (32, 255, 255))
+            cardboard_pct = float(np.sum(mask_brown > 0)) / float(h_img * w_img)
+
+            is_boxes = (counting_mode == "boxes") or (cardboard_pct > 0.45)
+            if is_boxes:
                 box_res = self._count_carton_boxes_pallet(image_bgr, raw_url=raw_url, roi=roi, sensitivity=sensitivity)
                 if sku_anchor:
                     box_res["sku_id"] = sku_anchor["sku_id"]
