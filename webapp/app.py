@@ -5254,13 +5254,26 @@ def api_count_pallet_pieces():
             else:
                 return jsonify({"success": False, "error": "No image provided"}), 400
 
+        # Custom 3D matrix dimensions (if specified by client steppers)
+        custom_matrix = None
+        c_layers = request.form.get('matrix_layers') or data.get('matrix_layers')
+        c_cols = request.form.get('matrix_columns') or data.get('matrix_columns')
+        c_depth = request.form.get('matrix_depth') or data.get('matrix_depth')
+        if c_layers or c_cols or c_depth:
+            custom_matrix = {
+                "layers": int(c_layers) if c_layers else None,
+                "columns": int(c_cols) if c_cols else None,
+                "depth": int(c_depth) if c_depth else None
+            }
+
         result = service.count_individual_pieces(
             image_bgr,
             counting_mode=counting_mode,
             roi=roi,
             sensitivity=sensitivity,
             target_clusters=target_clusters,
-            sku_id=sku_id
+            sku_id=sku_id,
+            custom_matrix=custom_matrix
         )
 
         if pallet_id:
