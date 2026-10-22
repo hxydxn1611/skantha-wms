@@ -11,6 +11,99 @@
     let currentMode = 'pieces'; // 'pieces' or 'bundles'
     let latestPiecesResult = null;
     let latestBundlesResult = null;
+    let mappedVisionSkus = [];
+    let selectedPiecesSkuId = '';
+    let selectedBundlesSkuId = '';
+
+    window.toggleDemoPresets = function(drawerId) {
+        const el = document.getElementById(drawerId);
+        if (el) {
+            el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+        }
+    };
+
+    window.loadVisionSkus = async function(forceRefresh = false) {
+        try {
+            const res = await fetch('/api/pallets/vision-skus');
+            const data = await res.json();
+            if (!data.success) return;
+
+            mappedVisionSkus = data.skus || [];
+
+            const pSelect = document.getElementById('piecesSkuSelect');
+            const bSelect = document.getElementById('bundlesSkuSelect');
+
+            const buildOptions = () => {
+                let html = '<option value="">-- Auto-Detect from Mapped SKUs --</option>';
+                mappedVisionSkus.forEach(s => {
+                    html += `<option value="${s.sku_id}">${s.sku_id} &mdash; ${s.name} (${s.category})</option>`;
+                });
+                return html;
+            };
+
+            if (pSelect) {
+                const prev = pSelect.value;
+                pSelect.innerHTML = buildOptions();
+                if (prev) {
+                    pSelect.value = prev;
+                } else if (mappedVisionSkus.length > 0) {
+                    pSelect.value = mappedVisionSkus[0].sku_id;
+                }
+                window.onVisionSkuSelected('pieces', pSelect.value);
+            }
+
+            if (bSelect) {
+                const prev = bSelect.value;
+                bSelect.innerHTML = buildOptions();
+                if (prev) {
+                    bSelect.value = prev;
+                } else if (mappedVisionSkus.length > 0) {
+                    bSelect.value = mappedVisionSkus[0].sku_id;
+                }
+                window.onVisionSkuSelected('bundles', bSelect.value);
+            }
+        } catch (e) {
+            console.error('Failed to load vision SKUs:', e);
+        }
+    };
+
+    window.onVisionSkuSelected = function(mode, skuId) {
+        const isPieces = mode === 'pieces';
+        if (isPieces) selectedPiecesSkuId = skuId;
+        else selectedBundlesSkuId = skuId;
+
+        const thumb = document.getElementById(isPieces ? 'piecesSkuThumb' : 'bundlesSkuThumb');
+        const icon = document.getElementById(isPieces ? 'piecesSkuNoThumbIcon' : 'bundlesSkuNoThumbIcon');
+        const badge = document.getElementById(isPieces ? 'piecesSkuStatusBadge' : 'bundlesSkuStatusBadge');
+
+        const matched = mappedVisionSkus.find(s => s.sku_id === skuId);
+
+        if (matched && matched.image_url) {
+            if (thumb) {
+                thumb.src = matched.image_url;
+                thumb.style.display = 'block';
+            }
+            if (icon) icon.style.display = 'none';
+            if (badge) {
+                badge.innerHTML = `<i class="fas fa-check-circle"></i> AI Reference Active: ${matched.sku_id}`;
+                badge.style.background = 'rgba(16,185,129,0.15)';
+                badge.style.color = '#10b981';
+                badge.style.borderColor = 'rgba(16,185,129,0.3)';
+            }
+        } else {
+            if (thumb) {
+                thumb.src = '';
+                thumb.style.display = 'none';
+            }
+            if (icon) icon.style.display = 'block';
+            if (badge) {
+                badge.innerHTML = `<i class="fas fa-robot"></i> Multi-SKU Auto Detection`;
+                badge.style.background = 'rgba(148,163,184,0.12)';
+                badge.style.color = '#94a3b8';
+                badge.style.borderColor = 'rgba(148,163,184,0.2)';
+            }
+        }
+    };
 
     // -------------------------------------------------------------------------
     // MODAL OPEN / CLOSE & MODE SWITCHING
@@ -21,6 +114,9 @@
         if (modal) {
             modal.style.display = 'flex';
             switchVisionCountingMode(initialMode);
+            if (mappedVisionSkus.length === 0) {
+                window.loadVisionSkus();
+            }
         }
     };
 
@@ -135,6 +231,11 @@
             formData.append('clusters', clust);
             formData.append('counting_mode', mode);
 
+            const selectedSku = document.getElementById('piecesSkuSelect')?.value || selectedPiecesSkuId || '';
+            if (selectedSku) {
+                formData.append('sku_id', selectedSku);
+            }
+
             const sampleFile = sampleNameOverride || 'sample_individual_pipes_229.jpg';
 
             if (useSample) {
@@ -188,6 +289,17 @@
                 ? `${data.total_3d_pallet} BOXES (3D Pallet)` 
                 : `${data.total_pieces} PCS`;
             badge.textContent = countLabel;
+        }
+
+        // SKU match status tag
+        const skuTag = document.getElementById('piecesSkuMatchResultTag');
+        if (skuTag) {
+            if (data.sku_id) {
+                skuTag.style.display = 'inline-flex';
+                skuTag.innerHTML = `<i class="fas fa-certificate" style="color:#10b981;"></i> Reference SKU: <b>${data.sku_id}</b> &bull; ${data.confidence_note || 'AI Trained Signature Verified'}`;
+            } else {
+                skuTag.style.display = 'none';
+            }
         }
 
         // Annotated Image URL
@@ -464,6 +576,11 @@
             const mult = document.getElementById('bundleDepthMultiplier')?.value || '1';
             formData.append('depth_multiplier', mult);
 
+            const selectedSku = document.getElementById('bundlesSkuSelect')?.value || selectedBundlesSkuId || '';
+            if (selectedSku) {
+                formData.append('sku_id', selectedSku);
+            }
+
             if (presetKey) {
                 formData.append('preset_name', presetKey);
             } else {
@@ -472,7 +589,7 @@
                 if (f1) formData.append('angle1', f1);
                 if (f2) formData.append('angle2', f2);
 
-                if (!f1 && !f2) {
+                if (!f1 && !f2 && !selectedSku) {
                     formData.append('preset_name', 'timber_48');
                 }
             }
@@ -514,7 +631,11 @@
         // Total badge
         const totalElem = document.getElementById('bundleTotalBundlesBadge');
         if (totalElem) {
-            totalElem.textContent = `${data.total_bundles} BUNDLES`;
+            let label = `${data.total_bundles} BUNDLES`;
+            if (data.sku_id) {
+                label += ` &bull; ${data.sku_id}`;
+            }
+            totalElem.innerHTML = label;
         }
 
         // Difference indicator

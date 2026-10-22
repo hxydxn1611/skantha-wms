@@ -5159,12 +5159,50 @@ def api_sync_audit_count():
 # UNIVERSAL PALLET VISION COUNTING (OPTION 1: PIECES | OPTION 2: BUNDLES)
 # ==============================================================================
 
+@app.route('/api/pallets/vision-skus', methods=['GET'])
+def api_get_vision_skus():
+    """
+    Returns SKUs that have mapped visual training photos in the AI Vision / SKU Master Data module.
+    Enables operators to select the exact warehouse inventory item so the vision model only counts
+    pieces/bundles matching that trained template.
+    """
+    try:
+        data = db.get_sku_master_records(image_status='mapped', limit=100)
+        items = data.get('items', [])
+        skus = []
+        for it in items:
+            raw_path = it.get('primary_image_path') or ''
+            image_url = None
+            if raw_path:
+                norm = raw_path.replace('\\', '/')
+                if '/static/' in norm:
+                    image_url = '/' + norm.split('/static/', 1)[1]
+                    image_url = '/static/' + image_url.lstrip('/')
+                elif os.path.isabs(norm):
+                    image_url = f"/static/uploads/sku_images/{os.path.basename(norm)}"
+                else:
+                    image_url = f"/static/{norm.lstrip('/')}"
+            skus.append({
+                "sku_id": it["sku_id"],
+                "name": it.get("name", it["sku_id"]),
+                "category": it.get("category", "General"),
+                "image_url": image_url,
+                "uom": it.get("uom", "EA"),
+                "unit_weight": it.get("unit_weight", 0)
+            })
+        return jsonify({"success": True, "skus": skus, "count": len(skus)})
+    except Exception as e:
+        logger.exception("Error fetching vision SKUs")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/pallets/count-pieces', methods=['POST'])
 def api_count_pallet_pieces():
     """
     Option 1: Material-agnostic Individual Piece Counting.
     Pinpoints every piece with numbered circles (1..N) and clusters into bundles
     (Top layer, Left bundle, Centre bundle, Right bundle, etc.) with high-contrast legend card.
+    Filters candidates against the selected SKU's AI Vision mapped reference photo.
     """
     try:
         from pallet_vision_counting_service import get_pallet_vision_counting_service
@@ -5180,6 +5218,7 @@ def api_count_pallet_pieces():
         target_clusters = request.form.get('clusters') or data.get('clusters')
         target_clusters = int(target_clusters) if target_clusters else None
         pallet_id = request.form.get('pallet_id') or data.get('pallet_id')
+        sku_id = request.form.get('sku_id') or data.get('sku_id')
         
         # ROI bounding box support
         roi = None
@@ -5220,7 +5259,8 @@ def api_count_pallet_pieces():
             counting_mode=counting_mode,
             roi=roi,
             sensitivity=sensitivity,
-            target_clusters=target_clusters
+            target_clusters=target_clusters,
+            sku_id=sku_id
         )
 
         if pallet_id:
@@ -5281,6 +5321,7 @@ def api_count_pallet_bundles():
         preset_name = request.form.get('preset_name') or request.form.get('sample_name')
         depth_multiplier = int(request.form.get('depth_multiplier', 1))
         pallet_id = request.form.get('pallet_id')
+        sku_id = request.form.get('sku_id') or request.values.get('sku_id')
 
         img_a1 = None
         img_a2 = None
@@ -5308,7 +5349,8 @@ def api_count_pallet_bundles():
             angle1_bgr=img_a1,
             angle2_bgr=img_a2,
             preset_name=preset_name,
-            depth_multiplier=depth_multiplier
+            depth_multiplier=depth_multiplier,
+            sku_id=sku_id
         )
 
         if pallet_id:
