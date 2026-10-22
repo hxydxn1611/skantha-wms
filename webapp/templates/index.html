@@ -6538,7 +6538,7 @@ window.switchSubTab = switchSubTab;
     <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}"></script>
 
     <!-- Universal Pallet Vision Counting UI Logic (Dual Mode) -->
-    <script src="{{ url_for('static', filename='js/pallet_vision_counting_ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/pallet_vision_counting_ui.js') }}?v={{ range(1000, 99999) | random }}"></script>
 
     <!-- Multi-Angle 3D Audit UI Logic -->
     <script src="{{ url_for('static', filename='js/multi_angle_audit_ui.js') }}"></script>
