@@ -264,6 +264,13 @@
                 formData.append('sku_id', selectedSku);
             }
 
+            // Custom 3D Matrix Parameters (if fine-tuned by user)
+            if (currentMatrixParams) {
+                if (currentMatrixParams.layers) formData.append('matrix_layers', currentMatrixParams.layers);
+                if (currentMatrixParams.columns) formData.append('matrix_columns', currentMatrixParams.columns);
+                if (currentMatrixParams.depth) formData.append('matrix_depth', currentMatrixParams.depth);
+            }
+
             const sampleFile = sampleNameOverride || 'sample_individual_pipes_229.jpg';
 
             if (useSample) {
@@ -322,7 +329,7 @@
             } else if (data.mode === 'BUNDLE_STACK' || data.items_label === 'Bundles') {
                 countLabel = `${data.total_pieces} BUNDLES`;
             } else if (data.mode === 'BOX_GRID' && data.total_3d_pallet) {
-                countLabel = `${data.total_3d_pallet} BOXES (3D Pallet)`;
+                countLabel = `${data.total_3d_pallet} BOXES (3D Pallet Matrix)`;
             }
             badge.textContent = countLabel;
         }
@@ -338,6 +345,9 @@
                 skuTag.style.display = 'inline-flex';
                 let ignoredText = data.ignored_count ? ` &bull; <span style="color:#94a3b8;"><i class="fas fa-shield-alt"></i> ${data.ignored_count} other stock & racks ignored</span>` : '';
                 skuTag.innerHTML = `<i class="fas fa-crosshairs" style="color:#10b981;"></i> <b>Strict Target Match</b>: Only '${data.sku_name || data.sku_id}' counted${ignoredText}`;
+            } else if (data.matrix_3d) {
+                skuTag.style.display = 'inline-flex';
+                skuTag.innerHTML = `<i class="fas fa-cubes" style="color:#38bdf8;"></i> <b>3D Matrix Deconstruction</b>: ${data.matrix_3d.formula} (${data.matrix_3d.hidden_count || 0} rear/interior boxes)`;
             } else if (data.sku_id) {
                 skuTag.style.display = 'inline-flex';
                 skuTag.innerHTML = `<i class="fas fa-certificate" style="color:#10b981;"></i> Reference SKU: <b>${data.sku_id}</b> &bull; ${data.confidence_note || 'AI Trained Signature Verified'}`;
@@ -357,6 +367,36 @@
 
         // Cluster breakdown pills
         updatePiecesClustersPills(data.clusters);
+
+        // 3D Pallet Matrix Digital Twin (Renders all visible + hidden boxes in 3D WebGL)
+        const box3DSection = document.getElementById('boxMatrix3DSection');
+        if (box3DSection) {
+            if (data.matrix_3d) {
+                box3DSection.style.display = 'block';
+                const formulaBadge = document.getElementById('matrix3DFormulaBadge');
+                if (formulaBadge) {
+                    formulaBadge.textContent = `${data.matrix_3d.formula} (${data.matrix_3d.hidden_count || 0} Hidden in Back)`;
+                }
+                const lElem = document.getElementById('matrixValLayers');
+                const cElem = document.getElementById('matrixValColumns');
+                const dElem = document.getElementById('matrixValDepth');
+                if (lElem) lElem.textContent = data.matrix_3d.layers;
+                if (cElem) cElem.textContent = data.matrix_3d.columns;
+                if (dElem) dElem.textContent = data.matrix_3d.depth;
+
+                currentMatrixParams = {
+                    layers: data.matrix_3d.layers,
+                    columns: data.matrix_3d.columns,
+                    depth: data.matrix_3d.depth
+                };
+
+                setTimeout(() => {
+                    init3DPalletViewer(data.matrix_3d);
+                }, 100);
+            } else {
+                box3DSection.style.display = 'none';
+            }
+        }
 
         resultContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -770,6 +810,339 @@
         if (!imgElem || !imgElem.src) return;
         window.open(imgElem.src, '_blank');
     };
+
+    // =========================================================================
+    // 3D PALLET MATRIX DIGITAL TWIN & OCCLUDED REAR BOXES VIEWER (Three.js)
+    // =========================================================================
+
+    let threeScene = null;
+    let threeCamera = null;
+    let threeRenderer = null;
+    let threeControls = null;
+    let threeBoxMeshes = [];
+    let isExploded = false;
+    let isXRay = false;
+    let currentMatrixParams = null;
+    let activeMatrixData = null;
+    let threeAnimationId = null;
+
+    window.adjust3DMatrixParam = function(param, delta) {
+        if (!currentMatrixParams) {
+            currentMatrixParams = { layers: 4, columns: 3, depth: 2 };
+        }
+        currentMatrixParams[param] = Math.max(1, Math.min(12, (currentMatrixParams[param] || 1) + delta));
+        
+        const elemMap = { layers: 'matrixValLayers', columns: 'matrixValColumns', depth: 'matrixValDepth' };
+        if (elemMap[param]) {
+            const el = document.getElementById(elemMap[param]);
+            if (el) el.textContent = currentMatrixParams[param];
+        }
+        
+        // Re-execute piece count with custom matrix
+        window.executePieceCount(false);
+    };
+
+    window.toggleExplode3D = function() {
+        isExploded = !isExploded;
+        const btn = document.getElementById('btnToggleExplode3D');
+        if (btn) {
+            btn.innerHTML = isExploded ? 
+                '<i class="fas fa-compress-arrows-alt"></i> <span>Compact Stack</span>' :
+                '<i class="fas fa-arrows-split-up-and-left"></i> <span>Explode 3D Stack</span>';
+            btn.style.background = isExploded ? '#0284c7' : '#334155';
+        }
+        animateExplode(isExploded);
+    };
+
+    window.toggleXRay3D = function() {
+        isXRay = !isXRay;
+        const btn = document.getElementById('btnToggleXRay3D');
+        if (btn) {
+            btn.innerHTML = isXRay ? 
+                '<i class="fas fa-eye-slash"></i> <span>Solid View</span>' : 
+                '<i class="fas fa-eye"></i> <span>X-Ray Glass</span>';
+            btn.style.background = isXRay ? '#0284c7' : '#334155';
+        }
+        threeBoxMeshes.forEach(mesh => {
+            if (!mesh.userData.isHidden) {
+                if (isXRay) {
+                    mesh.material.transparent = true;
+                    mesh.material.opacity = 0.28;
+                } else {
+                    mesh.material.transparent = false;
+                    mesh.material.opacity = 1.0;
+                }
+            }
+        });
+    };
+
+    window.reset3DCamera = function() {
+        if (!threeCamera || !threeControls) return;
+        threeCamera.position.set(4.8, 4.4, 6.0);
+        threeControls.target.set(0, 1.3, 0);
+        threeControls.update();
+    };
+
+    function animateExplode(explodeState) {
+        const factor = explodeState ? 1.55 : 1.0;
+        threeBoxMeshes.forEach(mesh => {
+            const orig = mesh.userData.origPos;
+            if (orig) {
+                mesh.position.x = orig.x * (explodeState ? factor : 1.0);
+                mesh.position.y = orig.y + (explodeState ? (mesh.userData.layer * 0.3) : 0);
+                mesh.position.z = orig.z * (explodeState ? factor : 1.0);
+                if (mesh.userData.edgesMesh) {
+                    mesh.userData.edgesMesh.position.copy(mesh.position);
+                }
+            }
+        });
+    }
+
+    function init3DPalletViewer(matrix3D) {
+        if (typeof THREE === 'undefined') {
+            console.warn('Three.js library not loaded yet');
+            return;
+        }
+
+        const container = document.getElementById('threeJsCanvasContainer');
+        if (!container) return;
+
+        const loadingNotice = document.getElementById('threeJsLoadingNotice');
+        if (loadingNotice) loadingNotice.style.display = 'none';
+
+        // Clear previous renderer canvas if existing
+        while (container.firstChild) {
+            if (container.firstChild.id === 'threeJsLoadingNotice' || 
+                container.firstChild.id === 'threeJsHoverInfo' || 
+                container.firstChild.tagName === 'DIV') {
+                break;
+            }
+            container.removeChild(container.firstChild);
+        }
+
+        activeMatrixData = matrix3D;
+        threeBoxMeshes = [];
+        isExploded = false;
+        isXRay = false;
+
+        const w = container.clientWidth || 700;
+        const h = container.clientHeight || 380;
+
+        // 1. Scene
+        threeScene = new THREE.Scene();
+        threeScene.background = new THREE.Color(0x020617); // Slate 950
+
+        // 2. Camera
+        threeCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+        threeCamera.position.set(4.8, 4.4, 6.0);
+
+        // 3. Renderer
+        threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        threeRenderer.setSize(w, h);
+        threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        threeRenderer.shadowMap.enabled = true;
+        threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.insertBefore(threeRenderer.domElement, container.firstChild);
+
+        // 4. Orbit Controls
+        if (typeof THREE.OrbitControls !== 'undefined') {
+            threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
+            threeControls.enableDamping = true;
+            threeControls.dampingFactor = 0.08;
+            threeControls.maxPolarAngle = Math.PI / 2 - 0.02; // Don't go below ground
+            threeControls.minDistance = 2.0;
+            threeControls.maxDistance = 20.0;
+            threeControls.target.set(0, 1.3, 0);
+            threeControls.update();
+        }
+
+        // 5. Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+        threeScene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+        dirLight.position.set(8, 14, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        threeScene.add(dirLight);
+
+        const blueRimLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
+        blueRimLight.position.set(-8, 6, -8);
+        threeScene.add(blueRimLight);
+
+        // 6. Floor Grid with dark sleek style
+        const gridHelper = new THREE.GridHelper(16, 16, 0x1e293b, 0x0f172a);
+        gridHelper.position.y = 0;
+        threeScene.add(gridHelper);
+
+        // 7. Wooden Pallet Base
+        const cols = matrix3D.columns || 3;
+        const depth = matrix3D.depth || 2;
+        const layers = matrix3D.layers || 4;
+
+        const palletW = cols * 1.05 + 0.35;
+        const palletD = depth * 1.05 + 0.35;
+        const palletH = 0.16;
+
+        // Wooden material
+        const woodMat = new THREE.MeshStandardMaterial({
+            color: 0x92663b,
+            roughness: 0.85,
+            metalness: 0.05
+        });
+
+        // Top deck slats
+        const slatCount = Math.max(5, cols * 2 + 1);
+        const slatW = palletW / slatCount * 0.75;
+        for (let i = 0; i < slatCount; i++) {
+            const slatGeo = new THREE.BoxGeometry(slatW, 0.04, palletD);
+            const slatMesh = new THREE.Mesh(slatGeo, woodMat);
+            const xPos = -palletW / 2 + (i + 0.5) * (palletW / slatCount);
+            slatMesh.position.set(xPos, palletH - 0.02, 0);
+            slatMesh.receiveShadow = true;
+            threeScene.add(slatMesh);
+        }
+
+        // Bottom runners (3 stringers)
+        for (let s = -1; s <= 1; s++) {
+            const runnerGeo = new THREE.BoxGeometry(0.12, palletH - 0.04, palletD);
+            const runnerMesh = new THREE.Mesh(runnerGeo, woodMat);
+            runnerMesh.position.set(s * (palletW * 0.42), (palletH - 0.04) / 2, 0);
+            runnerMesh.receiveShadow = true;
+            threeScene.add(runnerMesh);
+        }
+
+        // 8. Construct 3D Boxes (Visible front/side solid, Hidden rear/interior translucent)
+        const boxGeo = new THREE.BoxGeometry(0.96, 0.76, 0.96);
+        const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+
+        const baseSpacingX = 1.02;
+        const baseSpacingY = 0.80;
+        const baseSpacingZ = 1.02;
+
+        (matrix3D.boxes || []).forEach(b => {
+            const posX = (b.col - (cols - 1) / 2) * baseSpacingX;
+            const posY = b.layer * baseSpacingY + 0.38 + palletH;
+            const posZ = (b.depth - (depth - 1) / 2) * baseSpacingZ;
+
+            let boxMat = null;
+            let edgeMat = null;
+
+            if (b.is_hidden) {
+                // OCCLUDED / REAR / INTERIOR BOXES: Translucent Holographic Glass
+                boxMat = new THREE.MeshPhysicalMaterial({
+                    color: 0x0284c7,
+                    roughness: 0.15,
+                    transmission: 0.75,
+                    opacity: 0.38,
+                    transparent: true,
+                    depthWrite: false
+                });
+                edgeMat = new THREE.LineBasicMaterial({
+                    color: 0x38bdf8,
+                    linewidth: 2,
+                    transparent: true,
+                    opacity: 0.85
+                });
+            } else {
+                // VISIBLE FRONT & SIDE BOXES: Realistic Warm Cardboard Box
+                boxMat = new THREE.MeshStandardMaterial({
+                    color: 0xcba06c, // Cardboard kraft paper
+                    roughness: 0.75,
+                    metalness: 0.05
+                });
+                edgeMat = new THREE.LineBasicMaterial({
+                    color: 0x6e471d,
+                    linewidth: 1
+                });
+            }
+
+            const mesh = new THREE.Mesh(boxGeo, boxMat);
+            mesh.position.set(posX, posY, posZ);
+            mesh.castShadow = !b.is_hidden;
+            mesh.receiveShadow = true;
+
+            // Edge highlight wireframe
+            const edgeLine = new THREE.LineSegments(edgesGeo, edgeMat);
+            edgeLine.position.copy(mesh.position);
+            threeScene.add(edgeLine);
+
+            mesh.userData = {
+                id: b.id,
+                layer: b.layer,
+                col: b.col,
+                depth: b.depth,
+                status: b.status,
+                label: b.label || `Box #${b.id}`,
+                isHidden: b.is_hidden,
+                origPos: { x: posX, y: posY, z: posZ },
+                edgesMesh: edgeLine
+            };
+
+            threeBoxMeshes.push(mesh);
+            threeScene.add(mesh);
+        });
+
+        // 9. Interactive Raycasting Tooltip on Mouse Hover
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById('threeJsHoverInfo');
+
+        container.onmousemove = function(event) {
+            const rect = container.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / container.clientWidth) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / container.clientHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, threeCamera);
+            const intersects = raycaster.intersectObjects(threeBoxMeshes);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0].object;
+                const d = hit.userData;
+                if (tooltip) {
+                    const tagCol = d.isHidden ? '#38bdf8' : '#10b981';
+                    const tagText = d.isHidden ? 'OCCLUDED REAR BOX' : 'VISIBLE BOX';
+                    tooltip.innerHTML = `
+                        <div style="font-weight:800; color:#fff; display:flex; align-items:center; gap:6px;">
+                            <span style="color:${tagCol};">[${tagText}]</span> ${d.label}
+                        </div>
+                        <div style="font-size:0.7rem; color:#94a3b8; font-family:'JetBrains Mono',monospace;">
+                            Position: Layer ${d.layer + 1} &bull; Col ${d.col + 1} &bull; Depth ${d.depth + 1}
+                        </div>
+                    `;
+                    tooltip.style.display = 'block';
+                }
+            } else {
+                if (tooltip) tooltip.style.display = 'none';
+            }
+        };
+
+        container.onmouseleave = function() {
+            if (tooltip) tooltip.style.display = 'none';
+        };
+
+        // Resize handler
+        window.onresize = function() {
+            if (!container || !threeCamera || !threeRenderer) return;
+            const newW = container.clientWidth;
+            const newH = container.clientHeight;
+            if (newW && newH) {
+                threeCamera.aspect = newW / newH;
+                threeCamera.updateProjectionMatrix();
+                threeRenderer.setSize(newW, newH);
+            }
+        };
+
+        // Animation Loop
+        if (threeAnimationId) cancelAnimationFrame(threeAnimationId);
+        function animate() {
+            threeAnimationId = requestAnimationFrame(animate);
+            if (threeControls) threeControls.update();
+            threeRenderer.render(threeScene, threeCamera);
+        }
+        animate();
+    }
 
     // Initialize Drag & Drop on the unified dropzone
     function initUnifiedDropZone() {
