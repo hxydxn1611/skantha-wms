@@ -83,6 +83,40 @@ if not logger.handlers:
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
+VALID_INDIAN_STATES = {
+    "AN", "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DL", "DN",
+    "GA", "GJ", "HP", "HR", "JH", "JK", "KA", "KL", "LA", "LD",
+    "MH", "ML", "MN", "MP", "MZ", "NL", "OD", "PB", "PY", "RJ",
+    "SK", "TN", "TR", "TS", "UK", "UP", "WB", "BH"
+}
+
+def parse_and_validate_indian_plate(raw_text: str) -> Optional[str]:
+    """Strictly validates authentic Indian registration plates; rejects random words like BOX101, BUNDLE, etc."""
+    if not raw_text:
+        return None
+    clean = re.sub(r'[^A-Z0-9]', '', raw_text.upper())
+    if len(clean) < 7 or len(clean) > 11:
+        return None
+    for prefix in ("BOX", "BUNDLE", "PALLET", "SKU", "PART", "WMS", "TEST", "SAMPLE", "CARRIER"):
+        if clean.startswith(prefix):
+            return None
+    
+    # 1. Standard Indian Registration: State (2 letters) + 1-2 digit RTO + optional 1-3 letters + 3-4 digits
+    m_std = re.match(r'^([A-Z]{2})([0-9]{1,2})([A-Z]{0,3})([0-9]{3,4})$', clean)
+    if m_std:
+        st, rto, ser, num = m_std.groups()
+        if st in VALID_INDIAN_STATES:
+            ser_part = f"-{ser}" if ser else ""
+            return f"{st}-{rto}{ser_part}-{num}"
+    
+    # 2. Bharat (BH) Series: 2-digit year + BH + 4 digits + 1-2 letters
+    m_bh = re.match(r'^([0-9]{2})(BH)([0-9]{4})([A-Z]{1,2})$', clean)
+    if m_bh:
+        yr, bh, num, ser = m_bh.groups()
+        return f"{yr}-{bh}-{num}-{ser}"
+    
+    return None
+
 
 # ============================================================================
 # 1. ENUMS AND DATA MODELS
@@ -1070,12 +1104,14 @@ class CameraRuntimeSession:
                 time.sleep(0.2)
             time.sleep(sleep_interval)
 
-    def _run_live_gate_anpr_worker(self, frame: np.ndarray, vehicle_boxes: List[Dict[str, Any]]):
-        """Dedicated high-precision ANPR worker running on the LIVE feed.
-        Extracts real license plates and auto-creates connected Gate Passes in DB."""
+        if self.test_mode:
+            self.anpr_in_flight = False
+            return
+
         try:
             fh, fw = frame.shape[:2]
             if fh < 80 or fw < 80:
+                self.anpr_in_flight = False
                 return
 
             candidate_crops = []
@@ -1098,7 +1134,7 @@ class CameraRuntimeSession:
                 if v_crop.size > 0:
                     candidate_crops.append(v_crop)
 
-            # 2. Always inspect central frame (for close-up license plates, phones, printed test cards)
+            # 2. Inspect central frame (for close-up license plates, phones, printed test cards)
             center_crop = frame[int(fh * 0.10):int(fh * 0.90), int(fw * 0.10):int(fw * 0.90)]
             if center_crop.size > 0:
                 candidate_crops.append(center_crop)
@@ -1140,39 +1176,19 @@ class CameraRuntimeSession:
                         if len(clean_text) >= 2 and prob > 0.15:
                             clean_tokens.append(clean_text)
 
-                        # Match strict Indian license plate regex on token
-                        m = re.search(r'[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{3,4}', clean_text)
-                        if m and prob > 0.20:
-                            if prob > best_prob:
-                                best_plate = m.group(0)
-                                best_prob = float(prob)
-                        elif 4 <= len(clean_text) <= 12 and prob > 0.35:
-                            has_num = any(c.isdigit() for c in clean_text)
-                            has_alpha = any(c.isalpha() for c in clean_text)
-                            if has_num and has_alpha and prob > best_prob:
-                                best_plate = clean_text
-                                best_prob = float(prob)
+                        # Match strict Indian license plate regex
+                        val = parse_and_validate_indian_plate(clean_text)
+                        if val and prob > best_prob:
+                            best_plate = val
+                            best_prob = float(prob)
 
-                    # Multi-line token recombination (e.g. ['MH', '12', 'PQ', '9988'] -> 'MH12PQ9988')
+                    # Multi-line token recombination (e.g. ['DL', '01', 'AB', '1234'] -> 'DL-01-AB-1234')
                     if not best_plate and clean_tokens:
                         combined = "".join(clean_tokens)
-                        m = re.search(r'[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{3,4}', combined)
-                        if m:
-                            best_plate = m.group(0)
+                        val = parse_and_validate_indian_plate(combined)
+                        if val:
+                            best_plate = val
                             best_prob = 0.85
-                        elif 5 <= len(combined) <= 12 and any(c.isdigit() for c in combined) and any(c.isalpha() for c in combined):
-                            best_plate = combined
-                            best_prob = 0.75
-
-            # Standardize Indian format with hyphens (e.g. MH12PQ9988 -> MH-12-PQ-9988)
-            if best_plate != "":
-                m_ind = re.match(r'^([A-Z]{2})([0-9]{1,2})([A-Z]{1,3})([0-9]{3,4})$', best_plate)
-                if m_ind:
-                    best_plate = f"{m_ind.group(1)}-{m_ind.group(2)}-{m_ind.group(3)}-{m_ind.group(4)}"
-                else:
-                    m_short = re.match(r'^([A-Z]{2})([0-9]{2})([0-9]{4})$', best_plate)
-                    if m_short:
-                        best_plate = f"{m_short.group(1)}-{m_short.group(2)}-{m_short.group(3)}"
 
             # If a plate was detected from the live feed:
             if best_plate != "":
@@ -1290,28 +1306,21 @@ class CameraRuntimeSession:
             cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 3)
             cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, f_col, 2)
 
-        # 5. Prominent License Plate & Gate Pass Card (Bottom Left when plate detected or gate camera)
-        if self.last_detected_plate or self.is_gate_camera:
+        # 5. Prominent License Plate & Gate Pass Card (Bottom Left ONLY when plate is actively detected)
+        if self.last_detected_plate:
             card_x, card_y = 14, max(10, h - 105)
             cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (15, 18, 24), -1)
             cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (0, 220, 255), 1)
 
-            if self.last_detected_plate:
-                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (245, 230, 60), -1)
-                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (10, 10, 10), 2)
-                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 36, card_y + 44), (180, 50, 0), -1)
-                cv2.putText(display_frame, "IND", (card_x + 12, card_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                cv2.putText(display_frame, self.last_detected_plate, (card_x + 42, card_y + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (10, 10, 10), 2)
+            cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (245, 230, 60), -1)
+            cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (10, 10, 10), 2)
+            cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 36, card_y + 44), (180, 50, 0), -1)
+            cv2.putText(display_frame, "IND", (card_x + 12, card_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+            cv2.putText(display_frame, self.last_detected_plate, (card_x + 42, card_y + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (10, 10, 10), 2)
 
-                pass_text = f"GATE PASS: {self.last_gate_pass_id or 'GENERATING...'}"
-                cv2.putText(display_frame, pass_text, (card_x + 10, card_y + 64), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 128), 2)
-                cv2.putText(display_frame, "STATUS: LIVE ARRIVAL (PASS CREATED)", (card_x + 10, card_y + 82), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
-            else:
-                cv2.putText(display_frame, "LIVE ANPR ACTIVE", (card_x + 12, card_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (0, 220, 255), 2)
-                cv2.putText(display_frame, "Monitoring Live Feed for Incoming Vehicle/Plate", (card_x + 12, card_y + 54), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
-                cv2.putText(display_frame, "Gate pass will auto-generate upon plate detection", (card_x + 12, card_y + 74), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (140, 140, 140), 1)
-                scan_offset = int((time.time() * 120) % 330)
-                cv2.line(display_frame, (card_x + 10 + scan_offset, card_y + 6), (card_x + 10 + scan_offset, card_y + 84), (0, 220, 255), 1)
+            pass_text = f"GATE PASS: {self.last_gate_pass_id or 'ACTIVE'}"
+            cv2.putText(display_frame, pass_text, (card_x + 10, card_y + 64), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 128), 2)
+            cv2.putText(display_frame, "STATUS: LIVE ARRIVAL (PASS CREATED)", (card_x + 10, card_y + 82), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
 
         # 6. Top HUD Telemetry Banner
         cam_tag = self.name or self.camera_id

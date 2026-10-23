@@ -248,6 +248,22 @@ class PalletVisionCountingService:
             vis, sorted_pieces, clusters, total_count, force_legend=force_legend
         )
 
+        # Prune old temporary piece count test images to prevent bloat (keep latest 20)
+        try:
+            test_files = [
+                os.path.join(UPLOAD_DIR, f) for f in os.listdir(UPLOAD_DIR)
+                if (f.startswith("piece_count_") or f.startswith("box_grid_")) and os.path.isfile(os.path.join(UPLOAD_DIR, f))
+            ]
+            if len(test_files) > 20:
+                test_files.sort(key=lambda p: os.path.getmtime(p))
+                for old_f in test_files[:-20]:
+                    try:
+                        os.remove(old_f)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+
         filename = f"piece_count_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         save_path = os.path.join(UPLOAD_DIR, filename)
         cv2.imwrite(save_path, annotated_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
