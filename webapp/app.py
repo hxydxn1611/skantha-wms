@@ -69,6 +69,7 @@ def init_active_cameras():
                 active_cameras[cid] = sc
                 mgr.start_camera(cid)
                 logger.info(f"Initialized active camera {cid} ({cam.get('location')})")
+        mgr.start_all()
     except Exception as e:
         logger.warning(f"Error initializing active cameras from DB: {e}")
 
@@ -3319,6 +3320,12 @@ def generate_frames(camera_id):
     while True:
         # 1. Vision runtime session (High-FPS annotated stream)
         sess = mgr.get_session(camera_id)
+        if sess is None:
+            mgr.refresh_cameras()
+            sess = mgr.get_session(camera_id)
+        if sess and sess.runtime_state.value in ("STOPPED", "FAILED"):
+            mgr.start_camera(camera_id)
+
         if sess and sess.runtime_state.value in ("RUNNING", "DEGRADED"):
             jpeg = sess.get_latest_jpeg()
             if jpeg:
