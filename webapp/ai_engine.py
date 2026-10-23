@@ -667,57 +667,26 @@ class SmartCamera:
         # =========================================================================
         # 1. GATE CAMERA DISPLAY: ANPR & Vehicle Access Control (ZERO Counting HUD)
         # =========================================================================
-        if is_gate:
-            # Top Banner
-            cv2.rectangle(display_frame, (0, 0), (640, 36), (20, 24, 32), -1)
-            cv2.putText(display_frame, "GATE 01 | ANPR & VEHICLE ACCESS CONTROL | ZERO COUNTING", (14, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 220, 255), 2)
-            cv2.putText(display_frame, f"{latency_ms}ms", (570, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 128), 1)
-
-            # Draw vehicle bounding boxes
-            for box in boxes_to_draw:
-                x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
-                cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 128), 2)
-                cv2.putText(display_frame, box['type'], (x1, max(18, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 128), 2)
-
-            # Prominent License Plate & Gate Pass Card (Bottom Left)
-            card_x, card_y = 14, 375
-            cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (15, 18, 24), -1)
-            cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (0, 220, 255), 1)
-
-            if last_plate:
-                # Realistic License Plate Badge
-                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (245, 230, 60), -1)
-                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 235, card_y + 44), (10, 10, 10), 2)
-                # IND blue strip
-                cv2.rectangle(display_frame, (card_x + 10, card_y + 10), (card_x + 36, card_y + 44), (180, 50, 0), -1)
-                cv2.putText(display_frame, "IND", (card_x + 12, card_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                # Plate number
-                cv2.putText(display_frame, last_plate, (card_x + 42, card_y + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (10, 10, 10), 2)
-
-                # Gate pass status
-                pass_text = f"GATE PASS: {last_gp or 'GENERATING...'}"
-                cv2.putText(display_frame, pass_text, (card_x + 10, card_y + 64), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 128), 2)
-                cv2.putText(display_frame, "STATUS: LIVE ARRIVAL (PASS CREATED)", (card_x + 10, card_y + 82), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
-            else:
-                cv2.putText(display_frame, "LIVE ANPR ACTIVE", (card_x + 12, card_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (0, 220, 255), 2)
-                cv2.putText(display_frame, "Monitoring Live Feed for Incoming Vehicle/Plate", (card_x + 12, card_y + 54), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
-                cv2.putText(display_frame, "Gate pass will auto-generate upon plate detection", (card_x + 12, card_y + 74), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (140, 140, 140), 1)
-                
-                # Dynamic visual scanning laser across the card
-                scan_offset = int((time.time() * 120) % 330)
-                cv2.line(display_frame, (card_x + 10 + scan_offset, card_y + 6), (card_x + 10 + scan_offset, card_y + 84), (0, 220, 255), 1)
-
-            ret, buffer = cv2.imencode('.jpg', display_frame)
-            jpeg_bytes = buffer.tobytes()
-            with self.lock:
-                self.frozen_jpeg = jpeg_bytes
-            return jpeg_bytes
-
-        # =========================================================================
-        # 2. WAREHOUSE CAMERA DISPLAY: LIVE Multi-Object Tracking & Millisecond Counting
-        # =========================================================================
-        # Draw Database-Configured Directional Tripwire Line (if configured and enabled)
+        # 1. Draw Directional Tripwire Line (if configured and enabled)
         if self.active_tripwire and self.active_tripwire.get('is_enabled'):
+            p1 = self.active_tripwire['p1']
+            p2 = self.active_tripwire['p2']
+            dir_mode = self.active_tripwire.get('crossing_direction', 'BOTH')
+            cv2.line(display_frame, p1, p2, (0, 220, 255), 2)
+            cv2.circle(display_frame, p1, 4, (0, 255, 255), -1)
+            cv2.circle(display_frame, p2, 4, (0, 255, 255), -1)
+
+            mid_x = int((p1[0] + p2[0]) / 2)
+            mid_y = int((p1[1] + p2[1]) / 2)
+            z_label = self.active_tripwire.get('zone_code', 'TRIPWIRE')
+            if dir_mode == 'BOTH':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 120), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 128), 1)
+                cv2.putText(display_frame, f"<<< OUT (-1)", (min(display_frame.shape[1] - 140, mid_x + 10), min(display_frame.shape[0] - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 140, 255), 1)
+            elif dir_mode == 'INBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 80), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 128), 1)
+            elif dir_mode == 'OUTBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] <<< OUT (-1)", (max(10, mid_x - 80), min(display_frame.shape[0] - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 140, 255), 1)
+
             p1 = self.active_tripwire['p1']
             p2 = self.active_tripwire['p2']
             dir_mode = self.active_tripwire.get('crossing_direction', 'BOTH')

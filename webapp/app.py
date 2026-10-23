@@ -49,6 +49,7 @@ active_cameras = {}
 
 def init_active_cameras():
     try:
+        db.init_db()
         mgr = get_vision_runtime_manager()
         mgr.refresh_cameras()
         cams = db.get_all_cameras()

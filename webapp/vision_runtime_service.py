@@ -941,6 +941,10 @@ class CameraRuntimeSession:
     def is_running(self, val: bool):
         self.runtime_state = RuntimeState.RUNNING if val else RuntimeState.STOPPED
 
+    def get_latest_jpeg(self) -> Optional[bytes]:
+        with self.lock:
+            return self.latest_annotated_jpeg
+
     def _init_source(self):
         """
         Part 6: Initializes single shared frame source to eliminate duplicate physical capture.
@@ -1223,19 +1227,71 @@ class CameraRuntimeSession:
         display_frame = base_frame.copy()
         h, w = display_frame.shape[:2]
 
-        if self.is_gate_camera:
-            # 1. GATE CAMERA DISPLAY: ANPR & Vehicle Access Control (ZERO Counting HUD)
-            cv2.rectangle(display_frame, (0, 0), (w, 36), (20, 24, 32), -1)
-            cv2.putText(display_frame, "GATE 01 | ANPR & VEHICLE ACCESS CONTROL | ZERO COUNTING", (14, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 220, 255), 2)
-            cv2.putText(display_frame, f"{timing_ms}ms", (max(10, w - 70), 24), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 128), 1)
+        # 1. Draw Directional Tripwire Line (if configured and enabled)
+        if self.active_tripwire and self.active_tripwire.get('is_enabled'):
+            p1 = self.active_tripwire['p1']
+            p2 = self.active_tripwire['p2']
+            dir_mode = self.active_tripwire.get('crossing_direction', 'BOTH')
+            cv2.line(display_frame, p1, p2, (0, 220, 255), 2)
+            cv2.circle(display_frame, p1, 4, (0, 255, 255), -1)
+            cv2.circle(display_frame, p2, 4, (0, 255, 255), -1)
 
-            # Draw vehicle bounding boxes
-            for box in self.latest_boxes:
-                x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
-                cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 128), 2)
-                cv2.putText(display_frame, box.get('type', 'Vehicle'), (x1, max(18, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 128), 2)
+            mid_x = int((p1[0] + p2[0]) / 2)
+            mid_y = int((p1[1] + p2[1]) / 2)
+            z_label = self.active_tripwire.get('zone_code', 'TRIPWIRE')
+            if dir_mode == 'BOTH':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 120), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 128), 1)
+                cv2.putText(display_frame, f"<<< OUT (-1)", (min(w - 140, mid_x + 10), min(h - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 140, 255), 1)
+            elif dir_mode == 'INBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 80), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 128), 1)
+            elif dir_mode == 'OUTBOUND_ONLY':
+                cv2.putText(display_frame, f"[{z_label}] <<< OUT (-1)", (max(10, mid_x - 80), min(h - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 140, 255), 1)
 
-            # Prominent License Plate & Gate Pass Card (Bottom Left)
+        # 2. Draw Live Motion Trails (Trajectories)
+        for tid, points in self.track_trajectories.items():
+            if len(points) >= 2:
+                vec = self.track_motion_vectors.get(tid, (0, 0))
+                speed = (vec[0]**2 + vec[1]**2)**0.5
+                trail_color = (0, 255, 128) if speed > 1.5 else (0, 180, 255)
+                for p_idx in range(1, len(points)):
+                    cv2.line(display_frame, points[p_idx - 1], points[p_idx], trail_color, max(1, int(p_idx / 4)))
+
+        # 3. Draw Detected Objects (Workers in Cyan/Blue, Stock in Green, Vehicles in Emerald)
+        for box in self.latest_boxes:
+            x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
+            is_person = box.get('is_person', False)
+            is_veh = box.get('is_vehicle', False)
+            if is_person:
+                color = (255, 200, 0) # Cyan/Blue for Personnel / Workers
+            elif is_veh:
+                color = (0, 255, 160) # Emerald for Vehicles
+            else:
+                color = (0, 255, 128) # Vibrant Green for Warehouse Stock / Boxes
+
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+            label = box.get('type', '')
+            cv2.putText(display_frame, label, (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+            cv2.circle(display_frame, (cx, cy), 3, (255, 255, 255), -1)
+
+            tid = box.get('track_id')
+            if tid in self.track_motion_vectors:
+                mv_x, mv_y = self.track_motion_vectors[tid]
+                if abs(mv_x) > 1 or abs(mv_y) > 1:
+                    arrow_end = (cx + int(mv_x * 2.5), cy + int(mv_y * 2.5))
+                    cv2.arrowedLine(display_frame, (cx, cy), arrow_end, color, 2, tipLength=0.35)
+
+        # 4. Draw Floating Flash Indicators
+        for fc in self.flash_counters:
+            f_text = fc.get('text', '')
+            fx, fy = fc.get('pos', (int(w / 2), int(h / 2)))
+            f_col = fc.get('color', (0, 255, 128))
+            cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 3)
+            cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, f_col, 2)
+
+        # 5. Prominent License Plate & Gate Pass Card (Bottom Left when plate detected or gate camera)
+        if self.last_detected_plate or self.is_gate_camera:
             card_x, card_y = 14, max(10, h - 105)
             cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (15, 18, 24), -1)
             cv2.rectangle(display_frame, (card_x, card_y), (card_x + 360, card_y + 90), (0, 220, 255), 1)
@@ -1257,68 +1313,13 @@ class CameraRuntimeSession:
                 scan_offset = int((time.time() * 120) % 330)
                 cv2.line(display_frame, (card_x + 10 + scan_offset, card_y + 6), (card_x + 10 + scan_offset, card_y + 84), (0, 220, 255), 1)
 
-            return display_frame
-
-        # 2. WAREHOUSE CAMERA DISPLAY: LIVE Multi-Object Tracking & Millisecond Counting
-        if self.active_tripwire and self.active_tripwire.get('is_enabled'):
-            p1 = self.active_tripwire['p1']
-            p2 = self.active_tripwire['p2']
-            dir_mode = self.active_tripwire.get('crossing_direction', 'BOTH')
-            cv2.line(display_frame, p1, p2, (0, 220, 255), 2)
-            cv2.circle(display_frame, p1, 4, (0, 255, 255), -1)
-            cv2.circle(display_frame, p2, 4, (0, 255, 255), -1)
-
-            mid_x = int((p1[0] + p2[0]) / 2)
-            mid_y = int((p1[1] + p2[1]) / 2)
-            z_label = self.active_tripwire.get('zone_code', 'TRIPWIRE')
-            if dir_mode == 'BOTH':
-                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 120), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 128), 1)
-                cv2.putText(display_frame, f"<<< OUT (-1)", (min(w - 140, mid_x + 10), min(h - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 140, 255), 1)
-            elif dir_mode == 'INBOUND_ONLY':
-                cv2.putText(display_frame, f"[{z_label}] IN (+1) >>>", (max(10, mid_x - 80), max(20, mid_y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 128), 1)
-            elif dir_mode == 'OUTBOUND_ONLY':
-                cv2.putText(display_frame, f"[{z_label}] <<< OUT (-1)", (max(10, mid_x - 80), min(h - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 140, 255), 1)
-
-        # Draw Live Motion Trails (Trajectories)
-        for tid, points in self.track_trajectories.items():
-            if len(points) >= 2:
-                vec = self.track_motion_vectors.get(tid, (0, 0))
-                speed = (vec[0]**2 + vec[1]**2)**0.5
-                trail_color = (0, 255, 128) if speed > 1.5 else (0, 180, 255)
-                for p_idx in range(1, len(points)):
-                    cv2.line(display_frame, points[p_idx - 1], points[p_idx], trail_color, max(1, int(p_idx / 4)))
-
-        # Draw Detected Objects
-        for box in self.latest_boxes:
-            x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
-            is_person = box.get('is_person', False)
-            color = (255, 200, 0) if is_person else (0, 255, 128)
-            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(display_frame, box.get('type', ''), (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
-            cv2.circle(display_frame, (cx, cy), 3, (255, 255, 255), -1)
-
-            tid = box.get('track_id')
-            if tid in self.track_motion_vectors:
-                mv_x, mv_y = self.track_motion_vectors[tid]
-                if abs(mv_x) > 1 or abs(mv_y) > 1:
-                    arrow_end = (cx + int(mv_x * 2.5), cy + int(mv_y * 2.5))
-                    cv2.arrowedLine(display_frame, (cx, cy), arrow_end, color, 2, tipLength=0.35)
-
-        # Draw Floating Flash Indicators
-        for fc in self.flash_counters:
-            f_text = fc.get('text', '')
-            fx, fy = fc.get('pos', (int(w / 2), int(h / 2)))
-            f_col = fc.get('color', (0, 255, 128))
-            cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 0, 0), 3)
-            cv2.putText(display_frame, f_text, (max(10, fx - 50), max(25, fy - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.62, f_col, 2)
-
-        # Top HUD Banner
+        # 6. Top HUD Telemetry Banner
         cam_tag = self.name or self.camera_id
-        hud_text = f"[{cam_tag}] LIVE ({timing_ms}ms) | IN: +{self.inbound_count} | OUT: -{self.outbound_count} | NET STOCK: {self.net_stock_count} | WORKERS: {self.active_workers_count}"
+        hud_text = f"[{cam_tag}] LIVE ({timing_ms}ms) | WORKERS: {self.active_workers_count} | STOCK: {self.net_stock_count} | IN: +{self.inbound_count} / OUT: -{self.outbound_count}"
+        if self.last_detected_plate:
+            hud_text += f" | 💳 {self.last_detected_plate}"
         cv2.rectangle(display_frame, (0, 0), (w, 32), (18, 22, 28), -1)
-        cv2.putText(display_frame, hud_text, (12, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 200), 2)
+        cv2.putText(display_frame, hud_text, (12, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (0, 255, 200), 2)
 
         return display_frame
 
@@ -1394,137 +1395,122 @@ class CameraRuntimeSession:
                 workers_count = 0
                 active_stock_count = 0
 
-                if self.is_gate_camera:
-                    for t in raw_tracks:
-                        cls_code = str(t.get("class_code", "")).upper()
-                        if cls_code in ("TRUCK", "CAR", "BUS", "VEHICLE"):
-                            bb = t.get("bbox", {})
-                            tid = t.get("track_id")
-                            x1, y1 = max(0, int(bb.get("x1", 0))), max(0, int(bb.get("y1", 0)))
-                            x2, y2 = min(640, int(bb.get("x2", 640))), min(480, int(bb.get("y2", 480)))
-                            label = f"Heavy Commercial (HCV) #{tid}" if cls_code in ("TRUCK", "BUS") else f"Light Vehicle (LMV) #{tid}"
-                            new_boxes.append({
-                                "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-                                "type": label,
-                                "is_package": False,
-                                "is_vehicle": True,
-                                "track_id": tid
-                            })
+                has_vehicle = False
+                for t in raw_tracks:
+                    cls_code = str(t.get("class_code", "")).upper()
+                    is_person = (cls_code in ("WORKER", "PERSON"))
+                    is_vehicle = (cls_code in ("TRUCK", "CAR", "BUS", "VEHICLE", "LICENSE_PLATE"))
+                    is_stock = not is_person and not is_vehicle
+                    tid = t.get("track_id")
+                    bb = t.get("bbox", {})
+                    x1, y1 = max(0, int(bb.get("x1", 0))), max(0, int(bb.get("y1", 0)))
+                    x2, y2 = min(640, int(bb.get("x2", 640))), min(480, int(bb.get("y2", 480)))
+                    cx = int((x1 + x2) / 2)
+                    cy = int((y1 + y2) / 2)
 
-                    # Trigger real-time Gate ANPR worker
-                    now_t = time.time()
-                    if not self.anpr_in_flight and (now_t - self.last_anpr_run_time >= 0.8):
-                        self.anpr_in_flight = True
-                        self.last_anpr_run_time = now_t
-                        v_boxes_copy = copy.deepcopy(new_boxes)
-                        threading.Thread(
-                            target=self._run_live_gate_anpr_worker,
-                            args=(frame.copy(), v_boxes_copy),
-                            daemon=True
-                        ).start()
-
-                    with self.lock:
-                        self.latest_boxes = new_boxes
-                        self.visible_boxes = 0
-                        self.visible_packages = 0
-                        self.active_workers_count = 0
-                        self.active_stocks_count = 0
-                        self.inbound_count = 0
-                        self.outbound_count = 0
-                        self.net_stock_count = 0
-                else:
-                    for t in raw_tracks:
-                        cls_code = str(t.get("class_code", "")).upper()
-                        is_person = (cls_code == "WORKER")
-                        is_stock = not is_person
-                        tid = t.get("track_id")
-                        bb = t.get("bbox", {})
-                        x1, y1 = max(0, int(bb.get("x1", 0))), max(0, int(bb.get("y1", 0)))
-                        x2, y2 = min(640, int(bb.get("x2", 640))), min(480, int(bb.get("y2", 480)))
-                        cx = int((x1 + x2) / 2)
-                        cy = int((y1 + y2) / 2)
-
-                        if is_person:
-                            workers_count += 1
-                            v_type = f"Worker #{tid}" if tid is not None else "Worker"
+                    if is_person:
+                        workers_count += 1
+                        v_type = f"Worker #{tid}" if tid is not None else "Worker"
+                    elif is_vehicle:
+                        has_vehicle = True
+                        if cls_code in ("TRUCK", "BUS"):
+                            v_type = f"Heavy Commercial (HCV) #{tid}" if tid is not None else "Heavy Commercial (HCV)"
+                        elif cls_code == "LICENSE_PLATE":
+                            v_type = f"License Plate #{tid}" if tid is not None else "License Plate"
                         else:
-                            active_stock_count += 1
-                            box_count += 1
-                            v_type = f"Stock #{tid}" if tid is not None else "Stock"
+                            v_type = f"Light Vehicle (LMV) #{tid}" if tid is not None else "Light Vehicle (LMV)"
+                    else:
+                        active_stock_count += 1
+                        box_count += 1
+                        v_type = f"Stock #{tid}" if tid is not None else "Stock"
 
-                        if tid is not None:
-                            self.tracked_centroids[tid] = (cx, cy)
-                            if tid not in self.track_trajectories:
-                                self.track_trajectories[tid] = []
-                            traj = self.track_trajectories[tid]
-                            prev_pos = traj[-1] if traj else (cx, cy)
-                            traj.append((cx, cy))
-                            if len(traj) > 18:
-                                traj.pop(0)
+                    if tid is not None:
+                        self.tracked_centroids[tid] = (cx, cy)
+                        if tid not in self.track_trajectories:
+                            self.track_trajectories[tid] = []
+                        traj = self.track_trajectories[tid]
+                        prev_pos = traj[-1] if traj else (cx, cy)
+                        traj.append((cx, cy))
+                        if len(traj) > 18:
+                            traj.pop(0)
 
-                            dx = cx - prev_pos[0]
-                            dy = cy - prev_pos[1]
-                            self.track_motion_vectors[tid] = (dx, dy)
-                            self.track_last_seen[tid] = self.frames_processed
+                        dx = cx - prev_pos[0]
+                        dy = cy - prev_pos[1]
+                        self.track_motion_vectors[tid] = (dx, dy)
+                        self.track_last_seen[tid] = self.frames_processed
 
-                            # Directional Live Counting for Stocks via Database-Driven Tripwire
-                            if is_stock and self.active_tripwire and self.active_tripwire.get('is_enabled'):
-                                crossing = evaluate_tripwire_crossing(
-                                    p1=self.active_tripwire['p1'],
-                                    p2=self.active_tripwire['p2'],
-                                    prev_pos=prev_pos,
-                                    curr_pos=(cx, cy),
-                                    allowed_direction=self.active_tripwire.get('crossing_direction', 'BOTH')
-                                )
-                                if crossing == 'IN' and self.counted_track_states.get(tid) != 'IN':
-                                    self.inbound_count += 1
-                                    self.counted_track_states[tid] = 'IN'
-                                    self.flash_counters.append({
-                                        'text': '+1 IN (STOCK ADDED)',
-                                        'pos': (cx, cy),
-                                        'ttl': 24,
-                                        'color': (0, 255, 128)
-                                    })
-                                elif crossing == 'OUT' and self.counted_track_states.get(tid) != 'OUT':
-                                    self.outbound_count += 1
-                                    self.counted_track_states[tid] = 'OUT'
-                                    self.flash_counters.append({
-                                        'text': '-1 OUT (STOCK SUBTRACTED)',
-                                        'pos': (cx, cy),
-                                        'ttl': 24,
-                                        'color': (0, 140, 255)
-                                    })
+                        # Directional Live Counting for Stocks via Database-Driven Tripwire
+                        if is_stock and self.active_tripwire and self.active_tripwire.get('is_enabled'):
+                            crossing = evaluate_tripwire_crossing(
+                                p1=self.active_tripwire['p1'],
+                                p2=self.active_tripwire['p2'],
+                                prev_pos=prev_pos,
+                                curr_pos=(cx, cy),
+                                allowed_direction=self.active_tripwire.get('crossing_direction', 'BOTH')
+                            )
+                            if crossing == 'IN' and self.counted_track_states.get(tid) != 'IN':
+                                self.inbound_count += 1
+                                self.counted_track_states[tid] = 'IN'
+                                self.flash_counters.append({
+                                    'text': '+1 IN (STOCK ADDED)',
+                                    'pos': (cx, cy),
+                                    'ttl': 24,
+                                    'color': (0, 255, 128)
+                                })
+                            elif crossing == 'OUT' and self.counted_track_states.get(tid) != 'OUT':
+                                self.outbound_count += 1
+                                self.counted_track_states[tid] = 'OUT'
+                                self.flash_counters.append({
+                                    'text': '-1 OUT (STOCK SUBTRACTED)',
+                                    'pos': (cx, cy),
+                                    'ttl': 24,
+                                    'color': (0, 140, 255)
+                                })
 
-                        new_boxes.append({
-                            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-                            "type": v_type,
-                            "is_package": is_stock,
-                            "is_person": is_person,
-                            "track_id": tid
-                        })
+                    new_boxes.append({
+                        "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+                        "type": v_type,
+                        "is_package": is_stock,
+                        "is_person": is_person,
+                        "is_vehicle": is_vehicle,
+                        "track_id": tid
+                    })
 
-                    # Calculate Net Live Inventory
-                    self.net_stock_count = max(0, self.inbound_count - self.outbound_count)
+                # Trigger real-time Gate / Vehicle ANPR worker
+                now_t = time.time()
+                should_run_anpr = (self.is_gate_camera or has_vehicle or (self.frames_processed % 30 == 0))
+                if should_run_anpr and not self.anpr_in_flight and (now_t - self.last_anpr_run_time >= 0.8):
+                    self.anpr_in_flight = True
+                    self.last_anpr_run_time = now_t
+                    v_boxes_copy = copy.deepcopy(new_boxes)
+                    threading.Thread(
+                        target=self._run_live_gate_anpr_worker,
+                        args=(frame.copy(), v_boxes_copy),
+                        daemon=True
+                    ).start()
 
-                    # Decay floating flash counters
-                    for fc in self.flash_counters:
-                        fc['ttl'] -= 1
-                    self.flash_counters = [fc for fc in self.flash_counters if fc['ttl'] > 0]
+                # Calculate Net Live Inventory
+                self.net_stock_count = max(0, self.inbound_count - self.outbound_count)
 
-                    # Prune stale tracks that haven't been observed for > 30 frames
-                    dead_tids = [tid for tid, lseen in self.track_last_seen.items() if (self.frames_processed - lseen) > 30]
-                    for tid in dead_tids:
-                        self.track_trajectories.pop(tid, None)
-                        self.track_motion_vectors.pop(tid, None)
-                        self.track_last_seen.pop(tid, None)
-                        self.counted_track_states.pop(tid, None)
+                # Decay floating flash counters
+                for fc in self.flash_counters:
+                    fc['ttl'] -= 1
+                self.flash_counters = [fc for fc in self.flash_counters if fc['ttl'] > 0]
 
-                    with self.lock:
-                        self.latest_boxes = new_boxes
-                        self.visible_boxes = box_count
-                        self.visible_packages = box_count
-                        self.active_workers_count = workers_count
-                        self.active_stocks_count = active_stock_count
+                # Prune stale tracks that haven't been observed for > 30 frames
+                dead_tids = [tid for tid, lseen in self.track_last_seen.items() if (self.frames_processed - lseen) > 30]
+                for tid in dead_tids:
+                    self.track_trajectories.pop(tid, None)
+                    self.track_motion_vectors.pop(tid, None)
+                    self.track_last_seen.pop(tid, None)
+                    self.counted_track_states.pop(tid, None)
+
+                with self.lock:
+                    self.latest_boxes = new_boxes
+                    self.visible_boxes = box_count
+                    self.visible_packages = box_count
+                    self.active_workers_count = workers_count
+                    self.active_stocks_count = active_stock_count
 
                 # Render rich HUD
                 hud_frame = self._render_hud(frame, timing_ms)
