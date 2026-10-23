@@ -436,24 +436,59 @@ def init_db():
         )
 
         # Seed initial cameras for Camera Master if empty
-        initial_cameras = []
-        cur.executemany(
-            "INSERT OR IGNORE INTO cameras (camera_id, camera_code, name, warehouse, location, camera_type, vendor, stream_url, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            initial_cameras
-        )
+        cur.execute("SELECT COUNT(*) FROM cameras")
+        if cur.fetchone()[0] == 0:
+            initial_cameras = [
+                ('CAM-001', 'CAM-001', 'Gate 01 ANPR & Security Bay', 'Warehouse A', 'Gate 01', 'IP Camera', 'Hikvision', '', 'Online'),
+                ('CAM-002', 'CAM-002', 'Dock 01 Inbound Overhead', 'Warehouse A', 'Dock 1', 'IP Camera', 'CP Plus', '', 'Online'),
+                ('CAM-003', 'CAM-003', 'Dock 02 Storage & Staging', 'Warehouse A', 'Dock 2', 'IP Camera', 'Dahua', '', 'Online'),
+                ('CAM-TRUEVIEW', 'CAM-TRUEVIEW', 'Trueview Wi-Fi Camera', 'Warehouse A', 'Warehouse Floor', 'Wi-Fi Camera', 'Trueview', 'rtmp://192.168.1.4:1935/live/cam', 'Online')
+            ]
+            cur.executemany(
+                "INSERT OR IGNORE INTO cameras (camera_id, camera_code, name, warehouse, location, camera_type, vendor, stream_url, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                initial_cameras
+            )
 
-        # Seed initial AI camera configs if empty
-        initial_configs = []
-        cur.executemany(
-            "INSERT OR IGNORE INTO vision_camera_configs (camera_id, ai_enabled, detection_enabled, tracking_enabled, processing_fps) VALUES (?, ?, ?, ?, ?)",
-            initial_configs
-        )
+            initial_configs = [
+                ('CAM-001', 1, 1, 1, 10),
+                ('CAM-002', 1, 1, 1, 10),
+                ('CAM-003', 1, 1, 1, 10),
+                ('CAM-TRUEVIEW', 1, 1, 1, 10)
+            ]
+            cur.executemany(
+                "INSERT OR IGNORE INTO vision_camera_configs (camera_id, ai_enabled, detection_enabled, tracking_enabled, processing_fps) VALUES (?, ?, ?, ?, ?)",
+                initial_configs
+            )
 
-        initial_cam_classes = []
-        cur.executemany(
-            "INSERT OR IGNORE INTO vision_camera_object_classes (camera_id, class_code) VALUES (?, ?)",
-            initial_cam_classes
-        )
+            # Ensure full object classes exist in object_classes
+            for c_code, c_name, c_desc in [
+                ('BOX', 'Box / Carton', 'Standard secondary cardboard packaging and bundles'),
+                ('WORKER', 'Worker / Personnel', 'Warehouse staff, dock loaders, and forklift operators'),
+                ('TRUCK', 'Truck / Carrier', 'Incoming and outgoing transport trailers, lorries, and containers'),
+                ('PALLET', 'Storage Pallet', 'Wooden and plastic pallets for unit load handling'),
+                ('FORKLIFT', 'Forklift / Vehicle', 'Internal combustion and electric reach trucks and forklifts'),
+                ('BIN', 'Storage Bin / Tote', 'Blue totes, picking bins, and rack storage locations'),
+                ('BUNDLE', 'Bundle / Pack', 'Bundled goods or tied inventory'),
+                ('LICENSE_PLATE', 'License Plate', 'Vehicle registration number plate for ANPR')
+            ]:
+                cur.execute(
+                    "INSERT OR IGNORE INTO object_classes (code, name, description, status) VALUES (?, ?, ?, 'Active')",
+                    (c_code, c_name, c_desc)
+                )
+
+            cur.execute("SELECT code FROM object_classes")
+            valid_codes = {r[0] for r in cur.fetchall()}
+
+            initial_cam_classes = []
+            for cam_item in initial_cameras:
+                for cls_c in ['BOX', 'WORKER', 'TRUCK', 'PALLET', 'FORKLIFT', 'BIN', 'BUNDLE', 'LICENSE_PLATE']:
+                    if cls_c in valid_codes:
+                        initial_cam_classes.append((cam_item[0], cls_c))
+
+            cur.executemany(
+                "INSERT OR IGNORE INTO vision_camera_object_classes (camera_id, class_code) VALUES (?, ?)",
+                initial_cam_classes
+            )
 
         # Seed initial warehouse zones if empty
         cur.execute("SELECT COUNT(*) FROM vision_zones")
