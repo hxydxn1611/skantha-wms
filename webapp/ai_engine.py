@@ -208,7 +208,20 @@ class SmartCamera:
                     cap.release()
                     cap = cv2.VideoCapture(0)
         else:
-            cap = cv2.VideoCapture(cap_source)
+            final_src = cap_source
+            if isinstance(final_src, str) and (final_src.startswith("rtsp://") or final_src.startswith("http://")):
+                # Safely escape '#' in password to prevent URI fragment truncation without tripping OpenCV image pattern parser
+                if '#' in final_src and '@' in final_src:
+                    proto, rest = final_src.split('://', 1)
+                    creds, host_path = rest.split('@', 1)
+                    if ':' in creds:
+                        user, pw = creds.split(':', 1)
+                        # Replace # with %23
+                        creds = f"{user}:{pw.replace('#', '%23')}"
+                        final_src = f"{proto}://{creds}@{host_path}"
+                cap = cv2.VideoCapture(final_src, cv2.CAP_FFMPEG)
+            else:
+                cap = cv2.VideoCapture(final_src)
             
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # Reduce video lag by minimizing buffer
         while self.is_running:
