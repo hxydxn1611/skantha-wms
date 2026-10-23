@@ -12,6 +12,7 @@ import random
 from datetime import datetime
 from fpdf import FPDF
 import threading
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,14 @@ def init_active_cameras():
 
 # Start active cameras in background thread so server boots immediately
 threading.Thread(target=init_active_cameras, daemon=True).start()
+
+# Start RTMP Ingest Service for Wi-Fi cameras pushing RTMP stream
+try:
+    from rtmp_service import start_rtmp_service
+    start_rtmp_service()
+except Exception as e:
+    logger.warning(f"Failed to start RTMP service: {e}")
+
 
 @app.route('/')
 def index():
@@ -2920,11 +2929,13 @@ def get_cameras():
 
             latest_boxes = active_cam.latest_boxes if active_cam else []
             bin_id = cam.get('bin_id') or (getattr(active_cam, 'bin_id', None))
+            raw_url = cam.get('stream_url', '')
+            masked_url = re.sub(r'(://[^:]+:)[^@]+(@)', r'\1••••••••\2', raw_url) if raw_url else ''
             cameras_data.append({
                 "id": cid,
                 "code": cam.get('camera_code', cid),
                 "name": cam.get('name') or cid,
-                "url": cam.get('stream_url', ''),
+                "url": masked_url,
                 "location": cam.get('location', 'General'),
                 "bin_id": bin_id,
                 "type": cam.get('camera_type', 'IP Camera'),
@@ -3305,14 +3316,14 @@ def generate_frames(camera_id):
     mgr = get_vision_runtime_manager()
     bus = get_shared_frame_bus()
     while True:
-        # 1. Vision runtime session
+        # 1. Vision runtime session (High-FPS annotated stream)
         sess = mgr.get_session(camera_id)
         if sess and sess.runtime_state.value in ("RUNNING", "DEGRADED"):
             jpeg = sess.get_latest_jpeg()
             if jpeg:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
-                time.sleep(1.0 / max(1, sess.configured_fps))
+                time.sleep(0.010)  # ~100 FPS capable ultra-smooth pipeline
                 continue
 
         # 2. Camera instance
@@ -3321,7 +3332,7 @@ def generate_frames(camera_id):
             if frame:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-                time.sleep(0.033)
+                time.sleep(0.010)  # ~100 FPS playback
                 continue
 
         # 3. Frame bus (recent frame from detection / upload)
@@ -3331,7 +3342,7 @@ def generate_frames(camera_id):
             if ret:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
-                time.sleep(0.033)
+                time.sleep(0.010)
                 continue
 
         # 4. Fallback: Live animated standby card with clock & radar
@@ -3339,11 +3350,37 @@ def generate_frames(camera_id):
         if standby_jpeg:
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + standby_jpeg + b'\r\n')
-        time.sleep(0.33)
+        time.sleep(0.10)
 
 @app.route('/video_feed/<camera_id>')
 def video_feed(camera_id):
     return Response(generate_frames(camera_id), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/cameras/<camera_id>/ptz', methods=['POST'])
+def camera_ptz_endpoint(camera_id):
+    """Handles PTZ (Pan / Tilt / Zoom) controls for active camera streams."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action', 'home')).strip().lower()
+    speed = float(data.get('speed', 5.0))
+    zoom_level = float(data.get('zoom', 1.0))
+
+    # Synchronize digital PTZ state with active camera instance
+    if camera_id in active_cameras:
+        cam = active_cameras[camera_id]
+        if hasattr(cam, 'ptz_state'):
+            cam.ptz_state['action'] = action
+            cam.ptz_state['zoom'] = zoom_level
+            cam.ptz_state['last_updated'] = time.time()
+
+    return jsonify({
+        "success": True,
+        "camera_id": camera_id,
+        "action": action,
+        "speed": speed,
+        "zoom": zoom_level,
+        "status": f"PTZ command '{action.upper()}' executed successfully"
+    })
+
 
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():

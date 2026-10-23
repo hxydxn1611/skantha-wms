@@ -33,3 +33,4 @@ webapp/static/invoices/Pallet_Label_*.pdf
 *.db-shm
 scratch/
 *.jpeg
+webapp/static/test_scenes/
