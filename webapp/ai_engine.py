@@ -184,7 +184,7 @@ class SmartCamera:
                     time.sleep(0.05)
                 return
 
-        if not cap_source or str(cap_source).strip() in ("", "None") or str(cap_source).lower().startswith("device:"):
+        if not cap_source or str(cap_source).strip() in ("", "None") or str(cap_source).lower().startswith(("device:", "rtmp:", "push")):
             while self.is_running:
                 time.sleep(1.0)
             return

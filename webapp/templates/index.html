@@ -166,15 +166,79 @@
             </div>
         </div>
 
-    <!-- FULLSCREEN CAMERA -->
+    <!-- CINEMA FULLSCREEN CAMERA & PRO PTZ CONTROLLER -->
     <div id="fsOverlay" class="fullscreen-overlay" onclick="if(event.target===this) closeFullscreen()">
-        <span class="close-fs" onclick="closeFullscreen()">&times;</span>
-        <div style="position:relative; max-width:92vw; max-height:90vh; display:flex; flex-direction:column; align-items:center;" onclick="event.stopPropagation()">
-            <img id="fsImg" src="" alt="Fullscreen Camera" style="max-width:100%; max-height:78vh; border-radius:8px; border:2px solid #334155; box-shadow:0 10px 30px rgba(0,0,0,0.8);">
-            <div id="fsToolbar" style="margin-top:12px; display:flex; gap:12px; align-items:center; background:rgba(15,23,42,0.85); padding:8px 16px; border-radius:8px; border:1px solid #334155;">
-                <button id="fsFreezeBtn" class="btn-primary" style="background:#6366f1; padding:6px 14px; font-size:0.85rem; font-weight:700;" onclick="fsToggleFreeze()">📸 Freeze & Count</button>
-                <button id="fsSyncBtn" class="btn-primary" style="background:#10b981; color:#000; font-weight:bold; padding:6px 14px; font-size:0.85rem;" onclick="fsSyncToBin()">⚡ Sync to Bin</button>
-                <button class="btn-primary" style="background:#475569; padding:6px 14px; font-size:0.85rem;" onclick="closeFullscreen()">✕ Close</button>
+        <span class="close-fs" onclick="closeFullscreen()" title="Exit Fullscreen (ESC)">&times;</span>
+        
+        <div style="position:relative; width:94vw; max-width:1400px; height:92vh; display:flex; flex-direction:column; align-items:center; justify-content:space-between;" onclick="event.stopPropagation()">
+            
+            <!-- Top Cinema Header Bar -->
+            <div style="width:100%; display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.88); backdrop-filter:blur(10px); padding:8px 18px; border-radius:10px; border:1px solid #334155; margin-bottom:8px; z-index:10;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:1.05rem; font-weight:800; color:#f8fafc;" id="fsCamTitle">Live Camera Feed</span>
+                    <span class="badge" style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:0.75rem; font-weight:700;">
+                        <span class="pulse-dot" style="background:#10b981; display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:4px;"></span> 60-100 FPS PRO
+                    </span>
+                    <span id="fsZoomBadge" class="badge" style="background:#1e293b; color:#38bdf8; border:1px solid #0284c7; font-family:monospace; font-size:0.75rem;">🔍 1.0x</span>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button type="button" class="btn-xs" style="background:#1e293b; color:#cbd5e1; border:1px solid #475569; padding:6px 12px; border-radius:6px; cursor:pointer;" onclick="togglePtzPanel()">🕹️ PTZ Joypad</button>
+                    <button type="button" class="btn-xs" style="background:#1e293b; color:#34d399; border:1px solid #059669; padding:6px 12px; border-radius:6px; cursor:pointer;" onclick="captureFsSnapshot()">📸 Snapshot</button>
+                    <button type="button" class="btn-xs" style="background:#1e293b; color:#60a5fa; border:1px solid #2563eb; padding:6px 12px; border-radius:6px; cursor:pointer;" onclick="toggleBrowserNativeFullscreen()">⛶ Native Screen</button>
+                    <button type="button" class="btn-xs" style="background:#ef4444; color:#fff; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-weight:700;" onclick="closeFullscreen()">✕</button>
+                </div>
+            </div>
+
+            <!-- Main Interactive Video Viewport with Wheel-Zoom & Drag-Pan -->
+            <div id="fsViewportContainer" style="position:relative; flex:1; width:100%; overflow:hidden; border-radius:10px; border:2px solid #334155; background:#000; display:flex; align-items:center; justify-content:center; cursor:grab; box-shadow:0 12px 40px rgba(0,0,0,0.85);" onwheel="handleFsWheel(event)" onmousedown="handleFsDragStart(event)">
+                <img id="fsImg" src="" alt="Live Video Feed" style="max-width:100%; max-height:100%; object-fit:contain; transform-origin:center center; will-change:transform; transition:transform 0.08s ease-out; user-select:none; pointer-events:none; image-rendering:-webkit-optimize-contrast;">
+                
+                <!-- Floating On-Screen D-Pad & PTZ Widget -->
+                <div id="fsPtzWidget" style="display:flex; flex-direction:column; gap:8px; position:absolute; bottom:20px; right:20px; z-index:25; background:rgba(15,23,42,0.90); backdrop-filter:blur(12px); border:1px solid #334155; padding:12px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.8);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">🕹️ PTZ &amp; ZOOM</span>
+                        <span style="font-size:0.68rem; color:#94a3b8; cursor:pointer;" onclick="togglePtzPanel()">✕</span>
+                    </div>
+
+                    <!-- 3x3 Directional D-Pad -->
+                    <div style="display:grid; grid-template-columns: repeat(3, 38px); grid-template-rows: repeat(3, 38px); gap:4px; margin:0 auto;">
+                        <div></div>
+                        <button type="button" class="ptz-btn" onclick="ptzMove('up')" title="Tilt Up">⬆️</button>
+                        <div></div>
+                        <button type="button" class="ptz-btn" onclick="ptzMove('left')" title="Pan Left">⬅️</button>
+                        <button type="button" class="ptz-btn" onclick="ptzReset()" style="background:#0284c7; color:#fff; font-weight:bold;" title="Reset Pan/Zoom (Home)">🎯</button>
+                        <button type="button" class="ptz-btn" onclick="ptzMove('right')" title="Pan Right">➡️</button>
+                        <div></div>
+                        <button type="button" class="ptz-btn" onclick="ptzMove('down')" title="Tilt Down">⬇️</button>
+                        <div></div>
+                    </div>
+
+                    <!-- Zoom Controls & Quick Presets -->
+                    <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                        <button type="button" class="ptz-btn" style="width:34px; height:30px; font-weight:bold; font-size:0.9rem;" onclick="ptzZoomDelta(-0.25)" title="Zoom Out">🔍-</button>
+                        <div style="display:flex; gap:3px; flex:1;">
+                            <button type="button" class="btn-xs ptz-preset-btn" onclick="ptzSetZoom(1.0)">1x</button>
+                            <button type="button" class="btn-xs ptz-preset-btn" onclick="ptzSetZoom(2.0)">2x</button>
+                            <button type="button" class="btn-xs ptz-preset-btn" onclick="ptzSetZoom(3.0)">3x</button>
+                            <button type="button" class="btn-xs ptz-preset-btn" onclick="ptzSetZoom(4.5)">4.5x</button>
+                        </div>
+                        <button type="button" class="ptz-btn" style="width:34px; height:30px; font-weight:bold; font-size:0.9rem;" onclick="ptzZoomDelta(0.25)" title="Zoom In">🔍+</button>
+                    </div>
+                </div>
+
+                <!-- Floating Helper Prompt -->
+                <div style="position:absolute; bottom:14px; left:16px; background:rgba(0,0,0,0.65); padding:4px 10px; border-radius:6px; font-size:0.72rem; color:#94a3b8; pointer-events:none;">
+                    💡 <b>Pro Tips:</b> Scroll mouse wheel to Zoom (1x–5x) | Click &amp; Drag to Pan | Arrow keys to Tilt/Pan
+                </div>
+            </div>
+
+            <!-- Bottom Action Toolbar -->
+            <div id="fsToolbar" style="width:100%; display:flex; justify-content:center; gap:12px; align-items:center; background:rgba(15,23,42,0.88); backdrop-filter:blur(10px); padding:10px 18px; border-radius:10px; border:1px solid #334155; margin-top:8px;">
+                <button id="fsFreezeBtn" class="btn-primary" style="background:#6366f1; padding:7px 16px; font-size:0.85rem; font-weight:700;" onclick="fsToggleFreeze()">📸 Freeze &amp; Count</button>
+                <button id="fsSyncBtn" class="btn-primary" style="background:#10b981; color:#000; font-weight:bold; padding:7px 16px; font-size:0.85rem;" onclick="fsSyncToBin()">⚡ Sync to Bin</button>
+                <button type="button" class="btn-primary" style="background:#0284c7; padding:7px 16px; font-size:0.85rem;" onclick="ptzReset()">🎯 Reset Zoom (1x)</button>
+                <button class="btn-primary" style="background:#475569; padding:7px 16px; font-size:0.85rem;" onclick="closeFullscreen()">✕ Exit Fullscreen</button>
             </div>
         </div>
     </div>
@@ -1437,17 +1501,101 @@
                             </select>
                         </div>
 
+                        <!-- Dedicated Wi-Fi Camera Stream Group -->
+                        <div id="wifiCamRtmpGroup" style="display:none; background:rgba(16, 185, 129, 0.08); border:1px solid #10b981; border-radius:8px; padding:12px; margin-top:8px; margin-bottom:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <span style="font-size:0.82rem; font-weight:700; color:#34d399;">📡 Wi-Fi Camera RTMP Stream</span>
+                                <div style="display:flex; gap:6px;">
+                                    <button type="button" id="wifiModeRtmpBtn" onclick="setWifiStreamMode('rtmp')" style="font-size:0.68rem; background:#10b981; color:#0f172a; font-weight:700; border:none; border-radius:4px; padding:2px 6px; cursor:pointer;">Cloud / RTMP Push</button>
+                                    <button type="button" id="wifiModeRtspBtn" onclick="setWifiStreamMode('rtsp')" style="font-size:0.68rem; background:rgba(148,163,184,0.2); color:#94a3b8; font-weight:600; border:none; border-radius:4px; padding:2px 6px; cursor:pointer;">Direct IP / RTSP</button>
+                                </div>
+                            </div>
+                            <div id="wifiRtmpSubSection">
+                                <p style="font-size:0.75rem; color:#cbd5e1; margin-bottom:8px; line-height:1.4;">
+                                    For cloud-first cameras (<b>Trueview / Tuya / Smart Life</b>): Toggle <b>RTMP</b> ON in the mobile app and paste:
+                                </p>
+                                <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+                                    <input type="text" id="wifiRtmpPushUrl" value="rtmp://127.0.0.1:1935/live/cam" readonly style="width:100%; padding:8px; border-radius:5px; border:1px solid #10b981; background:#0f172a; color:#34d399; font-family:monospace; font-size:0.85rem; font-weight:600;">
+                                    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('wifiRtmpPushUrl').value); if(typeof showToast==='function') showToast('Copied RTMP URL!', 'success'); else alert('Copied RTMP URL!');" class="btn-xs" style="background:#10b981; color:#0f172a; font-weight:700; border:none; border-radius:4px; padding:8px 12px; cursor:pointer; white-space:nowrap;">📋 Copy</button>
+                                </div>
+                                <div style="font-size:0.72rem; color:#94a3b8; line-height:1.4;">
+                                    💡 <b>Auto-Ingest:</b> The server detects and streams the broadcast instantly with zero password required.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Structured DVR / NVR / IP Camera Credentials (No password in URL) -->
+                        <div id="networkCamConfigGroup" style="display:none; background:rgba(30,41,59,0.5); border:1px solid #334155; border-radius:8px; padding:12px; margin-top:8px; margin-bottom:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <span style="font-size:0.8rem; font-weight:700; color:#38bdf8;">🔒 Device Credentials & Network</span>
+                                <span style="font-size:0.68rem; color:var(--text-muted);">Masked & Secure</span>
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:8px; margin-bottom:8px;">
+                                <div>
+                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">IP Address / Host</label>
+                                    <input type="text" id="camHost" placeholder="e.g. 192.168.1.64" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">RTSP Port</label>
+                                    <input type="number" id="camPort" value="554" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
+                                </div>
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px;">
+                                <div>
+                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Username</label>
+                                    <input type="text" id="camUsername" value="admin" placeholder="admin" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Password</label>
+                                    <div style="position:relative; display:flex; align-items:center;">
+                                        <input type="password" id="camPassword" placeholder="••••••••" style="width:100%; padding:7px 32px 7px 7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
+                                        <button type="button" id="togglePasswordBtn" onclick="toggleCamPasswordVisibility()" style="position:absolute; right:6px; background:none; border:none; color:#94a3b8; cursor:pointer; font-size:0.85rem; padding:2px;" title="Show/Hide Password">👁️</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:6px;">
+                                <div>
+                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Camera Channel</label>
+                                    <select id="camChannel" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
+                                        <option value="1">Channel 1 (Cam 1)</option>
+                                        <option value="2">Channel 2 (Cam 2)</option>
+                                        <option value="3">Channel 3 (Cam 3)</option>
+                                        <option value="4">Channel 4 (Cam 4)</option>
+                                        <option value="5">Channel 5 (Cam 5)</option>
+                                        <option value="6">Channel 6 (Cam 6)</option>
+                                        <option value="7">Channel 7 (Cam 7)</option>
+                                        <option value="8">Channel 8 (Cam 8)</option>
+                                        <option value="16">Channel 16</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Stream Profile</label>
+                                    <select id="camStreamQuality" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
+                                        <option value="sub">Sub Stream (AI Fast - 102)</option>
+                                        <option value="main">Main Stream (HD - 101)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                                <span style="font-size:0.7rem; color:#64748b;">🛡️ Your credentials are never exposed in public URLs</span>
+                                <a href="javascript:void(0)" onclick="toggleManualUrlMode()" style="font-size:0.7rem; color:#38bdf8; text-decoration:none;">Custom Raw URL</a>
+                            </div>
+                        </div>
+
                         <div id="camUrlGroup" style="display:none;">
-                            <label id="camUrlLabel">Stream URL</label> 
-                            <input type="text" id="camUrl" placeholder="rtsp://admin:password@192.168.1.50:554/stream1">
+                            <label id="camUrlLabel">Stream URL / Path</label> 
+                            <input type="text" id="camUrl" placeholder="rtsp://... or /dev/video0">
                             <div id="wifiCamHelper" style="display:none; font-size:0.75rem; color:var(--text-muted); margin-top:4px; line-height:1.4;">
-                                <span>💡 <b>Wi-Fi RTSP Quick Format:</b></span>
+                                <span>💡 <b>Quick Brand Presets:</b></span>
                                 <div id="wifiPresets" style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">
-                                    <button type="button" class="btn-xs" style="background:rgba(236,72,153,0.15); border:1px solid #ec4899; color:#f472b6; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('trueview')">Trueview</button>
-                                    <button type="button" class="btn-xs" style="background:rgba(99,102,241,0.15); border:1px solid #6366f1; color:#a5b4fc; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('tapo')">Tapo</button>
-                                    <button type="button" class="btn-xs" style="background:rgba(16,185,129,0.15); border:1px solid #10b981; color:#6ee7b7; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('cpplus')">CP Plus</button>
                                     <button type="button" class="btn-xs" style="background:rgba(245,158,11,0.15); border:1px solid #f59e0b; color:#fcd34d; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('hikvision')">Hikvision/Ezviz</button>
                                     <button type="button" class="btn-xs" style="background:rgba(14,165,233,0.15); border:1px solid #0ea5e9; color:#7dd3fc; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('dahua')">Dahua/Imou</button>
+                                    <button type="button" class="btn-xs" style="background:rgba(16,185,129,0.15); border:1px solid #10b981; color:#6ee7b7; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('cpplus')">CP Plus</button>
+                                    <button type="button" class="btn-xs" style="background:rgba(236,72,153,0.15); border:1px solid #ec4899; color:#f472b6; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('trueview')">Trueview</button>
+                                    <button type="button" class="btn-xs" style="background:rgba(99,102,241,0.15); border:1px solid #6366f1; color:#a5b4fc; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('tapo')">Tapo</button>
                                 </div>
                             </div>
                         </div>
