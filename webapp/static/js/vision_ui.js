@@ -3366,7 +3366,7 @@
                                         roi: { inside: true, zone_code: "DOCK-01" },
                                         roi_zone_code: "DOCK-01",
                                         identity: { status: "IDENTIFIED", value: "GP-1000", source: "QR", confidence: 0.99 },
-                                        validation: { status: "VALIDATED", master_id: "GP-1000", display_name: "Gate Pass GP-1000 [Plate: MH-12-AB-1234]" }
+                                        validation: { status: "VALIDATED", master_id: "GP-1000", display_name: "Gate Pass GP-1000" }
                                     },
                                     {
                                         track_id: 21,
