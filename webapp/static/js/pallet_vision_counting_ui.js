@@ -1178,10 +1178,917 @@
         }, false);
     }
 
+    // =========================================================================
+    // INLINE PALLET VISION COUNTING WORKBENCH CONTROLLER
+    // =========================================================================
+    let wbMode = 'pieces'; // 'pieces' or 'bundles'
+    let wbSource = 'upload'; // 'upload' or 'camera'
+    let wbCurrentPieces = [];
+    let wbRawImageUrl = '';
+    let wbLatestResult = null;
+    let wbCurrentMatrix = { rows: 5, columns: 5, layers: 5 };
+    let wbThreeScene, wbThreeCamera, wbThreeRenderer, wbThreeControls;
+    let wbThreeBoxMeshes = [];
+    let wbIsExploded = false;
+    let wbIsXRay = false;
+    let wbThreeAnimId = null;
+
+    let wbSelectedFile = null;
+
+    window.openPalletCountingWorkbench = function(initialMode = 'pieces', triggerUpload = false) {
+        const wb = document.getElementById('palletCountingWorkbench');
+        if (wb) {
+            wb.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.setWorkbenchMode(initialMode);
+            
+            // Synchronize cameras from palletCameraSelect
+            const mainCamSelect = document.getElementById('palletCameraSelect');
+            const wbCamSelect = document.getElementById('wbCameraSelect');
+            if (mainCamSelect && wbCamSelect) {
+                wbCamSelect.innerHTML = mainCamSelect.innerHTML;
+                wbCamSelect.value = mainCamSelect.value;
+            }
+
+            if (triggerUpload) {
+                setTimeout(() => {
+                    window.triggerWorkbenchUpload();
+                }, 200);
+            }
+        }
+    };
+
+    // Override openVisionCountingModal to use the inline workbench directly
+    window.openVisionCountingModal = function(initialMode = 'pieces') {
+        window.openPalletCountingWorkbench(initialMode);
+    };
+
+    window.setWorkbenchMode = function(mode) {
+        wbMode = mode;
+        const btnP = document.getElementById('wbModePiecesBtn');
+        const btnB = document.getElementById('wbModeBundlesBtn');
+        if (mode === 'pieces') {
+            if (btnP) { btnP.style.background = '#0284c7'; btnP.style.color = '#fff'; }
+            if (btnB) { btnB.style.background = 'transparent'; btnB.style.color = '#94a3b8'; }
+        } else {
+            if (btnB) { btnB.style.background = '#0284c7'; btnB.style.color = '#fff'; }
+            if (btnP) { btnP.style.background = 'transparent'; btnP.style.color = '#94a3b8'; }
+        }
+    };
+
+    window.triggerWorkbenchUpload = function() {
+        window.setWorkbenchSource('upload');
+        const fi = document.getElementById('wbFileInput');
+        if (fi) {
+            fi.click();
+        }
+    };
+
+    window.setWorkbenchSource = function(source) {
+        wbSource = source;
+        const btnU = document.getElementById('wbSourceUploadBtn');
+        const btnC = document.getElementById('wbSourceCameraBtn');
+        const camWrap = document.getElementById('wbCameraSelectWrap');
+        const dropZone = document.getElementById('wbDropZone');
+        const cameraViewWrap = document.getElementById('wbCameraViewWrap');
+        const camSelect = document.getElementById('wbCameraSelect') || document.getElementById('palletCameraSelect');
+        const camId = camSelect ? camSelect.value : 'cam_inbound_01';
+
+        if (source === 'upload') {
+            if (btnU) { btnU.style.background = '#10b981'; btnU.style.color = '#fff'; }
+            if (btnC) { btnC.style.background = 'transparent'; btnC.style.color = '#94a3b8'; }
+            if (camWrap) camWrap.style.display = 'none';
+            if (dropZone) dropZone.style.display = 'flex';
+            if (cameraViewWrap) cameraViewWrap.style.display = 'none';
+        } else {
+            if (btnC) { btnC.style.background = '#10b981'; btnC.style.color = '#fff'; }
+            if (btnU) { btnU.style.background = 'transparent'; btnU.style.color = '#94a3b8'; }
+            if (camWrap) camWrap.style.display = 'inline-flex';
+            if (dropZone) dropZone.style.display = 'none';
+            if (cameraViewWrap) cameraViewWrap.style.display = 'block';
+
+            const feedImg = document.getElementById('palletLiveFeedImg');
+            const feedLabel = document.getElementById('wbCamFeedLabel');
+            if (feedImg) feedImg.src = `/video_feed/${camId}?t=${Date.now()}`;
+            if (feedLabel) feedLabel.textContent = `CAM: ${camId}`;
+        }
+    };
+
+    window.onWorkbenchCameraChange = function() {
+        const camSelect = document.getElementById('wbCameraSelect');
+        const camId = camSelect ? camSelect.value : 'cam_inbound_01';
+        const feedImg = document.getElementById('palletLiveFeedImg');
+        const feedLabel = document.getElementById('wbCamFeedLabel');
+        if (feedImg) feedImg.src = `/video_feed/${camId}?t=${Date.now()}`;
+        if (feedLabel) feedLabel.textContent = `CAM: ${camId}`;
+    };
+
+    window.replaceWorkbenchImage = function() {
+        window.setWorkbenchSource('upload');
+        const fi = document.getElementById('wbFileInput');
+        if (fi) {
+            fi.value = ''; // Reset so selecting the same image file again triggers preview
+            fi.click();
+        }
+    };
+
+    window.removeWorkbenchImage = function() {
+        wbSelectedFile = null;
+        wbLatestResult = null;
+        wbCurrentPieces = [];
+        wbRawImageUrl = '';
+
+        const fi = document.getElementById('wbFileInput');
+        if (fi) fi.value = '';
+
+        const previewImg = document.getElementById('wbPreviewImg');
+        const placeholder = document.getElementById('wbPlaceholder');
+        const fiWrap = document.getElementById('wbSelectedFileInfo');
+        const fnSpan = document.getElementById('wbSelectedFileName');
+        if (previewImg) {
+            previewImg.src = '';
+            previewImg.style.display = 'none';
+        }
+        if (placeholder) placeholder.style.display = 'block';
+        if (fiWrap) fiWrap.style.display = 'none';
+        if (fnSpan) fnSpan.textContent = '';
+
+        // Hide interactive stage & clear canvas
+        const stageCard = document.getElementById('wbInteractiveStageCard');
+        if (stageCard) stageCard.style.display = 'none';
+        const img = document.getElementById('wbResultImg');
+        if (img) img.src = '';
+        const overlay = document.getElementById('wbBadgesOverlay');
+        if (overlay) overlay.innerHTML = '';
+        const pills = document.getElementById('wbClustersPills');
+        if (pills) pills.innerHTML = '';
+
+        // Reset Results Hero Card
+        const totalBadge = document.getElementById('wbTotalBadge');
+        if (totalBadge) totalBadge.textContent = '0 PIECES';
+        const statusBadge = document.getElementById('wbVerificationStatusBadge');
+        if (statusBadge) {
+            statusBadge.textContent = 'PROPOSED (Idle)';
+            statusBadge.style.color = '#94a3b8';
+            statusBadge.style.borderColor = 'rgba(148,163,184,0.2)';
+            statusBadge.style.background = 'rgba(148,163,184,0.12)';
+        }
+        const formulaElem = document.getElementById('wbAutoGeometryFormula');
+        if (formulaElem) {
+            formulaElem.textContent = 'Awaiting Pallet Detection...';
+            formulaElem.style.color = '#38bdf8';
+        }
+        const methodBadge = document.getElementById('wbCountingMethodBadge');
+        if (methodBadge) methodBadge.textContent = 'AUTOMATED_CV';
+
+        const statVis = document.getElementById('wbStatVisible');
+        const statInf = document.getElementById('wbStatInferred');
+        const statForm = document.getElementById('wbStatFormula');
+        if (statVis) statVis.textContent = '0';
+        if (statInf) statInf.textContent = '0';
+        if (statForm) statForm.textContent = '--';
+
+        // Clear 3D model canvas immediately
+        initWb3DPalletViewer(null);
+
+        if (typeof showToast === 'function') {
+            showToast('Pallet image and count state removed.', 'info');
+        }
+    };
+
+    window.clearWorkbenchCount = function() {
+        // Purge detections, markers, geometry, results, and 3D visualization, preserving the loaded image
+        wbLatestResult = null;
+        wbCurrentPieces = [];
+
+        const stageCard = document.getElementById('wbInteractiveStageCard');
+        if (stageCard) stageCard.style.display = 'none';
+        const overlay = document.getElementById('wbBadgesOverlay');
+        if (overlay) overlay.innerHTML = '';
+        const pills = document.getElementById('wbClustersPills');
+        if (pills) pills.innerHTML = '';
+
+        const totalBadge = document.getElementById('wbTotalBadge');
+        if (totalBadge) totalBadge.textContent = '0 PIECES';
+        const statusBadge = document.getElementById('wbVerificationStatusBadge');
+        if (statusBadge) {
+            statusBadge.textContent = 'PROPOSED (Idle)';
+            statusBadge.style.color = '#94a3b8';
+            statusBadge.style.borderColor = 'rgba(148,163,184,0.2)';
+            statusBadge.style.background = 'rgba(148,163,184,0.12)';
+        }
+        const formulaElem = document.getElementById('wbAutoGeometryFormula');
+        if (formulaElem) {
+            formulaElem.textContent = 'Awaiting Pallet Detection...';
+            formulaElem.style.color = '#38bdf8';
+        }
+        const statVis = document.getElementById('wbStatVisible');
+        const statInf = document.getElementById('wbStatInferred');
+        const statForm = document.getElementById('wbStatFormula');
+        if (statVis) statVis.textContent = '0';
+        if (statInf) statInf.textContent = '0';
+        if (statForm) statForm.textContent = '--';
+
+        // Clear 3D model canvas
+        initWb3DPalletViewer(null);
+
+        if (typeof showToast === 'function') {
+            showToast('Pallet count cleared. Ready to count again.', 'info');
+        }
+    };
+
+    window.onWorkbenchDropZoneClick = function() {
+        if (wbSource === 'upload') {
+            const fi = document.getElementById('wbFileInput');
+            if (fi) fi.click();
+        } else {
+            window.executeWorkbenchCount();
+        }
+    };
+
+    window.previewWorkbenchUpload = function(inputOrFile) {
+        let file = null;
+        if (inputOrFile instanceof File) {
+            file = inputOrFile;
+        } else if (inputOrFile && inputOrFile.files && inputOrFile.files[0]) {
+            file = inputOrFile.files[0];
+        }
+        if (!file) return;
+
+        // Automatically purge any previous image's results and 3D visualization
+        window.clearWorkbenchCount();
+
+        wbSelectedFile = file;
+
+        // Switch source to upload automatically
+        wbSource = 'upload';
+        const btnU = document.getElementById('wbSourceUploadBtn');
+        const btnC = document.getElementById('wbSourceCameraBtn');
+        const camWrap = document.getElementById('wbCameraSelectWrap');
+        const dropZone = document.getElementById('wbDropZone');
+        const cameraViewWrap = document.getElementById('wbCameraViewWrap');
+
+        if (btnU) { btnU.style.background = '#10b981'; btnU.style.color = '#fff'; }
+        if (btnC) { btnC.style.background = 'transparent'; btnC.style.color = '#94a3b8'; }
+        if (camWrap) camWrap.style.display = 'none';
+        if (dropZone) dropZone.style.display = 'flex';
+        if (cameraViewWrap) cameraViewWrap.style.display = 'none';
+
+        // Update selected file badge
+        const fnSpan = document.getElementById('wbSelectedFileName');
+        const fiWrap = document.getElementById('wbSelectedFileInfo');
+        if (fnSpan) fnSpan.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        if (fiWrap) fiWrap.style.display = 'block';
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const previewImg = document.getElementById('wbPreviewImg');
+            const placeholder = document.getElementById('wbPlaceholder');
+            if (previewImg) {
+                previewImg.src = e.target.result;
+                previewImg.style.display = 'block';
+            }
+            if (placeholder) {
+                placeholder.style.display = 'none';
+            }
+            // Trigger automated counting execution immediately
+            window.executeWorkbenchCount();
+        };
+        reader.readAsDataURL(file);
+    };
+
+    window.executeWorkbenchCount = async function() {
+        const btn = document.getElementById('btnRunWorkbenchCount');
+        const spinner = document.getElementById('wbProcessingStatus');
+
+        if (btn) btn.disabled = true;
+        if (spinner) spinner.style.display = 'block';
+
+        try {
+            const formData = new FormData();
+            formData.append('source_type', wbSource);
+            formData.append('counting_mode', wbMode === 'bundles' ? 'bundles' : 'auto');
+
+            const camSelect = document.getElementById('wbCameraSelect') || document.getElementById('palletCameraSelect');
+            const camId = camSelect ? camSelect.value : 'cam_inbound_01';
+            formData.append('camera_id', camId);
+
+            if (wbSource === 'upload') {
+                const targetFile = wbSelectedFile || document.getElementById('wbFileInput')?.files[0];
+                if (targetFile) {
+                    wbSelectedFile = targetFile;
+                    formData.append('image', targetFile);
+                    formData.append('angle1', targetFile);
+                } else {
+                    if (typeof showToast === 'function') {
+                        showToast('Please select or drop an image file first.', 'warning');
+                    } else {
+                        alert('Please select or drop an image file first.');
+                    }
+                    if (btn) btn.disabled = false;
+                    if (spinner) spinner.style.display = 'none';
+                    window.triggerWorkbenchUpload();
+                    return;
+                }
+            }
+
+            const endpoint = wbMode === 'bundles' ? '/api/pallets/count-bundles' : '/api/pallets/count-pieces';
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || 'Vision counting failed');
+            }
+
+            wbLatestResult = data;
+            wbCurrentPieces = (data.pieces || []).map((p, idx) => ({ ...p, id: idx + 1 }));
+            wbRawImageUrl = data.raw_image_url || data.annotated_image_url || '';
+
+            renderWorkbenchResults(data);
+
+            if (typeof showToast === 'function') {
+                const total = data.quantity_breakdown?.total_units || data.total_pieces || data.total_bundles || 0;
+                showToast(`Pallet analyzed: ${total} ${data.mode === 'BUNDLE_STACK' ? 'bundles' : 'pieces'} counted.`, 'success');
+            }
+
+        } catch(err) {
+            console.error('[Workbench Count Error]:', err);
+            if (typeof showToast === 'function') {
+                showToast(`Counting Error: ${err.message}`, 'error');
+            } else {
+                alert(`Counting Error: ${err.message}`);
+            }
+        } finally {
+            if (btn) btn.disabled = false;
+            if (spinner) spinner.style.display = 'none';
+        }
+    };
+
+    function renderWorkbenchResults(data) {
+        const stageCard = document.getElementById('wbInteractiveStageCard');
+        if (stageCard) {
+            stageCard.style.display = 'block';
+            setTimeout(() => {
+                stageCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+        }
+
+        const previewImg = document.getElementById('wbPreviewImg');
+        if (previewImg && data.annotated_image_url) {
+            previewImg.src = `${data.annotated_image_url}?t=${Date.now()}`;
+            previewImg.style.display = 'block';
+        }
+
+        const qb = data.quantity_breakdown || {};
+        const total = qb.total_units !== undefined ? qb.total_units : (data.total_pieces !== undefined ? data.total_pieces : data.total_bundles);
+        const visible = qb.visible_count !== undefined ? qb.visible_count : (data.visible_pieces !== undefined ? data.visible_pieces : total);
+        const inferred = qb.inferred_count !== undefined ? qb.inferred_count : (data.hidden_count || 0);
+        const autoGeom = qb.automated_geometry || data.automated_geometry || {};
+
+        // Update Proposed Count badge
+        const totalBadge = document.getElementById('wbTotalBadge');
+        if (totalBadge) {
+            totalBadge.textContent = `${total} ${data.mode === 'BUNDLE_STACK' ? 'BUNDLES' : 'PIECES'}`;
+        }
+
+        // Update Inferred Geometry Formula (Read-Only)
+        const formulaElem = document.getElementById('wbAutoGeometryFormula');
+        const methodBadge = document.getElementById('wbCountingMethodBadge');
+        if (methodBadge) {
+            methodBadge.textContent = qb.counting_method || data.method || 'AUTOMATED_CV';
+        }
+        if (formulaElem) {
+            if (autoGeom.stack_detected && autoGeom.layers && autoGeom.columns) {
+                const confText = qb.is_estimate ? 'Estimated Stack' : 'Direct Geometry';
+                formulaElem.textContent = `${autoGeom.layers} Layers × ${autoGeom.columns} Cols × ${autoGeom.rows || autoGeom.depth || 1} Depth = ${total} Units (${confText})`;
+                formulaElem.style.color = '#10b981';
+            } else if (data.mode === 'BUNDLE_STACK') {
+                formulaElem.textContent = `${total} Bundles Detected (${data.bundle_clusters?.length || 1} Stack Cluster)`;
+                formulaElem.style.color = '#38bdf8';
+            } else {
+                formulaElem.textContent = `${visible} Visible Units Detected (Direct Visual Recognition)`;
+                formulaElem.style.color = '#38bdf8';
+            }
+        }
+
+        // Update 4-Stat breakdown
+        const statVis = document.getElementById('wbStatVisible');
+        const statInf = document.getElementById('wbStatInferred');
+        const statForm = document.getElementById('wbStatFormula');
+        if (statVis) statVis.textContent = visible;
+        if (statInf) statInf.textContent = inferred;
+        if (statForm) {
+            statForm.textContent = qb.formula || data.grid_formula || `${visible} Visible Units`;
+            statForm.title = statForm.textContent;
+        }
+
+        // Status badge: clear indication of PROPOSED (Estimated vs Direct vs Uncertain)
+        const statusBadge = document.getElementById('wbVerificationStatusBadge');
+        if (statusBadge) {
+            let stText = 'PROPOSED (AI Estimate)';
+            let stColor = '#38bdf8';
+            let stBorder = 'rgba(56,189,248,0.3)';
+            let stBg = 'rgba(56,189,248,0.15)';
+
+            if (qb.verification_status === 'DIRECT_VISUAL' || inferred === 0) {
+                stText = 'DIRECT VISUAL (Confirmed)';
+                stColor = '#10b981';
+                stBorder = 'rgba(16,185,129,0.3)';
+                stBg = 'rgba(16,185,129,0.15)';
+            } else if (qb.verification_status === 'ESTIMATED_STACK') {
+                stText = 'PROPOSED (Estimated Stack)';
+                stColor = '#f59e0b';
+                stBorder = 'rgba(245,158,11,0.3)';
+                stBg = 'rgba(245,158,11,0.15)';
+            } else if (qb.verification_status === 'UNCERTAIN') {
+                stText = 'UNCERTAIN (Verify Stack)';
+                stColor = '#ef4444';
+                stBorder = 'rgba(239,68,68,0.3)';
+                stBg = 'rgba(239,68,68,0.15)';
+            }
+            statusBadge.textContent = stText;
+            statusBadge.style.color = stColor;
+            statusBadge.style.borderColor = stBorder;
+            statusBadge.style.background = stBg;
+        }
+
+        // Result image
+        const img = document.getElementById('wbResultImg');
+        if (img && data.annotated_image_url) {
+            img.src = `${data.annotated_image_url}?t=${Date.now()}`;
+            img.onload = () => {
+                renderWbBadgesOverlay();
+            };
+        }
+
+        // Cluster pills
+        renderWbClusterPills(data.clusters);
+
+        // 3D Digital Twin: only render if multi-layer stacked geometry exists
+        if (data.matrix_3d && data.matrix_3d.boxes && data.matrix_3d.boxes.length > 0) {
+            setTimeout(() => {
+                initWb3DPalletViewer(data.matrix_3d);
+            }, 80);
+        } else {
+            initWb3DPalletViewer(null);
+        }
+    }
+
+    function renderWbClusterPills(clusters) {
+        const pills = document.getElementById('wbClustersPills');
+        if (!pills) return;
+        if (clusters && clusters.length > 0) {
+            pills.innerHTML = clusters.map(cl => {
+                return `
+                    <div style="background:rgba(255,255,255,0.06); border:1px solid ${cl.color_hex || '#0284c7'}; border-radius:6px; padding:4px 10px; display:inline-flex; align-items:center; gap:6px; font-size:0.75rem;">
+                        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${cl.color_hex || '#0284c7'};"></span>
+                        <span style="color:#f1f5f9; font-weight:600;">${cl.name}:</span>
+                        <b style="color:#fff; font-family:'JetBrains Mono',monospace;">${cl.count}</b>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            pills.innerHTML = '';
+        }
+    }
+
+    function renderWbBadgesOverlay() {
+        const overlay = document.getElementById('wbBadgesOverlay');
+        const imgElem = document.getElementById('wbResultImg');
+        if (!overlay || !imgElem) return;
+
+        overlay.innerHTML = '';
+        const imgW = imgElem.naturalWidth || imgElem.clientWidth || 1;
+        const imgH = imgElem.naturalHeight || imgElem.clientHeight || 1;
+
+        wbCurrentPieces.forEach((p, idx) => {
+            const seqId = idx + 1;
+            p.id = seqId;
+
+            const leftPct = (p.x / imgW) * 100;
+            const topPct = (p.y / imgH) * 100;
+
+            const badge = document.createElement('div');
+            badge.className = 'interactive-piece-badge';
+            badge.style.cssText = `
+                position: absolute;
+                left: ${leftPct}%;
+                top: ${topPct}%;
+                transform: translate(-50%, -50%);
+                width: 22px;
+                height: 22px;
+                border-radius: 50%;
+                background: ${p.color_hex || '#0284c7'};
+                border: 2px solid #ffffff;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 800;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                pointer-events: auto;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+                user-select: none;
+                transition: transform 0.15s, background 0.15s;
+            `;
+            badge.title = `Visible Item #${seqId} (${p.cluster || 'Item'})\nClick to Delete`;
+            badge.textContent = seqId;
+
+            badge.onmouseenter = () => {
+                badge.style.transform = 'translate(-50%, -50%) scale(1.35)';
+                badge.style.background = '#ef4444';
+            };
+            badge.onmouseleave = () => {
+                badge.style.transform = 'translate(-50%, -50%) scale(1)';
+                badge.style.background = p.color_hex || '#0284c7';
+            };
+            badge.onclick = (e) => {
+                e.stopPropagation();
+                window.removeWorkbenchBadge(idx);
+            };
+
+            overlay.appendChild(badge);
+        });
+    }
+
+    window.handleWorkbenchCanvasClick = function(event) {
+        const imgElem = document.getElementById('wbResultImg');
+        if (!imgElem) return;
+
+        const rect = imgElem.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+
+        const imgW = imgElem.naturalWidth || imgElem.clientWidth || 1;
+        const imgH = imgElem.naturalHeight || imgElem.clientHeight || 1;
+
+        const naturalX = Math.round((clickX / rect.width) * imgW);
+        const naturalY = Math.round((clickY / rect.height) * imgH);
+
+        const newId = wbCurrentPieces.length + 1;
+        wbCurrentPieces.push({
+            id: newId,
+            x: naturalX,
+            y: naturalY,
+            cluster: 'Operator Added',
+            color_hex: '#10b981'
+        });
+
+        updateLocalWorkbenchState();
+        renderWbBadgesOverlay();
+    };
+
+    window.removeWorkbenchBadge = function(index) {
+        if (index >= 0 && index < wbCurrentPieces.length) {
+            wbCurrentPieces.splice(index, 1);
+            wbCurrentPieces.forEach((p, i) => { p.id = i + 1; });
+            updateLocalWorkbenchState();
+            renderWbBadgesOverlay();
+        }
+    };
+
+    function updateLocalWorkbenchState() {
+        const visible = wbCurrentPieces.length;
+        const qb = wbLatestResult?.quantity_breakdown || {};
+        const inferred = qb.inferred_count !== undefined ? qb.inferred_count : (wbLatestResult?.hidden_count || 0);
+        const total = visible + inferred;
+
+        const statVis = document.getElementById('wbStatVisible');
+        const statInf = document.getElementById('wbStatInferred');
+        const statForm = document.getElementById('wbStatFormula');
+        const totalBadge = document.getElementById('wbTotalBadge');
+        const statusBadge = document.getElementById('wbVerificationStatusBadge');
+
+        if (statVis) statVis.textContent = visible;
+        if (statInf) statInf.textContent = inferred;
+        if (statForm) {
+            statForm.textContent = `${visible} Visible + ${inferred} Inferred = ${total} Total`;
+            statForm.title = statForm.textContent;
+        }
+        if (totalBadge) totalBadge.textContent = `${total} ${wbMode === 'bundles' ? 'BUNDLES' : 'PIECES'}`;
+        if (statusBadge) {
+            statusBadge.textContent = 'PROPOSED (Operator Adjusted)';
+            statusBadge.style.color = '#38bdf8';
+            statusBadge.style.borderColor = 'rgba(56,189,248,0.3)';
+            statusBadge.style.background = 'rgba(56,189,248,0.15)';
+        }
+    }
+
+    window.recertifyWorkbenchMarkers = async function() {
+        if (!wbRawImageUrl || wbCurrentPieces.length === 0) {
+            alert('No image loaded to re-render.');
+            return;
+        }
+
+        try {
+            const autoGeom = wbLatestResult?.quantity_breakdown?.automated_geometry || {};
+            const res = await fetch('/api/pallets/re-render-pieces', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    raw_image_url: wbRawImageUrl,
+                    pieces: wbCurrentPieces,
+                    matrix_dimensions: autoGeom.stack_detected ? {
+                        rows: autoGeom.rows || 1,
+                        columns: autoGeom.columns || 1,
+                        layers: autoGeom.layers || 1
+                    } : null
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const img = document.getElementById('wbResultImg');
+                if (img && data.annotated_image_url) {
+                    img.src = `${data.annotated_image_url}?t=${Date.now()}`;
+                }
+                renderWorkbenchResults(data);
+                if (typeof showToast === 'function') {
+                    showToast(`Re-rendered: ${data.total_pieces} pieces verified.`, 'success');
+                }
+            } else {
+                alert(`Re-render error: ${data.error || 'Failed to re-render'}`);
+            }
+        } catch(e) {
+            console.error('Re-render error:', e);
+            alert(`Error: ${e.message}`);
+        }
+    };
+
+    function initWb3DPalletViewer(matrixData) {
+        const container = document.getElementById('wbThreeJsContainer');
+        if (!container) return;
+
+        const loading = document.getElementById('wbThreeJsLoading');
+        const placeholder = document.getElementById('wbThreeJsPlaceholder');
+        if (loading) loading.style.display = 'none';
+
+        // If no multi-layer 3D stack was recognized, display the clean 2D planar status
+        if (!matrixData || !matrixData.boxes || matrixData.boxes.length === 0) {
+            if (placeholder) {
+                placeholder.style.display = 'block';
+                placeholder.innerHTML = `
+                    <i class="fas fa-layer-group" style="font-size:1.8rem; margin-bottom:6px; opacity:0.5; color:#38bdf8; display:block;"></i>
+                    <div style="font-weight:700; color:#cbd5e1; font-size:0.78rem;">Direct Visual Count Active (2D Surface)</div>
+                    <div style="font-size:0.7rem; color:#64748b; margin-top:2px;">3D Digital Twin generates automatically when a multi-layer stacked geometry is detected.</div>
+                `;
+            }
+            const existingCanvas = container.querySelector('canvas');
+            if (existingCanvas) existingCanvas.remove();
+            return;
+        }
+
+        if (placeholder) placeholder.style.display = 'none';
+
+        if (typeof THREE === 'undefined') {
+            console.warn('[3D Viewer] Three.js not loaded');
+            if (placeholder) {
+                placeholder.style.display = 'block';
+                placeholder.textContent = 'Three.js library is loading...';
+            }
+            return;
+        }
+
+        // Clean up previous canvas
+        const existingCanvas = container.querySelector('canvas');
+        if (existingCanvas) existingCanvas.remove();
+
+        wbThreeBoxMeshes = [];
+        wbIsExploded = false;
+        wbIsXRay = false;
+
+        const w = container.clientWidth || 360;
+        const h = container.clientHeight || 250;
+
+        wbThreeScene = new THREE.Scene();
+        wbThreeScene.background = new THREE.Color(0x020617);
+
+        wbThreeCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+        wbThreeCamera.position.set(5.5, 4.8, 6.5);
+
+        wbThreeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        wbThreeRenderer.setSize(w, h);
+        wbThreeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        wbThreeRenderer.shadowMap.enabled = true;
+        container.insertBefore(wbThreeRenderer.domElement, container.firstChild);
+
+        const ControlsClass = THREE.OrbitControls || window.OrbitControls;
+        if (typeof ControlsClass !== 'undefined') {
+            wbThreeControls = new ControlsClass(wbThreeCamera, wbThreeRenderer.domElement);
+            wbThreeControls.enableDamping = true;
+            wbThreeControls.dampingFactor = 0.08;
+            wbThreeControls.maxPolarAngle = Math.PI / 2 - 0.02;
+            wbThreeControls.target.set(0, 1.0, 0);
+            wbThreeControls.update();
+        }
+
+        const ambLight = new THREE.AmbientLight(0xffffff, 0.85);
+        wbThreeScene.add(ambLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight.position.set(8, 14, 10);
+        wbThreeScene.add(dirLight);
+
+        const gridHelper = new THREE.GridHelper(14, 14, 0x1e293b, 0x0f172a);
+        wbThreeScene.add(gridHelper);
+
+        // Wooden Pallet Base (Tare packaging, excluded from inventory count)
+        const cols = matrixData.columns || 5;
+        const rows = matrixData.rows || matrixData.depth || 5;
+        const layers = matrixData.layers || 5;
+
+        const palletW = cols * 0.9 + 0.3;
+        const palletD = rows * 0.9 + 0.3;
+        const palletH = 0.15;
+
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0x8a5d3b, roughness: 0.85 });
+        const slatGeo = new THREE.BoxGeometry(palletW, 0.04, 0.12);
+        for (let i = 0; i < 7; i++) {
+            const slat = new THREE.Mesh(slatGeo, woodMat);
+            slat.position.set(0, palletH - 0.02, -palletD/2 + (i + 0.5) * (palletD / 7));
+            wbThreeScene.add(slat);
+        }
+
+        // Inventory Boxes
+        const boxGeo = new THREE.BoxGeometry(0.82, 0.65, 0.82);
+        const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+
+        (matrixData.boxes || []).forEach(b => {
+            const posX = (b.col - (cols - 1) / 2) * 0.88;
+            const posY = b.layer * 0.70 + 0.35 + palletH;
+            const posZ = (b.depth - (rows - 1) / 2) * 0.88;
+
+            let mat, edgeMat;
+            if (b.is_hidden) {
+                mat = new THREE.MeshPhysicalMaterial({
+                    color: 0x0284c7,
+                    roughness: 0.15,
+                    transmission: 0.78,
+                    opacity: 0.38,
+                    transparent: true,
+                    depthWrite: false
+                });
+                edgeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
+            } else {
+                mat = new THREE.MeshStandardMaterial({ color: 0xcba06c, roughness: 0.75 });
+                edgeMat = new THREE.LineBasicMaterial({ color: 0x6e471d });
+            }
+
+            const mesh = new THREE.Mesh(boxGeo, mat);
+            mesh.position.set(posX, posY, posZ);
+            const edge = new THREE.LineSegments(edgesGeo, edgeMat);
+            edge.position.copy(mesh.position);
+            wbThreeScene.add(edge);
+
+            mesh.userData = {
+                id: b.id,
+                layer: b.layer,
+                col: b.col,
+                depth: b.depth,
+                label: b.label || `Box #${b.id} (Layer ${b.layer + 1}, Col ${b.col + 1}, Row ${b.depth + 1})`,
+                isHidden: b.is_hidden,
+                origPos: { x: posX, y: posY, z: posZ },
+                edgesMesh: edge
+            };
+
+            wbThreeBoxMeshes.push(mesh);
+            wbThreeScene.add(mesh);
+        });
+
+        // Hover Tooltip using Raycaster
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const hoverDiv = document.getElementById('wbThreeJsHover');
+
+        wbThreeRenderer.domElement.addEventListener('mousemove', (e) => {
+            const rect = wbThreeRenderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, wbThreeCamera);
+            const intersects = raycaster.intersectObjects(wbThreeBoxMeshes);
+
+            if (intersects.length > 0 && hoverDiv) {
+                const item = intersects[0].object.userData;
+                hoverDiv.style.display = 'block';
+                hoverDiv.innerHTML = `
+                    <div style="font-weight:700; color:#38bdf8;">${item.label}</div>
+                    <div style="font-size:0.65rem; color:${item.isHidden ? '#f59e0b' : '#10b981'};">
+                        ${item.isHidden ? 'Inferred Hidden Unit' : 'Observed Surface Unit'}
+                    </div>
+                `;
+            } else if (hoverDiv) {
+                hoverDiv.style.display = 'none';
+            }
+        });
+
+        if (wbThreeAnimId) cancelAnimationFrame(wbThreeAnimId);
+        function anim() {
+            wbThreeAnimId = requestAnimationFrame(anim);
+            if (wbThreeControls) wbThreeControls.update();
+            wbThreeRenderer.render(wbThreeScene, wbThreeCamera);
+        }
+        anim();
+    }
+
+    window.toggleWbExplode3D = function() {
+        wbIsExploded = !wbIsExploded;
+        const factor = wbIsExploded ? 1.6 : 1.0;
+        wbThreeBoxMeshes.forEach(mesh => {
+            const op = mesh.userData.origPos;
+            if (!op) return;
+            mesh.position.set(op.x * factor, op.y * factor, op.z * factor);
+            if (mesh.userData.edgesMesh) {
+                mesh.userData.edgesMesh.position.copy(mesh.position);
+            }
+        });
+    };
+
+    window.toggleWbXRay3D = function() {
+        wbIsXRay = !wbIsXRay;
+        wbThreeBoxMeshes.forEach(mesh => {
+            if (!mesh.userData.isHidden) {
+                mesh.material.transparent = wbIsXRay;
+                mesh.material.opacity = wbIsXRay ? 0.35 : 1.0;
+            }
+        });
+    };
+
+    window.resetWb3DCamera = function() {
+        if (wbThreeCamera && wbThreeControls) {
+            wbThreeCamera.position.set(5.5, 4.8, 6.5);
+            wbThreeControls.target.set(0, 1.0, 0);
+            wbThreeControls.update();
+        }
+    };
+
+    window.applyVerifiedCountToActivePallet = function() {
+        const totalBadge = document.getElementById('wbTotalBadge');
+        const totalUnits = parseInt((totalBadge?.textContent || '0').replace(/[^0-9]/g, ''), 10) || 0;
+        
+        const palletPcsElem = document.getElementById('palletTotalPieces');
+        const palletBundlesElem = document.getElementById('palletCountBundles');
+        const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
+        const uPerB = parseInt(unitsPerBundleElem?.textContent || '10', 10) || 10;
+
+        if (wbMode === 'bundles') {
+            if (palletBundlesElem) palletBundlesElem.textContent = totalUnits;
+            if (palletPcsElem) palletPcsElem.textContent = totalUnits * uPerB;
+        } else {
+            if (palletPcsElem) palletPcsElem.textContent = totalUnits;
+            if (palletBundlesElem) palletBundlesElem.textContent = Math.max(1, Math.round(totalUnits / uPerB));
+        }
+
+        if (typeof showToast === 'function') {
+            showToast(`Verified count (${totalUnits} ${wbMode === 'bundles' ? 'bundles' : 'pieces'}) applied to active pallet build session. Inventory balance remains protected until sealing.`, 'success');
+        } else {
+            alert(`Verified count applied to active pallet session.`);
+        }
+    };
+
+    function initWbDropZone() {
+        const dropZone = document.getElementById('wbDropZone');
+        const fileInput = document.getElementById('wbFileInput');
+        if (!dropZone || !fileInput) return;
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.style.borderColor = '#38bdf8';
+                dropZone.style.background = 'rgba(2, 132, 199, 0.15)';
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.style.borderColor = '#0284c7';
+                dropZone.style.background = '#1e293b';
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt && dt.files;
+            if (files && files.length > 0) {
+                try { fileInput.files = files; } catch(ex) {}
+                window.previewWorkbenchUpload(files[0]);
+            }
+        }, false);
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initUnifiedDropZone);
+        document.addEventListener('DOMContentLoaded', () => {
+            initUnifiedDropZone();
+            initWbDropZone();
+        });
     } else {
         initUnifiedDropZone();
+        initWbDropZone();
     }
 
 })();

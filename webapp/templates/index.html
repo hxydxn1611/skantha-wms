@@ -5339,130 +5339,293 @@ window.switchSubTab = switchSubTab;
                 </div>
             </div>
 
-            <!-- Pallet Hero Monitor & Multiplier Calculator -->
-            <div class="pallet-hero-grid">
-                <!-- LEFT: Camera Live Stream with EMA Tracking & HUD -->
-                <div class="pallet-monitor-card">
-                    <div class="pallet-monitor-header">
+            <!-- UNIFIED PALLET VISION COUNTING & BUILD WORKBENCH -->
+            <div id="palletCountingWorkbench" class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem; border:1px solid rgba(2,132,199,0.35); background:linear-gradient(180deg, #0f172a 0%, #0b1120 100%); color:#f8fafc; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+                
+                <!-- 1. Header & Active Pallet Session Bar -->
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:1.25rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:1rem;">
+                    <div>
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <span class="telemetry-live-dot"></span>
-                            <span style="font-size:0.8rem; font-weight:700; color:#fff;" id="palletFeedCamLabel">CAM: cam_inbound_01</span>
-                            <span style="font-size:0.72rem; color:#94a3b8; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:12px;">EMA α=0.70 Smooth</span>
+                            <div style="width:38px; height:38px; border-radius:8px; background:rgba(2,132,199,0.2); border:1px solid #0284c7; display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:1.15rem;">
+                                <i class="fas fa-pallet"></i>
+                            </div>
+                            <div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <h3 style="margin:0; font-size:1.15rem; color:#f8fafc; font-weight:800;">Pallet Vision Counting Workbench</h3>
+                                    <span id="palletMonitorStatus" class="pallet-status-pill" style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); font-size:0.68rem; padding:2px 8px; border-radius:4px; font-weight:700;">
+                                        IN PROGRESS
+                                    </span>
+                                </div>
+                                <div style="margin-top:2px; font-size:0.75rem; color:#94a3b8; display:flex; align-items:center; gap:10px;">
+                                    <span>Active Pallet: <b id="palletMonitorId" style="color:#38bdf8; font-family:'JetBrains Mono',monospace;">PLT-ACTIVE</b></span>
+                                    <span>&bull;</span>
+                                    <span>SKU: <b id="palletMonitorSku" style="color:#a78bfa;">--</b></span>
+                                    <span>&bull;</span>
+                                    <span>Target Fill: <b id="palletTargetBundles">50</b> Bundles (<b id="palletFillPct" style="color:#10b981;">0%</b>)</span>
+                                </div>
+                            </div>
                         </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <label style="font-size:0.72rem; color:#cbd5e1; margin:0;">Feed:</label>
-                            <select id="palletCameraSelect" style="background:rgba(0,0,0,0.5); color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:4px; font-size:0.75rem; padding:3px 6px;">
+                    </div>
+
+                    <!-- Action buttons -->
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <button type="button" class="btn-primary" onclick="openNewPalletModal()" style="background:#6366f1; border-color:#6366f1; font-size:0.76rem; padding:6px 14px; font-weight:700;">
+                            <i class="fas fa-plus"></i> Build Pallet
+                        </button>
+                        <button type="button" class="btn-secondary" onclick="printPalletMasterLabel()" style="font-size:0.76rem; padding:6px 12px; font-weight:600;">
+                            <i class="fas fa-qrcode"></i> Master Label
+                        </button>
+                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="sealPalletAction()" style="background:#10b981; border-color:#059669; font-size:0.76rem; padding:6px 14px; font-weight:700;">
+                            <i class="fas fa-box-archive"></i> Seal Pallet
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hidden session state trackers for backward-compatibility with pallet_logic.js -->
+                <div style="display:none;">
+                    <span id="palletFeedCamLabel">CAM: cam_inbound_01</span>
+                    <span id="hudPalletBundles">0</span>
+                    <span id="hudPalletPieces">0 EA</span>
+                    <span id="palletControlTitle">Pallet Progress</span>
+                    <span id="palletCountBundles">0</span>
+                    <span id="palletUnitsPerBundle">10</span>
+                    <span id="palletTotalPieces">0</span>
+                    <div id="palletProgressBarFill" style="width:0%;"></div>
+                </div>
+
+                <!-- 2. Unified Vision Counting Toolbar -->
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:#0f172a; border-radius:8px; padding:8px 12px; margin-bottom:1.25rem; border:1px solid rgba(255,255,255,0.06);">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <!-- Mode Selector -->
+                        <div style="background:#1e293b; border:1px solid #334155; border-radius:6px; padding:2px; display:inline-flex; gap:2px;">
+                            <button type="button" id="wbModePiecesBtn" onclick="setWorkbenchMode('pieces')" style="background:#0284c7; color:#fff; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
+                                <i class="fas fa-cubes-stacked"></i> Individual Pieces
+                            </button>
+                            <button type="button" id="wbModeBundlesBtn" onclick="setWorkbenchMode('bundles')" style="background:transparent; color:#94a3b8; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
+                                <i class="fas fa-layer-group"></i> Bundles
+                            </button>
+                        </div>
+
+                        <!-- Source Selector -->
+                        <div style="background:#1e293b; border:1px solid #334155; border-radius:6px; padding:2px; display:inline-flex; gap:2px;">
+                            <button type="button" id="wbSourceUploadBtn" onclick="triggerWorkbenchUpload()" style="background:#10b981; color:#fff; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
+                                <i class="fas fa-upload"></i> Upload Image
+                            </button>
+                            <button type="button" id="wbSourceCameraBtn" onclick="setWorkbenchSource('camera')" style="background:transparent; color:#94a3b8; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
+                                <i class="fas fa-video"></i> Live Camera
+                            </button>
+                        </div>
+
+                        <!-- Camera Selection Dropdown (active when Camera chosen) -->
+                        <div id="wbCameraSelectWrap" style="display:none; align-items:center; gap:6px;">
+                            <select id="wbCameraSelect" onchange="onWorkbenchCameraChange()" style="background:#1e293b; color:#fff; border:1px solid #475569; border-radius:6px; font-size:0.74rem; padding:5px 10px; font-weight:600;">
                                 <option value="cam_inbound_01">cam_inbound_01 (Pallet Zone)</option>
                             </select>
-                            <button type="button" class="btn-primary mobile-cam-btn" onclick="openMobileCameraScanner('pallet')" style="background:#0284c7; border-color:#0369a1; font-size:0.75rem; padding:4px 10px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Open Phone Camera to Scan Pallet">
-                                <i class="fas fa-video"></i> Scan Cam
-                            </button>
-                            <button type="button" class="btn-primary" onclick="document.getElementById('palletImageFileInput').click()" style="background:#10b981; border-color:#059669; font-size:0.75rem; padding:4px 10px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Upload photo to count bundles">
-                                <i class="fas fa-camera"></i> Count from Image
-                            </button>
-                            <button type="button" id="btnPalletResetLiveFeed" class="btn-secondary" onclick="resetPalletLiveFeed()" style="font-size:0.75rem; padding:4px 8px; color:#cbd5e1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);" title="Switch back to live feed">
-                                <i class="fas fa-video"></i> Live Feed
-                            </button>
-                            <input type="file" id="palletImageFileInput" accept="image/*" capture="environment" style="display:none;" onchange="handlePalletImageUpload(event)">
+                            <select id="palletCameraSelect" style="display:none;">
+                                <option value="cam_inbound_01">cam_inbound_01 (Pallet Zone)</option>
+                            </select>
                         </div>
                     </div>
 
-                    <div class="pallet-feed-wrap">
-                        <img id="palletLiveFeedImg" src="/video_feed/cam_inbound_01" class="pallet-feed-img" alt="Pallet Vision Stream">
-                        <div class="pallet-feed-overlay-hud">
-                            <div>
-                                <span style="color:#94a3b8;">ACTIVE PALLET:</span>
-                                <b id="palletMonitorId" style="color:#38bdf8; margin-left:4px;">PLT-ACTIVE</b>
-                            </div>
-                            <div>
-                                <span style="color:#94a3b8;">SKU:</span>
-                                <b id="palletMonitorSku" style="color:#a78bfa; margin-left:4px;">--</b>
-                            </div>
-                            <div>
-                                <span style="color:#94a3b8;">BUNDLES:</span>
-                                <b id="hudPalletBundles" style="color:#34d399; margin-left:4px;">0 / 0</b>
-                            </div>
-                            <div>
-                                <span style="color:#94a3b8;">TOTAL PIECES:</span>
-                                <b id="hudPalletPieces" style="color:#4ade80; margin-left:4px;">0 EA</b>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Bottom Snapshot Action Bar -->
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:#0f172a; padding:8px 14px; border-top:1px solid rgba(255,255,255,0.1); border-bottom-left-radius:8px; border-bottom-right-radius:8px;">
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <i class="fas fa-file-image" style="color:#38bdf8; font-size:0.85rem;"></i>
-                            <span style="font-size:0.75rem; color:#cbd5e1; font-weight:500;">Offline or Photo Counting:</span>
-                            <span style="font-size:0.72rem; color:#94a3b8;">Upload Pallet snapshot to detect & count bundles</span>
-                        </div>
-                        <div>
-                            <button type="button" onclick="openVisionCountingModal()" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; border:none; border-radius:6px; font-size:0.78rem; font-weight:800; padding:8px 18px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; box-shadow:0 3px 10px rgba(37,99,235,0.35); transition:all 0.2s;">
-                                <i class="fas fa-camera"></i> <span>⚡ AI Vision Stock Counter</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- RIGHT: Pallet Status & Declared Multiplier Formula Card -->
-                <div class="pallet-control-card">
-                    <div>
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
-                            <div>
-                                <span style="font-size:0.72rem; text-transform:uppercase; color:var(--text-muted); font-weight:700;">Active Build Session</span>
-                                <h3 style="margin:2px 0 0 0; font-size:1.2rem; color:var(--primary-navy);" id="palletControlTitle">Pallet Progress</h3>
-                            </div>
-                            <span id="palletMonitorStatus" class="pallet-status-pill" style="background:rgba(99,102,241,0.12); color:#6366f1;">
-                                IN PROGRESS
-                            </span>
-                        </div>
-
-                        <!-- Autonomous Multiplier Box -->
-                        <div class="pallet-calc-box">
-                            <span style="font-size:0.72rem; text-transform:uppercase; color:var(--text-muted); font-weight:700; display:block;">Autonomous Quantity Formula</span>
-                            <div class="pallet-calc-formula">
-                                <div class="pallet-calc-item">
-                                    <span class="pallet-calc-val" id="palletCountBundles">0</span>
-                                    <span class="pallet-calc-label">Bundles Detected</span>
-                                </div>
-                                <span class="pallet-calc-op">&times;</span>
-                                <div class="pallet-calc-item">
-                                    <span class="pallet-calc-val" id="palletUnitsPerBundle">10</span>
-                                    <span class="pallet-calc-label">Declared Pcs/Bundle</span>
-                                </div>
-                                <span class="pallet-calc-op">=</span>
-                                <div class="pallet-calc-item">
-                                    <span class="pallet-calc-val highlight-green" id="palletTotalPieces">0</span>
-                                    <span class="pallet-calc-label">Total Realized Pieces</span>
-                                </div>
-                            </div>
-
-                            <div style="margin-top:8px;">
-                                <div style="display:flex; justify-content:space-between; font-size:0.78rem;">
-                                    <span style="color:var(--text-muted);">Target Fill: <b id="palletTargetBundles">50</b> Bundles</span>
-                                    <span style="font-weight:700; color:var(--accent);" id="palletFillPct">0%</span>
-                                </div>
-                                <div class="pallet-progress-bar-bg">
-                                    <div id="palletProgressBarFill" class="pallet-progress-bar-fill" style="width:0%;"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="background:var(--panel-subtle); border-radius:6px; padding:10px 12px; font-size:0.8rem; color:var(--text-muted); line-height:1.4; margin-bottom:1rem;">
-                            <i class="fas fa-shield-halved" style="color:#10b981; margin-right:4px;"></i>
-                            <b>Automated Verification:</b> Visual matcher cross-checks HSV chromatic profiles and contour gradients against SKU reference images to verify bundle identity and catch contamination.
-                        </div>
-                    </div>
-
-                    <div style="display:flex; gap:10px; margin-top:1rem;">
-                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="sealPalletAction()" style="flex:1; background:#10b981; border-color:#10b981; font-size:0.85rem; padding:10px 16px;">
-                            <i class="fas fa-box-archive" style="margin-right:6px;"></i> Seal &amp; Finalize Pallet
+                    <!-- Action Buttons: Replace Image, Remove Image, Clear Count, Count Now -->
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <button type="button" id="wbBtnReplaceImage" onclick="replaceWorkbenchImage()" style="background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Select a new image and clear previous results">
+                            <i class="fas fa-arrow-rotate-right"></i> <span>Replace Image</span>
                         </button>
-                        <button type="button" class="btn-secondary" onclick="printPalletMasterLabel()" style="font-size:0.85rem; padding:10px 16px;">
-                            <i class="fas fa-qrcode" style="margin-right:4px;"></i> Master Label
+                        <button type="button" id="wbBtnRemoveImage" onclick="removeWorkbenchImage()" style="background:#334155; color:#f87171; border:1px solid #475569; border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Remove current image and reset view">
+                            <i class="fas fa-trash-can"></i> <span>Remove Image</span>
+                        </button>
+                        <button type="button" id="wbBtnClearCount" onclick="clearWorkbenchCount()" style="background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Clear counted markers and start again">
+                            <i class="fas fa-xmark"></i> <span>Clear Count / Start Again</span>
+                        </button>
+                        <button type="button" id="btnRunWorkbenchCount" onclick="executeWorkbenchCount()" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; border:none; border-radius:6px; padding:7px 18px; font-size:0.8rem; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 3px 12px rgba(37,99,235,0.4);">
+                            <i class="fas fa-bolt"></i> <span>Count Now</span>
                         </button>
                     </div>
                 </div>
+
+                <!-- 3. Main 2-Column Responsive Workspace -->
+                <div style="display:grid; grid-template-columns: 1.15fr 0.85fr; gap:18px; align-items:start;" id="wbMainGrid">
+                    
+                    <!-- LEFT COLUMN: Source Viewport & Interactive Annotated Marker Stage -->
+                    <div style="display:flex; flex-direction:column; gap:12px;">
+                        
+                        <!-- Upload Drop Zone (Visible when Source = Upload) -->
+                        <div id="wbDropZone" style="background:#1e293b; border-radius:10px; border:2px dashed #0284c7; padding:20px; text-align:center; cursor:pointer; position:relative; min-height:160px; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:all 0.2s;">
+                            <!-- Full-overlay native file input: enables immediate OS file dialog on click anywhere and handles drag-and-drop natively -->
+                            <input type="file" id="wbFileInput" accept="image/*" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:25;" onchange="previewWorkbenchUpload(this)" title="Click or drop pallet photo here">
+                            <div id="wbPlaceholder">
+                                <div style="width:44px; height:44px; border-radius:50%; background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.3); display:inline-flex; align-items:center; justify-content:center; color:#38bdf8; font-size:1.2rem; margin-bottom:6px;">
+                                    <i class="fas fa-camera" id="wbPlaceholderIcon"></i>
+                                </div>
+                                <div style="font-size:0.92rem; font-weight:700; color:#f8fafc;" id="wbPlaceholderTitle">Click to Select Pallet Photo or Drop File</div>
+                                <div style="font-size:0.74rem; color:#94a3b8; margin-top:3px;" id="wbPlaceholderSubtitle">Pipes, tubes, profiles, cartons, billets &bull; Automated geometry recognition</div>
+                                <div style="margin-top:10px;">
+                                    <span style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; border-radius:6px; padding:6px 14px; font-size:0.75rem; font-weight:700; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(37,99,235,0.3); pointer-events:none;">
+                                        <i class="fas fa-folder-open"></i> Browse Image File
+                                    </span>
+                                </div>
+                                <div id="wbSelectedFileInfo" style="display:none; margin-top:8px; font-size:0.74rem; color:#38bdf8; font-weight:600;">
+                                    <i class="fas fa-file-image"></i> <span id="wbSelectedFileName"></span>
+                                </div>
+                            </div>
+                            <img id="wbPreviewImg" style="max-height:240px; max-width:100%; object-fit:contain; border-radius:6px; display:none;" alt="Selected Pallet Image">
+                        </div>
+
+                        <!-- Camera Live Feed Box (Visible when Source = Camera) -->
+                        <div id="wbCameraViewWrap" style="display:none; position:relative; background:#020617; border-radius:10px; border:1px solid #334155; overflow:hidden;">
+                            <img id="palletLiveFeedImg" src="/video_feed/cam_inbound_01" style="width:100%; height:260px; object-fit:cover; display:block;" alt="Camera Live Feed">
+                            <div style="position:absolute; top:8px; left:8px; background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.15); border-radius:4px; padding:3px 8px; font-size:0.7rem; color:#f8fafc; display:flex; align-items:center; gap:6px;">
+                                <span class="telemetry-live-dot"></span> <span id="wbCamFeedLabel">CAM: cam_inbound_01</span>
+                            </div>
+                            <div style="position:absolute; bottom:8px; right:8px;">
+                                <button type="button" onclick="executeWorkbenchCount()" style="background:#10b981; color:#fff; border:none; border-radius:5px; padding:6px 12px; font-size:0.74rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+                                    <i class="fas fa-camera"></i> Capture &amp; Count Frame
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Processing Indicator -->
+                        <div id="wbProcessingStatus" style="display:none; text-align:center; padding:1.25rem; background:#1e293b; border-radius:8px; border:1px solid #334155;">
+                            <i class="fas fa-circle-notch fa-spin" style="font-size:1.8rem; color:#38bdf8; margin-bottom:8px;"></i>
+                            <div style="font-weight:700; color:#f8fafc; font-size:0.88rem;">Analyzing Pallet &amp; Detecting Objects...</div>
+                            <div style="font-size:0.72rem; color:#94a3b8;">Automated Geometry Recognition &bull; Tare Pallet Base Excluded &bull; Non-destructive</div>
+                        </div>
+
+                        <!-- Interactive Annotated Image Stage -->
+                        <div id="wbInteractiveStageCard" style="display:none; background:#020617; border-radius:8px; border:1px solid #334155; padding:12px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:0.76rem; color:#f8fafc; font-weight:700;">Numbered Markers Canvas</span>
+                                    <span style="font-size:0.68rem; background:rgba(16,185,129,0.12); color:#10b981; padding:3px 8px; border-radius:4px; font-weight:600;">
+                                        <i class="fas fa-hand-pointer"></i> Click badge to Delete &bull; Click image to Add marker
+                                    </span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <button type="button" onclick="replaceWorkbenchImage()" style="background:#334155; color:#f8fafc; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Replace current image">
+                                        <i class="fas fa-arrow-rotate-right"></i> Replace
+                                    </button>
+                                    <button type="button" onclick="clearWorkbenchCount()" style="background:#334155; color:#f8fafc; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Clear counted markers">
+                                        <i class="fas fa-xmark"></i> Clear
+                                    </button>
+                                    <button type="button" onclick="recertifyWorkbenchMarkers()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Re-render annotations with manual additions/deletions">
+                                        <i class="fas fa-arrows-rotate"></i> Re-Render
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Visual Legend: Directly Detected vs Inferred Hidden -->
+                            <div style="display:flex; align-items:center; gap:14px; margin-bottom:8px; padding:4px 8px; background:rgba(255,255,255,0.03); border-radius:4px; font-size:0.68rem; flex-wrap:wrap;">
+                                <div style="display:flex; align-items:center; gap:5px; color:#38bdf8;">
+                                    <span style="width:10px; height:10px; border-radius:50%; background:#0284c7; border:1px solid #fff; display:inline-block;"></span>
+                                    <span><b>Directly Detected (Surface):</b> Visible on image</span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:5px; color:#f59e0b;">
+                                    <span style="width:10px; height:10px; border-radius:50%; background:rgba(245,158,11,0.3); border:1px dashed #f59e0b; display:inline-block;"></span>
+                                    <span><b>Inferred Hidden Core:</b> Represented in 3D Digital Twin</span>
+                                </div>
+                            </div>
+                            <div id="wbInteractiveStage" style="position:relative; width:100%; max-height:460px; overflow:auto; border-radius:6px; border:1px solid #1e293b; background:#000;">
+                                <img id="wbResultImg" src="" style="width:100%; height:auto; display:block;" alt="Annotated Pallet Canvas" onclick="handleWorkbenchCanvasClick(event)">
+                                <div id="wbBadgesOverlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></div>
+                            </div>
+                            <!-- Clusters breakdown pills -->
+                            <div id="wbClustersPills" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;"></div>
+                        </div>
+
+                    </div>
+
+                    <!-- RIGHT COLUMN: Results, Automated Geometry Recognition & 3D Digital Twin -->
+                    <div style="display:flex; flex-direction:column; gap:12px;">
+                        
+                        <!-- 1. Proposed Quantity Hero Card -->
+                        <div style="background:#1e293b; border-radius:10px; border:1px solid #334155; padding:12px 16px;">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                <div>
+                                    <span style="font-size:0.68rem; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Proposed Count</span>
+                                    <div style="font-size:1.85rem; font-weight:900; color:#10b981; font-family:'JetBrains Mono',monospace; line-height:1.1; margin-top:2px;" id="wbTotalBadge">
+                                        0 PIECES
+                                    </div>
+                                </div>
+                                <span id="wbVerificationStatusBadge" style="font-size:0.68rem; background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); padding:3px 8px; border-radius:4px; font-weight:700;">
+                                    PROPOSED (Idle)
+                                </span>
+                            </div>
+
+                            <!-- Automated Stack Geometry Recognition (Read-Only) -->
+                            <div style="margin-top:10px; padding:8px 10px; background:#0f172a; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                    <span style="font-size:0.7rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">
+                                        <i class="fas fa-brain" style="color:#38bdf8; margin-right:4px;"></i> Inferred Geometry (Read-Only)
+                                    </span>
+                                    <span id="wbCountingMethodBadge" style="font-size:0.65rem; color:#10b981; font-weight:700;">AUTOMATED_CV</span>
+                                </div>
+                                <div id="wbAutoGeometryFormula" style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#38bdf8; font-weight:700;">
+                                    Awaiting Pallet Detection...
+                                </div>
+                            </div>
+
+                            <!-- 4-Stat Mathematical Semantic Grid -->
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:8px; font-size:0.74rem;">
+                                <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;">Visible Detected:</div>
+                                    <div style="font-size:1.05rem; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;" id="wbStatVisible">0</div>
+                                </div>
+                                <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;">Inferred (Hidden):</div>
+                                    <div style="font-size:1.05rem; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace;" id="wbStatInferred">0</div>
+                                </div>
+                                <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;">Arrangement Formula:</div>
+                                    <div style="font-size:0.72rem; font-weight:700; color:#e2e8f0; font-family:'JetBrains Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="wbStatFormula">--</div>
+                                </div>
+                                <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;">Tare Packaging:</div>
+                                    <div style="font-size:0.72rem; font-weight:700; color:#10b981;">1 Pallet Base (Excluded)</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Interactive 3D Digital Twin Viewport (Three.js WebGL) -->
+                        <div id="wb3DSection" style="background:#1e293b; border-radius:10px; border:1px solid #334155; padding:12px; display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size:0.74rem; color:#f8fafc; font-weight:700; display:flex; align-items:center; gap:6px;">
+                                    <i class="fas fa-cube" style="color:#10b981;"></i> Estimated 3D Digital Twin (WebGL)
+                                </span>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <button type="button" onclick="toggleWbExplode3D()" style="background:#334155; color:#fff; border:1px solid #475569; border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="Explode / Collapse 3D Layers">
+                                        <i class="fas fa-arrows-split-up-and-left"></i> Explode
+                                    </button>
+                                    <button type="button" onclick="toggleWbXRay3D()" style="background:#334155; color:#fff; border:1px solid #475569; border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="X-Ray View for Hidden Interior Boxes">
+                                        <i class="fas fa-eye"></i> X-Ray
+                                    </button>
+                                    <button type="button" onclick="resetWb3DCamera()" style="background:#334155; color:#fff; border:1px solid #475569; border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="Reset Orbit View">
+                                        <i class="fas fa-rotate"></i> Reset
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="wbThreeJsContainer" style="position:relative; width:100%; height:250px; background:#020617; border-radius:6px; border:1px solid #334155; overflow:hidden;">
+                                <div id="wbThreeJsPlaceholder" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#64748b; font-size:0.74rem; text-align:center; pointer-events:none; width:85%;">
+                                    <i class="fas fa-cube" style="font-size:1.8rem; margin-bottom:6px; opacity:0.4; display:block;"></i>
+                                    3D Digital Twin automatically reconstructs upon pallet stack detection
+                                </div>
+                                <div id="wbThreeJsLoading" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#38bdf8; font-size:0.75rem;">
+                                    <i class="fas fa-circle-notch fa-spin"></i> Rendering 3D Pallet Space...
+                                </div>
+                                <div id="wbThreeJsHover" style="position:absolute; bottom:8px; left:8px; background:rgba(15,23,42,0.9); border:1px solid #475569; padding:4px 8px; border-radius:4px; font-size:0.7rem; color:#f8fafc; pointer-events:none; display:none; z-index:10;"></div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Pallet Build Session Action -->
+                        <div style="display:flex; gap:10px;">
+                            <button type="button" onclick="applyVerifiedCountToActivePallet()" style="flex:1; background:#10b981; color:#fff; border:none; border-radius:6px; padding:10px 14px; font-size:0.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 3px 12px rgba(16,185,129,0.35);">
+                                <i class="fas fa-check-double"></i> <span>Apply Count to Pallet Session</span>
+                            </button>
+                        </div>
+
+                    </div>
+
+                </div>
+
             </div>
 
             <!-- Pallet Registry Ledger Table -->

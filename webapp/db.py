@@ -2641,9 +2641,10 @@ def update_pallet_count(
     new_count: int,
     track_id: Optional[int] = None,
     similarity_score: float = 0.0,
-    snapshot_path: Optional[str] = None
+    snapshot_path: Optional[str] = None,
+    auto_seal: bool = False
 ) -> Optional[Dict[str, Any]]:
-    """Update counted bundles on a pallet and recompute total pieces."""
+    """Update counted bundles on a pallet and recompute total pieces. Preserves building status unless auto_seal explicitly authorized."""
     conn = get_db()
     pallet = conn.execute("SELECT * FROM pallets WHERE pallet_id = ?", (str(pallet_id),)).fetchone()
     if not pallet:
@@ -2655,8 +2656,8 @@ def update_pallet_count(
     t_bundles = pallet['target_bundles'] or 0
     tot_units = c_bundles * u_per_b
 
-    # Auto-seal if target reached (only when target capacity > 0 was declared)
-    new_status = 'SEALED' if (t_bundles > 0 and c_bundles >= t_bundles) else pallet['status']
+    # Do not silently seal during counting previews unless explicitly authorized
+    new_status = 'SEALED' if (auto_seal and t_bundles > 0 and c_bundles >= t_bundles) else pallet['status']
     sealed_at_expr = "datetime('now', 'localtime')" if (new_status == 'SEALED' and pallet['status'] != 'SEALED') else "sealed_at"
 
     with conn:
