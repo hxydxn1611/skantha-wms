@@ -79,8 +79,15 @@ class RTMPIngestService:
         return target_ids
 
     def _loop(self):
+        import shutil
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if not ffmpeg_bin:
+            logger.warning("ffmpeg is not installed or not found in system PATH. RTMP Ingest Service disabled.")
+            self.is_running = False
+            return
+
         cmd = [
-            "ffmpeg",
+            ffmpeg_bin,
             "-loglevel", "warning",
             "-fflags", "nobuffer",
             "-flags", "low_delay",
