@@ -1468,19 +1468,115 @@
             return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         }
 
+        window.toggleCamPasswordVisibility = function() {
+            const passInput = document.getElementById('camPassword');
+            const toggleBtn = document.getElementById('togglePasswordBtn');
+            if (!passInput) return;
+            if (passInput.type === 'password') {
+                passInput.type = 'text';
+                if (toggleBtn) toggleBtn.innerText = '🙈';
+            } else {
+                passInput.type = 'password';
+                if (toggleBtn) toggleBtn.innerText = '👁️';
+            }
+        };
+
+        window.toggleManualUrlMode = function() {
+            const urlGroup = document.getElementById('camUrlGroup');
+            const netGroup = document.getElementById('networkCamConfigGroup');
+            if (!urlGroup || !netGroup) return;
+            if (urlGroup.style.display === 'none') {
+                urlGroup.style.display = 'block';
+                netGroup.style.display = 'none';
+            } else {
+                urlGroup.style.display = 'none';
+                netGroup.style.display = 'block';
+            }
+        };
+
+        window.buildRtspUrl = function(vendor, host, port, user, pass, channel, quality) {
+            port = port || '554';
+            user = user || 'admin';
+            channel = parseInt(channel) || 1;
+            quality = quality || 'sub';
+            
+            // Clean credentials - encode @, :, #, etc.
+            const cleanUser = encodeURIComponent(user);
+            const cleanPass = pass ? encodeURIComponent(pass) : '';
+            const auth = (cleanUser || cleanPass) ? `${cleanUser}:${cleanPass}@` : '';
+            const base = `rtsp://${auth}${host}:${port}`;
+            
+            const v = (vendor || '').toLowerCase();
+            if (v.includes('hikvision') || v.includes('ezviz')) {
+                // Hikvision / Ezviz: /Streaming/Channels/101 (main), 102 (sub)
+                const subId = (quality === 'main') ? 1 : 2;
+                return `${base}/Streaming/Channels/${channel}0${subId}`;
+            } else if (v.includes('dahua') || v.includes('imou') || v.includes('cp plus')) {
+                // Dahua / CP Plus: /cam/realmonitor?channel=1&subtype=0(main), 1(sub)
+                const subtype = (quality === 'main') ? 0 : 1;
+                return `${base}/cam/realmonitor?channel=${channel}&subtype=${subtype}`;
+            } else if (v.includes('tapo') || v.includes('tp-link')) {
+                const streamNum = (quality === 'main') ? 1 : 2;
+                return `${base}/stream${streamNum}`;
+            } else if (v.includes('trueview')) {
+                return `${base}/live/ch${channel - 1}`;
+            } else {
+                const subId = (quality === 'main') ? 1 : 2;
+                return `${base}/Streaming/Channels/${channel}0${subId}`;
+            }
+        };
+
+        window.currentWifiMode = 'rtmp';
+        window.setWifiStreamMode = function(mode) {
+            window.currentWifiMode = mode;
+            const rtmpBtn = document.getElementById('wifiModeRtmpBtn');
+            const rtspBtn = document.getElementById('wifiModeRtspBtn');
+            const rtmpSub = document.getElementById('wifiRtmpSubSection');
+            const netGroup = document.getElementById('networkCamConfigGroup');
+            
+            if (mode === 'rtmp') {
+                if (rtmpBtn) { rtmpBtn.style.background = '#10b981'; rtmpBtn.style.color = '#0f172a'; }
+                if (rtspBtn) { rtspBtn.style.background = 'rgba(148,163,184,0.2)'; rtspBtn.style.color = '#94a3b8'; }
+                if (rtmpSub) rtmpSub.style.display = 'block';
+                if (netGroup) netGroup.style.display = 'none';
+            } else {
+                if (rtspBtn) { rtspBtn.style.background = '#38bdf8'; rtspBtn.style.color = '#0f172a'; }
+                if (rtmpBtn) { rtmpBtn.style.background = 'rgba(148,163,184,0.2)'; rtmpBtn.style.color = '#94a3b8'; }
+                if (rtmpSub) rtmpSub.style.display = 'none';
+                if (netGroup) netGroup.style.display = 'block';
+            }
+        };
+
         function handleCamTypeChange() {
             const camType = document.getElementById('camType').value;
             const isDevice = (camType === 'Device Camera');
+            const isWifiCam = (camType === 'Wi-Fi Camera');
+            const isNetworkCam = ['DVR', 'NVR', 'IP Camera'].includes(camType);
             
             const facingGroup = document.getElementById('deviceFacingGroup');
+            const wifiGroup = document.getElementById('wifiCamRtmpGroup');
+            const netGroup = document.getElementById('networkCamConfigGroup');
             const urlGroup = document.getElementById('camUrlGroup');
             const camUrlInput = document.getElementById('camUrl');
             const camNameInput = document.getElementById('camName');
             const camVendorSelect = document.getElementById('camVendor');
 
+            // Dynamically update server IP/domain for RTMP push
+            const serverHost = window.location.hostname || '127.0.0.1';
+            const rtmpInput = document.getElementById('wifiRtmpPushUrl');
+            if (rtmpInput) {
+                rtmpInput.value = `rtmp://${serverHost}:1935/live/cam`;
+            }
+
             if (facingGroup) facingGroup.style.display = isDevice ? 'block' : 'none';
-            if (urlGroup) urlGroup.style.display = isDevice ? 'none' : 'block';
-            if (camUrlInput) camUrlInput.required = !isDevice;
+            if (wifiGroup) wifiGroup.style.display = isWifiCam ? 'block' : 'none';
+            if (netGroup) netGroup.style.display = isNetworkCam ? 'block' : 'none';
+            if (urlGroup) urlGroup.style.display = (!isDevice && !isNetworkCam && !isWifiCam) ? 'block' : 'none';
+            if (camUrlInput) camUrlInput.required = (!isDevice && !isNetworkCam && !isWifiCam);
+
+            if (isWifiCam) {
+                window.setWifiStreamMode(window.currentWifiMode || 'rtmp');
+            }
 
             if (isDevice) {
                 if (!camNameInput.value || camNameInput.value === 'Main Gate' || camNameInput.value.includes('Camera')) {
@@ -1517,45 +1613,22 @@
                             camUrlInput.value = "";
                         }
                     }
-                } else if(camType === 'Wi-Fi Camera' || camType === 'IP Camera') {
-                    if(urlLabel) urlLabel.innerText = "RTSP / IP Stream URL";
-                    if(camUrlInput) {
-                        camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/stream1";
-                        if(camUrlInput.value === "0" || camUrlInput.value === "1") {
-                            camUrlInput.value = "";
-                        }
-                    }
-                    const helper = document.getElementById('wifiCamHelper');
-                    if (helper) helper.style.display = 'block';
                 } else {
-                    if(urlLabel) urlLabel.innerText = "Stream URL";
+                    if(urlLabel) urlLabel.innerText = "Stream URL / Custom RTSP";
                     if(camUrlInput) {
-                        camUrlInput.placeholder = "http://192.168.x.x:8080/video";
-                        if(camUrlInput.value === "0" || camUrlInput.value === "1") {
-                            camUrlInput.value = "";
-                        }
+                        camUrlInput.placeholder = "rtsp://... or http://192.168.x.x:8080/video";
                     }
-                    const helper = document.getElementById('wifiCamHelper');
-                    if (helper) helper.style.display = 'none';
                 }
             }
         }
 
         window.handleCamVendorChange = function() {
             const vendor = document.getElementById('camVendor').value;
-            const camUrlInput = document.getElementById('camUrl');
-            if (!camUrlInput || (camUrlInput.value && !camUrlInput.value.startsWith('rtsp://admin:password@'))) return;
-            
-            if (vendor.includes('Trueview')) {
-                camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/live/ch0";
-            } else if (vendor.includes('Tapo') || vendor.includes('TP-Link')) {
-                camUrlInput.placeholder = "rtsp://username:password@192.168.1.50:554/stream1";
-            } else if (vendor.includes('CP Plus')) {
-                camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/cam/realmonitor?channel=1&subtype=0";
-            } else if (vendor.includes('Hikvision') || vendor.includes('Ezviz')) {
-                camUrlInput.placeholder = "rtsp://admin:VERIFICATION_CODE@192.168.1.50:554/H.264/ch1/main/av_stream";
-            } else if (vendor.includes('Dahua') || vendor.includes('Imou')) {
-                camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/cam/realmonitor?channel=1&subtype=0";
+            const hostInput = document.getElementById('camHost');
+            if (hostInput && !hostInput.value) {
+                if (vendor.includes('Hikvision')) hostInput.placeholder = "e.g. 192.168.1.64";
+                else if (vendor.includes('Trueview')) hostInput.placeholder = "e.g. 192.168.1.9";
+                else if (vendor.includes('Dahua') || vendor.includes('CP Plus')) hostInput.placeholder = "e.g. 192.168.1.108";
             }
         };
 
@@ -1706,21 +1779,81 @@
                     btn.disabled = false;
                 }
             } else {
-                await fetch('/api/cameras', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        name: name,
-                        location: location,
-                        bin_id: binId || null,
-                        url: url,
-                        type: camType,
-                        vendor: vendor
-                    })
-                });
-                e.target.reset();
-                handleCamTypeChange();
-                pollData();
+                btn.innerText = "Connecting Camera...";
+                btn.disabled = true;
+                try {
+                    let finalUrl = (url || '').trim();
+                    const isWifiCam = (camType === 'Wi-Fi Camera');
+                    const isNetworkCam = ['DVR', 'NVR', 'IP Camera'].includes(camType);
+                    const netGroup = document.getElementById('networkCamConfigGroup');
+                    
+                    if (isWifiCam && window.currentWifiMode === 'rtmp') {
+                        const serverHost = window.location.hostname || '127.0.0.1';
+                        finalUrl = `rtmp://${serverHost}:1935/live/cam`;
+                    } else if ((isNetworkCam || (isWifiCam && window.currentWifiMode === 'rtsp')) && (!finalUrl || (netGroup && netGroup.style.display !== 'none'))) {
+                        const host = document.getElementById('camHost') ? document.getElementById('camHost').value.trim() : '';
+                        const port = document.getElementById('camPort') ? document.getElementById('camPort').value.trim() : '554';
+                        const user = document.getElementById('camUsername') ? document.getElementById('camUsername').value.trim() : 'admin';
+                        const pass = document.getElementById('camPassword') ? document.getElementById('camPassword').value : '';
+                        const channel = document.getElementById('camChannel') ? document.getElementById('camChannel').value : '1';
+                        const quality = document.getElementById('camStreamQuality') ? document.getElementById('camStreamQuality').value : 'sub';
+
+                        if (!host) {
+                            alert("Please enter the Camera or DVR IP Address (e.g. 192.168.1.64).");
+                            btn.innerText = originalBtnText;
+                            btn.disabled = false;
+                            return;
+                        }
+                        finalUrl = buildRtspUrl(vendor, host, port, user, pass, channel, quality);
+                    }
+
+                    if (!finalUrl && camType !== 'Device Camera') {
+                        alert("Please provide the camera IP address or stream URL.");
+                        btn.innerText = originalBtnText;
+                        btn.disabled = false;
+                        return;
+                    }
+
+                    let camTitle = (name || '').trim();
+                    if (!camTitle) {
+                        if (isNetworkCam) {
+                            const ch = document.getElementById('camChannel') ? document.getElementById('camChannel').value : '1';
+                            camTitle = `${vendor} ${camType} (Ch ${ch})`;
+                        } else {
+                            camTitle = `${vendor} ${camType}`;
+                        }
+                    }
+
+                    const res = await fetch('/api/cameras', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            name: camTitle,
+                            location: location,
+                            bin_id: binId || null,
+                            url: finalUrl,
+                            type: camType,
+                            vendor: vendor
+                        })
+                    });
+                    if (!res.ok) {
+                        const errData = await res.json().catch(() => ({}));
+                        throw new Error(errData.message || 'Server error adding camera');
+                    }
+                    e.target.reset();
+                    handleCamTypeChange();
+                    if (typeof switchCamSubTab === 'function') {
+                        switchCamSubTab('view');
+                    }
+                    if (typeof pollData === 'function') {
+                        pollData();
+                    }
+                } catch(err) {
+                    alert("Error connecting camera: " + err.message);
+                } finally {
+                    btn.innerText = originalBtnText;
+                    btn.disabled = false;
+                }
             }
         });
 
@@ -1920,9 +2053,13 @@
                                 <span class="badge pending" style="font-size:0.65rem; padding:2px 4px;">${cam.location}</span>
                             </div>
                         </div>
-                        <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer;" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
-                            <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain;">
-                            <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.6); padding:4px 6px; border-radius:4px; font-size:0.65rem; pointer-events:none; color:white;">&#x26F6;</div>
+                        <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer; position:relative;" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
+                            <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain; image-rendering:-webkit-optimize-contrast;">
+                            <div style="position:absolute; top:6px; right:6px; display:flex; gap:4px; z-index:2;">
+                                <button type="button" style="background:rgba(15,23,42,0.85); color:#38bdf8; border:1px solid #0284c7; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Interactive PTZ & Digital Zoom">🕹️ PTZ</button>
+                                <button type="button" style="background:rgba(15,23,42,0.85); color:#60a5fa; border:1px solid #2563eb; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Cinema Fullscreen Mode">⛶</button>
+                            </div>
+                            <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.65); padding:2px 6px; border-radius:4px; font-size:0.62rem; pointer-events:none; color:#34d399; font-weight:700;">⚡ 60-100 FPS</div>
                         </div>
                         ${isGate ? `
                         <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.85); border:1px solid rgba(234,179,8,0.3); padding:6px 8px; border-radius:4px; font-size:0.75rem;">
@@ -2039,18 +2176,199 @@
             }
         }
 
+        // ==========================================
+        // Cinema Fullscreen & Interactive PTZ Engine
+        // ==========================================
+        window.ptzState = {
+            zoom: 1.0,
+            panX: 0,
+            panY: 0,
+            isDragging: false,
+            startX: 0,
+            startY: 0
+        };
+
+        function ptzApplyTransform() {
+            const img = document.getElementById('fsImg');
+            const badge = document.getElementById('fsZoomBadge');
+            if (!img) return;
+            img.style.transform = `translate(${window.ptzState.panX}px, ${window.ptzState.panY}px) scale(${window.ptzState.zoom})`;
+            if (badge) {
+                badge.textContent = `🔍 ${window.ptzState.zoom.toFixed(1)}x`;
+                badge.style.color = window.ptzState.zoom > 1.0 ? '#38bdf8' : '#94a3b8';
+            }
+        }
+
+        function ptzSetZoom(targetZoom) {
+            window.ptzState.zoom = Math.min(Math.max(parseFloat(targetZoom) || 1.0, 1.0), 6.0);
+            if (window.ptzState.zoom === 1.0) {
+                window.ptzState.panX = 0;
+                window.ptzState.panY = 0;
+            } else {
+                const maxPan = (window.ptzState.zoom - 1.0) * 450 + 60;
+                window.ptzState.panX = Math.max(-maxPan, Math.min(maxPan, window.ptzState.panX));
+                window.ptzState.panY = Math.max(-maxPan, Math.min(maxPan, window.ptzState.panY));
+            }
+            ptzApplyTransform();
+            if (window.currentFsCamId) {
+                sendPtzCommand(window.currentFsCamId, 'zoom', { zoom_level: window.ptzState.zoom });
+            }
+        }
+
+        function ptzZoomDelta(delta) {
+            const newZoom = Math.round((window.ptzState.zoom + delta) * 10) / 10;
+            ptzSetZoom(newZoom);
+        }
+
+        function ptzMove(direction) {
+            const step = Math.max(35, 45 * (window.ptzState.zoom || 1.0));
+            if (direction === 'up') window.ptzState.panY += step;
+            else if (direction === 'down') window.ptzState.panY -= step;
+            else if (direction === 'left') window.ptzState.panX += step;
+            else if (direction === 'right') window.ptzState.panX -= step;
+
+            const maxPan = Math.max(80, (window.ptzState.zoom - 1.0) * 450 + 80);
+            window.ptzState.panX = Math.max(-maxPan, Math.min(maxPan, window.ptzState.panX));
+            window.ptzState.panY = Math.max(-maxPan, Math.min(maxPan, window.ptzState.panY));
+
+            ptzApplyTransform();
+            if (window.currentFsCamId) {
+                sendPtzCommand(window.currentFsCamId, direction, { speed: 1.0 });
+            }
+        }
+
+        function ptzReset() {
+            window.ptzState.zoom = 1.0;
+            window.ptzState.panX = 0;
+            window.ptzState.panY = 0;
+            ptzApplyTransform();
+            if (window.currentFsCamId) {
+                sendPtzCommand(window.currentFsCamId, 'home', {});
+            }
+        }
+
+        function sendPtzCommand(camId, action, params = {}) {
+            if (!camId) return;
+            fetch(`/api/cameras/${encodeURIComponent(camId)}/ptz`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action, ...params })
+            }).catch(e => console.warn('PTZ command dispatch error:', e));
+        }
+
+        function togglePtzPanel() {
+            const ptzWidget = document.getElementById('fsPtzWidget');
+            if (ptzWidget) {
+                ptzWidget.style.display = (ptzWidget.style.display === 'none') ? 'flex' : 'none';
+            }
+        }
+
+        function handleFsWheel(e) {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.25 : -0.25;
+            ptzZoomDelta(delta);
+        }
+
+        function handleFsDragStart(e) {
+            if (e.button !== 0) return;
+            window.ptzState.isDragging = true;
+            window.ptzState.startX = e.clientX - window.ptzState.panX;
+            window.ptzState.startY = e.clientY - window.ptzState.panY;
+            const container = document.getElementById('fsViewportContainer');
+            if (container) container.style.cursor = 'grabbing';
+        }
+
+        window.addEventListener('mousemove', function(e) {
+            if (!window.ptzState || !window.ptzState.isDragging) return;
+            window.ptzState.panX = e.clientX - window.ptzState.startX;
+            window.ptzState.panY = e.clientY - window.ptzState.startY;
+            ptzApplyTransform();
+        });
+
+        window.addEventListener('mouseup', function(e) {
+            if (window.ptzState && window.ptzState.isDragging) {
+                window.ptzState.isDragging = false;
+                const container = document.getElementById('fsViewportContainer');
+                if (container) container.style.cursor = 'grab';
+            }
+        });
+
+        function captureFsSnapshot() {
+            const img = document.getElementById('fsImg');
+            if (!img || !img.src) {
+                alert('No active camera feed to capture snapshot!');
+                return;
+            }
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || 1280;
+                canvas.height = img.naturalHeight || 720;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const a = document.createElement('a');
+                a.href = canvas.toDataURL('image/jpeg', 0.95);
+                const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                a.download = `snapshot_${window.currentFsCamId || 'camera'}_${ts}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } catch (err) {
+                window.open(img.src, '_blank');
+            }
+        }
+
+        function toggleBrowserNativeFullscreen() {
+            const overlay = document.getElementById('fsOverlay');
+            if (!document.fullscreenElement) {
+                overlay.requestFullscreen?.() || overlay.webkitRequestFullscreen?.() || overlay.msRequestFullscreen?.();
+            } else {
+                document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+            }
+        }
+
+        // Keyboard hotkeys for Fullscreen & PTZ
+        window.addEventListener('keydown', function(e) {
+            const overlay = document.getElementById('fsOverlay');
+            if (!overlay || !overlay.classList.contains('active')) return;
+            if (e.key === 'Escape') {
+                closeFullscreen();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault(); ptzMove('up');
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault(); ptzMove('down');
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault(); ptzMove('left');
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault(); ptzMove('right');
+            } else if (e.key === '+' || e.key === '=') {
+                e.preventDefault(); ptzZoomDelta(0.25);
+            } else if (e.key === '-' || e.key === '_') {
+                e.preventDefault(); ptzZoomDelta(-0.25);
+            } else if (e.key === '0') {
+                e.preventDefault(); ptzReset();
+            } else if (e.key.toLowerCase() === 'f') {
+                e.preventDefault(); toggleBrowserNativeFullscreen();
+            }
+        });
+
         function openFullscreen(url, camId) {
             const overlay = document.getElementById('fsOverlay');
             const img = document.getElementById('fsImg');
+            const titleEl = document.getElementById('fsCamTitle');
             img.src = url;
             overlay.classList.add('active');
             window.currentFsCamId = camId || null;
+
             if (camId && window.lastCamerasData) {
                 const c = window.lastCamerasData.find(x => x.id === camId);
                 window.currentFsIsFrozen = c ? !!c.is_frozen : false;
+                if (titleEl) titleEl.textContent = c ? `${c.name} (${c.location || 'Warehouse'})` : `Camera ${camId}`;
             } else {
                 window.currentFsIsFrozen = false;
+                if (titleEl) titleEl.textContent = camId ? `Camera ${camId}` : 'Live Camera Feed';
             }
+
+            ptzReset();
             updateFsToolbar();
         }
 
@@ -2060,6 +2378,9 @@
             overlay.classList.remove('active');
             img.src = "";
             window.currentFsCamId = null;
+            if (document.fullscreenElement) {
+                document.exitFullscreen?.().catch(() => {});
+            }
         }
 
         function fsToggleFreeze() {

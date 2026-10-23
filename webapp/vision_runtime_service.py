@@ -949,7 +949,7 @@ class CameraRuntimeSession:
         if self.test_mode or not self.stream_url:
             self.frame_source = TestSyntheticFrameSource(self.camera_id, self.location)
             self.source_state = "TEST_SYNTHETIC"
-        elif self.stream_url.lower().startswith(("push", "device:", "client")) or self.stream_url == "client":
+        elif self.stream_url.lower().startswith(("push", "device:", "client", "rtmp:")) or self.stream_url == "client":
             self.frame_source = SharedBusFrameSource(self.camera_id)
             self.source_state = "SHARED_BUS_PUSH"
         else:
@@ -1038,11 +1038,11 @@ class CameraRuntimeSession:
 
     def push_frame(self, frame: np.ndarray) -> bool:
         """Injects external frame into SharedFrameBus and bounded queue."""
-        if self.runtime_state != RuntimeState.RUNNING:
-            return False
         get_shared_frame_bus().publish_frame(self.camera_id, frame, source_type="PUSH_DEVICE")
         if isinstance(self.frame_source, PushedFrameSource):
             self.frame_source.push(frame)
+        if self.runtime_state != RuntimeState.RUNNING:
+            self.start()
         return self.frame_queue.put_frame(frame)
 
     def _capture_loop(self):
