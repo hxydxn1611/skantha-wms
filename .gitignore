@@ -32,3 +32,4 @@ webapp/static/invoices/Pallet_Label_*.pdf
 *.db-wal
 *.db-shm
 scratch/
+*.jpeg

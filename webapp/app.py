@@ -5196,13 +5196,34 @@ def api_get_vision_skus():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/api/cameras/<camera_id>/snapshot', methods=['GET'])
+def api_camera_snapshot(camera_id):
+    """
+    Acquires a live snapshot frame from a camera stream for pallet vision counting.
+    Returns JPEG image directly.
+    """
+    try:
+        frame, _ = get_camera_frame_for_detection(camera_id)
+        if frame is None or frame.size == 0:
+            return jsonify({"success": False, "error": f"Failed to acquire frame from camera '{camera_id}'"}), 404
+        ret, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        if not ret:
+            return jsonify({"success": False, "error": "JPEG encoding failed"}), 500
+        return Response(buf.tobytes(), mimetype='image/jpeg')
+    except Exception as e:
+        logger.exception(f"Error capturing snapshot from camera {camera_id}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/pallets/count-pieces', methods=['POST'])
 def api_count_pallet_pieces():
     """
     Option 1: Material-agnostic Individual Piece Counting.
-    Pinpoints every piece with numbered circles (1..N) and clusters into bundles
-    (Top layer, Left bundle, Centre bundle, Right bundle, etc.) with high-contrast legend card.
-    Filters candidates against the selected SKU's AI Vision mapped reference photo.
+    Supports two input sources: Uploaded Image and Live Camera Snapshot.
+    Pinpoints every piece with numbered circles (1..N) and clusters into bundles.
+    Maintains clear separation between directly detected visible objects,
+    operator-confirmed dimensions, and inferred hidden interior quantities.
+    Does NOT mutate inventory balances (proposed preview only).
     """
     try:
         from pallet_vision_counting_service import get_pallet_vision_counting_service
@@ -5219,6 +5240,8 @@ def api_count_pallet_pieces():
         target_clusters = int(target_clusters) if target_clusters else None
         pallet_id = request.form.get('pallet_id') or data.get('pallet_id')
         sku_id = request.form.get('sku_id') or data.get('sku_id')
+        source_type = request.form.get('source_type') or data.get('source_type', 'upload')
+        camera_id = request.form.get('camera_id') or data.get('camera_id') or 'cam_inbound_01'
         
         # ROI bounding box support
         roi = None
@@ -5238,32 +5261,41 @@ def api_count_pallet_pieces():
             counting_mode = 'boxes'
 
         image_bgr = None
+        # 1. Image file upload
         if 'image' in request.files and request.files['image'].filename:
             nparr = np.frombuffer(request.files['image'].read(), np.uint8)
             image_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # 2. Camera snapshot capture
+        elif source_type == 'camera' or request.form.get('use_camera', '').lower() in ('true', '1', 'yes'):
+            image_bgr, _ = get_camera_frame_for_detection(camera_id)
+        # 3. Explicit sample scene request ONLY if use_sample is explicitly true
         elif sample_name or request.form.get('use_sample', '').lower() in ('true', '1', 'yes'):
-            fname = sample_name or 'sample_individual_pipes_229.jpg'
+            fname = sample_name or 'sample_carton_boxes.png'
             sp = os.path.join(test_dir, fname)
             if os.path.isfile(sp):
                 image_bgr = cv2.imread(sp)
 
         if image_bgr is None:
-            sp = os.path.join(test_dir, 'sample_individual_pipes_229.jpg')
-            if os.path.isfile(sp):
-                image_bgr = cv2.imread(sp)
+            if source_type == 'upload':
+                return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
+            elif source_type == 'camera':
+                image_bgr, _ = get_camera_frame_for_detection(camera_id)
+                if image_bgr is None:
+                    return jsonify({"success": False, "error": f"Unable to acquire live snapshot from camera '{camera_id}'"}), 400
             else:
-                return jsonify({"success": False, "error": "No image provided"}), 400
+                return jsonify({"success": False, "error": "No image or camera source provided"}), 400
 
-        # Custom 3D matrix dimensions (if specified by client steppers)
+        # Custom matrix dimensions: rows x columns x layers (e.g., 5 x 5 x 5 = 125)
         custom_matrix = None
-        c_layers = request.form.get('matrix_layers') or data.get('matrix_layers')
-        c_cols = request.form.get('matrix_columns') or data.get('matrix_columns')
-        c_depth = request.form.get('matrix_depth') or data.get('matrix_depth')
-        if c_layers or c_cols or c_depth:
+        c_layers = request.form.get('matrix_layers') or data.get('matrix_layers') or request.form.get('layers') or data.get('layers')
+        c_cols = request.form.get('matrix_columns') or data.get('matrix_columns') or request.form.get('columns') or data.get('columns')
+        c_rows = request.form.get('matrix_rows') or data.get('matrix_rows') or request.form.get('matrix_depth') or data.get('matrix_depth') or request.form.get('rows') or data.get('rows')
+        if c_layers or c_cols or c_rows:
             custom_matrix = {
-                "layers": int(c_layers) if c_layers else None,
-                "columns": int(c_cols) if c_cols else None,
-                "depth": int(c_depth) if c_depth else None
+                "layers": int(c_layers) if c_layers else 1,
+                "columns": int(c_cols) if c_cols else 1,
+                "rows": int(c_rows) if c_rows else 1,
+                "depth": int(c_rows) if c_rows else 1
             }
 
         result = service.count_individual_pieces(
@@ -5275,6 +5307,10 @@ def api_count_pallet_pieces():
             sku_id=sku_id,
             custom_matrix=custom_matrix
         )
+
+        result['source_type'] = source_type
+        if source_type == 'camera':
+            result['camera_id'] = camera_id
 
         if pallet_id:
             result['pallet_id'] = pallet_id
@@ -5290,6 +5326,7 @@ def api_re_render_pallet_pieces():
     """
     Re-renders piece annotations and legend after user manually clicked to add/delete badges.
     Enforces 100% human-verified accuracy on factory floor before WMS reconciliation.
+    Does NOT mutate inventory balances.
     """
     try:
         from pallet_vision_counting_service import get_pallet_vision_counting_service
@@ -5298,6 +5335,7 @@ def api_re_render_pallet_pieces():
         data = request.get_json(silent=True) or {}
         raw_image_url = data.get('raw_image_url', '')
         pieces = data.get('pieces', [])
+        custom_matrix = data.get('matrix_dimensions') or data.get('custom_matrix')
 
         if not raw_image_url:
             return jsonify({"success": False, "error": "Missing raw_image_url"}), 400
@@ -5312,7 +5350,7 @@ def api_re_render_pallet_pieces():
         if raw_img is None:
             return jsonify({"success": False, "error": "Failed to decode raw image"}), 400
 
-        result = service.re_render_piece_annotations(raw_img, pieces=pieces)
+        result = service.re_render_piece_annotations(raw_img, pieces=pieces, custom_matrix=custom_matrix)
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error re-rendering pieces")
@@ -5323,30 +5361,46 @@ def api_re_render_pallet_pieces():
 def api_count_pallet_bundles():
     """
     Option 2: Material-agnostic Bundle Counting & Multi-View Stack Deconstruction.
+    Supports input from uploaded images or captured live camera snapshot.
     Deconstructs tiers, produces Angle 1 + Angle 2 Combined View, 3D Isometric Model,
     Count Comparison (Difference 0), and Final Count Table.
+    Does NOT mutate inventory balances.
     """
     try:
         from pallet_vision_counting_service import get_pallet_vision_counting_service
         service = get_pallet_vision_counting_service()
 
         test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'test_scenes')
-        preset_name = request.form.get('preset_name') or request.form.get('sample_name')
-        depth_multiplier = int(request.form.get('depth_multiplier', 1))
-        pallet_id = request.form.get('pallet_id')
-        sku_id = request.form.get('sku_id') or request.values.get('sku_id')
+        data = request.get_json(silent=True) or {}
+        preset_name = request.form.get('preset_name') or request.form.get('sample_name') or data.get('preset_name')
+        depth_multiplier = int(request.form.get('depth_multiplier') or data.get('depth_multiplier', 1))
+        pallet_id = request.form.get('pallet_id') or data.get('pallet_id')
+        sku_id = request.form.get('sku_id') or request.values.get('sku_id') or data.get('sku_id')
+        source_type = request.form.get('source_type') or data.get('source_type', 'upload')
+        camera_id = request.form.get('camera_id') or data.get('camera_id') or 'cam_inbound_01'
 
         img_a1 = None
         img_a2 = None
 
-        if 'angle1' in request.files and request.files['angle1'].filename:
+        if 'image' in request.files and request.files['image'].filename:
+            nparr = np.frombuffer(request.files['image'].read(), np.uint8)
+            img_a1 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            img_a2 = img_a1.copy() if img_a1 is not None else None
+        elif 'angle1' in request.files and request.files['angle1'].filename:
             nparr = np.frombuffer(request.files['angle1'].read(), np.uint8)
             img_a1 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if 'angle2' in request.files and request.files['angle2'].filename:
             nparr = np.frombuffer(request.files['angle2'].read(), np.uint8)
             img_a2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        if img_a1 is None:
+        if img_a1 is None and source_type == 'camera':
+            image_cam, _ = get_camera_frame_for_detection(camera_id)
+            if image_cam is not None:
+                img_a1 = image_cam
+                img_a2 = image_cam.copy()
+
+        # Only use sample images if use_sample is explicitly requested
+        if img_a1 is None and (request.form.get('use_sample', '').lower() in ('true', '1', 'yes') or preset_name):
             if preset_name == 'multistack_84':
                 img_a1 = cv2.imread(os.path.join(test_dir, 'sample_multistack_angle1_front.jpg'))
                 img_a2 = cv2.imread(os.path.join(test_dir, 'sample_multistack_angle2_side.jpg'))
@@ -5356,7 +5410,9 @@ def api_count_pallet_bundles():
                 img_a2 = cv2.imread(os.path.join(test_dir, 'sample_timber_angle2_side.jpg'))
 
         if img_a1 is None:
-            return jsonify({"success": False, "error": "Unable to load angle images"}), 400
+            if source_type == 'upload':
+                return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
+            return jsonify({"success": False, "error": "Unable to acquire image source for bundle counting"}), 400
 
         result = service.count_bundles_multi_view(
             angle1_bgr=img_a1,
@@ -5365,6 +5421,10 @@ def api_count_pallet_bundles():
             depth_multiplier=depth_multiplier,
             sku_id=sku_id
         )
+
+        result['source_type'] = source_type
+        if source_type == 'camera':
+            result['camera_id'] = camera_id
 
         if pallet_id:
             result['pallet_id'] = pallet_id
