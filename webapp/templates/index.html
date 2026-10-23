@@ -1423,19 +1423,33 @@
 
                         <div id="vendorGroup">
                             <label>Vendor</label>
-                            <select id="camVendor">
+                            <select id="camVendor" onchange="handleCamVendorChange()">
                                 <option value="Built-in Device">Built-in / Native Device</option>
-                                <option value="Hikvision">Hikvision</option>
-                                <option value="Dahua">Dahua</option>
+                                <option value="TP-Link / Tapo">TP-Link / Tapo</option>
                                 <option value="CP Plus">CP Plus</option>
+                                <option value="Hikvision">Hikvision</option>
+                                <option value="Ezviz">Ezviz</option>
+                                <option value="Dahua">Dahua</option>
+                                <option value="Imou">Imou</option>
                                 <option value="Trueview">Trueview</option>
+                                <option value="Tuya / Generic ONVIF">Tuya / Generic ONVIF</option>
                                 <option value="Other">Other</option>
                             </select>
                         </div>
 
                         <div id="camUrlGroup" style="display:none;">
                             <label id="camUrlLabel">Stream URL</label> 
-                            <input type="text" id="camUrl" placeholder="http://192.168.x.x:8080/video">
+                            <input type="text" id="camUrl" placeholder="rtsp://admin:password@192.168.1.50:554/stream1">
+                            <div id="wifiCamHelper" style="display:none; font-size:0.75rem; color:var(--text-muted); margin-top:4px; line-height:1.4;">
+                                <span>💡 <b>Wi-Fi RTSP Quick Format:</b></span>
+                                <div id="wifiPresets" style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">
+                                    <button type="button" class="btn-xs" style="background:rgba(236,72,153,0.15); border:1px solid #ec4899; color:#f472b6; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('trueview')">Trueview</button>
+                                    <button type="button" class="btn-xs" style="background:rgba(99,102,241,0.15); border:1px solid #6366f1; color:#a5b4fc; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('tapo')">Tapo</button>
+                                    <button type="button" class="btn-xs" style="background:rgba(16,185,129,0.15); border:1px solid #10b981; color:#6ee7b7; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('cpplus')">CP Plus</button>
+                                    <button type="button" class="btn-xs" style="background:rgba(245,158,11,0.15); border:1px solid #f59e0b; color:#fcd34d; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('hikvision')">Hikvision/Ezviz</button>
+                                    <button type="button" class="btn-xs" style="background:rgba(14,165,233,0.15); border:1px solid #0ea5e9; color:#7dd3fc; border-radius:4px; padding:2px 6px; font-size:0.7rem; cursor:pointer;" onclick="setCamUrlTemplate('dahua')">Dahua/Imou</button>
+                                </div>
+                            </div>
                         </div>
 
                         <button type="submit" id="connectCameraBtn" class="btn-primary" style="width:100%; margin-top:8px;">Connect Camera</button>

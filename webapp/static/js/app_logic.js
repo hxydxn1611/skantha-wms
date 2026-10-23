@@ -1517,6 +1517,16 @@
                             camUrlInput.value = "";
                         }
                     }
+                } else if(camType === 'Wi-Fi Camera' || camType === 'IP Camera') {
+                    if(urlLabel) urlLabel.innerText = "RTSP / IP Stream URL";
+                    if(camUrlInput) {
+                        camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/stream1";
+                        if(camUrlInput.value === "0" || camUrlInput.value === "1") {
+                            camUrlInput.value = "";
+                        }
+                    }
+                    const helper = document.getElementById('wifiCamHelper');
+                    if (helper) helper.style.display = 'block';
                 } else {
                     if(urlLabel) urlLabel.innerText = "Stream URL";
                     if(camUrlInput) {
@@ -1525,9 +1535,48 @@
                             camUrlInput.value = "";
                         }
                     }
+                    const helper = document.getElementById('wifiCamHelper');
+                    if (helper) helper.style.display = 'none';
                 }
             }
         }
+
+        window.handleCamVendorChange = function() {
+            const vendor = document.getElementById('camVendor').value;
+            const camUrlInput = document.getElementById('camUrl');
+            if (!camUrlInput || (camUrlInput.value && !camUrlInput.value.startsWith('rtsp://admin:password@'))) return;
+            
+            if (vendor.includes('Trueview')) {
+                camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/live/ch0";
+            } else if (vendor.includes('Tapo') || vendor.includes('TP-Link')) {
+                camUrlInput.placeholder = "rtsp://username:password@192.168.1.50:554/stream1";
+            } else if (vendor.includes('CP Plus')) {
+                camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/cam/realmonitor?channel=1&subtype=0";
+            } else if (vendor.includes('Hikvision') || vendor.includes('Ezviz')) {
+                camUrlInput.placeholder = "rtsp://admin:VERIFICATION_CODE@192.168.1.50:554/H.264/ch1/main/av_stream";
+            } else if (vendor.includes('Dahua') || vendor.includes('Imou')) {
+                camUrlInput.placeholder = "rtsp://admin:password@192.168.1.50:554/cam/realmonitor?channel=1&subtype=0";
+            }
+        };
+
+        window.setCamUrlTemplate = function(brand) {
+            const camUrlInput = document.getElementById('camUrl');
+            if (!camUrlInput) return;
+            const currentIp = "192.168.1.50";
+            if (brand === 'trueview') {
+                camUrlInput.value = `rtsp://admin:password@${currentIp}:554/live/ch0`;
+            } else if (brand === 'tapo') {
+                camUrlInput.value = `rtsp://admin:password@${currentIp}:554/stream1`;
+            } else if (brand === 'cpplus') {
+                camUrlInput.value = `rtsp://admin:admin123@${currentIp}:554/cam/realmonitor?channel=1&subtype=0`;
+            } else if (brand === 'hikvision') {
+                camUrlInput.value = `rtsp://admin:password@${currentIp}:554/H.264/ch1/main/av_stream`;
+            } else if (brand === 'dahua') {
+                camUrlInput.value = `rtsp://admin:password@${currentIp}:554/cam/realmonitor?channel=1&subtype=0`;
+            }
+            camUrlInput.focus();
+            camUrlInput.select();
+        };
 
         document.getElementById('addCameraForm').addEventListener('submit', async (e) => {
             e.preventDefault();
