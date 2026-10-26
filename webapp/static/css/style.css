@@ -709,24 +709,97 @@
         .topbar-facility-selector {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             padding: 5px 12px;
-            background: var(--panel-subtle);
-            border: 1px solid var(--border-light);
-            border-radius: 20px;
-            font-size: 0.75rem;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 0.82rem;
             font-weight: 600;
-            color: var(--text-main);
+            color: #000000;
             cursor: pointer;
             transition: all 0.2s;
         }
         .topbar-facility-selector:hover {
             border-color: var(--accent);
-            background: #ffffff;
+            background: #e2e8f0;
         }
         .topbar-facility-selector i {
-            color: var(--accent);
-            font-size: 0.75rem;
+            color: #0284c7;
+            font-size: 0.85rem;
+        }
+        #activeFacilityNameDisplay {
+            color: #000000 !important;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+        #topbarFacilitySelect {
+            color: #000000 !important;
+            background: transparent;
+            border: none;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            outline: none;
+        }
+        #topbarFacilitySelect option,
+        .topbar-facility-option {
+            background: #ffffff;
+            color: #000000;
+        }
+        .btn-add-facility-trigger {
+            padding: 6px 12px;
+            background: rgba(2, 132, 199, 0.08);
+            border: 1px solid rgba(2, 132, 199, 0.35);
+            color: #0284c7;
+            font-size: 0.78rem;
+            font-weight: 700;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s ease;
+        }
+        .btn-add-facility-trigger:hover {
+            background: rgba(2, 132, 199, 0.16);
+        }
+        .topbar-company-identity {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-left: 10px;
+            border-left: 1px solid var(--border-light);
+        }
+        #topbarCompanyName {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #000000;
+            line-height: 1.2;
+        }
+        #topbarUsername {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+        .btn-logout {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            color: #dc2626;
+            border-radius: 8px;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 0.76rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s ease;
+        }
+        .btn-logout:hover {
+            background: rgba(239, 68, 68, 0.16);
+        }
+        .company-title-accent {
+            color: #000000;
         }
         .topbar-skantha-brand {
             display: flex;
@@ -1328,13 +1401,51 @@
             color: #94a3b8;
         }
         html[data-theme="dark"] .topbar-facility-selector {
-            background: #1e293b;
-            border-color: #334155;
-            color: #f1f5f9;
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
         }
         html[data-theme="dark"] .topbar-facility-selector:hover {
+            background: rgba(255, 255, 255, 0.10);
+            border-color: rgba(56, 189, 248, 0.4);
+        }
+        html[data-theme="dark"] .topbar-facility-selector i {
+            color: #38bdf8;
+        }
+        html[data-theme="dark"] #activeFacilityNameDisplay {
+            color: #ffffff !important;
+        }
+        html[data-theme="dark"] #topbarFacilitySelect {
+            color: #ffffff !important;
+        }
+        html[data-theme="dark"] #topbarFacilitySelect option,
+        html[data-theme="dark"] .topbar-facility-option {
             background: #0f172a;
-            border-color: #3b82f6;
+            color: #ffffff;
+        }
+        html[data-theme="dark"] .btn-add-facility-trigger {
+            background: rgba(56, 189, 248, 0.12);
+            border-color: rgba(56, 189, 248, 0.35);
+            color: #38bdf8;
+        }
+        html[data-theme="dark"] .btn-add-facility-trigger:hover {
+            background: rgba(56, 189, 248, 0.22);
+        }
+        html[data-theme="dark"] .topbar-company-identity {
+            border-left-color: rgba(255, 255, 255, 0.12);
+        }
+        html[data-theme="dark"] #topbarCompanyName {
+            color: #ffffff;
+        }
+        html[data-theme="dark"] #topbarUsername {
+            color: #94a3b8;
+        }
+        html[data-theme="dark"] .btn-logout {
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+        html[data-theme="dark"] .company-title-accent {
+            color: #ffffff;
         }
         html[data-theme="dark"] .topbar-telemetry-badge {
             background: rgba(16, 185, 129, 0.15);

@@ -223,6 +223,8 @@
     };
 
     let currentPiecesList = [];
+    let manualPinsList = [];
+    let isCustomMatrixManuallyTuned = false;
     let currentRawImageUrl = '';
 
     window.loadSamplePiecesImage = function(sampleFileName = 'sample_individual_pipes_229.jpg', mode = 'auto') {
@@ -237,6 +239,12 @@
         const modeSelect = document.getElementById('piecesCountingModeSelect');
         if (modeSelect) modeSelect.value = mode;
 
+        currentMatrixParams = null;
+        isCustomMatrixManuallyTuned = false;
+        manualPinsList = [];
+        const overlay = document.getElementById('piecesBadgesOverlay');
+        if (overlay) overlay.innerHTML = '';
+
         window.executePieceCount(true, sampleFileName, mode);
     };
 
@@ -248,6 +256,14 @@
         if (btn) btn.disabled = true;
         if (spinner) spinner.style.display = 'block';
         if (resultContainer) resultContainer.style.display = 'none';
+
+        const overlay = document.getElementById('piecesBadgesOverlay');
+        if (overlay) overlay.innerHTML = '';
+        manualPinsList = [];
+
+        if (useSample || !isCustomMatrixManuallyTuned) {
+            currentMatrixParams = null;
+        }
 
         try {
             const formData = new FormData();
@@ -328,8 +344,17 @@
                 countLabel = `${data.total_pieces} ${data.sku_name ? data.sku_name.toUpperCase() : 'ITEMS'} (TARGET)`;
             } else if (data.mode === 'BUNDLE_STACK' || data.items_label === 'Bundles') {
                 countLabel = `${data.total_pieces} BUNDLES`;
-            } else if (data.mode === 'BOX_GRID' && data.total_3d_pallet) {
-                countLabel = `${data.total_3d_pallet} BOXES (3D Pallet Matrix)`;
+            } else if (data.mode === 'BOX_GRID') {
+                const qb = data.quantity_breakdown || {};
+                const directCount = qb.directly_detected_count !== undefined ? qb.directly_detected_count : (data.visible_pieces || data.total_pieces);
+                const hiddenCount = qb.inferred_count !== undefined ? qb.inferred_count : (data.hidden_count || 0);
+                if (qb.is_estimate && hiddenCount > 0) {
+                    countLabel = `${data.total_pieces} BOXES (Proposed Estimate: ${directCount} Visible + ${hiddenCount} Inferred)`;
+                } else if (hiddenCount === 0) {
+                    countLabel = `${directCount} BOXES (Direct Visible Detections)`;
+                } else {
+                    countLabel = `${directCount} BOXES (${data.total_pieces} Total)`;
+                }
             }
             badge.textContent = countLabel;
         }
@@ -347,7 +372,17 @@
                 skuTag.innerHTML = `<i class="fas fa-crosshairs" style="color:#10b981;"></i> <b>Strict Target Match</b>: Only '${data.sku_name || data.sku_id}' counted${ignoredText}`;
             } else if (data.matrix_3d) {
                 skuTag.style.display = 'inline-flex';
-                skuTag.innerHTML = `<i class="fas fa-cubes" style="color:#38bdf8;"></i> <b>3D Matrix Deconstruction</b>: ${data.matrix_3d.formula} (${data.matrix_3d.hidden_count || 0} rear/interior boxes)`;
+                const qb = data.quantity_breakdown || {};
+                const isEst = qb.is_estimate;
+                const directCount = qb.directly_detected_count !== undefined ? qb.directly_detected_count : (data.visible_pieces || data.total_pieces);
+                const hiddenCount = qb.inferred_count !== undefined ? qb.inferred_count : (data.hidden_count || 0);
+                if (isEst && hiddenCount > 0) {
+                    skuTag.innerHTML = `<i class="fas fa-cubes" style="color:#38bdf8;"></i> <b>Proposed 3D Estimate</b>: ${data.matrix_3d.formula} (${directCount} visible direct detections, ${hiddenCount} inferred rear/interior)`;
+                } else if (data.matrix_3d.is_depth_unknown) {
+                    skuTag.innerHTML = `<i class="fas fa-bullseye" style="color:#10b981;"></i> <b>Direct Object Recognition</b>: ${directCount} distinct physical cartons localized (Interior depth unknown)`;
+                } else {
+                    skuTag.innerHTML = `<i class="fas fa-bullseye" style="color:#10b981;"></i> <b>Direct Object Recognition</b>: ${directCount} distinct physical cartons localized (0 inferred hidden)`;
+                }
             } else if (data.sku_id) {
                 skuTag.style.display = 'inline-flex';
                 skuTag.innerHTML = `<i class="fas fa-certificate" style="color:#10b981;"></i> Reference SKU: <b>${data.sku_id}</b> &bull; ${data.confidence_note || 'AI Trained Signature Verified'}`;
@@ -375,20 +410,40 @@
                 box3DSection.style.display = 'block';
                 const formulaBadge = document.getElementById('matrix3DFormulaBadge');
                 if (formulaBadge) {
-                    formulaBadge.textContent = `${data.matrix_3d.formula} (${data.matrix_3d.hidden_count || 0} Hidden in Back)`;
+                    const qb = data.quantity_breakdown || {};
+                    const directCount = qb.directly_detected_count !== undefined ? qb.directly_detected_count : (data.visible_pieces || data.total_pieces);
+                    const hiddenCount = qb.inferred_count !== undefined ? qb.inferred_count : (data.hidden_count || 0);
+                    if (hiddenCount > 0) {
+                        formulaBadge.textContent = `${data.matrix_3d.formula} (${directCount} Visible + ${hiddenCount} Inferred Core)`;
+                    } else if (data.matrix_3d.is_depth_unknown) {
+                        formulaBadge.textContent = `Direct Front Elevation Twin (${directCount} Localized Objects; Interior Depth Unknown)`;
+                    } else {
+                        formulaBadge.textContent = `${data.matrix_3d.formula} (All ${directCount} Direct Visible Detections)`;
+                    }
                 }
                 const lElem = document.getElementById('matrixValLayers');
                 const cElem = document.getElementById('matrixValColumns');
                 const dElem = document.getElementById('matrixValDepth');
                 if (lElem) lElem.textContent = data.matrix_3d.layers;
                 if (cElem) cElem.textContent = data.matrix_3d.columns;
-                if (dElem) dElem.textContent = data.matrix_3d.depth;
+                if (dElem) {
+                    if (data.matrix_3d.is_depth_unknown) {
+                        dElem.textContent = '1 (Front; Interior Unknown)';
+                    } else {
+                        dElem.textContent = data.matrix_3d.depth;
+                    }
+                }
 
-                currentMatrixParams = {
-                    layers: data.matrix_3d.layers,
-                    columns: data.matrix_3d.columns,
-                    depth: data.matrix_3d.depth
-                };
+                if (data.matrix_3d.reconstruction_mode === 'OPERATOR_CONFIRMED') {
+                    currentMatrixParams = {
+                        layers: data.matrix_3d.layers,
+                        columns: data.matrix_3d.columns,
+                        depth: data.matrix_3d.depth
+                    };
+                } else {
+                    currentMatrixParams = null;
+                    isCustomMatrixManuallyTuned = false;
+                }
 
                 setTimeout(() => {
                     init3DPalletViewer(data.matrix_3d);
@@ -434,6 +489,61 @@
         const imgW = imgElem.naturalWidth || imgElem.clientWidth || 1;
         const imgH = imgElem.naturalHeight || imgElem.clientHeight || 1;
 
+        // In BOX_GRID mode (or when backend image already contains authoritative annotations):
+        // The backend has burned primary numbered badges, bounding boxes, and confidence tags directly
+        // into the image pixels with 1-to-1 coordinate fidelity.
+        // We do NOT draw a duplicate layer of DOM numbered circles over every automated detection!
+        // The overlay is reserved strictly for manual operator pins (+M1, +M2...) added by clicking.
+        if (latestPiecesResult && (latestPiecesResult.mode === 'BOX_GRID' || latestPiecesResult.matrix_3d)) {
+            manualPinsList.forEach((pin, pIdx) => {
+                const leftPct = (pin.x / imgW) * 100;
+                const topPct = (pin.y / imgH) * 100;
+
+                const badge = document.createElement('div');
+                badge.className = 'interactive-piece-badge manual-operator-pin';
+                badge.style.cssText = `
+                    position: absolute;
+                    left: ${leftPct}%;
+                    top: ${topPct}%;
+                    transform: translate(-50%, -50%);
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 50%;
+                    background: #f59e0b;
+                    border: 2px solid #ffffff;
+                    color: #ffffff;
+                    font-size: 10px;
+                    font-weight: 800;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    pointer-events: auto;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+                    user-select: none;
+                    transition: transform 0.15s, background 0.15s;
+                    z-index: 10;
+                `;
+                badge.title = `Manual Operator Pin #M${pIdx + 1}\nClick to Remove`;
+                badge.textContent = `M${pIdx + 1}`;
+                badge.onmouseenter = () => {
+                    badge.style.transform = 'translate(-50%, -50%) scale(1.3)';
+                    badge.style.background = '#ef4444';
+                };
+                badge.onmouseleave = () => {
+                    badge.style.transform = 'translate(-50%, -50%) scale(1)';
+                    badge.style.background = '#f59e0b';
+                };
+                badge.onclick = (e) => {
+                    e.stopPropagation();
+                    window.removeManualPin(pIdx);
+                };
+                overlay.appendChild(badge);
+            });
+            return;
+        }
+
+        // For Individual Pieces pinpoint mode (non-carton):
         currentPiecesList.forEach((p, idx) => {
             const leftPct = (p.x / imgW) * 100;
             const topPct = (p.y / imgH) * 100;
@@ -496,7 +606,21 @@
         const naturalX = Math.round((clickX / rect.width) * imgW);
         const naturalY = Math.round((clickY / rect.height) * imgH);
 
-        // Add verified point
+        if (latestPiecesResult && (latestPiecesResult.mode === 'BOX_GRID' || latestPiecesResult.matrix_3d)) {
+            // Add manual operator pin in carton mode without altering automated verified count
+            const pIdx = manualPinsList.length + 1;
+            manualPinsList.push({
+                id: `M${pIdx}`,
+                x: naturalX,
+                y: naturalY,
+                is_manual: true
+            });
+            updateLocalManualPinsState();
+            renderInteractiveBadgesOverlay();
+            return;
+        }
+
+        // Add verified point for individual pieces
         const newIdx = currentPiecesList.length + 1;
         currentPiecesList.push({
             id: newIdx,
@@ -509,6 +633,32 @@
         updateLocalPiecesState();
         renderInteractiveBadgesOverlay();
     };
+
+    window.removeManualPin = function(index) {
+        if (index >= 0 && index < manualPinsList.length) {
+            manualPinsList.splice(index, 1);
+            updateLocalManualPinsState();
+            renderInteractiveBadgesOverlay();
+        }
+    };
+
+    function updateLocalManualPinsState() {
+        const manualCount = manualPinsList.length;
+        if (!latestPiecesResult) return;
+        const directCount = latestPiecesResult.directly_detected_count !== undefined 
+            ? latestPiecesResult.directly_detected_count 
+            : (latestPiecesResult.visible_pieces || latestPiecesResult.total_pieces || 0);
+        const total = directCount + manualCount;
+
+        const badge = document.getElementById('piecesTotalBadge');
+        if (badge) {
+            if (manualCount > 0) {
+                badge.textContent = `${total} BOXES (${directCount} Direct + ${manualCount} Manual)`;
+            } else {
+                badge.textContent = `${directCount} BOXES (Direct Visible Detections)`;
+            }
+        }
+    }
 
     window.removePieceBadge = function(index) {
         if (index >= 0 && index < currentPiecesList.length) {
@@ -539,6 +689,14 @@
 
         if (latestPiecesResult) {
             latestPiecesResult.total_pieces = total;
+            latestPiecesResult.visible_pieces = total;
+            latestPiecesResult.directly_detected_count = total;
+            if (latestPiecesResult.quantity_breakdown) {
+                latestPiecesResult.quantity_breakdown.visible_count = total;
+                latestPiecesResult.quantity_breakdown.directly_detected_count = total;
+                const hidden = latestPiecesResult.quantity_breakdown.inferred_count || 0;
+                latestPiecesResult.quantity_breakdown.total_units = total + hidden;
+            }
         }
     }
 
@@ -830,6 +988,7 @@
         if (!currentMatrixParams) {
             currentMatrixParams = { layers: 4, columns: 3, depth: 2 };
         }
+        isCustomMatrixManuallyTuned = true;
         currentMatrixParams[param] = Math.max(1, Math.min(12, (currentMatrixParams[param] || 1) + delta));
         
         const elemMap = { layers: 'matrixValLayers', columns: 'matrixValColumns', depth: 'matrixValDepth' };
@@ -945,6 +1104,18 @@
         container.insertBefore(threeRenderer.domElement, container.firstChild);
 
         // 4. Orbit Controls
+        const cols = matrix3D.columns || 3;
+        const depth = matrix3D.depth || 1;
+        const layers = matrix3D.layers || 4;
+        const isRegularGrid = (matrix3D.reconstruction_mode === 'OPERATOR_CONFIRMED');
+        const SCENE_SPAN_X = Math.max(2.4, Math.min(5.2, cols * 1.05));
+        const SCENE_SPAN_Y = Math.max(1.8, Math.min(4.5, layers * 0.85));
+
+        const hasPallet = matrix3D.has_pallet === true;
+        const palletW = isRegularGrid ? (cols * 1.05 + 0.35) : (SCENE_SPAN_X + 0.4);
+        const palletD = isRegularGrid ? Math.max(depth * 1.05 + 0.35, 1.4) : 1.4;
+        const palletH = hasPallet ? 0.16 : 0.0;
+
         if (typeof THREE.OrbitControls !== 'undefined') {
             threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
             threeControls.enableDamping = true;
@@ -952,7 +1123,8 @@
             threeControls.maxPolarAngle = Math.PI / 2 - 0.02; // Don't go below ground
             threeControls.minDistance = 2.0;
             threeControls.maxDistance = 20.0;
-            threeControls.target.set(0, 1.3, 0);
+            const targetY = isRegularGrid ? (layers * 0.80 / 2) + palletH : (SCENE_SPAN_Y / 2) + palletH;
+            threeControls.target.set(0, targetY, 0);
             threeControls.update();
         }
 
@@ -976,55 +1148,63 @@
         gridHelper.position.y = 0;
         threeScene.add(gridHelper);
 
-        // 7. Wooden Pallet Base
-        const cols = matrix3D.columns || 3;
-        const depth = matrix3D.depth || 2;
-        const layers = matrix3D.layers || 4;
+        // 7. Wooden Pallet Base (only render if image evidence supports a pallet base)
+        if (hasPallet) {
+            // Wooden material
+            const woodMat = new THREE.MeshStandardMaterial({
+                color: 0x92663b,
+                roughness: 0.85,
+                metalness: 0.05
+            });
 
-        const palletW = cols * 1.05 + 0.35;
-        const palletD = depth * 1.05 + 0.35;
-        const palletH = 0.16;
+            // Top deck slats
+            const slatCount = Math.max(5, cols * 2 + 1);
+            const slatW = palletW / slatCount * 0.75;
+            for (let i = 0; i < slatCount; i++) {
+                const slatGeo = new THREE.BoxGeometry(slatW, 0.04, palletD);
+                const slatMesh = new THREE.Mesh(slatGeo, woodMat);
+                const xPos = -palletW / 2 + (i + 0.5) * (palletW / slatCount);
+                slatMesh.position.set(xPos, palletH - 0.02, 0);
+                slatMesh.receiveShadow = true;
+                threeScene.add(slatMesh);
+            }
 
-        // Wooden material
-        const woodMat = new THREE.MeshStandardMaterial({
-            color: 0x92663b,
-            roughness: 0.85,
-            metalness: 0.05
-        });
-
-        // Top deck slats
-        const slatCount = Math.max(5, cols * 2 + 1);
-        const slatW = palletW / slatCount * 0.75;
-        for (let i = 0; i < slatCount; i++) {
-            const slatGeo = new THREE.BoxGeometry(slatW, 0.04, palletD);
-            const slatMesh = new THREE.Mesh(slatGeo, woodMat);
-            const xPos = -palletW / 2 + (i + 0.5) * (palletW / slatCount);
-            slatMesh.position.set(xPos, palletH - 0.02, 0);
-            slatMesh.receiveShadow = true;
-            threeScene.add(slatMesh);
-        }
-
-        // Bottom runners (3 stringers)
-        for (let s = -1; s <= 1; s++) {
-            const runnerGeo = new THREE.BoxGeometry(0.12, palletH - 0.04, palletD);
-            const runnerMesh = new THREE.Mesh(runnerGeo, woodMat);
-            runnerMesh.position.set(s * (palletW * 0.42), (palletH - 0.04) / 2, 0);
-            runnerMesh.receiveShadow = true;
-            threeScene.add(runnerMesh);
+            // Bottom runners (3 stringers)
+            for (let s = -1; s <= 1; s++) {
+                const runnerGeo = new THREE.BoxGeometry(0.12, palletH - 0.04, palletD);
+                const runnerMesh = new THREE.Mesh(runnerGeo, woodMat);
+                runnerMesh.position.set(s * (palletW * 0.42), (palletH - 0.04) / 2, 0);
+                runnerMesh.receiveShadow = true;
+                threeScene.add(runnerMesh);
+            }
         }
 
         // 8. Construct 3D Boxes (Visible front/side solid, Hidden rear/interior translucent)
-        const boxGeo = new THREE.BoxGeometry(0.96, 0.76, 0.96);
-        const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-
-        const baseSpacingX = 1.02;
-        const baseSpacingY = 0.80;
-        const baseSpacingZ = 1.02;
-
         (matrix3D.boxes || []).forEach(b => {
-            const posX = (b.col - (cols - 1) / 2) * baseSpacingX;
-            const posY = b.layer * baseSpacingY + 0.38 + palletH;
-            const posZ = (b.depth - (depth - 1) / 2) * baseSpacingZ;
+            let boxW = 0.96;
+            let boxH = 0.76;
+            let boxD = 0.96;
+            let posX = 0;
+            let posY = 0;
+            let posZ = 0;
+
+            if (isRegularGrid) {
+                // Regular confirmed 3D matrix (rows x cols x layers)
+                posX = (b.col - (cols - 1) / 2) * 1.02;
+                posY = b.layer * 0.80 + 0.38 + palletH;
+                posZ = (b.depth - (depth - 1) / 2) * 1.02;
+            } else {
+                // Direct Physical Object Localization (irregular stack or elevation facade)
+                boxW = Math.max(0.35, (b.norm_w || 0.3) * SCENE_SPAN_X * 0.96);
+                boxH = Math.max(0.28, (b.norm_h || 0.25) * SCENE_SPAN_Y * 0.96);
+                boxD = Math.min(boxW, 1.2);
+                posX = (b.norm_x || 0) * SCENE_SPAN_X;
+                posY = (b.norm_y || 0) * SCENE_SPAN_Y + (boxH / 2) + palletH;
+                posZ = 0;
+            }
+
+            const boxGeo = new THREE.BoxGeometry(boxW, boxH, boxD);
+            const edgesGeo = new THREE.EdgesGeometry(boxGeo);
 
             let boxMat = null;
             let edgeMat = null;

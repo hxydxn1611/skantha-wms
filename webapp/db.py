@@ -480,18 +480,7 @@ def init_db():
             ]
             cur.executemany("INSERT INTO object_classes (code, name, description, status) VALUES (?, ?, ?, ?)", initial_classes)
 
-        # Seed initial SKUs for SKU Master if empty or missing
-        initial_skus = [
-            ('AUTO-GLASS-01', 'Laminated Windshield Glass', 'Automotive Glass', 2.0, 5.0),
-            ('AUTO-ROD-01', 'High-Tensile Tie Rod', 'Steering & Suspension', 1.0, 3.0),
-            ('AUTO-BOLT-01', 'Grade 10.9 Flange Bolt', 'Fasteners', 0.1, 0.2),
-            ('SKU-001', 'Standard Part 001', 'Parts', 1.0, 1.0),
-            ('SKU-DARK', 'Component Dark', 'Components', 1.0, 1.0)
-        ]
-        cur.executemany(
-            "INSERT OR IGNORE INTO skus (sku_id, name, category, unit_volume, unit_weight) VALUES (?, ?, ?, ?, ?)",
-            initial_skus
-        )
+        # Note: SKUs are created dynamically when a user registers or adds a warehouse location
 
         # Seed initial cameras for Camera Master if empty
         cur.execute("SELECT COUNT(*) FROM cameras")

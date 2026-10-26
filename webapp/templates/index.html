@@ -1187,23 +1187,23 @@
                 <span class="telemetry-val">Active (60 FPS)</span>
             </div>
             <div class="topbar-facility-selector-wrap" style="display: flex; align-items: center; gap: 8px;">
-                <div class="topbar-facility-selector" id="facilitySelectorPill" title="Active Warehouse Location" style="padding: 5px 12px; display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;">
-                    <i class="fas fa-location-dot" style="color: #38bdf8; font-size: 0.85rem;"></i>
-                    <span id="activeFacilityNameDisplay" style="color: #f1f5f9; font-size: 0.82rem; font-weight: 600;">Main Facility</span>
-                    <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="display: none; background: transparent; border: none; color: #f1f5f9; font-size: 0.82rem; font-weight: 600; cursor: pointer; outline: none;">
+                <div class="topbar-facility-selector" id="facilitySelectorPill" title="Active Warehouse Location">
+                    <i class="fas fa-location-dot"></i>
+                    <span id="activeFacilityNameDisplay">Main Facility</span>
+                    <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="display: none;">
                     </select>
                 </div>
-                <button type="button" class="btn-add-facility-trigger" onclick="openAddFacilityModal()" title="Add New Warehouse Location for this Company" style="padding: 6px 12px; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.35); color: #38bdf8; font-size: 0.78rem; font-weight: 700; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s ease;">
+                <button type="button" class="btn-add-facility-trigger" onclick="openAddFacilityModal()" title="Add New Warehouse Location for this Company">
                     <i class="fas fa-plus" style="font-size:0.7rem;"></i>
                     <span>Add Location</span>
                 </button>
             </div>
-            <div class="topbar-company-identity" style="display: flex; align-items: center; gap: 12px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.1);">
+            <div class="topbar-company-identity">
                 <div style="text-align: right; display: flex; flex-direction: column;">
-                    <span id="topbarCompanyName" style="font-size: 0.85rem; font-weight: 700; color: #f8fafc; line-height: 1.2;">Skantha Industrial Solutions</span>
-                    <span id="topbarUsername" style="font-size: 0.72rem; color: #94a3b8;">Administrator</span>
+                    <span id="topbarCompanyName">Skantha Industrial Solutions</span>
+                    <span id="topbarUsername">Administrator</span>
                 </div>
-                <button type="button" onclick="doLogout()" class="btn-logout" title="Sign Out" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #f87171; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 0.76rem; font-weight: 600; display: flex; align-items: center; gap: 5px; transition: all 0.2s ease;">
+                <button type="button" onclick="doLogout()" class="btn-logout" title="Sign Out">
                     <i class="fas fa-arrow-right-from-bracket"></i>
                     <span>Sign Out</span>
                 </button>
@@ -1958,6 +1958,8 @@
                     </table>
                 </div>
             </div>
+        </div>
+
         <!-- WAREHOUSES & LOCATIONS VIEW -->
         <div id="warehouses-view" class="view-section">
             <div class="glass-panel" style="margin-bottom: 1.5rem;">
@@ -1968,7 +1970,7 @@
                             <span>Enterprise Warehouse Locations</span>
                         </h2>
                         <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">
-                            Distribution centers, assembly plants, and storage facilities registered for <strong id="warehousesViewCompanyTitle" style="color:#f8fafc;">Your Organization</strong>.
+                            Distribution centers, assembly plants, and storage facilities registered for <strong id="warehousesViewCompanyTitle" class="company-title-accent">Your Organization</strong>.
                         </p>
                     </div>
                     <button class="btn-primary" onclick="openAddFacilityModal()" style="background:linear-gradient(135deg, #0284c7, #0369a1); display:flex; align-items:center; gap:6px;">
@@ -7160,7 +7162,8 @@ window.switchSubTab = switchSubTab;
                         </div>
 
                     </div>
-                </details>
+                </div>
+            </details>
 
             </div>
 

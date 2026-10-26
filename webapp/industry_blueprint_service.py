@@ -746,6 +746,27 @@ def apply_industry_blueprint(
                     VALUES (?, ?, ?, 'BATCH-2026-A1', ?)
                 """, (bin_row[0], target_sku["sku_id"], target_sku["units_per_bundle"] * 10, company_name))
 
+        # 6.5. Clear previous pallets and initialize active pallets for the new warehouse
+        cur.execute("DELETE FROM pallet_items")
+        cur.execute("DELETE FROM pallets")
+        if len(created_skus) > 0:
+            for idx, p_sku in enumerate(created_skus[:2]):
+                p_id = f"PLT-{datetime.now().strftime('%y%m%d')}-{1001 + idx}"
+                u_per_bundle = p_sku.get("units_per_bundle") or 10
+                tgt_bundles = p_sku.get("target_bundles_per_pallet") or 20
+                cur.execute("""
+                    INSERT INTO pallets (
+                        pallet_id, sku_id, name, units_per_bundle, target_bundles,
+                        counted_bundles, total_units, status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, 0, 0, 'STACKING', CURRENT_TIMESTAMP)
+                """, (
+                    p_id,
+                    p_sku["sku_id"],
+                    f"Pallet {p_id} ({p_sku['name']})",
+                    u_per_bundle,
+                    tgt_bundles
+                ))
+
         conn.commit()
 
         # 7. Update dynamic zero-shot classes on active YOLO detector if available

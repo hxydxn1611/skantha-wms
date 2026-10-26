@@ -164,16 +164,7 @@ class PalletVisionCountingService:
             if self._is_continuous_profile_pallet(image_bgr):
                 return self._count_continuous_profile_pallet(image_bgr, raw_url=raw_url, sku_anchor=sku_anchor)
 
-            # 4. Specific metal profile bundle stack reference photo (48 bundles)
-            h_img, w_img = image_bgr.shape[:2]
-            is_specific_bundle = (
-                (counting_mode == "bundles") or
-                (h_img == 1600 and w_img == 900 and self._is_whatsapp_profile_bundle(image_bgr))
-            )
-            if is_specific_bundle:
-                return self._count_profile_bundles_pallet(image_bgr, raw_url=raw_url, sku_anchor=sku_anchor)
-
-            # 5. Mathematical 3D Box Matrix Pallet Mode (for cartons, boxes, or rectangular packaged pallet stacks)
+            # 4. Object-Centric Pallet Box & Carton Mode (Physical Object Localization)
             is_box_mode = (counting_mode == "boxes") or (custom_matrix is not None) or self._is_cardboard_box_pallet(image_bgr)
             if is_box_mode:
                 box_res = self._count_carton_boxes_pallet(
@@ -895,125 +886,273 @@ class PalletVisionCountingService:
 
         return res_dict
 
-    def _infer_stack_geometry(
+    def _detect_physical_carton_instances(
         self,
         img_bgr: np.ndarray,
         roi: Optional[Dict[str, int]] = None,
-        custom_matrix: Optional[Dict[str, int]] = None
-    ) -> Dict[str, Any]:
+        sensitivity: float = 0.5
+    ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any]]:
         """
-        Accurate Computer Vision Stack Geometry Recognition.
-        Accounts for perspective, distinguishes Face 1 and Face 2, avoids double-counting corner boxes,
-        and accurately infers layers, columns, and depth without hardcoded defaults or 6x8 guesswork.
+        True physical object detection & instance segmentation for cardboard cartons.
+        Requirements:
+        - Every direct detection corresponds to a localized physical object.
+        - Produces bounding boxes [x1, y1, x2, y2], centroid [cx, cy], confidence score.
+        - Excludes full canvas background and tiny noise.
+        - Excludes tare wooden pallet base from inventory.
+        - Suppresses duplicate detections of the same object:
+            * Containment suppression (inner facets, labels, flaps).
+            * Cluster container suppression (outer stack envelope).
+            * Horizontal adjacent face pairing (merging front & side face of the same carton).
+            * Standard IoU NMS.
+        - Never fabricates evenly spaced grid points.
         """
-        if custom_matrix and isinstance(custom_matrix, dict):
-            layers = max(1, int(custom_matrix.get("layers") or 1))
-            cols = max(1, int(custom_matrix.get("columns") or custom_matrix.get("cols") or 1))
-            rows = max(1, int(custom_matrix.get("rows") or custom_matrix.get("depth") or 1))
-            return {
-                "layers": layers,
-                "columns": cols,
-                "rows": rows,
-                "depth": rows,
-                "is_regular": True,
-                "has_side_face": rows > 1,
-                "confidence": 0.98,
-                "status": "OPERATOR_CONFIRMED"
-            }
+        h_orig, w_orig = img_bgr.shape[:2]
 
-        h, w = img_bgr.shape[:2]
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-
-        # 1. Determine stack bounds
+        rx, ry, rw, rh = 0, 0, w_orig, h_orig
         if roi and isinstance(roi, dict):
-            sx = max(0, int(roi.get("x", 0)))
-            sy = max(0, int(roi.get("y", 0)))
-            sw = min(w - sx, max(20, int(roi.get("width", w))))
-            sh = min(h - sy, max(20, int(roi.get("height", h))))
+            rx = max(0, int(roi.get("x", 0)))
+            ry = max(0, int(roi.get("y", 0)))
+            rw = min(w_orig - rx, max(20, int(roi.get("width", w_orig))))
+            rh = min(h_orig - ry, max(20, int(roi.get("height", h_orig))))
+            proc_img = img_bgr[ry:ry+rh, rx:rx+rw]
         else:
-            hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-            mask_brown = cv2.inRange(hsv, (10, 35, 45), (28, 220, 245))
-            cnts, _ = cv2.findContours(mask_brown, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            valid_cnts = [c for c in cnts if cv2.contourArea(c) > (h * w * 0.05)]
-            if valid_cnts:
-                largest = max(valid_cnts, key=cv2.contourArea)
-                sx, sy, sw, sh = cv2.boundingRect(largest)
+            proc_img = img_bgr
+
+        ph, pw = proc_img.shape[:2]
+
+        fastsam_model = None
+        detector_name = "FastSAM-s.pt"
+        try:
+            from model_loader import get_shared_fastsam
+            fastsam_model, detector_name, _ = get_shared_fastsam("FastSAM-s.pt")
+        except Exception as e:
+            logger.warning(f"Could not load FastSAM model: {e}")
+
+        candidates = []
+        detector_used = "FASTSAM_INSTANCE_SEGMENTATION"
+        conf_thresh = max(0.20, min(0.50, 0.32 - (float(sensitivity) - 0.5) * 0.25))
+
+        if fastsam_model is not None:
+            try:
+                import torch
+                device = "cuda:0" if (torch.cuda.is_available() and torch.cuda.device_count() > 0) else "cpu"
+                results = fastsam_model(
+                    proc_img,
+                    device=device,
+                    retina_masks=True,
+                    imgsz=640,
+                    conf=conf_thresh,
+                    iou=0.65,
+                    verbose=False
+                )
+                if results and len(results) > 0 and results[0].boxes is not None:
+                    res_boxes = results[0].boxes
+                    for b in res_boxes:
+                        coords = b.xyxy[0].cpu().numpy()
+                        c_score = float(b.conf[0])
+                        ax1 = int(round(coords[0] + rx))
+                        ay1 = int(round(coords[1] + ry))
+                        ax2 = int(round(coords[2] + rx))
+                        ay2 = int(round(coords[3] + ry))
+                        box_w = max(1, ax2 - ax1)
+                        box_h = max(1, ay2 - ay1)
+                        area = box_w * box_h
+                        area_ratio = area / float(w_orig * h_orig)
+
+                        if area_ratio >= 0.82 or area_ratio < 0.003:
+                            continue
+                        if box_w < 18 or box_h < 20:
+                            continue
+                        aspect = box_w / float(box_h)
+                        if aspect > 2.85 or aspect < 0.30:
+                            continue
+
+                        candidates.append({
+                            "box": np.array([ax1, ay1, ax2, ay2], dtype=int),
+                            "conf": c_score,
+                            "area": area,
+                            "w": box_w,
+                            "h": box_h,
+                            "aspect": aspect,
+                            "cx": int(round((ax1 + ax2) / 2.0)),
+                            "cy": int(round((ay1 + ay2) / 2.0))
+                        })
+            except Exception as e:
+                logger.error(f"FastSAM inference failed, falling back to contour extractor: {e}")
+                candidates = []
+
+        if not candidates:
+            detector_used = "EDGE_CONTOUR_LOCALIZATION"
+            gray = cv2.cvtColor(proc_img, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            thresh = cv2.adaptiveThreshold(
+                blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 4
+            )
+            cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            min_area = (pw * ph) * 0.008
+            max_area = (pw * ph) * 0.75
+            for c in cnts:
+                area = cv2.contourArea(c)
+                if min_area <= area <= max_area:
+                    x, y, w_c, h_c = cv2.boundingRect(c)
+                    if w_c >= 18 and h_c >= 20:
+                        aspect_c = w_c / float(h_c)
+                        if 0.30 <= aspect_c <= 2.85:
+                            ax1 = int(x + rx)
+                            ay1 = int(y + ry)
+                            ax2 = int(ax1 + w_c)
+                            ay2 = int(ay1 + h_c)
+                            candidates.append({
+                                "box": np.array([ax1, ay1, ax2, ay2], dtype=int),
+                                "conf": 0.70,
+                                "area": w_c * h_c,
+                                "w": w_c,
+                                "h": h_c,
+                                "aspect": aspect_c,
+                                "cx": int(round(ax1 + w_c / 2.0)),
+                                "cy": int(round(ay1 + h_c / 2.0))
+                            })
+
+        confident = [c for c in candidates if c["conf"] >= 0.50]
+        median_h = float(np.median([c["h"] for c in confident])) if confident else 80.0
+
+        # Step 1: Filter out pallet runner slats / blocks in bottom region
+        clean_cands = []
+        tare_items = []
+        for c in candidates:
+            b = c["box"]
+            is_bottom = (b[3] >= int(h_orig * 0.72))
+            is_pallet_slat = is_bottom and (c["h"] <= int(median_h * 0.45))
+            if is_pallet_slat:
+                tare_items.append(c)
             else:
-                sx, sy, sw, sh = int(w * 0.08), int(h * 0.08), int(w * 0.84), int(h * 0.82)
+                clean_cands.append(c)
 
-        # Exclude bottom tare pallet base (bottom 14% of overall pallet load height)
-        pallet_base_height = max(16, int(sh * 0.14))
-        box_sh = max(30, sh - pallet_base_height)
-        stack_roi = gray[sy:sy + box_sh, sx:sx + sw]
-        rh, rw = stack_roi.shape[:2]
+        # If tare pallet base is identified from slats, exclude any loose low-conf proposal inside the pallet base envelope
+        if tare_items:
+            pal_y1 = min(t["box"][1] for t in tare_items)
+            filtered_cands = []
+            for c in clean_cands:
+                b = c["box"]
+                if b[1] >= pal_y1 and c["conf"] < 0.60:
+                    tare_items.append(c)
+                else:
+                    filtered_cands.append(c)
+            clean_cands = filtered_cands
 
-        if rh < 30 or rw < 30:
-            return {
-                "box_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
-                "pallet_bounds": {"x": sx, "y": sy + box_sh, "w": sw, "h": pallet_base_height},
-                "stack_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
-                "layers": 1, "columns": 1, "rows": 1, "depth": 1,
-                "is_regular": False, "has_side_face": False,
-                "confidence": 0.4, "status": "INSUFFICIENT_VISUAL_EVIDENCE"
+        # Step 2: Suppress multi-box composite grouping envelopes in favor of individual cartons
+        suppressed_composites = set()
+        for i, c1 in enumerate(clean_cands):
+            children = []
+            for j, c2 in enumerate(clean_cands):
+                if i == j:
+                    continue
+                ix1 = max(c1["box"][0], c2["box"][0])
+                iy1 = max(c1["box"][1], c2["box"][1])
+                ix2 = min(c1["box"][2], c2["box"][2])
+                iy2 = min(c1["box"][3], c2["box"][3])
+                if ix2 > ix1 and iy2 > iy1:
+                    inter_a = (ix2 - ix1) * (iy2 - iy1)
+                    if inter_a / float(c2["area"]) > 0.70:
+                        children.append(c2)
+            if len(children) >= 2:
+                for a_idx in range(len(children)):
+                    for b_idx in range(a_idx + 1, len(children)):
+                        ch_a = children[a_idx]
+                        ch_b = children[b_idx]
+                        ox1 = max(ch_a["box"][0], ch_b["box"][0])
+                        ox2 = min(ch_a["box"][2], ch_b["box"][2])
+                        h_overlap = max(0, ox2 - ox1)
+                        if h_overlap < min(ch_a["w"], ch_b["w"]) * 0.30:
+                            combined_w = ch_a["w"] + ch_b["w"]
+                            if combined_w >= c1["w"] * 0.75 and c1["w"] > 1.35 * median_h:
+                                suppressed_composites.add(i)
+                                break
+                    if i in suppressed_composites:
+                        break
+
+        remaining = [clean_cands[i] for i in range(len(clean_cands)) if i not in suppressed_composites]
+        remaining.sort(key=lambda x: x["conf"], reverse=True)
+
+        # Step 3: Containment suppression, IoU NMS & same-column vertical shift deduplication
+        accepted = []
+        for item in remaining:
+            b1 = item["box"]
+            dup = False
+            for acc in accepted:
+                b2 = acc["box"]
+                ix1, iy1 = max(b1[0], b2[0]), max(b1[1], b2[1])
+                ix2, iy2 = min(b1[2], b2[2]), min(b1[3], b2[3])
+                if ix2 > ix1 and iy2 > iy1:
+                    inter_area = (ix2 - ix1) * (iy2 - iy1)
+                    contain_item = inter_area / float(item["area"])
+                    contain_acc = inter_area / float(acc["area"])
+                    if contain_item > 0.60:
+                        dup = True
+                        break
+                    if contain_acc > 0.60 and item["area"] > acc["area"] * 1.4:
+                        dup = True
+                        break
+                    iou = inter_area / float(item["area"] + acc["area"] - inter_area)
+                    if iou > 0.38:
+                        dup = True
+                        break
+                # Deduplicate near-identical column proposal with minor vertical shift
+                if ix2 > ix1 and iy2 > iy1:
+                    x_overlap = ix2 - ix1
+                    x_min_w = min(item["w"], acc["w"])
+                    if (x_overlap / float(x_min_w)) > 0.82:
+                        y_dist = abs(item["cy"] - acc["cy"])
+                        if y_dist < (median_h * 0.35):
+                            dup = True
+                            break
+            if not dup:
+                accepted.append(item)
+
+        pallet_base_meta = None
+        if tare_items:
+            min_x = min(t["box"][0] for t in tare_items)
+            min_y = min(t["box"][1] for t in tare_items)
+            max_x = max(t["box"][2] for t in tare_items)
+            max_y = max(t["box"][3] for t in tare_items)
+            pallet_base_meta = {
+                "x": int(min_x),
+                "y": int(min_y),
+                "w": int(max_x - min_x),
+                "h": int(max_y - min_y),
+                "bbox": [int(min_x), int(min_y), int(max_x), int(max_y)],
+                "confidence": 0.88
             }
 
-        # 2. Find front vertical corner separating left face and right face in central 30%..70%
-        sobel_v = np.abs(cv2.Sobel(stack_roi, cv2.CV_32F, 1, 0, ksize=3))
-        v_prof = np.mean(sobel_v, axis=0)
-        c_min = int(rw * 0.35)
-        c_max = int(rw * 0.65)
-        corner_rel_x = c_min + int(np.argmax(v_prof[c_min:c_max]))
-        corner_abs_x = sx + corner_rel_x
+        cartons = accepted
+        cartons.sort(key=lambda m: (m["cy"] // max(20, int(h_orig * 0.12)), m["cx"]))
 
-        def _find_peaks_np(arr_1d, min_dist=20, rel_thresh=1.0):
-            thresh = np.mean(arr_1d) * rel_thresh
-            pks = []
-            L = len(arr_1d)
-            for i in range(min_dist, L - min_dist):
-                if arr_1d[i] > thresh:
-                    win_start = max(0, i - min_dist)
-                    win_end = min(L, i + min_dist + 1)
-                    if arr_1d[i] == np.max(arr_1d[win_start:win_end]):
-                        if not pks or (i - pks[-1]) >= min_dist:
-                            pks.append(i)
-            return pks
+        detected_cartons = []
+        for idx, m in enumerate(cartons, start=1):
+            detected_cartons.append({
+                "id": idx,
+                "index": idx,
+                "x": int(m["cx"]),
+                "y": int(m["cy"]),
+                "w": int(m["w"]),
+                "h": int(m["h"]),
+                "bbox": [int(m["box"][0]), int(m["box"][1]), int(m["box"][2]), int(m["box"][3])],
+                "confidence": round(float(m["conf"]), 3),
+                "cluster": f"Carton #{idx}",
+                "cluster_name": f"Carton #{idx}",
+                "color_bgr": (199, 132, 2) if idx % 2 == 0 else (74, 163, 22),
+                "color_hex": "#0284c7" if idx % 2 == 0 else "#16a34a",
+                "is_direct_detection": True
+            })
 
-        # 3. Columns on Right Face
-        right_prof = v_prof[corner_rel_x:]
-        min_d_r = max(20, int(len(right_prof) * 0.12))
-        peaks_r = _find_peaks_np(right_prof, min_dist=min_d_r, rel_thresh=0.95)
-        cols_front = max(1, min(6, len(peaks_r) + 1))
-
-        # 4. Columns on Left Face
-        left_prof = v_prof[:corner_rel_x]
-        min_d_l = max(20, int(len(left_prof) * 0.12))
-        peaks_l = _find_peaks_np(left_prof, min_dist=min_d_l, rel_thresh=0.95)
-        cols_side = max(1, min(6, len(peaks_l) + 1))
-
-        # 5. Layers (strictly within the box inventory, excluding tare pallet base)
-        sobel_h = np.abs(cv2.Sobel(stack_roi, cv2.CV_32F, 0, 1, ksize=3))
-        h_prof = np.mean(sobel_h, axis=1)
-        min_d_h = max(20, int(rh * 0.10))
-        peaks_h = _find_peaks_np(h_prof, min_dist=min_d_h, rel_thresh=0.90)
-        layers = max(1, min(6, len(peaks_h) + 1))
-
-        is_regular = (layers >= 2 and cols_front >= 2)
-        has_side_face = cols_side > 1
-
-        return {
-            "box_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
-            "pallet_bounds": {"x": sx, "y": sy + box_sh, "w": sw, "h": pallet_base_height},
-            "stack_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
-            "corner_x": corner_abs_x,
-            "layers": layers,
-            "columns": cols_front,
-            "rows": cols_side,
-            "depth": cols_side,
-            "is_regular": is_regular,
-            "has_side_face": has_side_face,
-            "confidence": 0.90 if is_regular else 0.40,
-            "status": "AUTO_INFERRED_REGULAR" if is_regular else "INSUFFICIENT_VISUAL_EVIDENCE"
+        meta = {
+            "detector_used": detector_used,
+            "raw_candidates_count": len(candidates),
+            "accepted_count": len(detected_cartons),
+            "tare_pallet_base_detected": pallet_base_meta is not None
         }
+
+        return detected_cartons, pallet_base_meta, meta
 
     def _count_carton_boxes_pallet(
         self,
@@ -1024,168 +1163,209 @@ class PalletVisionCountingService:
         custom_matrix: Optional[Dict[str, int]] = None
     ) -> Dict[str, Any]:
         """
-        Specialized 3D pallet matrix deconstruction for stacked cartons and boxes.
-        Maintains honest separation between directly detected unique objects,
-        inferred visible exterior faces, inferred hidden interior boxes, and proposed total stack.
-        Explicitly excludes the wooden pallet base from inventory.
-        Avoids double-counting the shared corner column between front and side faces.
-        Never fabricates synthetic grid marker points.
+        Object-centric counting architecture for cardboard cartons & pallet stacks.
+        Requirements:
+        - Every direct detection corresponds to a localized physical object with bbox, centroid, and confidence.
+        - Excludes tare wooden pallet base from inventory.
+        - Suppresses duplicate detections of the same object and merges front/side faces.
+        - Accurately handles irregular stacks (e.g. 3 boxes pyramid) reporting exact visible count with 0 inferred hidden.
+        - Separates directly_detected_count, inferred_count, and total_units.
+        - Synchronizes 2D annotations and 3D digital twin to authoritative detection results.
+        - Never fabricates evenly spaced grid points.
         """
         h, w = img_bgr.shape[:2]
         vis = img_bgr.copy()
 
-        geo = self._infer_stack_geometry(img_bgr, roi=roi, custom_matrix=custom_matrix)
-        layers = geo["layers"]
-        front_cols = geo["columns"]
-        side_cols = geo["rows"]
-        is_regular = geo["is_regular"]
-        has_side_face = geo.get("has_side_face", False)
+        detected_cartons, pallet_base_meta, meta = self._detect_physical_carton_instances(
+            img_bgr, roi=roi, sensitivity=sensitivity
+        )
+        directly_detected_count = len(detected_cartons)
+
+        # Analyze elevation layers from actual localized objects
+        layer_buckets = []
+        sorted_by_y = sorted(detected_cartons, key=lambda c: c["y"])
+        if sorted_by_y:
+            current_layer = [sorted_by_y[0]]
+            for c in sorted_by_y[1:]:
+                prev_h = current_layer[-1]["h"]
+                if abs(c["y"] - current_layer[-1]["y"]) < max(18, int(prev_h * 0.45)):
+                    current_layer.append(c)
+                else:
+                    layer_buckets.append(current_layer)
+                    current_layer = [c]
+            layer_buckets.append(current_layer)
+
+        num_layers = len(layer_buckets)
+        boxes_per_layer = [len(lb) for lb in layer_buckets] if layer_buckets else [0]
+
         is_confirmed = (custom_matrix is not None)
+        
+        # Determine stack regularity
+        is_irregular = False
+        if directly_detected_count <= 4:
+            is_irregular = True
+        elif num_layers > 1:
+            if max(boxes_per_layer) - min(boxes_per_layer) > 1:
+                is_irregular = True
 
-        box_bounds = geo.get("box_bounds") or {"x": int(w * 0.10), "y": int(h * 0.08), "w": int(w * 0.80), "h": int(h * 0.68)}
-        pallet_bounds = geo.get("pallet_bounds") or {"x": int(w * 0.10), "y": int(h * 0.76), "w": int(w * 0.80), "h": int(h * 0.12)}
-        bx, by, bw, bh = box_bounds["x"], box_bounds["y"], box_bounds["w"], box_bounds["h"]
-        corner_x = geo.get("corner_x") or int(bx + bw * 0.50)
-
-        # Honest Geometric Counts & Corner Deduplication
-        front_faces = layers * front_cols
-        side_faces = (layers * side_cols) if has_side_face else 0
-        shared_corner_count = layers if has_side_face else 0
-        unique_exterior_visible = front_faces + max(0, side_faces - shared_corner_count)
-        total_3d_pallet = layers * front_cols * side_cols
-        hidden_count = max(0, total_3d_pallet - unique_exterior_visible)
-
-        pieces = []
-        # For operator-confirmed matrix (e.g. test verification), generate exterior coordinate markers
+        # Compute counts based on explicit evidence
         if is_confirmed:
-            front_xs = np.linspace(corner_x + int((bx + bw - corner_x) * 0.10), bx + bw - int((bx + bw - corner_x) * 0.08), front_cols).astype(int)
-            num_side_cols = max(0, side_cols - 1)
-            side_xs = np.linspace(bx + int((corner_x - bx) * 0.12), corner_x - int((corner_x - bx) * 0.15), num_side_cols).astype(int) if num_side_cols > 0 else []
-            layer_ys = np.linspace(by + bh * 0.14, by + bh * 0.86, layers).astype(int)
-
-            idx = 1
-            for ly in layer_ys:
-                for fx in front_xs:
-                    if 0 <= fx < w and 0 <= ly < h:
-                        pieces.append({
-                            "id": idx, "index": idx, "x": int(fx), "y": int(ly),
-                            "cluster": "Front Face Visible", "cluster_name": "Front Face Visible",
-                            "color_bgr": (199, 132, 2), "color_hex": "#0284c7"
-                        })
-                        idx += 1
-            for ly in layer_ys:
-                for sx in side_xs:
-                    if 0 <= sx < w and 0 <= ly + 18 < h:
-                        pieces.append({
-                            "id": idx, "index": idx, "x": int(sx), "y": int(ly + 18),
-                            "cluster": "Side Face (Excl Corner)", "cluster_name": "Side Face (Excl Corner)",
-                            "color_bgr": (74, 163, 22), "color_hex": "#16a34a"
-                        })
-                        idx += 1
-            total_visible = len(pieces)
+            c_layers = max(1, int(custom_matrix.get("layers") or 1))
+            c_cols = max(1, int(custom_matrix.get("columns") or custom_matrix.get("cols") or 1))
+            c_rows = max(1, int(custom_matrix.get("rows") or custom_matrix.get("depth") or 1))
+            total_pieces = c_layers * c_cols * c_rows
+            inferred_count = max(0, total_pieces - directly_detected_count)
+            verif_status = "OPERATOR_CONFIRMED"
+            formula_text = f"{c_rows} Rows × {c_cols} Columns × {c_layers} Layers = {total_pieces} Units"
+            conf_note = f"Operator Confirmed: {formula_text}. {directly_detected_count} visible cartons directly localized; {inferred_count} inferred hidden interior."
+        elif is_irregular:
+            total_pieces = directly_detected_count
+            inferred_count = 0
+            verif_status = "DIRECT_VISUAL_DETECTION"
+            formula_text = f"{directly_detected_count} Physical Cartons Localized (Direct Detections, Irregular Stack)"
+            conf_note = f"{directly_detected_count} visibly stacked cartons directly localized. Irregular stack detected with 0 inferred hidden units. Tare pallet base excluded."
         else:
-            # Standalone Automated Count: DO NOT fabricate synthetic markers!
-            pieces = []
-            total_visible = unique_exterior_visible if is_regular else 0
+            # Regular pallet load: preserve visible count; total interior inventory is unknown without depth proof
+            total_pieces = directly_detected_count
+            inferred_count = 0
+            verif_status = "DIRECT_VISUAL_DETECTION (Total Unknown)"
+            formula_text = f"{directly_detected_count} Exterior Cartons Localized (Total Interior Unknown)"
+            conf_note = f"{directly_detected_count} exterior cartons directly localized on visible faces. Total interior inventory is unknown without depth view or operator confirmation."
+
+        if directly_detected_count == 0:
+            total_pieces = 0
+            inferred_count = 0
+            verif_status = "INSUFFICIENT_VISUAL_EVIDENCE"
+            formula_text = "0 Countable Units Localized (Insufficient Visual Evidence)"
+            conf_note = "0 Countable Units Localized: Visual evidence is insufficient to reliably detect individual box boundaries."
+
+        # Compute stack bounding box from localized detections
+        if detected_cartons:
+            stack_x1 = min(c["bbox"][0] for c in detected_cartons)
+            stack_y1 = min(c["bbox"][1] for c in detected_cartons)
+            stack_x2 = max(c["bbox"][2] for c in detected_cartons)
+            stack_y2 = max(c["bbox"][3] for c in detected_cartons)
+            stack_w = max(1, stack_x2 - stack_x1)
+            stack_h = max(1, stack_y2 - stack_y1)
+            stack_cx = (stack_x1 + stack_x2) / 2.0
+        else:
+            stack_x1, stack_y1, stack_x2, stack_y2 = 0, 0, w, h
+            stack_w, stack_h, stack_cx = w, h, w / 2.0
 
         # Construct 3D Digital Twin Voxel Grid
         grid_3d = []
-        g_id = 1
-        for l in range(layers):
-            for c in range(front_cols):
-                for r in range(side_cols):
-                    is_visible_unit = (r == 0 or c == 0)
-                    grid_3d.append({
-                        "id": g_id,
-                        "layer": l,
-                        "col": c,
-                        "depth": r,
-                        "is_hidden": not is_visible_unit,
-                        "status": "visible" if is_visible_unit else "hidden_core",
-                        "label": f"Box #{g_id} (Layer {l+1}, Col {c+1}, Row {r+1})",
-                        "color_hex": "#cba06c" if is_visible_unit else "#0284c7"
-                    })
-                    g_id += 1
-
-        # Determine final proposed quantities and verification status
         if is_confirmed:
-            total_pieces = total_3d_pallet
-            formula_text = f"{side_cols} Rows × {front_cols} Columns × {layers} Layers = {total_pieces} Pieces"
-            verif_status = "OPERATOR_CONFIRMED"
-            conf_note = f"Operator Confirmed: {formula_text}. {unique_exterior_visible} exterior cartons, {hidden_count} inferred hidden interior."
-        elif is_regular:
-            total_pieces = total_3d_pallet
-            formula_text = f"{side_cols} Rows × {front_cols} Columns × {layers} Layers = {total_pieces} Pieces (Proposed Stack: {unique_exterior_visible} Exterior, {hidden_count} Inferred Hidden)"
-            verif_status = "ESTIMATED_STACK (AI Proposed)"
-            conf_note = f"Proposed 3D Stack: {formula_text}. Exterior unique cartons ({unique_exterior_visible}) deduplicated across faces; {hidden_count} hidden core units separated. Tare pallet base excluded."
-        else:
-            total_pieces = 0
-            total_visible = 0
-            hidden_count = 0
-            total_3d_pallet = 0
-            formula_text = "0 Countable Units Localized (Insufficient Visual Evidence)"
-            verif_status = "INSUFFICIENT_VISUAL_EVIDENCE"
-            conf_note = "0 Countable Units Localized: Visual evidence is insufficient to reliably detect individual box boundaries or regular tier structures."
+            c_layers = max(1, int(custom_matrix.get("layers") or 1))
+            c_cols = max(1, int(custom_matrix.get("columns") or custom_matrix.get("cols") or 1))
+            c_rows = max(1, int(custom_matrix.get("rows") or custom_matrix.get("depth") or 1))
+            g_id = 1
+            for l in range(c_layers):
+                for c in range(c_cols):
+                    for r in range(c_rows):
+                        is_visible_unit = (r == 0 or c == 0)
+                        grid_3d.append({
+                            "id": g_id,
+                            "layer": l,
+                            "col": c,
+                            "depth": r,
+                            "is_hidden": not is_visible_unit,
+                            "is_direct_detection": is_visible_unit,
+                            "status": "visible" if is_visible_unit else "hidden_core",
+                            "label": f"Carton #{g_id} (Layer {l+1}, Col {c+1}, Row {r+1})",
+                            "color_hex": "#cba06c" if is_visible_unit else "#0284c7"
+                        })
+                        g_id += 1
+        elif directly_detected_count > 0:
+            # Irregular or unconfirmed stack: mirror actual detected cartons at their elevations
+            for l_idx, lb in enumerate(layer_buckets):
+                lb_sorted = sorted(lb, key=lambda c: c["x"])
+                for c_idx, carton in enumerate(lb_sorted):
+                    grid_3d.append({
+                        "id": carton["id"],
+                        "layer": l_idx,
+                        "col": c_idx,
+                        "depth": 0,
+                        "is_hidden": False,
+                        "is_direct_detection": True,
+                        "status": "visible",
+                        "label": f"Carton #{carton['id']} (Level {l_idx+1})",
+                        "color_hex": "#cba06c",
+                        "norm_x": round((carton["x"] - stack_cx) / float(stack_w), 4),
+                        "norm_y": round((stack_y2 - carton["y"]) / float(stack_h), 4),
+                        "norm_w": round(carton["w"] / float(stack_w), 4),
+                        "norm_h": round(carton["h"] / float(stack_h), 4)
+                    })
 
         matrix_3d_data = {
-            "layers": layers,
-            "columns": front_cols,
-            "rows": side_cols,
-            "depth": side_cols,
+            "layers": num_layers if not is_confirmed else int(custom_matrix.get("layers") or 1),
+            "columns": max(boxes_per_layer) if (not is_confirmed and boxes_per_layer) else (int(custom_matrix.get("columns") or 1) if is_confirmed else 1),
+            "rows": 1 if not is_confirmed else int(custom_matrix.get("rows") or 1),
+            "depth": 1 if not is_confirmed else int(custom_matrix.get("rows") or 1),
             "total_boxes": total_pieces,
-            "visible_count": total_visible,
-            "hidden_count": hidden_count,
+            "visible_count": directly_detected_count,
+            "hidden_count": inferred_count,
             "formula": formula_text,
-            "boxes": grid_3d if is_regular or is_confirmed else []
+            "has_pallet": pallet_base_meta is not None,
+            "is_depth_unknown": bool(not is_confirmed and inferred_count == 0),
+            "reconstruction_mode": "OPERATOR_CONFIRMED" if is_confirmed else ("IRREGULAR_STRUCTURE" if is_irregular else "DIRECT_FRONT_ELEVATION"),
+            "boxes": grid_3d
         }
 
-        # Cluster Breakdown with Explicit Corner Deduplication
-        side_unique_count = max(0, side_faces - shared_corner_count)
+        # Cluster Breakdown
         clean_clusters = [
-            {"name": f"Front Face ({front_faces} Visible)", "count": front_faces, "color_hex": "#0284c7", "color_bgr": [199, 132, 2]},
-            {"name": f"Side Face Excl Corner ({side_unique_count} Cartons)", "count": side_unique_count, "color_hex": "#16a34a", "color_bgr": [74, 163, 22]},
-            {"name": f"Shared Corner Column ({shared_corner_count} Shared)", "count": shared_corner_count, "color_hex": "#8b5cf6", "color_bgr": [246, 92, 139]},
-            {"name": f"Hidden Core ({hidden_count} Inferred)", "count": hidden_count, "color_hex": "#38bdf8", "color_bgr": [248, 189, 56]},
-            {"name": f"Proposed Total Stack ({total_pieces} Units)", "count": total_pieces, "color_hex": "#10b981", "color_bgr": [22, 163, 74]}
-        ] if is_regular or is_confirmed else []
+            {"name": "Direct Object Detections", "count": directly_detected_count, "color_hex": "#10b981", "color_bgr": [22, 163, 74]}
+        ]
+        if pallet_base_meta:
+            clean_clusters.append({
+                "name": "Tare Pallet Base (Excluded)", "count": 1, "color_hex": "#f59e0b", "color_bgr": [20, 190, 240]
+            })
+        if inferred_count > 0:
+            clean_clusters.append({
+                "name": "Inferred Hidden Core", "count": inferred_count, "color_hex": "#38bdf8", "color_bgr": [248, 189, 56]
+            })
 
         # Annotate Visual Canvas
-        if is_regular or is_confirmed:
-            # 1. Box inventory boundary
-            cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), (199, 132, 2), 2)
-            cv2.putText(vis, f"Carton Inventory ({layers}L x {front_cols}C x {side_cols}R)",
-                        (bx + 6, max(20, by - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (199, 132, 2), 1, cv2.LINE_AA)
+        if directly_detected_count > 0:
+            for carton in detected_cartons:
+                bx1, by1, bx2, by2 = carton["bbox"]
+                cx, cy = carton["x"], carton["y"]
+                idx = carton["index"]
+                conf = carton["confidence"]
 
-            # 2. Excluded tare wooden pallet base
-            px, py, pw, ph = pallet_bounds["x"], pallet_bounds["y"], pallet_bounds["w"], pallet_bounds["h"]
-            cv2.rectangle(vis, (px, py), (px + pw, py + ph), (0, 165, 255), 2)
-            cv2.putText(vis, "Tare Pallet Base (Excluded from Inventory Count)",
-                        (px + 6, min(h - 8, py + ph - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 165, 255), 1, cv2.LINE_AA)
+                # Physical object bounding box
+                cv2.rectangle(vis, (bx1, by1), (bx2, by2), (199, 132, 2), 2, cv2.LINE_AA)
 
-            # 3. Corner vertical boundary line separating front and side face
-            if has_side_face:
-                cv2.line(vis, (corner_x, by), (corner_x, by + bh), (246, 92, 139), 2)
-                cv2.putText(vis, "Corner Seam", (corner_x - 45, by + 22),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (246, 92, 139), 1, cv2.LINE_AA)
+                # Numbered circular badge
+                radius = 12 if directly_detected_count > 50 else 14
+                cv2.circle(vis, (cx, cy), radius, (199, 132, 2), -1, cv2.LINE_AA)
+                cv2.circle(vis, (cx, cy), radius, (255, 255, 255), 2, cv2.LINE_AA)
 
-            # 4. Top HUD Banner
+                txt = str(idx)
+                font_scale = 0.28 if len(txt) >= 3 else 0.36
+                (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
+                cv2.putText(vis, txt, (cx - tw // 2, cy + th // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+
+                # Confidence label on box corner
+                cv2.putText(vis, f"#{idx} {conf:.2f}", (bx1 + 4, max(14, by1 - 4)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.34, (56, 189, 248), 1, cv2.LINE_AA)
+
+            if pallet_base_meta:
+                px1, py1, px2, py2 = pallet_base_meta["bbox"]
+                cv2.rectangle(vis, (px1, py1), (px2, py2), (0, 165, 255), 2, cv2.LINE_AA)
+                cv2.putText(vis, "Tare Pallet Base (Excluded from Inventory Count)",
+                            (px1 + 8, min(h - 8, py2 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 165, 255), 1, cv2.LINE_AA)
+
             hud_h = 44
             cv2.rectangle(vis, (0, 0), (w, hud_h), (15, 23, 42), -1)
             cv2.line(vis, (0, hud_h), (w, hud_h), (51, 65, 85), 1)
-            cv2.putText(vis, f"PROPOSED: {total_pieces} PIECES ({side_cols}R x {front_cols}C x {layers}L) | Exterior Unique: {unique_exterior_visible} | Inferred Core: {hidden_count}",
+            cv2.putText(vis, f"DIRECT DETECTIONS: {directly_detected_count} | Hidden: {inferred_count} | Tare Excluded: {1 if pallet_base_meta else 0} Pallet Base",
                         (14, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (248, 250, 252), 1, cv2.LINE_AA)
-            cv2.putText(vis, "Tare Packaging: 1 Pallet Base Excluded | Corner Column Deduplicated | Zero Fabricated Markers",
+            cv2.putText(vis, f"Status: {verif_status} | Zero Fabricated Markers",
                         (14, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (148, 163, 184), 1, cv2.LINE_AA)
-
-            # If confirmed markers are present, draw them
-            if pieces:
-                vis = self._render_individual_pieces_annotation(
-                    vis, pieces, clean_clusters, total_visible, force_legend=False, items_label="cartons"
-                )
         else:
-            # Insufficient visual evidence overlay
             cv2.rectangle(vis, (0, h - 36), (w, h), (15, 23, 42), -1)
-            cv2.putText(vis, "INSUFFICIENT VISUAL EVIDENCE: 0 Countable Units Localized (Confirm Geometry or Adjust Angle)",
+            cv2.putText(vis, "INSUFFICIENT VISUAL EVIDENCE: 0 Countable Units Localized",
                         (16, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 180, 255), 1, cv2.LINE_AA)
 
         filename = f"box_grid_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
@@ -1194,39 +1374,31 @@ class PalletVisionCountingService:
         rel_url = f"/static/uploads/{filename}"
 
         quantity_breakdown = {
-            "visible_count": total_visible,
-            "inferred_count": hidden_count,
-            "directly_detected_count": len(pieces),
-            "exterior_visible_count": unique_exterior_visible if (is_regular or is_confirmed) else 0,
-            "shared_corner_count": shared_corner_count,
-            "front_face_faces": front_faces if (is_regular or is_confirmed) else 0,
-            "side_face_faces": side_faces if (is_regular or is_confirmed) else 0,
-            "automated_geometry": {
-                "rows": side_cols if (is_regular or is_confirmed) else 0,
-                "columns": front_cols if (is_regular or is_confirmed) else 0,
-                "layers": layers if (is_regular or is_confirmed) else 0,
-                "is_regular_matrix": is_regular,
-                "stack_detected": bool(is_regular or is_confirmed),
-                "has_side_face": has_side_face,
-                "confidence": geo.get("confidence", 0.90),
-                "status": "AUTO_INFERRED_REGULAR" if is_regular else "INSUFFICIENT_VISUAL_EVIDENCE"
-            },
-            "operator_confirmed_dimensions": {
-                "rows": side_cols,
-                "columns": front_cols,
-                "layers": layers
-            } if is_confirmed else None,
-            "formula": formula_text,
+            "visible_count": directly_detected_count,
+            "inferred_count": inferred_count,
+            "directly_detected_count": directly_detected_count,
             "total_units": total_pieces,
             "final_reviewed_quantity": total_pieces,
-            "counting_method": "CONFIRMED_REGULAR_MATRIX" if is_confirmed else ("AUTOMATED_GEOMETRY_RECONSTRUCTION" if is_regular else "INSUFFICIENT_VISUAL_EVIDENCE"),
+            "formula": formula_text,
+            "counting_method": "DIRECT_INSTANCE_OBJECT_DETECTION" if not is_confirmed else "CONFIRMED_REGULAR_MATRIX",
             "tare_excluded": True,
             "tare_packaging": {
-                "pallet_base_count": 1,
+                "pallet_base_count": 1 if pallet_base_meta else 0,
                 "packaging_units": 0,
-                "notes": "Physical pallet base excluded from inventory piece/bundle counts"
+                "notes": "Physical wooden pallet base excluded from inventory count"
             },
-            "is_estimate": bool(hidden_count > 0 and not is_confirmed),
+            "automated_geometry": {
+                "layers": num_layers if not is_confirmed else int(custom_matrix.get("layers") or 1),
+                "columns": max(boxes_per_layer) if (not is_confirmed and boxes_per_layer) else 1,
+                "rows": 1 if not is_confirmed else int(custom_matrix.get("rows") or 1),
+                "depth": 1 if not is_confirmed else int(custom_matrix.get("rows") or 1),
+                "is_regular_matrix": not is_irregular,
+                "stack_detected": bool(directly_detected_count > 0),
+                "confidence": 0.95 if directly_detected_count > 0 else 0.40,
+                "status": verif_status
+            },
+            "operator_confirmed_dimensions": custom_matrix if is_confirmed else None,
+            "is_estimate": bool(inferred_count > 0 and not is_confirmed),
             "verification_status": verif_status
         }
 
@@ -1234,13 +1406,16 @@ class PalletVisionCountingService:
             "success": True,
             "mode": "BOX_GRID",
             "total_pieces": total_pieces,
-            "visible_pieces": total_visible,
+            "visible_pieces": directly_detected_count,
+            "directly_detected_count": directly_detected_count,
             "total_3d_pallet": total_pieces,
-            "hidden_count": hidden_count,
+            "hidden_count": inferred_count,
             "clusters_count": len(clean_clusters),
             "clusters": clean_clusters,
-            "pieces": [{"id": p["index"], "x": p["x"], "y": p["y"], "cluster": p["cluster_name"], "color_hex": p["color_hex"]} for p in pieces],
-            "pieces_sample": [{"id": p["index"], "x": p["x"], "y": p["y"], "cluster": p["cluster_name"]} for p in pieces[:30]],
+            "pieces": detected_cartons,
+            "pieces_sample": detected_cartons[:30],
+            "tare_pallet_base_detected": pallet_base_meta is not None,
+            "tare_pallet_base_meta": pallet_base_meta,
             "annotated_image_url": rel_url,
             "raw_image_url": raw_url,
             "grid_formula": formula_text,
@@ -1353,7 +1528,8 @@ class PalletVisionCountingService:
         total_count = len(sorted_pieces)
 
         annotated_img = self._render_individual_pieces_annotation(
-            vis, sorted_pieces, cl_list, total_count, force_legend=force_legend
+            vis, sorted_pieces, cl_list, total_count, force_legend=force_legend,
+            title_label="OPERATOR REVIEW" if (custom_matrix and isinstance(custom_matrix, dict)) else "DIRECT OBJECT COUNT"
         )
 
         filename = f"piece_verified_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
@@ -1385,6 +1561,7 @@ class PalletVisionCountingService:
 
         quantity_breakdown = {
             "visible_count": total_count,
+            "directly_detected_count": total_count,
             "inferred_count": hidden_count,
             "operator_confirmed_dimensions": matrix_dims,
             "formula": formula_text,
@@ -1671,7 +1848,8 @@ class PalletVisionCountingService:
         total_count: int,
         force_legend: bool = True,
         items_label: str = "pcs",
-        sku_name: Optional[str] = None
+        sku_name: Optional[str] = None,
+        title_label: str = "DIRECT OBJECT COUNT"
     ) -> np.ndarray:
         """
         Renders numbered circular badges and a crisp, neat Summary Legend Box.
@@ -1719,7 +1897,7 @@ class PalletVisionCountingService:
             cv2.rectangle(vis, (card_x, card_y), (card_x + card_w, card_y + card_h), (51, 65, 85), 1, cv2.LINE_AA)
             cv2.rectangle(vis, (card_x, card_y), (card_x + 4, card_y + card_h), (199, 132, 2), -1)
 
-            cv2.putText(vis, "VERIFIED STOCK COUNT", (card_x + 14, card_y + 22),
+            cv2.putText(vis, title_label.upper(), (card_x + 14, card_y + 22),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.38, (148, 163, 184), 1, cv2.LINE_AA)
             cv2.putText(vis, f"TOTAL: {total_count} {items_label.upper()}", (card_x + 14, card_y + 48),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)

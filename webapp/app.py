@@ -643,6 +643,25 @@ def api_create_warehouse():
             status=data.get('status', 'Active'),
             company_name=company_name
         )
+        # Apply industry blueprint so creating a warehouse populates SKUs, palletization, and taxonomy
+        try:
+            from industry_blueprint_service import apply_industry_blueprint, auto_detect_company_industry
+            env_blueprint = data.get('environment_blueprint') or data.get('blueprint')
+            if not env_blueprint or env_blueprint == 'auto' or env_blueprint == 'custom':
+                det = auto_detect_company_industry(f"{company_name} {name}", description)
+                env_blueprint = det.get('detected_key', 'custom')
+
+            res_bp = apply_industry_blueprint(
+                blueprint_key=env_blueprint,
+                warehouse_code=wh['code'],
+                custom_company_name=company_name,
+                custom_prompt=f"{name} in {city} {description}"
+            )
+            if res_bp.get('success') and res_bp.get('warehouse'):
+                wh = res_bp['warehouse']
+        except Exception as e_bp:
+            logger.warning(f"Could not apply blueprint on warehouse creation: {e_bp}")
+
         # Set active if requested or first
         if data.get('set_active', True):
             db.set_active_warehouse(wh['code'])

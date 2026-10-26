@@ -53,6 +53,14 @@ MODEL_CAPABILITIES = {
         "proxy_classes": [],
         "warehouse_native_classes": True,
         "notes": "Open-vocabulary zero-shot detector capable of detecting bundles, pallets, boxes, and metal frames."
+    },
+    "fastsam-s.pt": {
+        "architecture": "Ultralytics FastSAM Small",
+        "dataset": "Segment Anything (SA-1B / Edge / Instance Segmentation)",
+        "natively_supported": ["arbitrary physical objects", "cardboard carton instances", "bundles", "containers"],
+        "proxy_classes": [],
+        "warehouse_native_classes": True,
+        "notes": "Zero-shot instance segmentation engine for physical object localization, mask segmentation, and facet deduplication."
     }
 }
 
@@ -267,5 +275,64 @@ def get_shared_detector(
             # Also register under active name if fell back
             if active_name.lower() != cache_key:
                 _shared_models[active_name.lower()] = _shared_models[cache_key]
+            return model, active_name, None
+        return None, "", err
+
+
+def load_fastsam_model(
+    requested_model: str = "FastSAM-s.pt",
+    device: Optional[str] = None
+) -> Tuple[Optional[Any], str, Optional[str], Optional[str]]:
+    """
+    Loads Ultralytics FastSAM model strictly from local weights.
+    Leverages CUDA if available, falls back to CPU.
+    """
+    try:
+        from ultralytics import FastSAM
+        import torch
+    except ImportError as e:
+        err = f"FastSAM import failed: {e}"
+        logger.error(err)
+        return None, "", None, err
+
+    resolved_path = resolve_model_path(requested_model)
+    if not resolved_path:
+        err = f"FastSAM model '{requested_model}' not found in candidate paths."
+        logger.warning(err)
+        return None, "", None, err
+
+    if device is None:
+        try:
+            device = "cuda:0" if (torch.cuda.is_available() and torch.cuda.device_count() > 0) else "cpu"
+        except Exception:
+            device = "cpu"
+
+    try:
+        logger.info(f"Loading FastSAM model from local path: {resolved_path} (device={device})")
+        model = FastSAM(resolved_path)
+        return model, requested_model, resolved_path, None
+    except Exception as e:
+        err = f"Failed to load FastSAM from '{resolved_path}': {e}"
+        logger.error(err)
+        return None, requested_model, resolved_path, err
+
+
+def get_shared_fastsam(requested_model: str = "FastSAM-s.pt") -> Tuple[Optional[Any], str, Optional[str]]:
+    """
+    Retrieves or initializes a thread-safe cached FastSAM detector instance.
+    """
+    cache_key = f"fastsam_{requested_model.lower()}"
+    with _model_cache_lock:
+        if cache_key in _shared_models:
+            entry = _shared_models[cache_key]
+            return entry["model"], entry["name"], None
+
+        model, active_name, path, err = load_fastsam_model(requested_model=requested_model)
+        if model is not None:
+            _shared_models[cache_key] = {
+                "model": model,
+                "name": active_name,
+                "path": path
+            }
             return model, active_name, None
         return None, "", err

@@ -100,8 +100,7 @@
                     const opt = document.createElement('option');
                     opt.value = wh.code;
                     opt.textContent = `${wh.name} (${wh.city || wh.code})`;
-                    opt.style.background = '#0f172a';
-                    opt.style.color = '#f1f5f9';
+                    opt.className = 'topbar-facility-option';
                     if (activeWarehouse && wh.code.toUpperCase() === activeWarehouse.code.toUpperCase()) {
                         opt.selected = true;
                     }

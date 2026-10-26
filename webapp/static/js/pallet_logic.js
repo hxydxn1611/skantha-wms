@@ -244,8 +244,32 @@
             const pallets = Array.isArray(raw) ? raw : (raw.pallets || []);
             renderPalletTable(pallets);
 
-            // If no active pallet selected, select the first STACKING/IN_PROGRESS pallet
-            if (!activePalletId && pallets.length > 0) {
+            if (!pallets || pallets.length === 0) {
+                activePalletId = null;
+                const idElem = document.getElementById('activePalletId');
+                const skuElem = document.getElementById('activePalletSku');
+                const bundleCountElem = document.getElementById('palletCountBundles');
+                const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
+                const totalPiecesElem = document.getElementById('palletTotalPieces');
+                const targetBundlesElem = document.getElementById('palletTargetBundles');
+                const barFill = document.getElementById('palletProgressBarFill');
+                const pctElem = document.getElementById('palletFillPct');
+                const statusElem = document.getElementById('activePalletStatus');
+                if (idElem) idElem.textContent = '—';
+                if (skuElem) skuElem.textContent = 'Awaiting Pallet Creation...';
+                if (bundleCountElem) bundleCountElem.textContent = '0';
+                if (unitsPerBundleElem) unitsPerBundleElem.textContent = '0';
+                if (totalPiecesElem) totalPiecesElem.textContent = '0';
+                if (targetBundlesElem) targetBundlesElem.textContent = '0';
+                if (barFill) barFill.style.width = '0%';
+                if (pctElem) pctElem.textContent = '0%';
+                if (statusElem) {
+                    statusElem.textContent = 'IDLE';
+                    statusElem.style.background = 'rgba(148, 163, 184, 0.15)';
+                    statusElem.style.color = '#94a3b8';
+                    statusElem.style.border = '1px solid #94a3b8';
+                }
+            } else if (!activePalletId && pallets.length > 0) {
                 const openPallet = pallets.find(p => p.status !== 'SEALED') || pallets[0];
                 setActivePallet(openPallet.pallet_id);
             } else if (activePalletId) {
