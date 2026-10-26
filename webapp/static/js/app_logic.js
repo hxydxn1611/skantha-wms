@@ -44,19 +44,64 @@
         }
         window.togglePassword = togglePassword;
 
-        function toggleAuthMode() {
+        function setAuthTab(tab) {
+            const overlay = document.getElementById('login-overlay');
             const signin = document.getElementById('form-signin');
             const signup = document.getElementById('form-signup');
-            const tagline = document.getElementById('login-tagline');
-            if(signin.style.display === 'none') {
-                signin.style.display = 'block';
-                signup.style.display = 'none';
-                if(tagline) tagline.innerText = "SEE EVERYTHING. MOVE WITH PRECISION.";
-            } else {
+            const otpVerify = document.getElementById('form-otp-verify');
+            const cardContainer = document.getElementById('loginCardContainer');
+            const btnIn = document.getElementById('tabBtnSignIn');
+            const btnUp = document.getElementById('tabBtnSignup');
+            if (!signin || !signup) return;
+
+            if (otpVerify) otpVerify.style.display = 'none';
+
+            if (tab === 'signup') {
                 signin.style.display = 'none';
                 signup.style.display = 'block';
-                if(tagline) tagline.innerText = "CREATE A NEW W.A.R.L.O.G ACCOUNT.";
+                if (overlay) overlay.classList.add('signup-mode');
+                if (cardContainer) cardContainer.classList.add('wide-mode');
+                if (btnUp) {
+                    btnUp.style.background = '#10b981';
+                    btnUp.style.color = '#ffffff';
+                }
+                if (btnIn) {
+                    btnIn.style.background = 'transparent';
+                    btnIn.style.color = '#94a3b8';
+                }
+            } else {
+                signin.style.display = 'block';
+                signup.style.display = 'none';
+                if (overlay) overlay.classList.remove('signup-mode');
+                if (cardContainer) cardContainer.classList.remove('wide-mode');
+                if (btnIn) {
+                    btnIn.style.background = '#38bdf8';
+                    btnIn.style.color = '#0f172a';
+                }
+                if (btnUp) {
+                    btnUp.style.background = 'transparent';
+                    btnUp.style.color = '#94a3b8';
+                }
             }
+        }
+        window.setAuthTab = setAuthTab;
+
+        function toggleAuthMode() {
+            const signin = document.getElementById('form-signin');
+            if (signin && signin.style.display === 'none') {
+                setAuthTab('signin');
+            } else {
+                setAuthTab('signup');
+            }
+        }
+        window.toggleAuthMode = toggleAuthMode;
+
+        function syncTopbarUserDetails(user) {
+            if (!user) return;
+            const compEl = document.getElementById('topbarCompanyName');
+            if (compEl) compEl.textContent = user.company_name || 'My Organization';
+            const userEl = document.getElementById('topbarUsername');
+            if (userEl) userEl.textContent = `${user.role || 'Admin'} (${user.username})`;
         }
 
         async function doLogin() {
@@ -75,8 +120,9 @@
                     if (data.user) {
                         sessionStorage.setItem('wms_user', JSON.stringify(data.user));
                         window.currentUser = data.user;
+                        syncTopbarUserDetails(data.user);
                         if (typeof window.switchActiveFacility === 'function' && data.user.assigned_warehouse_code) {
-                            window.switchActiveFacility(data.user.assigned_warehouse_code);
+                            window.switchActiveFacility(data.user.assigned_warehouse_code, true);
                         }
                     }
                     document.getElementById('login-overlay').style.display = 'none';
@@ -104,34 +150,352 @@
             }
         }
 
-        async function doSignup() {
-            const u = document.getElementById('reg-username').value;
-            const p = document.getElementById('reg-password').value;
-            const comp = document.getElementById('reg-company') ? document.getElementById('reg-company').value.trim() : '';
-            if(!u || !p) {
-                alert("Please fill all required fields");
-                return;
-            }
+        function doLogout() {
+            sessionStorage.removeItem('wms_user');
+            window.currentUser = null;
+            location.reload();
+        }
+        window.doLogout = doLogout;
+
+        function checkExistingSession() {
             try {
-                const res = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({username: u, password: p, company_name: comp})
-                });
-                const data = await res.json();
-                if(data.success) {
-                    alert(data.message + ". You can now login.");
-                    toggleAuthMode();
-                    document.getElementById('username').value = u;
-                    document.getElementById('password').value = p;
-                } else {
-                    alert(data.message);
+                const raw = sessionStorage.getItem('wms_user');
+                if (raw) {
+                    const user = JSON.parse(raw);
+                    if (user && user.username) {
+                        window.currentUser = user;
+                        syncTopbarUserDetails(user);
+                        const overlay = document.getElementById('login-overlay');
+                        if (overlay) overlay.style.display = 'none';
+                        const topBar = document.getElementById('top-bar');
+                        if (topBar) topBar.style.display = 'flex';
+                        const appLayout = document.getElementById('app-layout');
+                        if (appLayout) appLayout.style.display = 'flex';
+                        const mainHeader = document.getElementById('main-header');
+                        if (mainHeader) mainHeader.style.display = 'flex';
+                        const mainContainer = document.getElementById('main-container');
+                        if (mainContainer) mainContainer.style.display = 'flex';
+                        const mobileDock = document.getElementById('mobileBottomDock');
+                        if (mobileDock) mobileDock.style.display = 'flex';
+                        
+                        pollData();
+                        fetchGatePasses();
+                        fetchDeliveries();
+                        if (typeof fetchObjectClasses === 'function') fetchObjectClasses();
+                        if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
+                        if (typeof fetchVisionZones === 'function') fetchVisionZones();
+                        if (typeof window.loadWarehousesDropdown === 'function') window.loadWarehousesDropdown();
+                    }
                 }
             } catch(e) {
-                console.error(e);
-                alert("Registration failed");
+                console.debug('Session restore error', e);
             }
         }
+        window.checkExistingSession = checkExistingSession;
+        document.addEventListener('DOMContentLoaded', checkExistingSession);
+
+        let regRecognitionTimeout = null;
+        let regOtpCountdownTimer = null;
+        window._regDraft = null;
+
+        const ENV_FEATURE_DESCRIPTIONS = {
+            'beverage': 'Tailored for beverage bottling, cold-store staging, high-throughput pallet lanes, and freshness tracking.',
+            'automotive': 'Tailored for OEM parts staging, heavy stamping/component racking, parts kitting, and strict barcode scanning.',
+            'electronics': 'Tailored for ESD anti-static sensitive bins, serial/IMEI validation, high-security lockups, and cleanrooms.',
+            'pharma': 'Tailored for GMP temperature-controlled chambers, quarantine bins, batch tracking, and expiry interception.',
+            'metals': 'Tailored for heavy industrial floor bays, overhead crane staging, coil/rebar racks, and high weight thresholds.',
+            '3pl': 'Tailored for multi-client inventory isolation, high-velocity SKU sorting, fast pick bins, and parcel dispatch.',
+            'custom': 'Tailored for modern general storage, ambient pallet racking, standard inventory slotting, and multi-zone layout.'
+        };
+
+        function onEnvironmentDropdownChange() {
+            const envSelect = document.getElementById('reg-environment');
+            const featureText = document.getElementById('envFeatureText');
+            if (envSelect && featureText) {
+                const val = envSelect.value;
+                featureText.textContent = ENV_FEATURE_DESCRIPTIONS[val] || 'Custom operational warehouse environment initialized.';
+            }
+        }
+        window.onEnvironmentDropdownChange = onEnvironmentDropdownChange;
+
+        function handleCompanyInputAutoDetect() {
+            clearTimeout(regRecognitionTimeout);
+            regRecognitionTimeout = setTimeout(async () => {
+                const compInput = document.getElementById('reg-company');
+                const comp = compInput ? compInput.value.trim() : '';
+                const badge = document.getElementById('regAutoDetectBadge');
+                const envSelect = document.getElementById('reg-environment');
+                const featureText = document.getElementById('envFeatureText');
+                if (!comp || comp.length < 2) {
+                    if (badge) badge.style.display = 'none';
+                    return;
+                }
+
+                // Fast client-side keyword heuristics
+                const lower = comp.toLowerCase();
+                let detectedEnv = null;
+                if (/coca|pepsi|beverage|drink|beer|brew|dairy|amul|milk|juice|soda|nestle|tropicana/i.test(lower)) {
+                    detectedEnv = 'beverage';
+                } else if (/motor|auto|car|tata motors|hyundai|tesla|ford|toyota|bosch|vehicle|chassis|engine|bmw/i.test(lower)) {
+                    detectedEnv = 'automotive';
+                } else if (/samsung|apple|electronics|intel|chip|semiconductor|oled|lg|phone|hardware|device|sony/i.test(lower)) {
+                    detectedEnv = 'electronics';
+                } else if (/pharma|pfizer|cipla|vaccine|medicine|drug|health|biotech|serum|dr reddy|sun pharma/i.test(lower)) {
+                    detectedEnv = 'pharma';
+                } else if (/steel|metal|iron|rebar|pipe|smelt|tata steel|jindal|vedanta|alloy|foundry/i.test(lower)) {
+                    detectedEnv = 'metals';
+                } else if (/dhl|3pl|logistics|express|cargo|courier|freight|fedex|blue dart|amazon|flipkart|maersk/i.test(lower)) {
+                    detectedEnv = '3pl';
+                }
+
+                if (detectedEnv && envSelect) {
+                    envSelect.value = detectedEnv;
+                    if (badge) {
+                        badge.style.display = 'inline-block';
+                        badge.innerHTML = `<i class="fas fa-brain"></i> Auto-inferred: ${envSelect.options[envSelect.selectedIndex].text.split('(')[0].trim()}`;
+                    }
+                    if (featureText) {
+                        featureText.textContent = ENV_FEATURE_DESCRIPTIONS[detectedEnv] || '';
+                    }
+                }
+
+                // Async preview recognition confirmation
+                try {
+                    const res = await fetch('/api/company/preview_recognition', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ company_name: comp })
+                    });
+                    const d = await res.json();
+                    if (d.success && d.detected_key && d.detected_key !== 'custom' && envSelect) {
+                        envSelect.value = d.detected_key;
+                        if (badge) {
+                            badge.style.display = 'inline-block';
+                            badge.innerHTML = `<i class="fas fa-brain"></i> Auto-detected: ${d.industry_name} (${Math.round((d.confidence||0.9)*100)}% Match)`;
+                        }
+                        if (featureText) {
+                            featureText.textContent = ENV_FEATURE_DESCRIPTIONS[d.detected_key] || '';
+                        }
+                    }
+                } catch(e) {
+                    console.debug('Preview recognition err', e);
+                }
+            }, 250);
+        }
+        window.handleCompanyInputAutoDetect = handleCompanyInputAutoDetect;
+
+        async function requestRegistrationOtp() {
+            const username = document.getElementById('reg-username')?.value.trim();
+            const email = document.getElementById('reg-email')?.value.trim();
+            const password = document.getElementById('reg-password')?.value;
+            const company = document.getElementById('reg-company')?.value.trim();
+            const warehouse = document.getElementById('reg-warehouse')?.value.trim();
+            const city = document.getElementById('reg-city')?.value.trim() || 'Bengaluru';
+            const environment = document.getElementById('reg-environment')?.value || 'custom';
+
+            if (!username) { alert('Please enter an Admin Username.'); return; }
+            if (!email || !email.includes('@') || !email.includes('.')) { alert('Please enter a valid work email address.'); return; }
+            if (!password || password.length < 4) { alert('Please enter a password with at least 4 characters.'); return; }
+            if (!company) { alert('Please enter your Company Name.'); return; }
+
+            window._regDraft = {
+                username,
+                email,
+                password,
+                company_name: company,
+                warehouse_name: warehouse || `${company} Main Facility`,
+                city: city,
+                environment_blueprint: environment
+            };
+
+            const submitBtn = event?.currentTarget || event?.target;
+            const origText = submitBtn ? submitBtn.innerHTML : '';
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Generating Security Code...';
+            }
+
+            try {
+                const res = await fetch('/api/auth/send_otp', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email: email, username: username })
+                });
+                const d = await res.json();
+                if (d.success) {
+                    // Switch to OTP view
+                    document.getElementById('form-signup').style.display = 'none';
+                    const otpForm = document.getElementById('form-otp-verify');
+                    if (otpForm) otpForm.style.display = 'block';
+
+                    document.getElementById('otpDisplayTargetEmail').textContent = email;
+
+                    if (d.dev_otp) {
+                        const devEl = document.getElementById('devOtpCodeValue');
+                        if (devEl) devEl.textContent = d.dev_otp;
+                        const sbBanner = document.getElementById('otpSandboxBanner');
+                        if (sbBanner) sbBanner.style.display = 'flex';
+                    }
+
+                    startOtpCountdown(60);
+                    const otpInput = document.getElementById('reg-otp-code');
+                    if (otpInput) {
+                        otpInput.value = '';
+                        otpInput.focus();
+                    }
+                } else {
+                    alert(d.message || 'Failed to send verification code. Please check your details.');
+                }
+            } catch(e) {
+                console.error('Send OTP error', e);
+                alert('Network error while requesting verification code: ' + e.message);
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = origText;
+                }
+            }
+        }
+        window.requestRegistrationOtp = requestRegistrationOtp;
+
+        function startOtpCountdown(seconds) {
+            clearInterval(regOtpCountdownTimer);
+            let left = seconds;
+            const timerEl = document.getElementById('otpTimerCount');
+            const countdownSpan = document.getElementById('otpCountdownSpan');
+            const resendBtn = document.getElementById('btnResendOtp');
+            if (countdownSpan) countdownSpan.style.display = 'inline';
+            if (resendBtn) resendBtn.style.display = 'none';
+            if (timerEl) timerEl.textContent = left;
+
+            regOtpCountdownTimer = setInterval(() => {
+                left--;
+                if (timerEl) timerEl.textContent = left;
+                if (left <= 0) {
+                    clearInterval(regOtpCountdownTimer);
+                    if (countdownSpan) countdownSpan.style.display = 'none';
+                    if (resendBtn) resendBtn.style.display = 'inline';
+                }
+            }, 1000);
+        }
+
+        async function resendRegistrationOtp() {
+            if (!window._regDraft?.email) return;
+            const resendBtn = document.getElementById('btnResendOtp');
+            if (resendBtn) resendBtn.textContent = 'Sending...';
+            try {
+                const res = await fetch('/api/auth/send_otp', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ email: window._regDraft.email, username: window._regDraft.username })
+                });
+                const d = await res.json();
+                if (d.success) {
+                    if (d.dev_otp) {
+                        const devEl = document.getElementById('devOtpCodeValue');
+                        if (devEl) devEl.textContent = d.dev_otp;
+                    }
+                    startOtpCountdown(60);
+                    alert(`A fresh verification code has been dispatched to ${window._regDraft.email}.`);
+                } else {
+                    alert(d.message || 'Failed to resend code');
+                }
+            } catch(e) {
+                alert('Error resending OTP: ' + e.message);
+            } finally {
+                if (resendBtn) resendBtn.textContent = 'Resend Code';
+            }
+        }
+        window.resendRegistrationOtp = resendRegistrationOtp;
+
+        function autoFillDevOtp() {
+            const devEl = document.getElementById('devOtpCodeValue');
+            const input = document.getElementById('reg-otp-code');
+            if (devEl && input) {
+                const code = devEl.textContent.trim();
+                if (code && code !== '------') {
+                    input.value = code;
+                    verifyOtpAndCompleteSignup();
+                }
+            }
+        }
+        window.autoFillDevOtp = autoFillDevOtp;
+
+        function backToRegistrationForm() {
+            clearInterval(regOtpCountdownTimer);
+            const otpForm = document.getElementById('form-otp-verify');
+            const regForm = document.getElementById('form-signup');
+            if (otpForm) otpForm.style.display = 'none';
+            if (regForm) regForm.style.display = 'block';
+        }
+        window.backToRegistrationForm = backToRegistrationForm;
+
+        async function verifyOtpAndCompleteSignup() {
+            const otp = document.getElementById('reg-otp-code')?.value.trim();
+            if (!otp || otp.length < 6) {
+                alert('Please enter the complete 6-digit verification code.');
+                return;
+            }
+            if (!window._regDraft) {
+                alert('Session expired. Please fill in registration details again.');
+                backToRegistrationForm();
+                return;
+            }
+
+            const btn = document.getElementById('btnVerifyOtpSubmit');
+            const origText = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Verifying & Launching Workspace...';
+            }
+
+            try {
+                const res = await fetch('/api/auth/verify_otp_and_register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        email: window._regDraft.email,
+                        otp_code: otp,
+                        username: window._regDraft.username,
+                        password: window._regDraft.password,
+                        company_name: window._regDraft.company_name,
+                        warehouse_name: window._regDraft.warehouse_name,
+                        city: window._regDraft.city,
+                        environment_blueprint: window._regDraft.environment_blueprint
+                    })
+                });
+                const d = await res.json();
+                if (d.success) {
+                    clearInterval(regOtpCountdownTimer);
+                    // Dismiss login overlay and launch session
+                    const overlay = document.getElementById('login-overlay');
+                    if (overlay) overlay.style.display = 'none';
+                    if (d.user) syncTopbarUserDetails(d.user);
+                    if (window.showToast) {
+                        window.showToast(d.message || 'Workspace registered successfully!', 'success');
+                    }
+                    if (typeof window.loadWarehousesDropdown === 'function') {
+                        await window.loadWarehousesDropdown();
+                    }
+                    if (d.assigned_warehouse_code && typeof window.switchActiveFacility === 'function') {
+                        await window.switchActiveFacility(d.assigned_warehouse_code, true);
+                    } else if (typeof window.fetchBins === 'function') {
+                        window.fetchBins();
+                    }
+                } else {
+                    alert(d.message || 'Verification failed. Please check the code.');
+                }
+            } catch(e) {
+                console.error('Verify OTP error', e);
+                alert('Network error during verification: ' + e.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = origText;
+                }
+            }
+        }
+        window.verifyOtpAndCompleteSignup = verifyOtpAndCompleteSignup;
 
         // Mobile Responsive Navigation Handlers
         function toggleMobileSidebar() {
@@ -178,6 +542,8 @@
                 }, 1800);
             } else if (tabId === 'cameras') {
                 if (typeof pollData === 'function') pollData();
+            } else if (tabId === 'warehouses') {
+                if (typeof window.renderWarehouseLocationsView === 'function') window.renderWarehouseLocationsView();
             } else if (tabId === 'master-hub') {
                 if (typeof fetchDeliveries === 'function') fetchDeliveries();
                 if (typeof fetchGatePasses === 'function') fetchGatePasses();
@@ -2880,11 +3246,141 @@ window.fetchBins = async function() {
                 <td><strong style="color:var(--primary-navy); font-size:1.1rem;">${b.stock_count}</strong> Items</td>
                 <td>${b.vendor || 'Empty'}</td>
                 <td><span class="badge ${b.status==='Active'?'badge-success':'badge-warning'}" style="padding: 4px 8px; border-radius: 4px;">${b.status}</span></td>
+                <td style="text-align:center;">
+                    <button type="button" class="btn btn-outline" style="padding:4px 8px; font-size:0.75rem; border:1px solid rgba(0,242,254,0.4); color:var(--primary-teal); background:rgba(0,242,254,0.08); border-radius:4px; cursor:pointer;" onclick="window.openEditBinModal('${b.bin_id}', '${b.zone}', ${b.max_volume}, ${b.max_weight}, '${b.status}')">
+                        <i class="fas fa-edit"></i> Edit / Expand
+                    </button>
+                </td>
             `;
             tbody.appendChild(tr);
         });
     } catch(e) { console.error(e); }
-}
+};
+
+window.openAddBinModal = function() {
+    const modal = document.getElementById('addBinModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        const idInput = document.getElementById('newBinId');
+        if (idInput) idInput.focus();
+    }
+};
+
+window.closeAddBinModal = function() {
+    const modal = document.getElementById('addBinModal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.submitAddBin = async function() {
+    const binId = document.getElementById('newBinId')?.value.trim();
+    const zone = document.getElementById('newBinZone')?.value.trim() || 'General';
+    const maxVol = parseFloat(document.getElementById('newBinVol')?.value) || 100.0;
+    const maxWt = parseFloat(document.getElementById('newBinWt')?.value) || 1000.0;
+
+    if (!binId) {
+        alert('Please enter a Bin ID.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/bins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                bin_id: binId,
+                zone: zone,
+                max_volume: maxVol,
+                max_weight: maxWt
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            window.closeAddBinModal();
+            const idInput = document.getElementById('newBinId');
+            if (idInput) idInput.value = '';
+            if (window.showToast) window.showToast(`Bin ${binId} registered successfully!`, 'success');
+            if (typeof window.fetchBins === 'function') window.fetchBins();
+        } else {
+            alert('Failed to create bin: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Error adding bin:', err);
+        alert('Error adding bin: ' + err.message);
+    }
+};
+
+window.openEditBinModal = function(binId, zone, maxVolume, maxWeight, status) {
+    const modal = document.getElementById('editBinModal');
+    if (!modal) return;
+    const idEl = document.getElementById('editBinId');
+    const titleEl = document.getElementById('editBinIdTitle');
+    const zoneEl = document.getElementById('editBinZone');
+    const volEl = document.getElementById('editBinVol');
+    const wtEl = document.getElementById('editBinWt');
+    const statusEl = document.getElementById('editBinStatus');
+    
+    if (idEl) idEl.value = binId;
+    if (titleEl) titleEl.textContent = `(${binId})`;
+    if (zoneEl) zoneEl.value = zone || '';
+    if (volEl) volEl.value = maxVolume || 100.0;
+    if (wtEl) wtEl.value = maxWeight || 1000.0;
+    if (statusEl) statusEl.value = status || 'Active';
+    modal.style.display = 'flex';
+};
+
+window.closeEditBinModal = function() {
+    const modal = document.getElementById('editBinModal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.quickExpandBinSize = function(volAdd, wtAdd) {
+    const volInput = document.getElementById('editBinVol');
+    const wtInput = document.getElementById('editBinWt');
+    if (!volInput || !wtInput) return;
+    let currentVol = parseFloat(volInput.value) || 100.0;
+    let currentWt = parseFloat(wtInput.value) || 1000.0;
+    if (volAdd === 200 && wtAdd === 2000) {
+        volInput.value = (currentVol * 2).toFixed(1);
+        wtInput.value = (currentWt * 2).toFixed(1);
+    } else {
+        volInput.value = (currentVol + volAdd).toFixed(1);
+        wtInput.value = (currentWt + wtAdd).toFixed(1);
+    }
+};
+
+window.submitEditBin = async function() {
+    const binId = document.getElementById('editBinId')?.value.trim();
+    const zone = document.getElementById('editBinZone')?.value.trim();
+    const maxVol = parseFloat(document.getElementById('editBinVol')?.value) || 100.0;
+    const maxWt = parseFloat(document.getElementById('editBinWt')?.value) || 1000.0;
+    const status = document.getElementById('editBinStatus')?.value;
+
+    if (!binId) return;
+
+    try {
+        const res = await fetch(`/api/bins/${encodeURIComponent(binId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                zone: zone,
+                max_volume: maxVol,
+                max_weight: maxWt,
+                status: status
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            window.closeEditBinModal();
+            if (window.showToast) window.showToast(`Bin ${binId} updated successfully!`, 'success');
+            if (typeof window.fetchBins === 'function') window.fetchBins();
+        } else {
+            alert('Failed to update bin: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Error updating bin:', err);
+        alert('Error updating bin: ' + err.message);
+    }
+};
 
 window.fetchSkus = async function() {
     try {

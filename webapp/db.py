@@ -428,12 +428,41 @@ def init_db():
         for col, col_type in [
             ("company_name", "TEXT DEFAULT 'Skantha Industrial Solutions'"),
             ("assigned_warehouse_code", "TEXT DEFAULT 'WH-MAIN'"),
-            ("role", "TEXT DEFAULT 'Admin'")
+            ("role", "TEXT DEFAULT 'Admin'"),
+            ("email", "TEXT"),
+            ("is_email_verified", "INTEGER DEFAULT 0")
         ]:
             try:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
             except sqlite3.OperationalError:
                 pass
+
+        # Email OTP authentication table
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_otps (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL,
+                    otp_code TEXT NOT NULL,
+                    purpose TEXT DEFAULT 'REGISTRATION',
+                    expires_at TIMESTAMP NOT NULL,
+                    verified INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_email_otps ON email_otps(email, purpose, verified)")
+        except sqlite3.OperationalError:
+            pass
+
+        # Multi-tenant scoping for warehouses
+        try:
+            conn.execute("ALTER TABLE warehouses ADD COLUMN company_name TEXT DEFAULT 'Skantha Industrial Solutions'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_warehouses_company ON warehouses(company_name)")
+        except sqlite3.OperationalError:
+            pass
         
         conn.execute("INSERT OR IGNORE INTO users (username, password, company_name, assigned_warehouse_code, role) VALUES ('admin', 'admin', 'Skantha Industrial Solutions', 'WH-MAIN', 'Admin')")
 
@@ -596,9 +625,7 @@ def init_db():
         cur.execute("SELECT COUNT(*) FROM warehouses")
         if cur.fetchone()[0] == 0:
             initial_warehouses = [
-                ('WH-MAIN', 'Main Assembly Hub', 'Bengaluru', 'DEDICATED', 'Automotive & Discrete Manufacturing', 'Plot 42, Electronic City Phase II, Bengaluru', 'Active', 1),
-                ('WH-REG', 'Regional Transit Center', 'Chennai', '3PL', 'Commercial Logistics & Multi-Client 3PL', 'Harbor Expressway Gate 4, Chennai', 'Active', 0),
-                ('WH-WEST', 'Western Cold-Chain & Beverage Depot', 'Pune', 'DEDICATED', 'Beverages & Packaged Consumer Goods', 'Chakan Industrial Corridor, Pune', 'Active', 0)
+                ('WH-MAIN', 'Main Assembly Hub', 'Bengaluru', 'DEDICATED', 'General Industrial Logistics', 'Plot 42, Electronic City Phase II, Bengaluru', 'Active', 1)
             ]
             cur.executemany("INSERT INTO warehouses (code, name, city, operating_mode, industry, address, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", initial_warehouses)
 
@@ -612,17 +639,87 @@ def get_user(username, password):
     conn.close()
     return dict(row) if row else None
 
-def create_user(username, password, company_name="Skantha Industrial Solutions", assigned_warehouse_code="WH-MAIN", role="Admin"):
+def get_user_by_email(email: str):
+    if not email:
+        return None
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", (email.strip(),))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def create_user(username, password, email=None, company_name="Skantha Industrial Solutions", assigned_warehouse_code="WH-MAIN", role="Admin"):
     conn = get_db()
     try:
         with conn:
             conn.execute(
-                "INSERT INTO users (username, password, company_name, assigned_warehouse_code, role) VALUES (?, ?, ?, ?, ?)",
-                (username, password, company_name, assigned_warehouse_code, role)
+                "INSERT INTO users (username, password, email, is_email_verified, company_name, assigned_warehouse_code, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (username, password, email, 1 if email else 0, company_name, assigned_warehouse_code, role)
             )
         return True
     except sqlite3.IntegrityError:
         return False
+
+def store_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION', expires_in_minutes: int = 10) -> bool:
+    """Stores a generated verification OTP for the provided email address."""
+    if not email or not otp_code:
+        return False
+    conn = get_db()
+    try:
+        with conn:
+            # Invalidate older pending OTPs for this email and purpose
+            conn.execute("UPDATE email_otps SET verified = -1 WHERE LOWER(email) = LOWER(?) AND purpose = ? AND verified = 0", (email.strip(), purpose))
+            conn.execute("""
+                INSERT INTO email_otps (email, otp_code, purpose, expires_at, verified)
+                VALUES (LOWER(?), ?, ?, datetime('now', 'localtime', '+' || ? || ' minutes'), 0)
+            """, (email.strip(), str(otp_code).strip(), purpose, int(expires_in_minutes)))
+        return True
+    except Exception as e:
+        logger.error(f"Error storing email OTP: {e}")
+        return False
+    finally:
+        conn.close()
+
+def verify_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION') -> Tuple[bool, str]:
+    """
+    Verifies that the OTP code matches the active unexpired OTP for the email.
+    Returns: (is_valid: bool, message: str)
+    """
+    if not email or not otp_code:
+        return False, "Email and OTP code are required."
+    clean_email = email.strip().lower()
+    clean_otp = str(otp_code).strip()
+    
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, otp_code, expires_at, verified,
+                   (datetime('now', 'localtime') > expires_at) AS is_expired
+            FROM email_otps
+            WHERE LOWER(email) = ? AND purpose = ? AND verified = 0
+            ORDER BY id DESC LIMIT 1
+        """, (clean_email, purpose))
+        row = cur.fetchone()
+        if not row:
+            return False, "No active verification code found for this email. Please request a new OTP."
+        
+        if row["is_expired"] == 1:
+            return False, "Verification code has expired. Please request a new OTP."
+            
+        if str(row["otp_code"]) != clean_otp:
+            return False, "Invalid verification code. Please check and re-enter."
+            
+        # Code matches and is valid; mark as verified
+        with conn:
+            conn.execute("UPDATE email_otps SET verified = 1 WHERE id = ?", (row["id"],))
+        return True, "Email verified successfully."
+    except Exception as e:
+        logger.error(f"Error verifying email OTP: {e}")
+        return False, f"Verification failed: {str(e)}"
+    finally:
+        conn.close()
 
 def update_user_warehouse(username: str, warehouse_code: str, company_name: Optional[str] = None):
     conn = get_db()
@@ -2075,6 +2172,30 @@ def add_bin(bin_id, zone, max_volume, max_weight):
         ''', (bin_id, zone, max_volume, max_weight))
     conn.close()
 
+def update_bin(bin_id, zone=None, max_volume=None, max_weight=None, status=None):
+    conn = get_db()
+    with conn:
+        fields = []
+        vals = []
+        if zone is not None and str(zone).strip() != '':
+            fields.append("zone = ?")
+            vals.append(str(zone).strip())
+        if max_volume is not None:
+            fields.append("max_volume = ?")
+            vals.append(float(max_volume))
+        if max_weight is not None:
+            fields.append("max_weight = ?")
+            vals.append(float(max_weight))
+        if status is not None and str(status).strip() != '':
+            fields.append("status = ?")
+            vals.append(str(status).strip())
+        if fields:
+            fields.append("last_updated = CURRENT_TIMESTAMP")
+            vals.append(bin_id)
+            conn.execute(f"UPDATE bins SET {', '.join(fields)} WHERE bin_id = ?", vals)
+    conn.close()
+    return True
+
 def get_all_skus():
     conn = get_db()
     cursor = conn.execute("SELECT * FROM skus ORDER BY sku_id ASC")
@@ -2828,6 +2949,23 @@ def log_violation(
     """Record an authoritative human error or safety infraction into the violations ledger."""
     conn = get_db()
     with conn:
+        # Prevent spamming identical open violations
+        dup = conn.execute("""
+            SELECT id FROM violations_log
+            WHERE violation_type = ?
+              AND (
+                (pallet_id = ? AND pallet_id IS NOT NULL) OR
+                (bin_id = ? AND bin_id IS NOT NULL) OR
+                (camera_id = ? AND camera_id IS NOT NULL)
+              )
+              AND (status = 'OPEN' OR created_at >= datetime('now', '-60 seconds', 'localtime'))
+            ORDER BY id DESC LIMIT 1
+        """, (str(violation_type), pallet_id, bin_id, camera_id)).fetchone()
+        if dup:
+            existing = conn.execute("SELECT * FROM violations_log WHERE id = ?", (dup[0],)).fetchone()
+            conn.close()
+            return dict(existing) if existing else {}
+
         cursor = conn.execute("""
             INSERT INTO violations_log (
                 violation_type, title, description, camera_id, zone_code,
@@ -2897,6 +3035,20 @@ def resolve_violation(
     return rec
 
 
+def resolve_all_violations(resolved_by: str = "Supervisor", notes: Optional[str] = "Bulk approved by supervisor") -> int:
+    """Mark ALL open violations as resolved simultaneously."""
+    conn = get_db()
+    with conn:
+        cur = conn.execute("""
+            UPDATE violations_log
+            SET status = 'RESOLVED', resolved_by = ?, resolution_notes = ?, resolved_at = datetime('now', 'localtime')
+            WHERE status = 'OPEN'
+        """, (resolved_by, notes))
+        updated_count = cur.rowcount
+    conn.close()
+    return updated_count
+
+
 def check_bin_putaway_compatibility(
     bin_id: str,
     sku_id: str,
@@ -2957,13 +3109,29 @@ def check_bin_putaway_compatibility(
 # MULTI-WAREHOUSE FACILITY MANAGEMENT HELPERS
 # ==============================================================================
 
-def get_all_warehouses() -> List[Dict[str, Any]]:
-    """Returns all registered warehouses ordered by active status and code."""
+def get_all_warehouses(company_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Returns registered warehouses ordered by active status and code.
+    If company_name is specified (and not empty/admin), strictly scopes results to that company.
+    """
     conn = get_db()
-    rows = conn.execute("SELECT * FROM warehouses ORDER BY is_active DESC, code ASC").fetchall()
+    if company_name and company_name.strip() and company_name.strip().lower() not in ('all', 'admin'):
+        rows = conn.execute(
+            "SELECT * FROM warehouses WHERE UPPER(company_name) = UPPER(?) ORDER BY is_active DESC, code ASC",
+            (company_name.strip(),)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM warehouses ORDER BY is_active DESC, code ASC").fetchall()
     warehouses = [dict(r) for r in rows]
     conn.close()
     return warehouses
+
+
+def get_warehouses_by_company(company_name: str) -> List[Dict[str, Any]]:
+    """Returns warehouses belonging strictly to a specified enterprise company."""
+    if not company_name:
+        return []
+    return get_all_warehouses(company_name=company_name)
 
 
 def get_warehouse_by_code(code: str) -> Optional[Dict[str, Any]]:
@@ -2976,13 +3144,26 @@ def get_warehouse_by_code(code: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-def get_active_warehouse() -> Dict[str, Any]:
+def get_active_warehouse(company_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Returns the currently active warehouse context.
-    Defaults to the first active warehouse or WH-MAIN.
+    If company_name is supplied, defaults to the active facility of that specific company.
     """
     conn = get_db()
-    row = conn.execute("SELECT * FROM warehouses WHERE is_active = 1 LIMIT 1").fetchone()
+    row = None
+    if company_name and company_name.strip() and company_name.strip().lower() not in ('all', 'admin'):
+        row = conn.execute(
+            "SELECT * FROM warehouses WHERE is_active = 1 AND UPPER(company_name) = UPPER(?) LIMIT 1",
+            (company_name.strip(),)
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT * FROM warehouses WHERE UPPER(company_name) = UPPER(?) ORDER BY id ASC LIMIT 1",
+                (company_name.strip(),)
+            ).fetchone()
+
+    if not row:
+        row = conn.execute("SELECT * FROM warehouses WHERE is_active = 1 LIMIT 1").fetchone()
     if not row:
         row = conn.execute("SELECT * FROM warehouses ORDER BY id ASC LIMIT 1").fetchone()
     conn.close()
@@ -2996,7 +3177,8 @@ def get_active_warehouse() -> Dict[str, Any]:
         "industry": "Automotive & Discrete Manufacturing",
         "address": "Plot 42, Electronic City Phase II, Bengaluru",
         "status": "Active",
-        "is_active": 1
+        "is_active": 1,
+        "company_name": company_name or "Skantha Industrial Solutions"
     }
 
 
@@ -3023,15 +3205,17 @@ def create_or_update_warehouse(
     operating_mode: str = "DEDICATED",
     industry: str = "General",
     address: str = "",
-    status: str = "Active"
+    status: str = "Active",
+    company_name: str = "Skantha Industrial Solutions"
 ) -> Dict[str, Any]:
-    """Creates a new warehouse facility or updates an existing record."""
+    """Creates a new warehouse facility or updates an existing record scoped to a company."""
     code_clean = str(code).strip().upper()
+    comp_clean = str(company_name).strip() if company_name else "Skantha Industrial Solutions"
     conn = get_db()
     with conn:
         conn.execute("""
-            INSERT INTO warehouses (code, name, city, operating_mode, industry, address, status, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO warehouses (code, name, city, operating_mode, industry, address, status, company_name, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(code) DO UPDATE SET
                 name = excluded.name,
                 city = excluded.city,
@@ -3039,8 +3223,9 @@ def create_or_update_warehouse(
                 industry = excluded.industry,
                 address = excluded.address,
                 status = excluded.status,
+                company_name = excluded.company_name,
                 updated_at = CURRENT_TIMESTAMP
-        """, (code_clean, name.strip(), city.strip(), operating_mode.strip().upper(), industry.strip(), address.strip(), status.strip()))
+        """, (code_clean, name.strip(), city.strip(), operating_mode.strip().upper(), industry.strip(), address.strip(), status.strip(), comp_clean))
     
     rec = get_warehouse_by_code(code_clean)
     conn.close()

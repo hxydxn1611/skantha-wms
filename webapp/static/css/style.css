@@ -59,7 +59,11 @@
             justify-content: center;
             position: relative;
             background: linear-gradient(90deg, rgba(4, 10, 25, 0.95) 0%, rgba(4, 10, 25, 0.7) 60%, rgba(4, 10, 25, 0.3) 100%);
-            /* By setting the background here, the logo's mix-blend-mode will correctly blend with it! */
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        #login-overlay.signup-mode .login-left {
+            display: none !important;
         }
         
         .login-brand-top {
@@ -205,7 +209,25 @@
             flex-direction: column;
             position: relative;
             z-index: 1;
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
         }
+
+        #login-overlay.signup-mode .login-right {
+            flex: 1 1 100% !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 1rem 2rem !important;
+            margin: auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+            align-items: center !important;
+        }
+
+        #login-overlay.signup-mode .login-top-links {
+            display: none !important;
+        }
+
         .login-top-links {
             text-align: right;
             font-size: 0.6rem;
@@ -223,25 +245,115 @@
         }
 
         .login-card-container {
-
             display: flex;
             align-items: center;
             justify-content: center;
             margin: auto 0;
             width: 100%;
+            transition: max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .login-card-container.wide-mode,
+        #login-overlay.signup-mode .login-card-container {
+            max-width: 980px !important;
+            width: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
         }
         
+        #login-overlay.signup-mode .auth-tabs {
+            max-width: 480px !important;
+            width: 100% !important;
+            margin-bottom: 12px !important;
+        }
+
         .login-card {
             width: 100%;
-            max-width: 380px;
-            background: rgba(10, 15, 35, 0.55);
+            max-width: 440px;
+            background: rgba(10, 15, 35, 0.65);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            border-radius: 12px;
+            border-radius: 14px;
             border: 1px solid rgba(14, 165, 233, 0.3);
-            box-shadow: 0 0 30px rgba(14, 165, 233, 0.15), inset 0 0 20px rgba(255,255,255,0.02);
-            padding: 1.5rem;
+            box-shadow: 0 0 35px rgba(14, 165, 233, 0.18), inset 0 0 20px rgba(255,255,255,0.02);
+            padding: 2rem;
             position: relative;
+            transition: max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), padding 0.3s ease;
+        }
+
+        .login-card.wide-card,
+        #login-overlay.signup-mode .login-card.wide-card {
+            max-width: 980px !important;
+            width: 100% !important;
+            padding: 1.35rem 2.2rem !important;
+            background: rgba(8, 14, 32, 0.94) !important;
+            border: 1px solid rgba(16, 185, 129, 0.45) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 16px 45px rgba(0, 0, 0, 0.75), 0 0 35px rgba(16, 185, 129, 0.22) !important;
+            box-sizing: border-box !important;
+        }
+
+        .login-card.wide-card .input-group input,
+        .login-card.wide-card .input-group select,
+        #login-overlay.signup-mode .login-card.wide-card .input-group input,
+        #login-overlay.signup-mode .login-card.wide-card .input-group select {
+            padding: 10px 18px 10px 46px !important;
+            font-size: 0.98rem !important;
+            font-weight: 500 !important;
+            height: 48px !important;
+            border-radius: 9px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+            background: rgba(15, 23, 42, 0.88) !important;
+            border: 1px solid rgba(56, 189, 248, 0.38) !important;
+            color: #ffffff !important;
+            transition: all 0.2s ease !important;
+        }
+
+        .login-card.wide-card .input-group input:focus,
+        .login-card.wide-card .input-group select:focus,
+        #login-overlay.signup-mode .login-card.wide-card .input-group input:focus,
+        #login-overlay.signup-mode .login-card.wide-card .input-group select:focus {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25) !important;
+            background: rgba(15, 23, 42, 0.98) !important;
+        }
+
+        .login-card.wide-card .input-group input::placeholder,
+        #login-overlay.signup-mode .login-card.wide-card .input-group input::placeholder {
+            color: #94a3b8 !important;
+            font-size: 0.92rem !important;
+            font-weight: 400 !important;
+            opacity: 1 !important;
+        }
+
+        .login-card.wide-card .input-group i:not(.password-toggle),
+        #login-overlay.signup-mode .login-card.wide-card .input-group i:not(.password-toggle) {
+            font-size: 1.05rem !important;
+            left: 15px !important;
+            color: #38bdf8 !important;
+        }
+
+        .login-card.wide-card .password-toggle,
+        #login-overlay.signup-mode .login-card.wide-card .password-toggle {
+            font-size: 1.05rem !important;
+            right: 14px !important;
+            color: #94a3b8 !important;
+        }
+
+        .otp-input-box {
+            letter-spacing: 12px;
+            font-size: 1.8rem !important;
+            font-family: 'JetBrains Mono', monospace !important;
+            text-align: center;
+            padding-left: 20px !important;
+            font-weight: 800 !important;
+            color: #38bdf8 !important;
+            height: 56px !important;
+            background: rgba(15, 23, 42, 0.85) !important;
+            border: 2px solid #0284c7 !important;
+            box-shadow: 0 0 20px rgba(2, 132, 199, 0.3) !important;
         }
         .login-badge {
             display: inline-flex;
@@ -286,7 +398,7 @@
             font-size: 0.85rem;
             z-index: 2;
         }
-        .input-group input {
+        .login-card:not(.wide-card) .input-group input {
             width: 100%;
             padding: 8px 36px 8px 38px !important;
             background: rgba(15, 23, 42, 0.6) !important;
@@ -297,13 +409,13 @@
             transition: all 0.3s ease;
             box-sizing: border-box !important;
         }
-        .input-group input:focus {
+        .login-card:not(.wide-card) .input-group input:focus {
             border-color: #0ea5e9 !important;
             background: rgba(15, 23, 42, 0.8) !important;
             box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2) !important;
             outline: none !important;
         }
-        .input-group input::placeholder {
+        .login-card:not(.wide-card) .input-group input::placeholder {
             color: #64748b !important;
         }
         .password-toggle {

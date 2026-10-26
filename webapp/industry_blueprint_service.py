@@ -54,32 +54,39 @@ def auto_detect_company_industry(company_name: str, description: str = "") -> Di
         "beverage": [
             "coca", "coke", "pepsi", "beverage", "drink", "bottling", "bottle", "can",
             "brewery", "beer", "soda", "juice", "fmcg", "water", "kinley", "dairy",
-            "milk", "syrup", "amul", "nestle", "heineken", "diageo", "cold beverage"
+            "milk", "syrup", "amul", "nestle", "heineken", "diageo", "cold beverage",
+            "red bull", "britannia", "parle", "cadbury", "mondelez", "itc", "unilever",
+            "hul", "kellogg", "tropicana", "bisleri", "aquafina", "mother dairy", "danone"
         ],
         "automotive": [
             "tata motors", "hyundai", "automotive", "auto", "car", "motor", "engine",
             "chassis", "oem", "assembly", "maruti", "mahindra", "toyota", "ford",
-            "vehicle", "suspension", "brake", "windshield", "tesla", "bosch", "honda", "bmw"
+            "vehicle", "suspension", "brake", "windshield", "tesla", "bosch", "honda", "bmw",
+            "nissan", "audi", "mercedes", "volvo", "volkswagen", "kia", "continental", "denso"
         ],
         "electronics": [
             "samsung", "electronics", "lg", "semiconductor", "chip", "oled", "display",
             "tv", "phone", "hardware", "intel", "foxconn", "apple", "device", "pcb",
-            "microchip", "dell", "lenovo", "asus", "sony", "panasonic"
+            "microchip", "dell", "lenovo", "asus", "sony", "panasonic", "nvidia", "amd",
+            "qualcomm", "tsmc", "cisco", "hp", "xiaomi", "oppo", "vivo", "oneplus"
         ],
         "pharma": [
             "pfizer", "pharma", "pharmaceutical", "cipla", "vaccine", "medicine",
             "biotech", "drug", "healthcare", "sun pharma", "dr reddy", "biocon",
-            "serum", "hospital", "vial", "ampoule", "medical", "novartis", "gsk", "astrazeneca"
+            "serum", "hospital", "vial", "ampoule", "medical", "novartis", "gsk", "astrazeneca",
+            "lupin", "aurobindo", "zydus", "mankind", "abbott", "roche", "bayer", "sanofi", "moderna"
         ],
         "metals": [
             "tata steel", "steel", "jindal", "metal", "pipe", "tube", "rebar",
             "foundry", "iron", "smelter", "aluminum", "vedanta", "crane", "heavy industrial",
-            "coil", "beam", "girders", "fabrication", "alloy", "arcelor"
+            "coil", "beam", "girders", "fabrication", "alloy", "arcelor", "sail", "posco",
+            "hindalco", "copper", "brass", "zinc", "nippon"
         ],
         "3pl": [
             "dhl", "3pl", "logistics", "courier", "freight", "schenker", "commercial hub",
             "fedex", "blue dart", "ups", "warehousing", "express", "multi-client",
-            "cargo", "transporter", "supply chain", "maersk", "kuehne"
+            "cargo", "transporter", "supply chain", "maersk", "kuehne", "amazon", "flipkart",
+            "walmart", "target", "costco", "delhivery", "shadowfax", "e-commerce"
         ]
     }
 
@@ -102,6 +109,7 @@ def auto_detect_company_industry(company_name: str, description: str = "") -> Di
 
     return {
         "detected_key": detected_key,
+        "blueprint_key": detected_key,
         "confidence": round(confidence, 2),
         "company_name": company_name,
         "reason": reason,
@@ -595,21 +603,22 @@ def apply_industry_blueprint(
             slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:6] or bp.get("key", "WH")[:4].upper()
             target_wh_code = f"WH-{slug_comp}"
             cur.execute("""
-                INSERT INTO warehouses (code, name, city, operating_mode, industry, status, is_active)
-                VALUES (?, ?, 'Bengaluru Facility', ?, ?, 'Active', 1)
+                INSERT INTO warehouses (code, name, city, operating_mode, industry, status, is_active, company_name)
+                VALUES (?, ?, 'Bengaluru Facility', ?, ?, 'Active', 1, ?)
                 ON CONFLICT(code) DO UPDATE SET
                     name = excluded.name,
                     operating_mode = excluded.operating_mode,
                     industry = excluded.industry,
+                    company_name = excluded.company_name,
                     is_active = 1,
                     updated_at = CURRENT_TIMESTAMP
-            """, (target_wh_code, company_name, operating_mode, bp["name"]))
+            """, (target_wh_code, company_name, operating_mode, bp["name"], company_name))
         else:
             cur.execute("""
                 UPDATE warehouses
-                SET name = ?, operating_mode = ?, industry = ?, updated_at = CURRENT_TIMESTAMP
+                SET name = ?, operating_mode = ?, industry = ?, company_name = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE UPPER(code) = UPPER(?)
-            """, (company_name, operating_mode, bp["name"], target_wh_code))
+            """, (company_name, operating_mode, bp["name"], company_name, target_wh_code))
 
         # Synchronize active facility flag
         cur.execute("UPDATE warehouses SET is_active = 0")

@@ -45,11 +45,143 @@
                     icon.setAttribute('title', 'Show password');
                 }
             }
+        function setAuthTab(tab) {
+            var overlay = document.getElementById('login-overlay');
+            var signin = document.getElementById('form-signin');
+            var signup = document.getElementById('form-signup');
+            var otpVerify = document.getElementById('form-otp-verify');
+            var cardContainer = document.getElementById('loginCardContainer');
+            var btnIn = document.getElementById('tabBtnSignIn');
+            var btnUp = document.getElementById('tabBtnSignup');
+            if (!signin || !signup) return;
+
+            if (otpVerify) otpVerify.style.display = 'none';
+
+            if (tab === 'signup') {
+                signin.style.display = 'none';
+                signup.style.display = 'block';
+                if (overlay) overlay.classList.add('signup-mode');
+                if (cardContainer) cardContainer.classList.add('wide-mode');
+                if (btnUp) {
+                    btnUp.style.background = '#10b981';
+                    btnUp.style.color = '#ffffff';
+                }
+                if (btnIn) {
+                    btnIn.style.background = 'transparent';
+                    btnIn.style.color = '#94a3b8';
+                }
+            } else {
+                signin.style.display = 'block';
+                signup.style.display = 'none';
+                if (overlay) overlay.classList.remove('signup-mode');
+                if (cardContainer) cardContainer.classList.remove('wide-mode');
+                if (btnIn) {
+                    btnIn.style.background = '#38bdf8';
+                    btnIn.style.color = '#0f172a';
+                }
+                if (btnUp) {
+                    btnUp.style.background = 'transparent';
+                    btnUp.style.color = '#94a3b8';
+                }
+            }
         }
+        window.setAuthTab = setAuthTab;
     </script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2.3">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v=2.3">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=3.6">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v=3.6">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/pallet_violations.css') }}?v=1.0">
+    <style>
+        /* CRITICAL REGISTRATION WORKSPACE (BIGGER HORIZONTALLY, NOT LONGER VERTICALLY) */
+        #login-overlay.signup-mode {
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            padding: 1.5rem !important;
+            overflow-y: auto !important;
+        }
+        #login-overlay.signup-mode .login-left {
+            display: none !important;
+        }
+        #login-overlay.signup-mode .login-right {
+            flex: 1 1 100% !important;
+            max-width: 980px !important;
+            width: 100% !important;
+            padding: 0 !important;
+            margin: auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        #login-overlay.signup-mode .login-top-links {
+            display: none !important;
+        }
+        #login-overlay.signup-mode .login-card-container {
+            max-width: 980px !important;
+            width: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            margin: 0 auto !important;
+        }
+        #login-overlay.signup-mode .auth-tabs {
+            max-width: 460px !important;
+            width: 100% !important;
+            margin-bottom: 12px !important;
+        }
+        #login-overlay.signup-mode .login-card.wide-card {
+            max-width: 980px !important;
+            width: 100% !important;
+            padding: 1.35rem 2.2rem !important;
+            background: rgba(8, 14, 32, 0.94) !important;
+            border: 1px solid rgba(16, 185, 129, 0.45) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 16px 45px rgba(0,0,0,0.75), 0 0 35px rgba(16,185,129,0.22) !important;
+            box-sizing: border-box !important;
+        }
+        #login-overlay.signup-mode .login-card.wide-card .input-group input,
+        #login-overlay.signup-mode .login-card.wide-card .input-group select {
+            height: 48px !important;
+            padding: 10px 18px 10px 46px !important;
+            font-size: 0.98rem !important;
+            font-weight: 500 !important;
+            color: #ffffff !important;
+            background: rgba(15, 23, 42, 0.88) !important;
+            border: 1px solid rgba(56, 189, 248, 0.38) !important;
+            border-radius: 9px !important;
+            box-sizing: border-box !important;
+            width: 100% !important;
+        }
+        #login-overlay.signup-mode .login-card.wide-card .input-group input:focus,
+        #login-overlay.signup-mode .login-card.wide-card .input-group select:focus {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25) !important;
+            background: rgba(15, 23, 42, 0.98) !important;
+        }
+        #login-overlay.signup-mode .login-card.wide-card .input-group input::placeholder {
+            color: #94a3b8 !important;
+            font-size: 0.92rem !important;
+            font-weight: 400 !important;
+            opacity: 1 !important;
+        }
+        #login-overlay.signup-mode .login-card.wide-card .input-group i:not(.password-toggle) {
+            font-size: 1.05rem !important;
+            left: 15px !important;
+            color: #38bdf8 !important;
+        }
+        #login-overlay.signup-mode .login-card.wide-card .password-toggle {
+            font-size: 1.05rem !important;
+            right: 14px !important;
+            color: #94a3b8 !important;
+        }
+        #login-overlay.signup-mode .login-card.wide-card label {
+            font-size: 0.83rem !important;
+            font-weight: 700 !important;
+            color: #e2e8f0 !important;
+            margin-bottom: 4px !important;
+            display: block !important;
+        }
+    </style>
 </head>
 <body>
 
@@ -105,7 +237,17 @@
                 SMARTER WAREHOUSES <span>|</span> STRONGER SUPPLY CHAINS <span>|</span> A BRIGHTER TOMORROW
             </div>
 
-            <div class="login-card-container">
+            <div class="login-card-container" id="loginCardContainer">
+                <!-- TAB SWITCHER -->
+                <div class="auth-tabs" style="display: flex; gap: 8px; background: rgba(15,23,42,0.7); padding: 5px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); margin-bottom: 16px; width: 100%; max-width: 440px;">
+                    <button type="button" id="tabBtnSignIn" onclick="setAuthTab('signin')" class="auth-tab-btn active" style="flex: 1; padding: 10px 14px; border: none; border-radius: 9px; background: #38bdf8; color: #0f172a; font-weight: 700; font-size: 0.88rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s ease;">
+                        <i class="fas fa-lock"></i> <span>Sign In</span>
+                    </button>
+                    <button type="button" id="tabBtnSignup" onclick="setAuthTab('signup')" class="auth-tab-btn" style="flex: 1; padding: 10px 14px; border: none; border-radius: 9px; background: transparent; color: #94a3b8; font-weight: 700; font-size: 0.88rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s ease;">
+                        <i class="fas fa-warehouse"></i> <span>Register Warehouse</span>
+                    </button>
+                </div>
+
                 <!-- SIGN IN FORM -->
                 <div class="login-card" id="form-signin">
                     <div class="login-badge">
@@ -131,40 +273,153 @@
 
                     <button class="btn-login-main" onclick="doLogin()">Secure Login <i class="fas fa-arrow-right" style="margin-left: 5px;"></i></button>
 
-                    <div class="login-divider-line">OR</div>
-                    <button class="btn-signup-main" onclick="toggleAuthMode()">Add Fresh User</button>
-
-                    
+                    <div style="margin-top: 14px; text-align: center;">
+                        <span style="color: #94a3b8; font-size: 0.82rem;">Need a fresh warehouse workspace? </span>
+                        <a href="javascript:void(0)" onclick="setAuthTab('signup')" style="color: #38bdf8; font-size: 0.82rem; font-weight: 600; text-decoration: none;">Register New Warehouse</a>
                     </div>
-                
-                <!-- SIGN UP FORM -->
-                <div class="login-card" id="form-signup" style="display: none;">
-                    <div class="login-badge" style="border-color:#10b981; background:rgba(16, 185, 129, 0.1); color:#34d399;">
-                        <i class="fas fa-user-plus"></i> NEW REGISTRATION
-                    </div>
-                    <h2>Add Fresh User</h2>
-                    <p>Create a new <span>W.A.R.L.O.G</span> access account</p>
+                </div>
 
-                    <div class="input-group">
-                        <i class="fas fa-user"></i>
-                        <input type="text" id="reg-username" placeholder="Choose a username">
+                <!-- SIGN UP FORM (SPACIOUS ENTERPRISE REGISTRATION: BIGGER HORIZONTALLY, NOT LONGER VERTICALLY) -->
+                <div class="login-card wide-card" id="form-signup" style="display: none;">
+                    <div class="login-badge" style="border-color:#10b981; background:rgba(16, 185, 129, 0.15); color:#34d399; font-size: 0.72rem; padding: 3px 12px; font-weight:700;">
+                        <i class="fas fa-warehouse"></i> REGISTER ENTERPRISE WAREHOUSE
                     </div>
-                    <div class="input-group">
-                        <i class="fas fa-lock"></i>
-                        <input type="password" id="reg-password" placeholder="Choose a password" onkeydown="if(event.key==='Enter') doSignup()">
-                        <i class="fas fa-eye-slash password-toggle" onclick="togglePassword('reg-password', this)" title="Show/Hide password" role="button" aria-label="Toggle password visibility"></i>
+                    <h2 style="font-size: 1.45rem; font-weight: 800; margin: 2px 0 2px 0;">Create Warehouse Workspace</h2>
+                    <p style="font-size: 0.82rem; margin-bottom: 0.75rem; color: #94a3b8;">Deploy a dedicated <span style="color:#38bdf8; font-weight:700;">W.A.R.L.O.G</span> environment tailored to your operational domain.</p>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 8px;">
+                        <div>
+                            <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Admin Username *</label>
+                            <div class="input-group" style="margin-bottom: 0;">
+                                <i class="fas fa-user"></i>
+                                <input type="text" id="reg-username" required placeholder="e.g. alex_ops or admin_chennai">
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Official Work Email *</label>
+                            <div class="input-group" style="margin-bottom: 0;">
+                                <i class="fas fa-envelope"></i>
+                                <input type="email" id="reg-email" required placeholder="e.g. alex@company.com">
+                            </div>
+                        </div>
                     </div>
 
-                    <button class="btn-login-main" style="background: linear-gradient(90deg, #10b981, #059669); margin-top: 1rem; box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);" onclick="doSignup()">Register User <i class="fas fa-check" style="margin-left: 5px;"></i></button>
-
-                    <div class="login-divider-line">OR</div>
-                    <button class="btn-signup-main" onclick="toggleAuthMode()">Back to Sign In</button>
-
-                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 8px;">
+                        <div>
+                            <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Password *</label>
+                            <div class="input-group" style="margin-bottom: 0;">
+                                <i class="fas fa-lock"></i>
+                                <input type="password" id="reg-password" required placeholder="Create secure password (min 6 chars)">
+                                <i class="fas fa-eye-slash password-toggle" onclick="togglePassword('reg-password', this)" title="Show/Hide password" role="button"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Company Name * <span style="font-size:0.75rem; font-weight:normal; color:#38bdf8;">(Auto-inferred)</span></label>
+                            <div class="input-group" style="margin-bottom: 0;">
+                                <i class="fas fa-building"></i>
+                                <input type="text" id="reg-company" required placeholder="e.g. Coca-Cola, Tesla Motors, Sun Pharma, DHL..." oninput="handleCompanyInputAutoDetect()">
+                            </div>
+                        </div>
                     </div>
+
+                    <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; margin-bottom: 8px;">
+                        <div>
+                            <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Primary Facility / Warehouse Name</label>
+                            <div class="input-group" style="margin-bottom: 0;">
+                                <i class="fas fa-warehouse"></i>
+                                <input type="text" id="reg-warehouse" placeholder="e.g. Central Bottling Plant & DC">
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Facility City / Region</label>
+                            <div class="input-group" style="margin-bottom: 0;">
+                                <i class="fas fa-location-dot"></i>
+                                <input type="text" id="reg-city" placeholder="e.g. Bengaluru, Karnataka">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- WAREHOUSE INDUSTRY & ENVIRONMENT INTELLIGENCE SELECTOR -->
+                    <div style="margin-bottom: 8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <label style="font-size:0.83rem; font-weight:700; color:#cbd5e1; margin:0;">Warehouse Operating Environment &amp; Industry</label>
+                            <span id="regAutoDetectBadge" style="display:none; font-size:0.72rem; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); padding:2px 8px; border-radius:12px; font-weight:600;">
+                                <i class="fas fa-brain"></i> Auto-inferred from Company Name
+                            </span>
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <i class="fas fa-sliders" style="color:#38bdf8;"></i>
+                            <select id="reg-environment" style="width:100%; box-sizing:border-box; background:rgba(15,23,42,0.88); border:1px solid rgba(56,189,248,0.38); border-radius:9px; padding:10px 18px 10px 46px; color:#ffffff; font-size:0.95rem; outline:none;" onchange="onEnvironmentDropdownChange()">
+                                <option value="beverage">🥤 Food, Beverage &amp; FMCG (Cold Storage, High-Throughput Pallets, Expiry Tracking)</option>
+                                <option value="automotive">🚗 Automotive &amp; Discrete Manufacturing (Heavy Racks, Parts Kitting, Assembly)</option>
+                                <option value="electronics">⚡ High-Tech Electronics &amp; Hardware (Anti-Static, High-Security, Serial/IMEI Tracking)</option>
+                                <option value="pharma">💊 Pharmaceuticals &amp; Cold Chain Healthcare (Temperature Control, Quarantine Bins, Batch Recall)</option>
+                                <option value="metals">🏗️ Heavy Metals &amp; Raw Materials (High-Capacity Floor Bays, Coils &amp; Rebar Racks)</option>
+                                <option value="3pl">📦 E-Commerce, 3PL &amp; Retail Fulfillment (Multi-Client Sorting, Fast Pick Bins, Dispatch)</option>
+                                <option value="custom" selected>🏢 General Modern Warehousing (Standard Pallet Racking, Ambient Storage)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Environment Feature Hint -->
+                    <div id="envFeatureSummary" style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:7px 12px; margin-bottom:10px; font-size:0.78rem; color:#94a3b8; display:flex; align-items:center; gap:8px;">
+                        <i class="fas fa-circle-check" style="color:#38bdf8;"></i>
+                        <span id="envFeatureText">System will auto-configure 35+ verified domain SKUs, dedicated camera vision zones, and capacity thresholds.</span>
+                    </div>
+
+                    <button type="button" class="btn-login-main" style="background: linear-gradient(90deg, #10b981, #059669); margin-top: 0.25rem; height: 46px; font-size: 0.98rem; font-weight:700; box-shadow: 0 8px 20px rgba(16, 185, 129, 0.35); display:flex; align-items:center; justify-content:center; gap:8px;" onclick="requestRegistrationOtp()">
+                        <span>Verify Email &amp; Launch Workspace</span> <i class="fas fa-shield-alt"></i>
+                    </button>
+
+                    <div style="margin-top: 10px; text-align: center;">
+                        <span style="color: #94a3b8; font-size: 0.82rem;">Already have an account? </span>
+                        <a href="javascript:void(0)" onclick="setAuthTab('signin')" style="color: #38bdf8; font-size: 0.82rem; font-weight: 600; text-decoration: none;">Sign In</a>
+                    </div>
+                </div>
+
+                <!-- OTP SECURITY VERIFICATION FORM -->
+                <div class="login-card wide-card" id="form-otp-verify" style="display: none;">
+                    <div class="login-badge" style="border-color:#38bdf8; background:rgba(56,189,248,0.12); color:#38bdf8; font-size:0.72rem; padding:4px 12px;">
+                        <i class="fas fa-shield-halved"></i> SECURITY VERIFICATION (OTP)
+                    </div>
+                    <h2 style="font-size: 1.6rem;">Verify Your Email Address</h2>
+                    <p style="font-size: 0.88rem; margin-bottom: 1.25rem;">
+                        We sent a 6-digit authentication code to <strong id="otpDisplayTargetEmail" style="color:#38bdf8;">user@company.com</strong>. Enter it below to complete workspace registration.
+                    </p>
+
+                    <!-- Sandbox Dev Hint (So the user doesn't need to configure real SMTP) -->
+                    <div id="otpSandboxBanner" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); border-radius:10px; padding:12px 16px; margin-bottom:18px; font-size:0.85rem; color:#bae6fd; display:flex; align-items:center; justify-content:space-between;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-key" style="color:#38bdf8; font-size:1.1rem;"></i>
+                            <span>Verification Code: <strong id="devOtpCodeValue" style="color:#fff; font-family:monospace; font-size:1.15rem; letter-spacing:2px; background:#0f172a; padding:2px 8px; border-radius:4px; margin-left:4px;">------</strong></span>
+                        </div>
+                        <button type="button" onclick="autoFillDevOtp()" style="background:#0284c7; border:none; color:#fff; border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:700; cursor:pointer;">
+                            Auto-Fill Code
+                        </button>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:8px; text-align:center;">Enter 6-Digit Verification Code</label>
+                        <input type="text" id="reg-otp-code" class="otp-input-box" maxlength="6" placeholder="------" oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value.length===6) verifyOtpAndCompleteSignup();" onkeydown="if(event.key==='Enter') verifyOtpAndCompleteSignup();">
+                    </div>
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; font-size:0.82rem;">
+                        <a href="javascript:void(0)" onclick="backToRegistrationForm()" style="color:#94a3b8; text-decoration:none; display:flex; align-items:center; gap:4px;">
+                            <i class="fas fa-arrow-left"></i> Edit Details / Email
+                        </a>
+                        <div>
+                            <span id="otpCountdownSpan" style="color:#94a3b8;">Resend code in <strong id="otpTimerCount" style="color:#38bdf8;">60</strong>s</span>
+                            <button type="button" id="btnResendOtp" onclick="resendRegistrationOtp()" style="display:none; background:none; border:none; color:#38bdf8; font-weight:700; cursor:pointer; font-size:0.82rem;">Resend Code</button>
+                        </div>
+                    </div>
+
+                    <button type="button" id="btnVerifyOtpSubmit" class="btn-login-main" style="background: linear-gradient(90deg, #0284c7, #2563eb); height: 50px; font-size: 1rem; box-shadow: 0 8px 20px rgba(37,99,235,0.4); display:flex; align-items:center; justify-content:center; gap:8px;" onclick="verifyOtpAndCompleteSignup()">
+                        <span>Verify OTP &amp; Launch Workspace</span> <i class="fas fa-rocket"></i>
+                    </button>
                 </div>
             </div>
         </div>
+    </div>
 
     <!-- CINEMA FULLSCREEN CAMERA & PRO PTZ CONTROLLER -->
     <div id="fsOverlay" class="fullscreen-overlay" onclick="if(event.target===this) closeFullscreen()">
@@ -938,23 +1193,26 @@
                 <span class="telemetry-val">Active (60 FPS)</span>
             </div>
             <div class="topbar-facility-selector-wrap" style="display: flex; align-items: center; gap: 8px;">
-                <div class="topbar-facility-selector" title="Active Warehouse Facility" style="padding: 4px 10px; display: flex; align-items: center; gap: 6px;">
-                    <i class="fas fa-warehouse" style="color: #38bdf8;"></i>
-                    <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="background: transparent; border: none; color: #f1f5f9; font-size: 0.82rem; font-weight: 600; cursor: pointer; outline: none; padding-right: 4px;">
-                        <option value="WH-MAIN" style="background:#0f172a; color:#f1f5f9;">WH-MAIN (Main Assembly Hub)</option>
-                        <option value="WH-REG" style="background:#0f172a; color:#f1f5f9;">WH-REG (Regional Transit Center)</option>
-                        <option value="WH-WEST" style="background:#0f172a; color:#f1f5f9;">WH-WEST (Western Depot)</option>
+                <div class="topbar-facility-selector" id="facilitySelectorPill" title="Active Warehouse Location" style="padding: 5px 12px; display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;">
+                    <i class="fas fa-location-dot" style="color: #38bdf8; font-size: 0.85rem;"></i>
+                    <span id="activeFacilityNameDisplay" style="color: #f1f5f9; font-size: 0.82rem; font-weight: 600;">Main Facility</span>
+                    <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="display: none; background: transparent; border: none; color: #f1f5f9; font-size: 0.82rem; font-weight: 600; cursor: pointer; outline: none;">
                     </select>
-                    <span id="topbarFacilityBadge" class="badge" style="font-size: 0.65rem; padding: 2px 6px; background: rgba(56,189,248,0.2); color: #38bdf8; border-radius: 4px; border: 1px solid rgba(56,189,248,0.4); text-transform: uppercase;">DEDICATED</span>
                 </div>
-                <button type="button" class="topbar-facility-selector btn-blueprint-trigger" onclick="openIndustryBlueprintModal()" title="Transform WMS with Pre-Defined Industry Datasets & AI Vision Blueprints" style="padding: 6px 12px; background: linear-gradient(135deg, rgba(56,189,248,0.18), rgba(168,85,247,0.18)); border: 1px solid rgba(168,85,247,0.45); color: #e2e8f0; font-size: 0.8rem; font-weight: 700; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
-                    <i class="fas fa-wand-magic-sparkles" style="color: #c084fc;"></i>
-                    <span>Industry Blueprint</span>
+                <button type="button" class="btn-add-facility-trigger" onclick="openAddFacilityModal()" title="Add New Warehouse Location for this Company" style="padding: 6px 12px; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.35); color: #38bdf8; font-size: 0.78rem; font-weight: 700; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s ease;">
+                    <i class="fas fa-plus" style="font-size:0.7rem;"></i>
+                    <span>Add Location</span>
                 </button>
             </div>
-            <div class="topbar-skantha-brand">
-                <img src="/static/skantha_logo.png" class="topbar-skantha-logo" alt="Skantha Technology Solution Logo">
-                <div class="topbar-skantha-name">Skantha Solutions</div>
+            <div class="topbar-company-identity" style="display: flex; align-items: center; gap: 12px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.1);">
+                <div style="text-align: right; display: flex; flex-direction: column;">
+                    <span id="topbarCompanyName" style="font-size: 0.85rem; font-weight: 700; color: #f8fafc; line-height: 1.2;">Skantha Industrial Solutions</span>
+                    <span id="topbarUsername" style="font-size: 0.72rem; color: #94a3b8;">Administrator</span>
+                </div>
+                <button type="button" onclick="doLogout()" class="btn-logout" title="Sign Out" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #f87171; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 0.76rem; font-weight: 600; display: flex; align-items: center; gap: 5px; transition: all 0.2s ease;">
+                    <i class="fas fa-arrow-right-from-bracket"></i>
+                    <span>Sign Out</span>
+                </button>
             </div>
         </div>
     </header>
@@ -1014,6 +1272,10 @@
                 </button>
 
                 <div class="nav-category-header">ENTERPRISE CONFIG</div>
+                <button class="tab-btn" onclick="switchTab('warehouses')">
+                    <span class="tab-btn-content"><i class="fas fa-warehouse tab-icon"></i> Warehouse Locations</span>
+                    <span id="nav-warehouses-count" class="nav-badge" style="background:#38bdf8; color:#0f172a; font-weight:700;">1</span>
+                </button>
                 <button class="tab-btn" onclick="switchTab('master-hub')">
                     <span class="tab-btn-content"><i class="fas fa-database tab-icon"></i> Master Data Hub</span>
                 </button>
@@ -1702,6 +1964,29 @@
                     </table>
                 </div>
             </div>
+        <!-- WAREHOUSES & LOCATIONS VIEW -->
+        <div id="warehouses-view" class="view-section">
+            <div class="glass-panel" style="margin-bottom: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h2 style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-warehouse" style="color:#38bdf8;"></i>
+                            <span>Enterprise Warehouse Locations</span>
+                        </h2>
+                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">
+                            Distribution centers, assembly plants, and storage facilities registered for <strong id="warehousesViewCompanyTitle" style="color:#f8fafc;">Your Organization</strong>.
+                        </p>
+                    </div>
+                    <button class="btn-primary" onclick="openAddFacilityModal()" style="background:linear-gradient(135deg, #0284c7, #0369a1); display:flex; align-items:center; gap:6px;">
+                        <i class="fas fa-plus"></i> Register New Location
+                    </button>
+                </div>
+            </div>
+
+            <!-- Locations Grid -->
+            <div id="warehouseLocationsGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
+                <!-- Cards dynamically populated by JavaScript -->
+            </div>
         </div>
 
         <!-- MASTER HUB VIEW -->
@@ -1732,27 +2017,124 @@
                 
                 
                 <div id="bin-master-sub" class="sub-master-section" style="display:none;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-        <h3>Bin Master (Capacity & Slotting)</h3>
-        <button class="btn-primary" onclick="document.getElementById('addBinModal').style.display='flex'">+ Add Bin</button>
-    </div>
-    <div style="overflow-x:auto;">
-        <table style="width:100%;">
-            <thead>
-                <tr>
-                    <th>Bin ID</th>
-                    <th>Zone</th>
-                    <th>Capacity (Vol)</th>
-                    <th>Capacity (Wt)</th>
-                    <th>Stock Count</th>
-                    <th>Vendors</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody id="binMasterBody"></tbody>
-        </table>
-    </div>
-</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                        <div>
+                            <h3 style="margin:0;">Bin Master (Capacity & Slotting)</h3>
+                            <p style="margin:2px 0 0 0; color:var(--text-muted); font-size:0.82rem;">Manage physical warehouse storage locations, volume and weight thresholds.</p>
+                        </div>
+                        <button type="button" class="btn-primary" onclick="openAddBinModal()" style="display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-plus"></i> Add New Bin
+                        </button>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Bin ID</th>
+                                    <th>Zone</th>
+                                    <th>Capacity (Vol)</th>
+                                    <th>Capacity (Wt)</th>
+                                    <th>Stock Count</th>
+                                    <th>Vendors</th>
+                                    <th>Status</th>
+                                    <th style="text-align:center;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="binMasterBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ADD BIN MODAL -->
+                <div id="addBinModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
+                    <div style="background:linear-gradient(145deg, #0f172a, #1e293b); border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:100%; max-width:480px; padding:22px; color:#f8fafc; box-shadow:0 20px 40px rgba(0,0,0,0.6);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+                            <h3 style="margin:0; font-size:1.15rem; display:flex; align-items:center; gap:8px;">
+                                <i class="fas fa-box" style="color:#38bdf8;"></i> Register New Storage Bin
+                            </h3>
+                            <button type="button" onclick="closeAddBinModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">&times;</button>
+                        </div>
+                        <form onsubmit="event.preventDefault(); submitAddBin();" style="display:flex; flex-direction:column; gap:12px;">
+                            <div>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Bin ID *</label>
+                                <input type="text" id="newBinId" required placeholder="e.g. BIN-A-101" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Warehouse Zone</label>
+                                <input type="text" id="newBinZone" placeholder="e.g. Zone A" value="Zone A" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                                <div>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Volume (m³) *</label>
+                                    <input type="number" step="0.1" id="newBinVol" required value="100.0" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                                </div>
+                                <div>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Weight (kg) *</label>
+                                    <input type="number" step="1" id="newBinWt" required value="1000.0" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                                </div>
+                            </div>
+                            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+                                <button type="button" onclick="closeAddBinModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:8px 14px; color:#cbd5e1; cursor:pointer;">Cancel</button>
+                                <button type="submit" class="btn-primary" style="background:linear-gradient(135deg, #0284c7, #2563eb); border:none; padding:8px 16px; border-radius:6px; color:#fff; font-weight:700; cursor:pointer;">Create Bin</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- EDIT / EXPAND BIN SIZE MODAL -->
+                <div id="editBinModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
+                    <div style="background:linear-gradient(145deg, #0f172a, #1e293b); border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:100%; max-width:500px; padding:22px; color:#f8fafc; box-shadow:0 20px 40px rgba(0,0,0,0.6);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+                            <h3 style="margin:0; font-size:1.15rem; display:flex; align-items:center; gap:8px;">
+                                <i class="fas fa-up-right-and-down-left-from-center" style="color:#38bdf8;"></i> Edit / Expand Bin <span id="editBinIdTitle" style="color:#38bdf8;"></span>
+                            </h3>
+                            <button type="button" onclick="closeEditBinModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">&times;</button>
+                        </div>
+                        <form onsubmit="event.preventDefault(); submitEditBin();" style="display:flex; flex-direction:column; gap:12px;">
+                            <input type="hidden" id="editBinId">
+                            <div>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Zone</label>
+                                <input type="text" id="editBinZone" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                                <div>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Volume (m³)</label>
+                                    <input type="number" step="0.1" id="editBinVol" required style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                                </div>
+                                <div>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Weight (kg)</label>
+                                    <input type="number" step="1" id="editBinWt" required style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                                </div>
+                            </div>
+
+                            <!-- Quick Size Expansion Buttons -->
+                            <div style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:10px; margin-top:2px;">
+                                <span style="font-size:0.75rem; color:#94a3b8; font-weight:700; display:block; margin-bottom:6px;">QUICK SIZE EXPANSION:</span>
+                                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                    <button type="button" onclick="quickExpandBinSize(25, 250)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer;">+25 m³ / +250 kg</button>
+                                    <button type="button" onclick="quickExpandBinSize(50, 500)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer;">+50 m³ / +500 kg</button>
+                                    <button type="button" onclick="quickExpandBinSize(100, 1000)" style="background:rgba(56,189,248,0.18); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer; font-weight:700;">+100 m³ / +1000 kg</button>
+                                    <button type="button" onclick="quickExpandBinSize(200, 2000)" style="background:rgba(16,185,129,0.18); border:1px solid rgba(16,185,129,0.4); color:#34d399; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer; font-weight:700;">Double Capacity (2x)</button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Operational Status</label>
+                                <select id="editBinStatus" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
+                                    <option value="Active">Active</option>
+                                    <option value="Reserved">Reserved</option>
+                                    <option value="Maintenance">Maintenance</option>
+                                    <option value="Full">Full</option>
+                                </select>
+                            </div>
+
+                            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+                                <button type="button" onclick="closeEditBinModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:8px 14px; color:#cbd5e1; cursor:pointer;">Cancel</button>
+                                <button type="submit" class="btn-primary" style="background:linear-gradient(135deg, #0284c7, #2563eb); border:none; padding:8px 16px; border-radius:6px; color:#fff; font-weight:700; cursor:pointer;">Save Changes</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
 
 
 <div id="inventory-master-sub" class="sub-master-section" style="display:none;">
@@ -2228,9 +2610,12 @@ async function fetchBins() {
                         <div style="width:${Math.min(pctWt, 100)}%; background:${pctWt>90 ? 'var(--danger)' : 'var(--accent)'}; height:100%; border-radius:3px;"></div>
                     </div>
                 </td>
-                <td><strong style="color:var(--primary-navy); font-size:1.1rem;">${b.stock_count}</strong> Items</td>
-                <td>${b.vendor || 'Empty'}</td>
                 <td><span class="badge ${b.status==='Active'?'badge-success':'badge-warning'}">${b.status}</span></td>
+                <td style="text-align:center;">
+                    <button type="button" class="btn btn-outline" style="padding:4px 8px; font-size:0.75rem; border:1px solid rgba(0,242,254,0.4); color:var(--primary-teal); background:rgba(0,242,254,0.08); border-radius:4px; cursor:pointer;" onclick="openEditBinModal('${b.bin_id}', '${b.zone}', ${b.max_volume}, ${b.max_weight}, '${b.status}')">
+                        <i class="fas fa-edit"></i> Edit / Expand
+                    </button>
+                </td>
             `;
             tbody.appendChild(tr);
         });
@@ -3207,33 +3592,26 @@ window.switchSubTab = switchSubTab;
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="dtSourceTypeSelect" onchange="handleDetectionSourceChange()" style="margin-bottom:0;">
-                                    <option value="camera" selected>Camera Master Feed / Preview</option>
-                                    <option value="sample">Built-in Test Scene (Static)</option>
-                                    <option value="upload">Custom Image File Upload</option>
+                                    <option value="upload" selected>Custom Image File Upload</option>
+                                    <option value="camera">Camera Master Feed / Preview</option>
                                 </select>
                             </div>
 
                             <!-- Camera Node (When Source is Camera) -->
-                            <div id="dtCameraSelectContainer">
+                            <div id="dtCameraSelectContainer" style="display:none;">
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Camera Node:</label>
                                 <select id="dtCameraSelect" style="margin-bottom:0;">
                                     <!-- Populated dynamically with registered cameras -->
                                 </select>
                             </div>
 
-                            <!-- Sample Scene (When Source is Sample) -->
-                            <div id="dtSampleSelectContainer" style="display:none;">
-                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Test Scene:</label>
-                                <select id="dtSampleSelect" style="margin-bottom:0;">
-                                    <option value="warehouse_carrier.jpg">Warehouse Carrier &amp; Yard Bay</option>
-                                    <option value="synthetic_warehouse.jpg">Synthetic Multi-Entity Warehouse Dock</option>
-                                </select>
-                            </div>
-
                             <!-- Upload File (When Source is Upload) -->
-                            <div id="dtUploadContainer" style="display:none;">
-                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Select Image File:</label>
-                                <input type="file" id="dtFileInput" accept="image/*" style="margin-bottom:0; padding:6px; font-size:0.85rem;">
+                            <div id="dtUploadContainer">
+                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Upload Image File:</label>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <input type="file" id="dtFileInput" accept="image/*" onchange="previewDetectionUploadedFile(this)" style="margin-bottom:0; padding:6px; font-size:0.85rem; flex:1;">
+                                    <span id="dtUploadBadge" style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;">PNG, JPG, WEBP</span>
+                                </div>
                             </div>
 
                             <!-- Confidence Threshold -->
@@ -3380,15 +3758,14 @@ window.switchSubTab = switchSubTab;
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Frame Source:</label>
                                 <select id="ttSourceTypeSelect" onchange="handleTrackingSourceChange()" style="margin-bottom:0;">
-                                    <option value="carrier_motion" selected>Sequential Motion Test (Carrier Pan)</option>
+                                    <option value="upload" selected>Custom Image File Upload</option>
+                                    <option value="carrier_motion">Sequential Motion Test (Carrier Pan)</option>
                                     <option value="camera">Camera Master Snapshot</option>
-                                    <option value="sample">Built-in Test Scene (Static)</option>
-                                    <option value="upload">Custom Image File Upload</option>
                                 </select>
                             </div>
 
                             <!-- Camera Node -->
-                            <div>
+                            <div id="ttCameraContainer" style="display:none;">
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Camera Session:</label>
                                 <select id="ttCameraSelect" style="margin-bottom:0;">
                                     <!-- Populated dynamically -->
@@ -3396,7 +3773,7 @@ window.switchSubTab = switchSubTab;
                             </div>
 
                             <!-- Step Index (When in Sequential Motion mode) -->
-                            <div id="ttStepContainer">
+                            <div id="ttStepContainer" style="display:none;">
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Sequence Frame:</label>
                                 <div style="display:flex; align-items:center; gap:6px;">
                                     <input type="number" id="ttStepInput" value="0" min="0" max="20" style="margin-bottom:0; width:80px; text-align:center;">
@@ -3404,17 +3781,8 @@ window.switchSubTab = switchSubTab;
                                 </div>
                             </div>
 
-                            <!-- Sample Scene (When Source is Sample) -->
-                            <div id="ttSampleSelectContainer" style="display:none;">
-                                <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Test Scene:</label>
-                                <select id="ttSampleSelect" style="margin-bottom:0;">
-                                    <option value="warehouse_carrier.jpg">Warehouse Carrier &amp; Yard Bay</option>
-                                    <option value="synthetic_warehouse.jpg">Synthetic Multi-Entity Warehouse Dock</option>
-                                </select>
-                            </div>
-
                             <!-- Upload File (When Source is Upload) -->
-                            <div id="ttUploadContainer" style="display:none;">
+                            <div id="ttUploadContainer">
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Select Image File:</label>
                                 <input type="file" id="ttFileInput" accept="image/*" style="margin-bottom:0; padding:6px; font-size:0.85rem;">
                             </div>
@@ -5821,7 +6189,7 @@ window.switchSubTab = switchSubTab;
 
     </main>
     </div> <!-- End #app-layout -->
-    <script src="{{ url_for('static', filename='js/app_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app_logic.js') }}?v=3.6"></script>
 
     <script>
         window.manifestLineCount = 0;
@@ -6282,7 +6650,12 @@ window.switchSubTab = switchSubTab;
                 <i class="fas fa-triangle-exclamation"></i>
                 <span>Human Error Interceptor</span>
             </div>
-            <button type="button" class="modal-close-btn" onclick="toggleViolationsDrawer(false)">&times;</button>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <button type="button" id="btnApproveAllViolations" onclick="window.resolveAllViolations()" title="Approve and resolve all open violations" style="padding: 5px 12px; background: #10b981; color: #ffffff; font-size: 0.78rem; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; display: none; align-items: center; gap: 5px; transition: all 0.2s ease;">
+                    <i class="fas fa-check-double"></i> Approve All
+                </button>
+                <button type="button" class="modal-close-btn" onclick="toggleViolationsDrawer(false)">&times;</button>
+            </div>
         </div>
         <div id="violationsDrawerBody" class="violations-drawer-body">
             <!-- Dynamic violations loaded by pollViolations() -->
@@ -7021,6 +7394,84 @@ window.switchSubTab = switchSubTab;
             <!-- Live Status Feedback Banner -->
             <div id="blueprintFeedbackBanner" style="display:none; margin-top:16px; padding:12px 16px; border-radius:8px; font-size:0.85rem;"></div>
 
+        </div>
+    </div>
+
+    <!-- ADD FACILITY / LOCATION MODAL -->
+    <div id="addFacilityModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
+        <div class="blueprint-modal-content" style="background:linear-gradient(145deg, #0f172a, #1e1b4b); border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:100%; max-width:580px; max-height:92vh; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7), 0 0 30px rgba(56,189,248,0.2); color:#f8fafc; padding:24px; position:relative;">
+            
+            <!-- Modal Header -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:14px; margin-bottom:18px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="width:40px; height:40px; border-radius:10px; background:linear-gradient(135deg, #0284c7, #38bdf8); display:flex; align-items:center; justify-content:center; font-size:1.15rem; box-shadow:0 0 15px rgba(56,189,248,0.4);">
+                        <i class="fas fa-warehouse" style="color:#ffffff;"></i>
+                    </div>
+                    <div>
+                        <h2 style="font-size:1.2rem; font-weight:800; margin:0; color:#f8fafc;">
+                            Add Facility / Location
+                        </h2>
+                        <p style="margin:2px 0 0 0; font-size:0.8rem; color:#94a3b8;">
+                            Expand your company footprint with a location-specific warehouse node.
+                        </p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeAddFacilityModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer; padding:4px 8px; border-radius:6px; transition:color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Form Content -->
+            <form id="formAddFacility" onsubmit="event.preventDefault(); submitAddFacility();" style="display:flex; flex-direction:column; gap:14px;">
+                <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Facility / Warehouse Name *</label>
+                    <input type="text" id="newFacName" required placeholder="e.g. Bangalore North Central Fulfillment" oninput="handleFacilityRecognitionDebounced()" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                    <div>
+                        <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">City / Region *</label>
+                        <input type="text" id="newFacCity" required placeholder="e.g. Bengaluru, Karnataka" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Operating Mode</label>
+                        <select id="newFacMode" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                            <option value="DEDICATED" selected>Dedicated Facility</option>
+                            <option value="3PL">Multi-Client / 3PL Hub</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Operating Environment &amp; Industry</label>
+                    <select id="newFacEnvironment" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                        <option value="beverage">🥤 Food, Beverage &amp; FMCG (Cold Storage, High-Throughput Pallets, Expiry Tracking)</option>
+                        <option value="automotive">🚗 Automotive &amp; Discrete Manufacturing (Heavy Racks, Parts Kitting, Assembly)</option>
+                        <option value="electronics">⚡ High-Tech Electronics &amp; Hardware (Anti-Static, High-Security, Serial/IMEI Tracking)</option>
+                        <option value="pharma">💊 Pharmaceuticals &amp; Cold Chain Healthcare (Temperature Control, Quarantine Bins, Batch Recall)</option>
+                        <option value="metals">🏗️ Heavy Metals &amp; Raw Materials (High-Capacity Floor Bays, Coils &amp; Rebar Racks)</option>
+                        <option value="3pl">📦 E-Commerce, 3PL &amp; Retail Fulfillment (Multi-Client Sorting, Fast Pick Bins, Dispatch)</option>
+                        <option value="custom" selected>🏢 General Modern Warehousing (Standard Pallet Racking, Ambient Storage)</option>
+                    </select>
+                </div>
+
+                <!-- AI Recognition Live Preview -->
+                <div id="newFacAiPreview" style="display:none; padding:10px 14px; border-radius:8px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); font-size:0.82rem; color:#bae6fd; align-items:center; gap:8px;">
+                    <i class="fas fa-brain" style="color:#38bdf8;"></i>
+                    <span>Environment Auto-Detected: <strong id="newFacAiLabel" style="color:#ffffff;">Standard Fulfillment</strong> (<span id="newFacAiSector">General</span>)</span>
+                </div>
+
+                <div id="addFacErrorBanner" style="display:none; padding:10px 14px; border-radius:8px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); font-size:0.82rem; color:#fca5a5;"></div>
+
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
+                    <button type="button" onclick="closeAddFacilityModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:9px 18px; color:#cbd5e1; font-weight:600; font-size:0.85rem; cursor:pointer;">
+                        Cancel
+                    </button>
+                    <button type="submit" id="btnSubmitAddFac" style="background:linear-gradient(135deg, #0284c7, #2563eb); border:none; border-radius:8px; padding:9px 20px; color:#ffffff; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 4px 14px rgba(37,99,235,0.4);">
+                        <i class="fas fa-plus-circle"></i> Create Facility
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

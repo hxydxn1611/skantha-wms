@@ -8,6 +8,8 @@
     let palletPollTimer = null;
     let violationPollTimer = null;
     let knownViolationIds = new Set();
+    let resolvedViolationIds = new Set();
+    let lastViolationToastTime = 0;
     let audioContext = null;
 
     // Toast Notification System
@@ -72,6 +74,7 @@
             // Update Topbar Badge
             const btn = document.getElementById('navViolationsBtn');
             const txt = document.getElementById('navViolationsCount');
+            const approveAllBtn = document.getElementById('btnApproveAllViolations');
             const count = violations.length;
             
             if (txt) txt.textContent = count;
@@ -81,19 +84,27 @@
                     btn.style.display = 'inline-flex';
                 } else {
                     btn.classList.remove('has-violations');
+                    btn.style.display = 'none';
                 }
             }
 
-            // Check if brand new high-severity violations occurred
+            if (approveAllBtn) {
+                approveAllBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+            }
+
+            // Check if brand new high-severity violations occurred (filter out resolved/acknowledged)
             let hasNew = false;
+            const now = Date.now();
             violations.forEach(v => {
-                if (!knownViolationIds.has(v.id)) {
+                if (!knownViolationIds.has(v.id) && !resolvedViolationIds.has(v.id)) {
                     knownViolationIds.add(v.id);
                     hasNew = true;
                 }
             });
 
-            if (hasNew && violations.length > 0) {
+            // Prevent irritating repetitive toast notification (max once every 30s)
+            if (hasNew && violations.length > 0 && (now - lastViolationToastTime > 30000)) {
+                lastViolationToastTime = now;
                 playViolationBuzzer();
                 showToast(`🚨 Human Error Intercepted: ${violations[0].violation_type}`, 'error');
             }
@@ -169,25 +180,56 @@
     };
 
     window.resolveViolationModal = async function(id, type) {
-        const resolution = prompt(`Resolve Violation #${id} (${type})?\nEnter supervisor action or corrective note:`, 'Corrected physical placement in authorized bin.');
-        if (!resolution) return;
-
+        resolvedViolationIds.add(id);
         try {
             const res = await fetch(`/api/violations/${id}/resolve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notes: resolution, resolved_by: 'Supervisor' })
+                body: JSON.stringify({ notes: 'Approved by supervisor', resolved_by: 'Supervisor' })
             });
             const data = await res.json();
             if (res.ok && (data.success || data.status === 'success')) {
-                showToast(`Violation #${id} resolved successfully.`, 'success');
-                pollViolations();
+                showToast(`Violation #${id} approved & resolved.`, 'success');
+                await pollViolations();
             } else {
                 alert(`Error: ${data.error || data.message || 'Failed to resolve violation'}`);
             }
         } catch(e) {
             console.error('Resolution error:', e);
             alert(`Network error: ${e.message}`);
+        }
+    };
+
+    window.resolveAllViolations = async function() {
+        try {
+            const btn = document.getElementById('btnApproveAllViolations');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Approving...';
+            }
+            const res = await fetch('/api/violations/resolve_all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notes: 'Bulk approved by supervisor', resolved_by: 'Supervisor' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`All ${data.resolved_count} violation(s) approved and cleared!`, 'success');
+                knownViolationIds.clear();
+                resolvedViolationIds.clear();
+                await pollViolations();
+            } else {
+                alert(`Error: ${data.error || 'Failed to bulk resolve violations'}`);
+            }
+        } catch(e) {
+            console.error('Resolve all error', e);
+            alert(`Network error: ${e.message}`);
+        } finally {
+            const btn = document.getElementById('btnApproveAllViolations');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-double"></i> Approve All';
+            }
         }
     };
 

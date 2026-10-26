@@ -2169,13 +2169,11 @@
                     }
 
                     function handleDetectionSourceChange() {
-                        const srcType = document.getElementById('dtSourceTypeSelect')?.value || 'camera';
+                        const srcType = document.getElementById('dtSourceTypeSelect')?.value || 'upload';
                         const camBox = document.getElementById('dtCameraSelectContainer');
-                        const sampleBox = document.getElementById('dtSampleSelectContainer');
                         const uploadBox = document.getElementById('dtUploadContainer');
 
                         if (camBox) camBox.style.display = (srcType === 'camera') ? 'block' : 'none';
-                        if (sampleBox) sampleBox.style.display = (srcType === 'sample') ? 'block' : 'none';
                         if (uploadBox) uploadBox.style.display = (srcType === 'upload') ? 'block' : 'none';
                     }
 
@@ -2374,13 +2372,13 @@
                     }
 
                     function handleTrackingSourceChange() {
-                        const src = document.getElementById('ttSourceTypeSelect')?.value;
+                        const src = document.getElementById('ttSourceTypeSelect')?.value || 'upload';
                         const stepContainer = document.getElementById('ttStepContainer');
-                        const sampleContainer = document.getElementById('ttSampleSelectContainer');
+                        const camContainer = document.getElementById('ttCameraContainer');
                         const uploadContainer = document.getElementById('ttUploadContainer');
 
                         if (stepContainer) stepContainer.style.display = (src === 'carrier_motion') ? 'block' : 'none';
-                        if (sampleContainer) sampleContainer.style.display = (src === 'sample') ? 'block' : 'none';
+                        if (camContainer) camContainer.style.display = (src === 'camera') ? 'block' : 'none';
                         if (uploadContainer) uploadContainer.style.display = (src === 'upload') ? 'block' : 'none';
                     }
 
@@ -2394,7 +2392,7 @@
 
                         try {
                             const cameraId = document.getElementById('ttCameraSelect')?.value || 'CAM-001';
-                            const srcType = document.getElementById('ttSourceTypeSelect')?.value || 'carrier_motion';
+                            const srcType = document.getElementById('ttSourceTypeSelect')?.value || 'upload';
                             const confThreshold = parseFloat(document.getElementById('ttConfSlider')?.value || 0.25);
 
                             let payload = {
@@ -2408,8 +2406,19 @@
                                 payload.sequence_step = stepVal;
                                 ttCurrentStep = (stepVal + 1) % 20;
                                 if (stepInput) stepInput.value = ttCurrentStep;
-                            } else if (srcType === 'sample') {
-                                payload.sample_scene = document.getElementById('ttSampleSelect')?.value;
+                            } else if (srcType === 'upload') {
+                                const fileInput = document.getElementById('ttFileInput');
+                                if (!fileInput.files || fileInput.files.length === 0) {
+                                    alert("Please select an image file to upload for tracking test.");
+                                    return;
+                                }
+                                const file = fileInput.files[0];
+                                payload.image_base64 = await new Promise((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onload = () => resolve(reader.result);
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(file);
+                                });
                             }
 
                             const res = await fetch('/api/vision/tracking/test', {

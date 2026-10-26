@@ -14,12 +14,33 @@
     let cachedBlueprints = [];
 
     // =========================================================================
-    // 1. FACILITY MANAGEMENT & TOPBAR CONTROLLER
+    // 1. FACILITY MANAGEMENT & TOPBAR CONTROLLER (TENANT ISOLATED)
     // =========================================================================
+
+    function getUserCompany() {
+        if (window.currentUser && window.currentUser.company_name) {
+            return window.currentUser.company_name;
+        }
+        try {
+            const raw = sessionStorage.getItem('wms_user');
+            if (raw) {
+                const u = JSON.parse(raw);
+                return u.company_name || '';
+            }
+        } catch(e) {}
+        return '';
+    }
 
     async function loadWarehousesDropdown() {
         try {
-            const res = await fetch('/api/warehouses');
+            const userComp = getUserCompany();
+            const url = userComp 
+                ? `/api/warehouses?company_name=${encodeURIComponent(userComp)}` 
+                : '/api/warehouses';
+            const headers = { 'Content-Type': 'application/json' };
+            if (userComp) headers['X-Company-Name'] = userComp;
+
+            const res = await fetch(url, { headers });
             const data = await res.json();
             if (!data.success) return;
 
@@ -29,26 +50,130 @@
             renderFacilityDropdown();
             updateFacilityBadge();
             updateModalFacilityTarget();
+            updateTenantControls();
         } catch (err) {
             console.error('[Industry Blueprint] Error fetching warehouses:', err);
         }
     }
 
+    function updateTenantControls() {
+        const userComp = getUserCompany();
+        const bpBtn = document.getElementById('topbarBlueprintBtn');
+        const addBtn = document.getElementById('btnAddFacilityTrigger');
+        
+        // If logged in as a specific client company, hide generic blueprint transformer
+        if (bpBtn) {
+            const isSuperAdmin = !userComp || userComp.toLowerCase() === 'skantha industrial solutions';
+            bpBtn.style.display = isSuperAdmin ? 'inline-flex' : 'none';
+        }
+        
+        // Show "Add Facility" button
+        if (addBtn) {
+            addBtn.style.display = 'inline-flex';
+        }
+    }
+
     function renderFacilityDropdown() {
         const selectEl = document.getElementById('topbarFacilitySelect');
-        if (!selectEl) return;
+        const activeNameSpan = document.getElementById('activeFacilityNameDisplay');
+        const navCount = document.getElementById('nav-warehouses-count');
 
-        selectEl.innerHTML = '';
-        cachedWarehouses.forEach(wh => {
-            const opt = document.createElement('option');
-            opt.value = wh.code;
-            opt.textContent = `${wh.code} (${wh.name} - ${wh.city})`;
-            opt.style.background = '#0f172a';
-            opt.style.color = '#f1f5f9';
-            if (activeWarehouse && wh.code.toUpperCase() === activeWarehouse.code.toUpperCase()) {
-                opt.selected = true;
+        if (navCount) {
+            navCount.innerText = cachedWarehouses.length;
+        }
+
+        if (activeWarehouse && activeNameSpan) {
+            activeNameSpan.textContent = `${activeWarehouse.name} (${activeWarehouse.city || activeWarehouse.code})`;
+        }
+
+        if (selectEl) {
+            selectEl.innerHTML = '';
+            if (cachedWarehouses.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = 'No Facilities Found';
+                selectEl.appendChild(opt);
+                selectEl.style.display = 'none';
+                if (activeNameSpan) activeNameSpan.style.display = 'inline-block';
+            } else if (cachedWarehouses.length > 1) {
+                cachedWarehouses.forEach(wh => {
+                    const opt = document.createElement('option');
+                    opt.value = wh.code;
+                    opt.textContent = `${wh.name} (${wh.city || wh.code})`;
+                    opt.style.background = '#0f172a';
+                    opt.style.color = '#f1f5f9';
+                    if (activeWarehouse && wh.code.toUpperCase() === activeWarehouse.code.toUpperCase()) {
+                        opt.selected = true;
+                    }
+                    selectEl.appendChild(opt);
+                });
+                selectEl.style.display = 'inline-block';
+                if (activeNameSpan) activeNameSpan.style.display = 'none';
+            } else {
+                selectEl.style.display = 'none';
+                if (activeNameSpan) activeNameSpan.style.display = 'inline-block';
             }
-            selectEl.appendChild(opt);
+        }
+
+        renderWarehouseLocationsView();
+    }
+
+    function renderWarehouseLocationsView() {
+        const grid = document.getElementById('warehouseLocationsGrid');
+        const companyTitle = document.getElementById('warehousesViewCompanyTitle');
+        const userComp = getUserCompany();
+        if (companyTitle) companyTitle.textContent = userComp || 'Your Organization';
+        if (!grid) return;
+
+        grid.innerHTML = '';
+        if (cachedWarehouses.length === 0) {
+            grid.innerHTML = `
+                <div style="grid-column: 1/-1; text-align: center; padding: 40px 20px; background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.15); border-radius: 12px;">
+                    <i class="fas fa-warehouse" style="font-size: 2.2rem; color: #64748b; margin-bottom: 12px;"></i>
+                    <h3 style="color: #cbd5e1; margin-bottom: 6px;">No Warehouse Locations Registered</h3>
+                    <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 16px;">Register your first warehouse location to begin tracking inventory and gates.</p>
+                    <button class="btn-primary" onclick="openAddFacilityModal()"><i class="fas fa-plus"></i> Add Facility</button>
+                </div>
+            `;
+            return;
+        }
+
+        cachedWarehouses.forEach(wh => {
+            const isActive = activeWarehouse && wh.code.toUpperCase() === activeWarehouse.code.toUpperCase();
+            const card = document.createElement('div');
+            card.className = 'glass-panel';
+            card.style.position = 'relative';
+            card.style.display = 'flex';
+            card.style.flexDirection = 'column';
+            card.style.justifyContent = 'space-between';
+            card.style.border = isActive ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.1)';
+            card.style.boxShadow = isActive ? '0 0 15px rgba(56,189,248,0.15)' : 'none';
+            card.style.borderRadius = '12px';
+            card.style.padding = '18px';
+
+            card.innerHTML = `
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+                        <div>
+                            <span style="font-size:0.72rem; font-weight:700; color:#38bdf8; letter-spacing:0.05em; text-transform:uppercase;">${wh.code}</span>
+                            <h3 style="color:#f8fafc; font-size:1.1rem; margin:2px 0 0 0;">${wh.name}</h3>
+                        </div>
+                        ${isActive ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:4px;"><i class="fas fa-check-circle" style="margin-right:4px;"></i>ACTIVE</span>' : ''}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px; color:#94a3b8; font-size:0.83rem; margin-bottom:8px;">
+                        <i class="fas fa-location-dot" style="color:#0ea5e9;"></i>
+                        <span>${wh.city || 'Primary Region'}</span>
+                        ${wh.address ? `<span style="color:#64748b;">• ${wh.address}</span>` : ''}
+                    </div>
+                    <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:6px 10px; margin-bottom:14px; font-size:0.78rem; color:#cbd5e1;">
+                        <span style="color:#64748b;">Industry / Nature:</span> <strong>${wh.industry || 'General Logistics'}</strong>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
+                    ${!isActive ? `<button type="button" class="btn-primary" onclick="switchActiveFacility('${wh.code}')" style="padding:6px 14px; font-size:0.8rem; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; cursor:pointer;">Switch to Location</button>` : '<span style="color:#34d399; font-size:0.8rem; font-weight:600; display:flex; align-items:center; gap:5px;"><i class="fas fa-signal"></i> Currently Connected</span>'}
+                </div>
+            `;
+            grid.appendChild(card);
         });
     }
 
@@ -78,7 +203,7 @@
         }
     }
 
-    async function switchActiveFacility(warehouseCode) {
+    async function switchActiveFacility(warehouseCode, silent = false) {
         if (!warehouseCode) return;
         try {
             const res = await fetch('/api/warehouses/switch', {
@@ -91,7 +216,9 @@
                 activeWarehouse = data.warehouse;
                 updateFacilityBadge();
                 updateModalFacilityTarget();
-                showBlueprintToast(`Switched active facility to ${data.warehouse.name} (${data.warehouse.code})`, 'success');
+                if (!silent) {
+                    showBlueprintToast(`Switched active facility to ${data.warehouse.name} (${data.warehouse.code})`, 'success');
+                }
                 
                 // Refresh core data in views
                 if (typeof window.loadSKUs === 'function') window.loadSKUs();
@@ -99,11 +226,15 @@
                 if (typeof window.loadGatePasses === 'function') window.loadGatePasses();
                 if (typeof window.loadExpectedDeliveries === 'function') window.loadExpectedDeliveries();
             } else {
-                showBlueprintToast(`Failed to switch warehouse: ${data.error}`, 'error');
+                if (!silent) {
+                    showBlueprintToast(`Failed to switch warehouse: ${data.error}`, 'error');
+                }
             }
         } catch (err) {
             console.error('[Industry Blueprint] Switch facility error:', err);
-            showBlueprintToast('Network error switching facility', 'error');
+            if (!silent) {
+                showBlueprintToast('Network error switching facility', 'error');
+            }
         }
     }
 
@@ -487,7 +618,130 @@
     }
 
     // =========================================================================
-    // 5. GLOBAL EXPORTS & INITIALIZATION
+    // 5. ADD FACILITY / LOCATION MODAL HANDLERS
+    // =========================================================================
+
+    let facRecognitionTimeout = null;
+    function handleFacilityRecognitionDebounced() {
+        clearTimeout(facRecognitionTimeout);
+        facRecognitionTimeout = setTimeout(async () => {
+            const userComp = getUserCompany();
+            const name = document.getElementById('newFacName')?.value.trim() || '';
+            const desc = document.getElementById('newFacDesc')?.value.trim() || '';
+            const previewBox = document.getElementById('newFacAiPreview');
+            const labelEl = document.getElementById('newFacAiLabel');
+            const sectorEl = document.getElementById('newFacAiSector');
+
+            if (!previewBox) return;
+            if (!name && !desc) {
+                previewBox.style.display = 'none';
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/company/preview_recognition', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        company_name: userComp || name,
+                        warehouse_name: name,
+                        description: desc
+                    })
+                });
+                const d = await res.json();
+                if (d.success) {
+                    previewBox.style.display = 'flex';
+                    if (labelEl) labelEl.innerText = d.blueprint_label || d.industry_name || d.environment_label;
+                    if (sectorEl) sectorEl.innerText = d.sector_category || 'Industry';
+                    const envSelect = document.getElementById('newFacEnvironment');
+                    if (envSelect && d.detected_key) envSelect.value = d.detected_key;
+                }
+            } catch(e) {
+                console.debug("Fac preview error", e);
+            }
+        }, 300);
+    }
+
+    function openAddFacilityModal() {
+        const modal = document.getElementById('addFacilityModal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+        const err = document.getElementById('addFacErrorBanner');
+        if (err) err.style.display = 'none';
+        const form = document.getElementById('formAddFacility');
+        if (form) form.reset();
+        const preview = document.getElementById('newFacAiPreview');
+        if (preview) preview.style.display = 'none';
+    }
+
+    function closeAddFacilityModal() {
+        const modal = document.getElementById('addFacilityModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function submitAddFacility() {
+        const name = document.getElementById('newFacName')?.value.trim();
+        const city = document.getElementById('newFacCity')?.value.trim();
+        const mode = document.getElementById('newFacMode')?.value || 'DEDICATED';
+        const env = document.getElementById('newFacEnvironment')?.value || 'custom';
+        const userComp = getUserCompany();
+        const errBanner = document.getElementById('addFacErrorBanner');
+        const submitBtn = document.getElementById('btnSubmitAddFac');
+
+        if (!name || !city) {
+            if (errBanner) {
+                errBanner.style.display = 'block';
+                errBanner.innerText = 'Please provide both facility name and city.';
+            }
+            return;
+        }
+
+        const originalBtnText = submitBtn ? submitBtn.innerHTML : 'Create Facility';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Creating & Initializing...';
+        }
+
+        try {
+            const res = await fetch('/api/warehouses/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    city: city,
+                    operating_mode: mode,
+                    environment_blueprint: env,
+                    company_name: userComp
+                })
+            });
+            const data = await res.json();
+            if (data.success && data.warehouse) {
+                showBlueprintToast(`Successfully created ${data.warehouse.name} (${data.warehouse.code}) in ${city}`, 'success');
+                closeAddFacilityModal();
+                await loadWarehousesDropdown();
+                await switchActiveFacility(data.warehouse.code);
+            } else {
+                if (errBanner) {
+                    errBanner.style.display = 'block';
+                    errBanner.innerText = data.error || data.message || 'Failed to create facility';
+                }
+            }
+        } catch(e) {
+            console.error('Submit add facility error', e);
+            if (errBanner) {
+                errBanner.style.display = 'block';
+                errBanner.innerText = 'Network error while creating facility: ' + e.message;
+            }
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnText;
+            }
+        }
+    }
+
+    // =========================================================================
+    // 6. GLOBAL EXPORTS & INITIALIZATION
     // =========================================================================
 
     window.openIndustryBlueprintModal = openIndustryBlueprintModal;
@@ -498,6 +752,11 @@
     window.refreshAllWMSTabs = refreshAllWMSTabs;
     window.switchActiveFacility = switchActiveFacility;
     window.loadWarehousesDropdown = loadWarehousesDropdown;
+    window.openAddFacilityModal = openAddFacilityModal;
+    window.closeAddFacilityModal = closeAddFacilityModal;
+    window.submitAddFacility = submitAddFacility;
+    window.handleFacilityRecognitionDebounced = handleFacilityRecognitionDebounced;
+    window.renderWarehouseLocationsView = renderWarehouseLocationsView;
 
     document.addEventListener('DOMContentLoaded', () => {
         loadWarehousesDropdown();

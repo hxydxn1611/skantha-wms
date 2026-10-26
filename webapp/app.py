@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, request, jsonify, send_file
+from flask import Flask, render_template, Response, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
 from ai_engine import SmartCamera
 import logging
@@ -17,6 +17,7 @@ import re
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'skantha-wms-secret-key-2026')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 
@@ -104,6 +105,7 @@ def api_login():
             "role": user.get("role", "Admin"),
             "active_warehouse": switched
         }
+        session['user'] = user_clean
         return jsonify({
             'success': True,
             'message': f'Logged in as {user.get("username")}',
@@ -111,37 +113,244 @@ def api_login():
         })
     return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
 
+@app.route('/api/company/preview_recognition', methods=['POST'])
+def api_company_preview_recognition():
+    """
+    Real-time warehouse environment auto-recognition as the user types company name or description.
+    """
+    try:
+        from industry_blueprint_service import auto_detect_company_industry, INDUSTRY_BLUEPRINTS
+        data = request.json or {}
+        company_name = (data.get('company_name') or '').strip()
+        description = (data.get('description') or '').strip()
+        warehouse_name = (data.get('warehouse_name') or '').strip()
+        city = (data.get('city') or '').strip()
+
+        combined_text = f"{company_name} {warehouse_name} {city} {description}".strip()
+        if not combined_text:
+            return jsonify({'success': True, 'detected': None})
+
+        detected = auto_detect_company_industry(company_name or warehouse_name, description)
+        bp = INDUSTRY_BLUEPRINTS.get(detected.get('detected_key'), {})
+        
+        return jsonify({
+            'success': True,
+            'detected_key': detected.get('detected_key'),
+            'confidence': detected.get('confidence', 0.8),
+            'industry_name': bp.get('name', 'Custom Industrial Facility'),
+            'reason': detected.get('reason', 'Domain signature analyzed.'),
+            'badge_icon': bp.get('badge_icon', 'fa-warehouse'),
+            'theme_color': bp.get('theme_color', '#38bdf8'),
+            'operating_mode': bp.get('operating_mode', 'DEDICATED')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/send_otp', methods=['POST'])
+def api_send_otp():
+    """Generates and dispatches a 6-digit verification code to the user's work email."""
+    try:
+        data = request.json or request.form.to_dict() or {}
+        email = (data.get('email') or '').strip().lower()
+        username = (data.get('username') or '').strip()
+        purpose = data.get('purpose', 'REGISTRATION')
+
+        if not email or '@' not in email or '.' not in email:
+            return jsonify({'success': False, 'message': 'Please enter a valid work email address.'}), 400
+
+        # Check if email is already taken
+        existing_user = db.get_user_by_email(email)
+        if existing_user:
+            return jsonify({'success': False, 'message': f'An account with email {email} already exists. Please sign in.'}), 409
+
+        # Generate secure 6-digit OTP
+        import random
+        otp_code = f"{random.randint(100000, 999999)}"
+
+        # Store in database with 10-minute validity
+        stored = db.store_email_otp(email=email, otp_code=otp_code, purpose=purpose, expires_in_minutes=10)
+        if not stored:
+            return jsonify({'success': False, 'message': 'Failed to generate verification OTP. Please try again.'}), 500
+
+        logger.info(f"[AUTH SECURITY] Generated 6-digit registration OTP for '{email}': {otp_code}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Verification code dispatched to {email}. Valid for 10 minutes.',
+            'email': email,
+            'dev_otp': otp_code,  # Provided for immediate local verification/testing sandbox
+            'expires_in_seconds': 600
+        })
+    except Exception as e:
+        logger.error(f"Error in api_send_otp: {e}")
+        return jsonify({'success': False, 'message': f'Internal error sending OTP: {str(e)}'}), 500
+
+
+@app.route('/api/auth/verify_otp_and_register', methods=['POST'])
+def api_verify_otp_and_register():
+    """Verifies email OTP, provisions dedicated enterprise warehouse environment, and completes user registration."""
+    try:
+        data = request.json or request.form.to_dict() or {}
+        email = (data.get('email') or '').strip().lower()
+        otp_code = (data.get('otp_code') or '').strip()
+        username = (data.get('username') or '').strip()
+        password = (data.get('password') or '').strip()
+        company_name = (data.get('company_name') or '').strip()
+        warehouse_name = (data.get('warehouse_name') or '').strip()
+        city = (data.get('city') or 'Bengaluru').strip()
+        env_choice = (data.get('environment_blueprint') or '').strip().lower()
+
+        if not email or not otp_code:
+            return jsonify({'success': False, 'message': 'Email address and 6-digit OTP code are required.'}), 400
+        if not username or not password:
+            return jsonify({'success': False, 'message': 'Admin username and password are required.'}), 400
+
+        # Verify OTP
+        is_valid, verify_msg = db.verify_email_otp(email=email, otp_code=otp_code, purpose='REGISTRATION')
+        if not is_valid:
+            return jsonify({'success': False, 'message': verify_msg}), 400
+
+        # Determine Environment: Use explicit user dropdown or auto-detect from company name
+        from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
+        if env_choice and env_choice != 'auto':
+            detected_key = env_choice
+            detected_info = {'detected_key': detected_key, 'confidence': 1.0, 'reason': 'Selected via Industry Environment Selector'}
+        elif company_name:
+            detected_info = auto_detect_company_industry(company_name)
+            detected_key = detected_info.get('detected_key', 'custom')
+        else:
+            detected_key = 'custom'
+            detected_info = {'detected_key': 'custom', 'confidence': 0.8, 'reason': 'Standard Warehousing Workspace'}
+
+        assigned_wh_code = 'WH-MAIN'
+        if company_name:
+            try:
+                slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:5] or "WH"
+                slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
+                wh_code_custom = f"WH-{slug_comp}-{slug_city}"
+
+                res = apply_industry_blueprint(
+                    blueprint_key=detected_key,
+                    warehouse_code=wh_code_custom,
+                    custom_company_name=company_name,
+                    custom_prompt=f"{company_name} in {city}"
+                )
+                if res.get('success') and res.get('warehouse'):
+                    assigned_wh_code = res['warehouse']['code']
+                    db.create_or_update_warehouse(
+                        code=assigned_wh_code,
+                        name=warehouse_name or f"{company_name} Main Facility",
+                        city=city,
+                        operating_mode=res.get('warehouse', {}).get('operating_mode', 'DEDICATED'),
+                        industry=res.get('blueprint_name', 'General'),
+                        company_name=company_name
+                    )
+            except Exception as e_ind:
+                logger.warning(f"Error provisioning industry blueprint: {e_ind}")
+
+        user_created = db.create_user(
+            username=username,
+            password=password,
+            email=email,
+            company_name=company_name or 'Skantha Industrial Solutions',
+            assigned_warehouse_code=assigned_wh_code
+        )
+        if not user_created:
+            return jsonify({'success': False, 'message': 'Username is already taken. Please choose another username.'}), 409
+
+        # Auto-login to session
+        user_session = {
+            'username': username,
+            'email': email,
+            'company_name': company_name or 'Skantha Industrial Solutions',
+            'assigned_warehouse_code': assigned_wh_code,
+            'role': 'Admin'
+        }
+        session['user'] = user_session
+
+        return jsonify({
+            'success': True,
+            'message': f'Enterprise workspace registered & verified! Welcome to {company_name or "W.A.R.L.O.G"}.',
+            'user': user_session,
+            'assigned_warehouse_code': assigned_wh_code,
+            'company_name': company_name,
+            'detected_key': detected_key,
+            'redirect': '/'
+        })
+    except Exception as e:
+        logger.error(f"Error in api_verify_otp_and_register: {e}")
+        return jsonify({'success': False, 'message': f'Registration failed: {str(e)}'}), 500
+
+
 @app.route('/api/register', methods=['POST'])
 def api_register():
-    data = request.json or {}
+    data = request.json or request.form.to_dict() or {}
     username = data.get('username')
     password = data.get('password')
+    email = (data.get('email') or '').strip().lower()
     company_name = (data.get('company_name') or '').strip()
+    warehouse_name = (data.get('warehouse_name') or '').strip()
+    city = (data.get('city') or 'Bengaluru').strip()
+    env_choice = (data.get('environment_blueprint') or '').strip().lower()
     
     if not username or not password:
         return jsonify({'success': False, 'message': 'Username and password required'}), 400
     
     assigned_wh_code = 'WH-MAIN'
+    detected_info = None
     if company_name:
         try:
             from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-            detected = auto_detect_company_industry(company_name)
-            # Auto-create warehouse and apply tailored 35+ SKU ecosystem
+            if env_choice and env_choice != 'auto':
+                detected_key = env_choice
+                detected_info = {'detected_key': detected_key, 'confidence': 1.0}
+            else:
+                detected = auto_detect_company_industry(company_name)
+                detected_info = detected
+                detected_key = detected['detected_key']
+            
+            slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:5] or "WH"
+            slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
+            wh_code_custom = f"WH-{slug_comp}-{slug_city}"
+            
+            # Auto-create warehouse and apply tailored ecosystem
             res = apply_industry_blueprint(
-                blueprint_key=detected['detected_key'],
-                warehouse_code='', # will generate slug WH-XXXX
-                custom_company_name=company_name
+                blueprint_key=detected_key,
+                warehouse_code=wh_code_custom,
+                custom_company_name=company_name,
+                custom_prompt=f"{company_name} in {city}"
             )
             if res.get('success') and res.get('warehouse'):
                 assigned_wh_code = res['warehouse']['code']
+                db.create_or_update_warehouse(
+                    code=assigned_wh_code,
+                    name=warehouse_name or f"{company_name} Main Facility",
+                    city=city,
+                    operating_mode=res.get('warehouse', {}).get('operating_mode', 'DEDICATED'),
+                    industry=res.get('blueprint_name', 'General'),
+                    company_name=company_name
+                )
         except Exception as e_ind:
             logger.warning(f"Auto-industry setup on registration notice: {e_ind}")
     
-    if db.create_user(username, password, company_name=company_name or 'Skantha Industrial Solutions', assigned_warehouse_code=assigned_wh_code):
+    if db.create_user(username, password, email=email, company_name=company_name or 'Skantha Industrial Solutions', assigned_warehouse_code=assigned_wh_code):
+        user_clean = {
+            'username': username,
+            'email': email,
+            'company_name': company_name,
+            'assigned_warehouse_code': assigned_wh_code,
+            'role': 'Admin'
+        }
+        session['user'] = user_clean
         return jsonify({
             'success': True,
             'message': f'User registered successfully with dedicated {company_name or "Industrial"} workspace',
-            'assigned_warehouse_code': assigned_wh_code
+            'assigned_warehouse_code': assigned_wh_code,
+            'company_name': company_name,
+            'user': user_clean,
+            'detected_key': (detected_info or {}).get('detected_key'),
+            'detected_environment': detected_info
         })
     return jsonify({'success': False, 'message': 'Username already exists'}), 409
 
@@ -210,12 +419,32 @@ def handle_single_delivery(po_number):
 
 @app.route('/api/bins', methods=['POST'])
 def api_add_bin():
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True) or request.form.to_dict() or {}
     try:
-        db.add_bin(data['bin_id'], data.get('zone', 'General'), data.get('max_volume', 100.0), data.get('max_weight', 1000.0))
+        bin_id = data.get('bin_id')
+        if not bin_id:
+            return jsonify({'success': False, 'error': 'bin_id is required'}), 400
+        db.add_bin(bin_id, data.get('zone', 'General'), float(data.get('max_volume', 100.0)), float(data.get('max_weight', 1000.0)))
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/api/bins/<bin_id>', methods=['PUT', 'POST'])
+def api_update_bin(bin_id):
+    data = request.get_json(silent=True) or request.form.to_dict() or {}
+    try:
+        max_vol = float(data['max_volume']) if 'max_volume' in data and data['max_volume'] is not None else None
+        max_wt = float(data['max_weight']) if 'max_weight' in data and data['max_weight'] is not None else None
+        db.update_bin(
+            bin_id=bin_id,
+            zone=data.get('zone'),
+            max_volume=max_vol,
+            max_weight=max_wt,
+            status=data.get('status')
+        )
+        return jsonify({'success': True, 'message': f'Bin {bin_id} updated successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/skus', methods=['GET'])
 def api_get_skus():
@@ -237,9 +466,13 @@ def api_add_sku():
 @app.route('/api/warehouses', methods=['GET'])
 def api_get_warehouses():
     try:
-        whs = db.get_all_warehouses()
-        active = db.get_active_warehouse()
-        return jsonify({"success": True, "warehouses": whs, "active_warehouse": active})
+        company_name = request.args.get('company_name') or request.headers.get('X-Company-Name')
+        if not company_name and session.get('user'):
+            company_name = session['user'].get('company_name')
+        
+        whs = db.get_all_warehouses(company_name=company_name)
+        active = db.get_active_warehouse(company_name=company_name)
+        return jsonify({"success": True, "warehouses": whs, "active_warehouse": active, "scoped_company": company_name})
     except Exception as e:
         logger.error(f"Error fetching warehouses: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -247,7 +480,10 @@ def api_get_warehouses():
 @app.route('/api/warehouses/active', methods=['GET'])
 def api_get_active_warehouse():
     try:
-        active = db.get_active_warehouse()
+        company_name = request.args.get('company_name') or request.headers.get('X-Company-Name')
+        if not company_name and session.get('user'):
+            company_name = session['user'].get('company_name')
+        active = db.get_active_warehouse(company_name=company_name)
         return jsonify({"success": True, "active_warehouse": active})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -268,23 +504,57 @@ def api_switch_warehouse():
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/warehouses', methods=['POST'])
+@app.route('/api/warehouses/create', methods=['POST'])
 def api_create_warehouse():
     try:
         data = request.json or {}
-        code = data.get('code')
         name = data.get('name')
-        if not code or not name:
-            return jsonify({"success": False, "error": "Warehouse code and name are required"}), 400
+        city = (data.get('city') or 'Bengaluru').strip()
+        company_name = (data.get('company_name') or '').strip()
+        description = (data.get('description') or '').strip()
+
+        if not company_name and session.get('user'):
+            company_name = session['user'].get('company_name')
+        if not company_name:
+            company_name = 'Skantha Industrial Solutions'
+
+        if not name:
+            return jsonify({"success": False, "error": "Warehouse facility name is required"}), 400
+
+        # Auto-detect industry if not supplied
+        industry = data.get('industry')
+        if not industry or industry == 'General':
+            try:
+                from industry_blueprint_service import auto_detect_company_industry, INDUSTRY_BLUEPRINTS
+                detected = auto_detect_company_industry(f"{company_name} {name}", description)
+                bp = INDUSTRY_BLUEPRINTS.get(detected.get('detected_key'), {})
+                industry = bp.get('name', 'General Industrial Logistics')
+            except Exception:
+                industry = 'General Industrial Logistics'
+
+        code = (data.get('code') or '').strip().upper()
+        if not code:
+            slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:5] or "WH"
+            slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "LOC"
+            rnd = uuid.uuid4().hex[:3].upper()
+            code = f"WH-{slug_comp}-{slug_city}-{rnd}"
+
         wh = db.create_or_update_warehouse(
             code=code,
             name=name,
-            city=data.get('city', 'Bengaluru'),
+            city=city,
             operating_mode=data.get('operating_mode', 'DEDICATED'),
-            industry=data.get('industry', 'General'),
+            industry=industry,
             address=data.get('address', ''),
-            status=data.get('status', 'Active')
+            status=data.get('status', 'Active'),
+            company_name=company_name
         )
-        return jsonify({"success": True, "warehouse": wh, "message": f"Warehouse {wh['code']} saved successfully."})
+        # Set active if requested or first
+        if data.get('set_active', True):
+            db.set_active_warehouse(wh['code'])
+            wh['is_active'] = 1
+
+        return jsonify({"success": True, "warehouse": wh, "message": f"Warehouse {wh['name']} ({wh['code']}) created successfully."})
     except Exception as e:
         logger.error(f"Error creating warehouse: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -5233,7 +5503,7 @@ def api_get_violations_summary():
 @app.route('/api/violations/<int:violation_id>/resolve', methods=['POST'])
 def api_resolve_violation(violation_id):
     """Resolve or supervisor-override an active human error violation."""
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or request.form.to_dict() or {}
     resolved_by = data.get('resolved_by', 'Supervisor')
     notes = data.get('notes', 'Resolved by warehouse operator')
     new_status = data.get('status', 'RESOLVED')
@@ -5248,6 +5518,15 @@ def api_resolve_violation(violation_id):
         return jsonify({"success": False, "error": f"Violation #{violation_id} not found"}), 404
 
     return jsonify({"success": True, "status": "success", "violation": rec})
+    
+@app.route('/api/violations/resolve_all', methods=['POST'])
+def api_resolve_all_violations():
+    """Bulk resolve all open human error violations."""
+    data = request.get_json(silent=True) or request.form.to_dict() or {}
+    resolved_by = data.get('resolved_by', 'Supervisor')
+    notes = data.get('notes', 'Bulk approved and resolved by supervisor')
+    resolved_count = db.resolve_all_violations(resolved_by=resolved_by, notes=notes)
+    return jsonify({"success": True, "resolved_count": resolved_count, "message": f"Successfully approved and resolved {resolved_count} violation(s)."})
 
 
 # ============================================================================
