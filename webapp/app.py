@@ -40,6 +40,7 @@ from integration_service import get_integration_service
 from vision_runtime_service import get_vision_runtime_manager, get_shared_frame_bus
 from cycle_count_service import get_cycle_count_service
 from pallet_service import get_pallet_service
+from industry_blueprint_service import get_blueprint_catalog, apply_industry_blueprint
 
 # Initialize SQLite database schema
 db.init_db()
@@ -149,6 +150,102 @@ def api_add_sku():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+# ==============================================================================
+# MULTI-WAREHOUSE & INDUSTRY BLUEPRINT API ROUTES
+# ==============================================================================
+
+@app.route('/api/warehouses', methods=['GET'])
+def api_get_warehouses():
+    try:
+        whs = db.get_all_warehouses()
+        active = db.get_active_warehouse()
+        return jsonify({"success": True, "warehouses": whs, "active_warehouse": active})
+    except Exception as e:
+        logger.error(f"Error fetching warehouses: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/warehouses/active', methods=['GET'])
+def api_get_active_warehouse():
+    try:
+        active = db.get_active_warehouse()
+        return jsonify({"success": True, "active_warehouse": active})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/warehouses/switch', methods=['POST'])
+def api_switch_warehouse():
+    try:
+        data = request.json or {}
+        code = data.get('code')
+        if not code:
+            return jsonify({"success": False, "error": "Warehouse code is required"}), 400
+        switched = db.set_active_warehouse(code)
+        if not switched:
+            return jsonify({"success": False, "error": f"Warehouse '{code}' not found"}), 404
+        return jsonify({"success": True, "warehouse": switched, "message": f"Switched to {switched['name']} ({switched['code']})"})
+    except Exception as e:
+        logger.error(f"Error switching warehouse: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/warehouses', methods=['POST'])
+def api_create_warehouse():
+    try:
+        data = request.json or {}
+        code = data.get('code')
+        name = data.get('name')
+        if not code or not name:
+            return jsonify({"success": False, "error": "Warehouse code and name are required"}), 400
+        wh = db.create_or_update_warehouse(
+            code=code,
+            name=name,
+            city=data.get('city', 'Bengaluru'),
+            operating_mode=data.get('operating_mode', 'DEDICATED'),
+            industry=data.get('industry', 'General'),
+            address=data.get('address', ''),
+            status=data.get('status', 'Active')
+        )
+        return jsonify({"success": True, "warehouse": wh, "message": f"Warehouse {wh['code']} saved successfully."})
+    except Exception as e:
+        logger.error(f"Error creating warehouse: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/industry_blueprints', methods=['GET'])
+def api_get_industry_blueprints():
+    try:
+        catalog = get_blueprint_catalog()
+        return jsonify({"success": True, "blueprints": catalog})
+    except Exception as e:
+        logger.error(f"Error fetching industry blueprints: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/industry_blueprints/apply', methods=['POST'])
+def api_apply_industry_blueprint():
+    try:
+        data = request.json or {}
+        key = data.get('key') or data.get('blueprint_key')
+        warehouse_code = data.get('warehouse_code')
+        custom_industry_name = data.get('custom_industry_name')
+        custom_prompt = data.get('custom_prompt')
+        
+        result = apply_industry_blueprint(
+            blueprint_key=key,
+            warehouse_code=warehouse_code,
+            custom_industry_name=custom_industry_name,
+            custom_prompt=custom_prompt
+        )
+        
+        # Refresh active cameras runtime to pick up new classes and zones
+        try:
+            mgr = get_vision_runtime_manager()
+            mgr.refresh_cameras()
+        except Exception as e_cam:
+            logger.warning(f"Could not refresh runtime manager after blueprint apply: {e_cam}")
+            
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error applying industry blueprint: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/bins', methods=['GET'])
 def api_get_bins():

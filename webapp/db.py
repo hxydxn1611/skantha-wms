@@ -344,6 +344,24 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_violations_status ON violations_log(status);
         CREATE INDEX IF NOT EXISTS idx_violations_type ON violations_log(violation_type);
         CREATE INDEX IF NOT EXISTS idx_violations_created ON violations_log(created_at);
+
+        -- Multi-Warehouse Facility Master Collection
+        CREATE TABLE IF NOT EXISTS warehouses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            city TEXT NOT NULL DEFAULT 'Bengaluru',
+            operating_mode TEXT NOT NULL DEFAULT 'DEDICATED', -- DEDICATED vs 3PL
+            industry TEXT DEFAULT 'General',
+            address TEXT,
+            status TEXT DEFAULT 'Active',
+            is_active INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_warehouses_code ON warehouses(code);
+        CREATE INDEX IF NOT EXISTS idx_warehouses_mode ON warehouses(operating_mode);
+        CREATE INDEX IF NOT EXISTS idx_warehouses_status ON warehouses(status);
         """)
         
         # Alter existing tables if needed
@@ -562,6 +580,16 @@ def init_db():
                     INSERT OR IGNORE INTO vision_zone_camera_rois (zone_id, camera_id, shape_type, coordinates)
                     VALUES (?, ?, ?, ?)
                 """, (tb1[0], 'CAM-001', 'POLYGON', json.dumps(poly_tb)))
+
+        # Seed initial warehouses if empty
+        cur.execute("SELECT COUNT(*) FROM warehouses")
+        if cur.fetchone()[0] == 0:
+            initial_warehouses = [
+                ('WH-MAIN', 'Main Assembly Hub', 'Bengaluru', 'DEDICATED', 'Automotive & Discrete Manufacturing', 'Plot 42, Electronic City Phase II, Bengaluru', 'Active', 1),
+                ('WH-REG', 'Regional Transit Center', 'Chennai', '3PL', 'Commercial Logistics & Multi-Client 3PL', 'Harbor Expressway Gate 4, Chennai', 'Active', 0),
+                ('WH-WEST', 'Western Cold-Chain & Beverage Depot', 'Pune', 'DEDICATED', 'Beverages & Packaged Consumer Goods', 'Chakan Industrial Corridor, Pune', 'Active', 0)
+            ]
+            cur.executemany("INSERT INTO warehouses (code, name, city, operating_mode, industry, address, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", initial_warehouses)
 
     conn.close()
 
@@ -2900,3 +2928,98 @@ def check_bin_putaway_compatibility(
 
     conn.close()
     return True, None, None
+
+
+# ==============================================================================
+# MULTI-WAREHOUSE FACILITY MANAGEMENT HELPERS
+# ==============================================================================
+
+def get_all_warehouses() -> List[Dict[str, Any]]:
+    """Returns all registered warehouses ordered by active status and code."""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM warehouses ORDER BY is_active DESC, code ASC").fetchall()
+    warehouses = [dict(r) for r in rows]
+    conn.close()
+    return warehouses
+
+
+def get_warehouse_by_code(code: str) -> Optional[Dict[str, Any]]:
+    """Returns a single warehouse by facility code."""
+    if not code:
+        return None
+    conn = get_db()
+    row = conn.execute("SELECT * FROM warehouses WHERE UPPER(code) = UPPER(?)", (code.strip(),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_active_warehouse() -> Dict[str, Any]:
+    """
+    Returns the currently active warehouse context.
+    Defaults to the first active warehouse or WH-MAIN.
+    """
+    conn = get_db()
+    row = conn.execute("SELECT * FROM warehouses WHERE is_active = 1 LIMIT 1").fetchone()
+    if not row:
+        row = conn.execute("SELECT * FROM warehouses ORDER BY id ASC LIMIT 1").fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "code": "WH-MAIN",
+        "name": "Main Assembly Hub",
+        "city": "Bengaluru",
+        "operating_mode": "DEDICATED",
+        "industry": "Automotive & Discrete Manufacturing",
+        "address": "Plot 42, Electronic City Phase II, Bengaluru",
+        "status": "Active",
+        "is_active": 1
+    }
+
+
+def set_active_warehouse(code: str) -> Optional[Dict[str, Any]]:
+    """
+    Switches active facility context across the WMS.
+    Sets is_active=1 for target code, 0 for all others.
+    """
+    if not code:
+        return None
+    conn = get_db()
+    with conn:
+        conn.execute("UPDATE warehouses SET is_active = 0")
+        conn.execute("UPDATE warehouses SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(code) = UPPER(?)", (code.strip(),))
+    row = conn.execute("SELECT * FROM warehouses WHERE UPPER(code) = UPPER(?)", (code.strip(),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_or_update_warehouse(
+    code: str,
+    name: str,
+    city: str = "Bengaluru",
+    operating_mode: str = "DEDICATED",
+    industry: str = "General",
+    address: str = "",
+    status: str = "Active"
+) -> Dict[str, Any]:
+    """Creates a new warehouse facility or updates an existing record."""
+    code_clean = str(code).strip().upper()
+    conn = get_db()
+    with conn:
+        conn.execute("""
+            INSERT INTO warehouses (code, name, city, operating_mode, industry, address, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(code) DO UPDATE SET
+                name = excluded.name,
+                city = excluded.city,
+                operating_mode = excluded.operating_mode,
+                industry = excluded.industry,
+                address = excluded.address,
+                status = excluded.status,
+                updated_at = CURRENT_TIMESTAMP
+        """, (code_clean, name.strip(), city.strip(), operating_mode.strip().upper(), industry.strip(), address.strip(), status.strip()))
+    
+    rec = get_warehouse_by_code(code_clean)
+    conn.close()
+    return rec or {}
+

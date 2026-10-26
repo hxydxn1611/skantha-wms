@@ -937,9 +937,20 @@
                 <span class="telemetry-label">AI Matrix:</span>
                 <span class="telemetry-val">Active (60 FPS)</span>
             </div>
-            <div class="topbar-facility-selector" title="Active Warehouse Facility">
-                <i class="fas fa-location-dot"></i>
-                <span>Main Hub A</span>
+            <div class="topbar-facility-selector-wrap" style="display: flex; align-items: center; gap: 8px;">
+                <div class="topbar-facility-selector" title="Active Warehouse Facility" style="padding: 4px 10px; display: flex; align-items: center; gap: 6px;">
+                    <i class="fas fa-warehouse" style="color: #38bdf8;"></i>
+                    <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="background: transparent; border: none; color: #f1f5f9; font-size: 0.82rem; font-weight: 600; cursor: pointer; outline: none; padding-right: 4px;">
+                        <option value="WH-MAIN" style="background:#0f172a; color:#f1f5f9;">WH-MAIN (Main Assembly Hub)</option>
+                        <option value="WH-REG" style="background:#0f172a; color:#f1f5f9;">WH-REG (Regional Transit Center)</option>
+                        <option value="WH-WEST" style="background:#0f172a; color:#f1f5f9;">WH-WEST (Western Depot)</option>
+                    </select>
+                    <span id="topbarFacilityBadge" class="badge" style="font-size: 0.65rem; padding: 2px 6px; background: rgba(56,189,248,0.2); color: #38bdf8; border-radius: 4px; border: 1px solid rgba(56,189,248,0.4); text-transform: uppercase;">DEDICATED</span>
+                </div>
+                <button type="button" class="topbar-facility-selector btn-blueprint-trigger" onclick="openIndustryBlueprintModal()" title="Transform WMS with Pre-Defined Industry Datasets & AI Vision Blueprints" style="padding: 6px 12px; background: linear-gradient(135deg, rgba(56,189,248,0.18), rgba(168,85,247,0.18)); border: 1px solid rgba(168,85,247,0.45); color: #e2e8f0; font-size: 0.8rem; font-weight: 700; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                    <i class="fas fa-wand-magic-sparkles" style="color: #c084fc;"></i>
+                    <span>Industry Blueprint</span>
+                </button>
             </div>
             <div class="topbar-skantha-brand">
                 <img src="/static/skantha_logo.png" class="topbar-skantha-logo" alt="Skantha Technology Solution Logo">
@@ -6939,6 +6950,80 @@ window.switchSubTab = switchSubTab;
     </nav>
 
 
+    <!-- INDUSTRY BLUEPRINT & MULTI-FACILITY TRANSFORMER MODAL -->
+    <div id="industryBlueprintModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
+        <div class="blueprint-modal-content" style="background:linear-gradient(145deg, #0f172a, #1e1b4b); border:1px solid rgba(168,85,247,0.35); border-radius:16px; width:100%; max-width:960px; max-height:92vh; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7), 0 0 30px rgba(168,85,247,0.2); color:#f8fafc; padding:24px; position:relative;">
+            
+            <!-- Modal Header -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:16px; margin-bottom:20px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg, #38bdf8, #a855f7); display:flex; align-items:center; justify-content:center; font-size:1.3rem; box-shadow:0 0 15px rgba(168,85,247,0.5);">
+                        <i class="fas fa-wand-magic-sparkles" style="color:#ffffff;"></i>
+                    </div>
+                    <div>
+                        <h2 style="font-size:1.35rem; font-weight:800; margin:0; background:linear-gradient(90deg, #38bdf8, #c084fc, #f472b6); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
+                            AI Industry Blueprint & Facility Transformer
+                        </h2>
+                        <p style="margin:4px 0 0 0; font-size:0.85rem; color:#94a3b8;">
+                            Transform this warehouse in 1-click with pre-defined industrial SKUs, tailored AI vision classes, specialized zones, and inbound transport deliveries.
+                        </p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeIndustryBlueprintModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#94a3b8; width:34px; height:34px; border-radius:8px; cursor:pointer; font-size:1.2rem; display:flex; align-items:center; justify-content:center; transition:all 0.2s ease;">
+                    &times;
+                </button>
+            </div>
+
+            <!-- Target Facility Selection -->
+            <div style="background:rgba(30,41,59,0.7); border:1px solid rgba(56,189,248,0.25); border-radius:12px; padding:14px 16px; margin-bottom:20px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <i class="fas fa-location-crosshairs" style="color:#38bdf8; font-size:1.1rem;"></i>
+                    <div>
+                        <span style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:#94a3b8; font-weight:600;">Target Facility:</span>
+                        <div id="blueprintTargetFacilityDisplay" style="font-size:0.95rem; font-weight:700; color:#f1f5f9;">Main Assembly Hub (WH-MAIN)</div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label for="blueprintApplyTargetSelect" style="font-size:0.8rem; color:#cbd5e1;">Apply Blueprint To:</label>
+                    <select id="blueprintApplyTargetSelect" style="background:#0f172a; border:1px solid rgba(255,255,255,0.15); color:#f8fafc; padding:6px 10px; border-radius:6px; font-size:0.82rem; outline:none;">
+                        <option value="CURRENT">Current Active Facility</option>
+                        <option value="NEW">Create New Industry Facility</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Pre-Defined Industry Blueprint Cards -->
+            <h3 style="font-size:0.95rem; font-weight:700; color:#e2e8f0; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+                <i class="fas fa-cubes-stacked" style="color:#c084fc;"></i> Choose Pre-Defined Industry Dataset
+            </h3>
+            
+            <div id="blueprintCardsGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:14px; margin-bottom:24px;">
+                <!-- Cards will be populated by JS or preset buttons below -->
+            </div>
+
+            <!-- Custom AI Synthesis Card -->
+            <div style="background:linear-gradient(135deg, rgba(30,41,59,0.8), rgba(49,46,129,0.5)); border:1px dashed rgba(168,85,247,0.5); border-radius:12px; padding:16px;">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                    <i class="fas fa-microchip-ai" style="color:#38bdf8; font-size:1.1rem;"></i>
+                    <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#f1f5f9;">Custom Company / Sector AI Synthesis</h4>
+                </div>
+                <p style="font-size:0.8rem; color:#94a3b8; margin:0 0 12px 0;">
+                    Type any specific company name or niche industry. Our generative AI engine will synthesize tailored SKUs, AI vision classes, storage zones, and sample inbound deliveries.
+                </p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <input type="text" id="customIndustryInput" placeholder="e.g. Coca-Cola Bottling Plant, Tata Steel Yard, or Aerospace Composites..." style="flex:1; min-width:260px; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 14px; color:#f8fafc; font-size:0.85rem; outline:none;">
+                    <button type="button" onclick="applyCustomIndustryBlueprint()" style="background:linear-gradient(135deg, #0284c7, #7c3aed); border:none; border-radius:8px; padding:9px 18px; color:#ffffff; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 0 12px rgba(124,58,237,0.4);">
+                        <i class="fas fa-bolt"></i> Synthesize & Apply
+                    </button>
+                </div>
+            </div>
+
+            <!-- Live Status Feedback Banner -->
+            <div id="blueprintFeedbackBanner" style="display:none; margin-top:16px; padding:12px 16px; border-radius:8px; font-size:0.85rem;"></div>
+
+        </div>
+    </div>
+
     <!-- Palletization & Violation Logic -->
     <script src="{{ url_for('static', filename='js/pallet_logic.js') }}"></script>
 
@@ -6955,6 +7040,8 @@ window.switchSubTab = switchSubTab;
     <!-- Multi-Angle 3D Audit UI Logic -->
     <script src="{{ url_for('static', filename='js/multi_angle_audit_ui.js') }}"></script>
 
+    <!-- AI Industry Blueprint & Multi-Facility Switcher UI Logic -->
+    <script src="{{ url_for('static', filename='js/industry_blueprint_ui.js') }}?v={{ range(1000, 99999) | random }}"></script>
 
 </body>
 </html>
