@@ -91,23 +91,102 @@ def index():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.json
+    data = request.json or {}
     user = db.get_user(data.get('username'), data.get('password'))
     if user:
-        return jsonify({'success': True, 'message': 'Logged in successfully'})
+        # Tenant / Session isolation: automatically switch active facility to user's assigned warehouse
+        wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
+        switched = db.set_active_warehouse(wh_code)
+        user_clean = {
+            "username": user.get("username"),
+            "company_name": user.get("company_name", "Skantha Industrial Solutions"),
+            "assigned_warehouse_code": wh_code,
+            "role": user.get("role", "Admin"),
+            "active_warehouse": switched
+        }
+        return jsonify({
+            'success': True,
+            'message': f'Logged in as {user.get("username")}',
+            'user': user_clean
+        })
     return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
 
 @app.route('/api/register', methods=['POST'])
 def api_register():
-    data = request.json
+    data = request.json or {}
     username = data.get('username')
     password = data.get('password')
+    company_name = (data.get('company_name') or '').strip()
+    
     if not username or not password:
         return jsonify({'success': False, 'message': 'Username and password required'}), 400
     
-    if db.create_user(username, password):
-        return jsonify({'success': True, 'message': 'User registered successfully'})
+    assigned_wh_code = 'WH-MAIN'
+    if company_name:
+        try:
+            from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
+            detected = auto_detect_company_industry(company_name)
+            # Auto-create warehouse and apply tailored 35+ SKU ecosystem
+            res = apply_industry_blueprint(
+                blueprint_key=detected['detected_key'],
+                warehouse_code='', # will generate slug WH-XXXX
+                custom_company_name=company_name
+            )
+            if res.get('success') and res.get('warehouse'):
+                assigned_wh_code = res['warehouse']['code']
+        except Exception as e_ind:
+            logger.warning(f"Auto-industry setup on registration notice: {e_ind}")
+    
+    if db.create_user(username, password, company_name=company_name or 'Skantha Industrial Solutions', assigned_warehouse_code=assigned_wh_code):
+        return jsonify({
+            'success': True,
+            'message': f'User registered successfully with dedicated {company_name or "Industrial"} workspace',
+            'assigned_warehouse_code': assigned_wh_code
+        })
     return jsonify({'success': False, 'message': 'Username already exists'}), 409
+
+@app.route('/api/company/auto_setup', methods=['POST'])
+def api_company_auto_setup():
+    """
+    Auto-detects company type from name/description, creates dedicated facility,
+    alters AI vision model zero-shot classes, maps 30-40 SKUs with images,
+    and updates active user assignment.
+    """
+    try:
+        from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
+        data = request.json or {}
+        company_name = (data.get('company_name') or '').strip()
+        description = (data.get('description') or '').strip()
+        username = data.get('username')
+        
+        if not company_name:
+            return jsonify({'success': False, 'error': 'Company name is required'}), 400
+            
+        detected = auto_detect_company_industry(company_name, description)
+        res = apply_industry_blueprint(
+            blueprint_key=detected['detected_key'],
+            warehouse_code='', # will generate dedicated facility
+            custom_company_name=company_name,
+            custom_prompt=description
+        )
+        
+        if res.get('success') and res.get('warehouse'):
+            wh_code = res['warehouse']['code']
+            if username:
+                db.update_user_warehouse(username, wh_code, company_name)
+            try:
+                mgr = get_vision_runtime_manager()
+                mgr.refresh_cameras()
+            except Exception as e_cam:
+                logger.warning(f"Could not refresh runtime manager: {e_cam}")
+                
+            res['detected'] = detected
+            return jsonify(res)
+        else:
+            return jsonify({'success': False, 'error': res.get('error', 'Setup failed')}), 500
+    except Exception as e:
+        logger.error(f"Error in company auto setup: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/deliveries', methods=['GET', 'POST'])
 def handle_deliveries():

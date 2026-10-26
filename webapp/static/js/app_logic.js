@@ -72,6 +72,13 @@
                 const data = await res.json();
                 
                 if(data.success) {
+                    if (data.user) {
+                        sessionStorage.setItem('wms_user', JSON.stringify(data.user));
+                        window.currentUser = data.user;
+                        if (typeof window.switchActiveFacility === 'function' && data.user.assigned_warehouse_code) {
+                            window.switchActiveFacility(data.user.assigned_warehouse_code);
+                        }
+                    }
                     document.getElementById('login-overlay').style.display = 'none';
                     const topBar = document.getElementById('top-bar');
                     if (topBar) topBar.style.display = 'flex';
@@ -87,6 +94,7 @@
                     if (typeof fetchObjectClasses === 'function') fetchObjectClasses();
                     if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
                     if (typeof fetchVisionZones === 'function') fetchVisionZones();
+                    if (typeof window.loadWarehousesDropdown === 'function') window.loadWarehousesDropdown();
                 } else {
                     alert(data.message);
                 }
@@ -99,15 +107,16 @@
         async function doSignup() {
             const u = document.getElementById('reg-username').value;
             const p = document.getElementById('reg-password').value;
+            const comp = document.getElementById('reg-company') ? document.getElementById('reg-company').value.trim() : '';
             if(!u || !p) {
-                alert("Please fill all fields");
+                alert("Please fill all required fields");
                 return;
             }
             try {
                 const res = await fetch('/api/register', {
                     method: 'POST',
                     headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({username: u, password: p})
+                    body: JSON.stringify({username: u, password: p, company_name: comp})
                 });
                 const data = await res.json();
                 if(data.success) {

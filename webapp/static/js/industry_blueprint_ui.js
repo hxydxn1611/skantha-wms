@@ -291,18 +291,8 @@
                 // Refresh warehouses list and active warehouse
                 await loadWarehousesDropdown();
 
-                // Trigger reload of SKU Master and other views
-                if (typeof window.loadSKUs === 'function') window.loadSKUs();
-                if (typeof window.loadBins === 'function') window.loadBins();
-                if (typeof window.loadGatePasses === 'function') window.loadGatePasses();
-                if (typeof window.loadExpectedDeliveries === 'function') window.loadExpectedDeliveries();
-                if (typeof window.renderAllVisionCameras === 'function') window.renderAllVisionCameras();
-                
-                // If user is currently in SKU Master tab, trigger refresh
-                const skuTabBtn = document.querySelector('[data-tab="sku-master"]');
-                if (skuTabBtn && skuTabBtn.classList.contains('active')) {
-                    if (typeof window.loadSkuMasterTable === 'function') window.loadSkuMasterTable();
-                }
+                // Synchronize all WMS tabs
+                refreshAllWMSTabs();
 
             } else {
                 if (banner) {
@@ -323,6 +313,106 @@
             }
             showBlueprintToast('Network communication error', 'error');
         }
+    }
+
+    async function autoDetectAndApplyCompany() {
+        const input = document.getElementById('autoDetectCompanyInput');
+        if (!input) return;
+        const comp = input.value.trim();
+        if (!comp) {
+            showBlueprintToast('Please enter a company name (e.g. Coca-Cola, Tata Motors, Pfizer).', 'warning');
+            input.focus();
+            return;
+        }
+
+        const banner = document.getElementById('blueprintFeedbackBanner');
+        if (banner) {
+            banner.style.display = 'block';
+            banner.style.background = 'rgba(56, 189, 248, 0.15)';
+            banner.style.border = '1px solid rgba(56, 189, 248, 0.3)';
+            banner.style.color = '#38bdf8';
+            banner.innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <i class="fas fa-brain-circuit fa-spin" style="font-size:1.2rem;"></i>
+                    <span>AI analyzing company signature for "<b>${escapeHtml(comp)}</b>", detecting industrial domain, and synthesizing 35+ SKU ecosystem...</span>
+                </div>
+            `;
+        }
+
+        try {
+            const res = await fetch('/api/company/auto_setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    company_name: comp,
+                    username: window.currentUser ? window.currentUser.username : 'admin'
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (banner) {
+                    banner.style.background = 'rgba(16, 185, 129, 0.15)';
+                    banner.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+                    banner.style.color = '#34d399';
+                    const det = data.detected || {};
+                    banner.innerHTML = `
+                        <div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                                <span><i class="fas fa-circle-check"></i> <b>Auto-Recognized!</b> Sector: <b>${data.blueprint_name}</b> (Confidence: ${(det.confidence*100).toFixed(0)}%)</span>
+                                <button type="button" onclick="closeIndustryBlueprintModal()" style="background:#10b981; border:none; color:#ffffff; padding:4px 10px; border-radius:6px; font-weight:700; cursor:pointer; font-size:0.75rem;">Done</button>
+                            </div>
+                            <div style="font-size:0.78rem; color:#a7f3d0;">
+                                Created dedicated warehouse <b>${data.warehouse ? data.warehouse.name : ''} (${data.warehouse ? data.warehouse.code : ''})</b> with ${data.skus_created} SKUs, ${data.classes_created} Vision Classes, and ${data.zones_created} Storage Zones. All visual thumbnails mapped into database.
+                            </div>
+                        </div>
+                    `;
+                }
+
+                showBlueprintToast(`✨ Auto-Recognized ${data.blueprint_name} for ${comp}!`, 'success');
+                await loadWarehousesDropdown();
+                refreshAllWMSTabs();
+            } else {
+                if (banner) {
+                    banner.style.background = 'rgba(239, 68, 68, 0.15)';
+                    banner.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+                    banner.style.color = '#f87171';
+                    banner.innerHTML = `<i class="fas fa-triangle-exclamation"></i> Error: ${data.error || 'Failed auto setup'}`;
+                }
+                showBlueprintToast(`Error: ${data.error}`, 'error');
+            }
+        } catch (err) {
+            console.error('[Industry Blueprint] Auto-setup error:', err);
+            showBlueprintToast('Network communication error', 'error');
+        }
+    }
+
+    function refreshAllWMSTabs() {
+        console.log('[Industry Blueprint] Synchronizing all WMS tabs for new company blueprint...');
+        
+        // 1. SKU Master
+        if (typeof window.loadSKUs === 'function') window.loadSKUs();
+        if (typeof window.loadSkuMasterTable === 'function') window.loadSkuMasterTable();
+        
+        // 2. Deliveries & Gate Passes
+        if (typeof window.fetchDeliveries === 'function') window.fetchDeliveries();
+        if (typeof window.fetchGatePasses === 'function') window.fetchGatePasses();
+        if (typeof window.loadExpectedDeliveries === 'function') window.loadExpectedDeliveries();
+        if (typeof window.loadGatePasses === 'function') window.loadGatePasses();
+
+        // 3. Storage Bins & Inventory
+        if (typeof window.loadBins === 'function') window.loadBins();
+        if (typeof window.fetchBins === 'function') window.fetchBins();
+
+        // 4. Pallet Counting Workbench
+        if (typeof window.populatePalletSkuDropdown === 'function') window.populatePalletSkuDropdown();
+        if (typeof window.initPalletCountingWorkbench === 'function') window.initPalletCountingWorkbench();
+
+        // 5. Vision AI Cameras & Classes
+        if (typeof window.fetchObjectClasses === 'function') window.fetchObjectClasses();
+        if (typeof window.fetchVisionZones === 'function') window.fetchVisionZones();
+        if (typeof window.renderAllVisionCameras === 'function') window.renderAllVisionCameras();
+        if (typeof window.loadStats === 'function') window.loadStats();
+        if (typeof window.pollData === 'function') window.pollData();
     }
 
     function applyCustomIndustryBlueprint() {
@@ -404,6 +494,8 @@
     window.closeIndustryBlueprintModal = closeIndustryBlueprintModal;
     window.applyIndustryBlueprint = applyIndustryBlueprint;
     window.applyCustomIndustryBlueprint = applyCustomIndustryBlueprint;
+    window.autoDetectAndApplyCompany = autoDetectAndApplyCompany;
+    window.refreshAllWMSTabs = refreshAllWMSTabs;
     window.switchActiveFacility = switchActiveFacility;
     window.loadWarehousesDropdown = loadWarehousesDropdown;
 

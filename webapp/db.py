@@ -423,8 +423,19 @@ def init_db():
             conn.execute("UPDATE skus SET updated_at = created_at WHERE updated_at IS NULL")
         except sqlite3.OperationalError:
             pass
+
+        # User enhancements for multi-tenant company & facility scoping
+        for col, col_type in [
+            ("company_name", "TEXT DEFAULT 'Skantha Industrial Solutions'"),
+            ("assigned_warehouse_code", "TEXT DEFAULT 'WH-MAIN'"),
+            ("role", "TEXT DEFAULT 'Admin'")
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+            except sqlite3.OperationalError:
+                pass
         
-        conn.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('admin', 'admin')")
+        conn.execute("INSERT OR IGNORE INTO users (username, password, company_name, assigned_warehouse_code, role) VALUES ('admin', 'admin', 'Skantha Industrial Solutions', 'WH-MAIN', 'Admin')")
 
         # Seed initial object classes for AI Vision & Tracking Master if empty
         cur = conn.cursor()
@@ -597,18 +608,30 @@ def get_user(username, password):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
-    user = cur.fetchone()
+    row = cur.fetchone()
     conn.close()
-    return user
+    return dict(row) if row else None
 
-def create_user(username, password):
+def create_user(username, password, company_name="Skantha Industrial Solutions", assigned_warehouse_code="WH-MAIN", role="Admin"):
     conn = get_db()
     try:
         with conn:
-            conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+            conn.execute(
+                "INSERT INTO users (username, password, company_name, assigned_warehouse_code, role) VALUES (?, ?, ?, ?, ?)",
+                (username, password, company_name, assigned_warehouse_code, role)
+            )
         return True
     except sqlite3.IntegrityError:
         return False
+
+def update_user_warehouse(username: str, warehouse_code: str, company_name: Optional[str] = None):
+    conn = get_db()
+    with conn:
+        if company_name:
+            conn.execute("UPDATE users SET assigned_warehouse_code = ?, company_name = ? WHERE username = ?", (warehouse_code, company_name, username))
+        else:
+            conn.execute("UPDATE users SET assigned_warehouse_code = ? WHERE username = ?", (warehouse_code, username))
+    conn.close()
 
 def _clean_plate(plate):
     if not plate:
