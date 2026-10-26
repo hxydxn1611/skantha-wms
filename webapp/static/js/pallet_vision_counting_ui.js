@@ -1432,16 +1432,28 @@
         lastWbUploadFile = file;
         lastWbUploadTime = now;
 
-        // Validate image file type
-        const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff'];
+        // Validate image file: allow common formats (AVIF, WebP, PNG, JPEG, BMP, TIFF, GIF, etc.)
+        const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.bmp', '.dib', '.tiff', '.tif', '.gif', '.pbm', '.pgm', '.ppm', '.sr', '.ras', '.jp2'];
+        const nonImageExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.zip', '.tar', '.gz', '.7z', '.exe', '.dll', '.mp4', '.avi', '.mov', '.mp3', '.json', '.xml', '.html'];
         const nameLower = (file.name || '').toLowerCase();
-        const isImage = (file.type && file.type.startsWith('image/')) || validExtensions.some(ext => nameLower.endsWith(ext));
-        if (!isImage) {
-            if (typeof showToast === 'function') {
-                showToast('Unsupported file type. Please upload a valid warehouse image (JPG, PNG, WebP).', 'error');
-            } else {
-                alert('Unsupported file type. Please upload a valid warehouse image.');
-            }
+        const hasValidExt = validExtensions.some(ext => nameLower.endsWith(ext));
+        const hasNonImageExt = nonImageExtensions.some(ext => nameLower.endsWith(ext));
+        const isImageMime = file.type && file.type.startsWith('image/');
+
+        // Explicitly reject known non-image document formats
+        if (hasNonImageExt) {
+            const err = `Unsupported document format (${file.name || 'file'}). Please upload an image file (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).`;
+            if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
+            const fi = document.getElementById('wbFileInput');
+            if (fi) fi.value = '';
+            return;
+        }
+
+        // Allow if valid image MIME, recognized image extension, or generic/empty type without forbidden extension
+        const isAcceptableImage = isImageMime || hasValidExt || (!file.type || file.type === 'application/octet-stream');
+        if (!isAcceptableImage) {
+            const err = 'Unsupported file type. Please upload a valid warehouse photo (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).';
+            if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
             const fi = document.getElementById('wbFileInput');
             if (fi) fi.value = '';
             return;
@@ -1482,11 +1494,21 @@
             const previewImg = document.getElementById('wbPreviewImg');
             const placeholder = document.getElementById('wbPlaceholder');
             if (previewImg) {
+                // Graceful fallback if browser cannot render format natively (e.g. TIFF)
+                previewImg.onerror = function() {
+                    console.info('[Workbench] Browser cannot natively preview raw image format; server will process and provide visual verification.');
+                    previewImg.style.display = 'none';
+                    if (placeholder) {
+                        placeholder.style.display = 'block';
+                        const sub = document.getElementById('wbPlaceholderSubtitle');
+                        if (sub) sub.textContent = `${fileName} loaded. High-precision server decoding in progress...`;
+                    }
+                };
+                previewImg.onload = function() {
+                    previewImg.style.display = 'block';
+                    if (placeholder) placeholder.style.display = 'none';
+                };
                 previewImg.src = e.target.result;
-                previewImg.style.display = 'block';
-            }
-            if (placeholder) {
-                placeholder.style.display = 'none';
             }
             // Trigger automated counting execution immediately for the current file
             window.executeWorkbenchCount();
@@ -1587,6 +1609,16 @@
             wbLatestResult = data;
             wbCurrentPieces = (data.pieces || []).map((p, idx) => ({ ...p, id: idx + 1 }));
             wbRawImageUrl = data.raw_image_url || data.annotated_image_url || '';
+
+            // If client browser could not render format natively (e.g. TIFF), synchronize preview with server-decoded representation
+            const previewImg = document.getElementById('wbPreviewImg');
+            const placeholder = document.getElementById('wbPlaceholder');
+            if (previewImg && wbRawImageUrl && previewImg.style.display === 'none') {
+                previewImg.onerror = null;
+                previewImg.src = wbRawImageUrl;
+                previewImg.style.display = 'block';
+                if (placeholder) placeholder.style.display = 'none';
+            }
 
             renderWorkbenchResults(data);
 

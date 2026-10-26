@@ -5715,20 +5715,110 @@ def api_camera_snapshot(camera_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def decode_image_bytes_to_bgr(raw_bytes: bytes, max_dim: int = 8192):
+    """
+    Centralized, universal image decoder with progressive fallback:
+    1. Direct OpenCV decoding for maximum performance (JPEG, PNG, WebP, BMP, standard TIFF).
+    2. Orientation check: Preserves EXIF orientation transpose for smartphone uploads.
+    3. Secondary compatible decoding via Pillow for modern & exotic formats:
+       - AVIF (via pillow_avif)
+       - WebP (lossless & alpha)
+       - Multi-page TIFF (Page-selection policy: Page 0 / primary inspection view)
+       - Animated GIF / APNG (Frame-selection policy: Frame 0 / primary scene state)
+       - Transparency handling (composites transparent background on clean white (255, 255, 255))
+       - Color mode normalization (CMYK, Grayscale, Palette to RGB)
+       - High-fidelity downscaling for ultra-resolution images (> 8192px)
+    Returns:
+      (image_bgr: np.ndarray | None, error_code: str | None, error_detail: str | None)
+    """
+    if not raw_bytes or len(raw_bytes) == 0:
+        return None, 'empty_file', 'Uploaded image file is empty (0 bytes). Please select a valid photo.'
+
+    # 1. Direct OpenCV decoding
+    cv_img = None
+    try:
+        nparr = np.frombuffer(raw_bytes, np.uint8)
+        cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    except Exception:
+        cv_img = None
+
+    # Check if EXIF orientation transpose is needed on the decoded image
+    if cv_img is not None:
+        try:
+            import io
+            from PIL import Image, ImageOps
+            with Image.open(io.BytesIO(raw_bytes)) as probe:
+                exif = probe.getexif()
+                if exif and 0x0112 in exif and exif[0x0112] not in (1, 0, None):
+                    probe = ImageOps.exif_transpose(probe)
+                    if probe.mode != 'RGB':
+                        probe = probe.convert('RGB')
+                    cv_img = cv2.cvtColor(np.array(probe), cv2.COLOR_RGB2BGR)
+        except Exception:
+            pass
+        return cv_img, None, None
+
+    # 2. Secondary decoding & in-memory conversion via Pillow
+    try:
+        import io
+        from PIL import Image, ImageOps, ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+        with Image.open(io.BytesIO(raw_bytes)) as pil_img:
+            # Policy: Frame 0 / Page 0 for animated or multi-page formats
+            try:
+                pil_img.seek(0)
+            except Exception:
+                pass
+
+            # Apply EXIF transpose
+            try:
+                pil_img = ImageOps.exif_transpose(pil_img)
+            except Exception:
+                pass
+
+            # Transparency & Color mode normalization
+            if pil_img.mode in ('RGBA', 'LA') or ('transparency' in pil_img.info):
+                bg = Image.new('RGB', pil_img.size, (255, 255, 255))
+                rgba = pil_img.convert('RGBA')
+                bg.paste(rgba, mask=rgba.split()[3])
+                rgb_img = bg
+            elif pil_img.mode != 'RGB':
+                rgb_img = pil_img.convert('RGB')
+            else:
+                rgb_img = pil_img
+
+            # Resource limit: scale down if exceeding max dimension
+            w, h = rgb_img.size
+            if max(w, h) > max_dim:
+                scale = max_dim / float(max(w, h))
+                new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+                rgb_img = rgb_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+            arr = np.array(rgb_img)
+            bgr_img = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            return bgr_img, None, None
+    except Exception as ex:
+        err_msg = str(ex).lower()
+        if 'decompressionbomb' in err_msg:
+            return None, 'image_too_large', 'Image exceeds maximum allowed resolution limits (decompression bomb protection).'
+        elif 'cannot identify' in err_msg or 'unidentified' in err_msg:
+            return None, 'unsupported_format', 'Unsupported image encoding or file format. Please upload an image format such as JPEG, PNG, WebP, AVIF, TIFF, BMP, or GIF.'
+        return None, 'corrupted_image', f'Image file is corrupted or could not be decoded: {ex}'
+
+
 def _extract_uploaded_image_bgr(files_dict, *preferred_keys):
     """
     Safely extract and decode an uploaded image from request.files without
     relying on Werkzeug FileStorage.__bool__ (which returns False if filename is empty).
-    Returns tuple: (image_bgr, error_reason)
-      image_bgr: numpy.ndarray or None
-      error_reason: None, 'no_file', 'empty_file', or 'invalid_image'
+    Returns tuple: (image_bgr, error_reason, error_message)
     """
     if not files_dict:
-        return None, 'no_file'
+        return None, 'no_file', 'No image file uploaded. Please select an image file to count.'
 
     found_part = False
-    saw_empty_data = False
-    saw_unreadable_data = False
+    last_err = 'no_file'
+    last_msg = 'No image file uploaded. Please select an image file to count.'
 
     # 1. Try preferred keys first
     for key in preferred_keys:
@@ -5739,17 +5829,14 @@ def _extract_uploaded_image_bgr(files_dict, *preferred_keys):
                 try:
                     fs.seek(0)
                     raw = fs.read()
-                    if raw and len(raw) > 0:
-                        nparr = np.frombuffer(raw, np.uint8)
-                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                        if img is not None:
-                            return img, None
-                        saw_unreadable_data = True
-                    else:
-                        saw_empty_data = True
+                    img, err, msg = decode_image_bytes_to_bgr(raw)
+                    if img is not None:
+                        return img, None, None
+                    last_err, last_msg = err, msg
                 except Exception as ex:
                     logger.warning(f"Error decoding image file part '{key}': {ex}")
-                    saw_unreadable_data = True
+                    last_err = 'corrupted_image'
+                    last_msg = f"Failed to read image data from part '{key}': {ex}"
 
     # 2. Fallback to any file part present
     for key, fs in files_dict.items():
@@ -5758,46 +5845,33 @@ def _extract_uploaded_image_bgr(files_dict, *preferred_keys):
             try:
                 fs.seek(0)
                 raw = fs.read()
-                if raw and len(raw) > 0:
-                    nparr = np.frombuffer(raw, np.uint8)
-                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    if img is not None:
-                        return img, None
-                    saw_unreadable_data = True
-                else:
-                    saw_empty_data = True
+                img, err, msg = decode_image_bytes_to_bgr(raw)
+                if img is not None:
+                    return img, None, None
+                last_err, last_msg = err, msg
             except Exception as ex:
                 logger.warning(f"Error decoding fallback image file part '{key}': {ex}")
-                saw_unreadable_data = True
+                last_err = 'corrupted_image'
+                last_msg = f"Failed to read fallback image data from part '{key}': {ex}"
 
-    if saw_unreadable_data:
-        return None, 'invalid_image'
-    if saw_empty_data:
-        return None, 'empty_file'
-    return None, 'no_file'
+    return None, last_err, last_msg
 
 
 def _extract_base64_image_bgr(data_str):
     """
     Safely extract and decode a base64-encoded image string (data URL or raw base64).
-    Returns tuple: (image_bgr, error_reason)
+    Returns tuple: (image_bgr, error_reason, error_message)
     """
     if not data_str or not isinstance(data_str, str) or len(data_str) <= 20:
-        return None, 'no_data'
+        return None, 'no_data', 'No base64 image data provided.'
     try:
         import base64
         base64_str = data_str.split(',', 1)[1] if ',' in data_str else data_str
         img_bytes = base64.b64decode(base64_str)
-        if img_bytes and len(img_bytes) > 0:
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if img is not None:
-                return img, None
-            return None, 'invalid_image'
-        return None, 'empty_data'
+        return decode_image_bytes_to_bgr(img_bytes)
     except Exception as b64_err:
         logger.warning(f"Failed to decode base64 image data: {b64_err}")
-        return None, 'invalid_image'
+        return None, 'corrupted_image', f'Base64 image encoding is invalid: {b64_err}'
 
 
 @app.route('/api/pallets/count-pieces', methods=['POST'])
@@ -5845,14 +5919,16 @@ def api_count_pallet_pieces():
         if counting_mode == 'auto' and ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
             counting_mode = 'boxes'
 
-        # 1. Image file upload from multipart request (supporting empty filenames/Blobs without relying on Werkzeug __bool__)
-        image_bgr, upload_err = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
+        # 1. Image file upload from multipart request (supporting all decodable formats)
+        image_bgr, upload_err, upload_msg = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
 
         # 1b. Base64 image data payload fallback (e.g. from preview data URL or form field)
         if image_bgr is None:
             img_data = request.form.get('image_data') or data.get('image_data') or request.values.get('image_data')
             if img_data:
-                image_bgr, _ = _extract_base64_image_bgr(img_data)
+                image_bgr, b64_err, b64_msg = _extract_base64_image_bgr(img_data)
+                if image_bgr is None and upload_err == 'no_file':
+                    upload_err, upload_msg = b64_err, b64_msg
 
         # 2. Camera snapshot capture
         if image_bgr is None and (source_type == 'camera' or request.form.get('use_camera', '').lower() in ('true', '1', 'yes')):
@@ -5866,12 +5942,11 @@ def api_count_pallet_pieces():
 
         if image_bgr is None:
             if source_type == 'upload':
-                if upload_err == 'empty_file':
-                    return jsonify({"success": False, "error": "Uploaded image file is empty (0 bytes). Please select a valid photo."}), 400
-                elif upload_err == 'invalid_image':
-                    return jsonify({"success": False, "error": "Invalid or unreadable image file format. Please upload a standard photo (JPG, PNG, WebP)."}), 400
-                else:
-                    return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
+                return jsonify({
+                    "success": False,
+                    "error": upload_msg or "No image file uploaded. Please select an image file to count.",
+                    "error_code": upload_err
+                }), 400
             elif source_type == 'camera':
                 image_bgr, _ = get_camera_frame_for_detection(camera_id)
                 if image_bgr is None:
@@ -5973,7 +6048,7 @@ def api_count_pallet_bundles():
         source_type = request.form.get('source_type') or data.get('source_type', 'upload')
         camera_id = request.form.get('camera_id') or data.get('camera_id') or 'cam_inbound_01'
 
-        img_a1, upload_err = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
+        img_a1, upload_err, upload_msg = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
         if img_a1 is not None:
             preset_name = None
 
@@ -5983,8 +6058,8 @@ def api_count_pallet_bundles():
                 fs2 = request.files['angle2']
                 fs2.seek(0)
                 raw2 = fs2.read()
-                if raw2 and len(raw2) > 0:
-                    img_a2 = cv2.imdecode(np.frombuffer(raw2, np.uint8), cv2.IMREAD_COLOR)
+                img_a2, _, _ = decode_image_bytes_to_bgr(raw2)
+                if img_a2 is not None:
                     preset_name = None
             except Exception:
                 pass
@@ -5993,9 +6068,11 @@ def api_count_pallet_bundles():
         if img_a1 is None:
             img_data = request.form.get('image_data') or data.get('image_data') or request.values.get('image_data')
             if img_data:
-                img_a1, _ = _extract_base64_image_bgr(img_data)
+                img_a1, b64_err, b64_msg = _extract_base64_image_bgr(img_data)
                 if img_a1 is not None:
                     preset_name = None
+                elif upload_err == 'no_file':
+                    upload_err, upload_msg = b64_err, b64_msg
 
         if img_a1 is not None and img_a2 is None:
             img_a2 = img_a1.copy()
@@ -6018,12 +6095,11 @@ def api_count_pallet_bundles():
 
         if img_a1 is None:
             if source_type == 'upload':
-                if upload_err == 'empty_file':
-                    return jsonify({"success": False, "error": "Uploaded image file is empty (0 bytes). Please select a valid photo."}), 400
-                elif upload_err == 'invalid_image':
-                    return jsonify({"success": False, "error": "Invalid or unreadable image file format. Please upload a standard photo (JPG, PNG, WebP)."}), 400
-                else:
-                    return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
+                return jsonify({
+                    "success": False,
+                    "error": upload_msg or "No image file uploaded. Please select an image file to count.",
+                    "error_code": upload_err
+                }), 400
             return jsonify({"success": False, "error": "Unable to acquire image source for bundle counting"}), 400
 
         result = service.count_bundles_multi_view(
