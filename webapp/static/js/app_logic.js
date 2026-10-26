@@ -330,13 +330,6 @@
 
                     document.getElementById('otpDisplayTargetEmail').textContent = email;
 
-                    if (d.dev_otp) {
-                        const devEl = document.getElementById('devOtpCodeValue');
-                        if (devEl) devEl.textContent = d.dev_otp;
-                        const sbBanner = document.getElementById('otpSandboxBanner');
-                        if (sbBanner) sbBanner.style.display = 'flex';
-                    }
-
                     startOtpCountdown(60);
                     const otpInput = document.getElementById('reg-otp-code');
                     if (otpInput) {
@@ -391,10 +384,6 @@
                 });
                 const d = await res.json();
                 if (d.success) {
-                    if (d.dev_otp) {
-                        const devEl = document.getElementById('devOtpCodeValue');
-                        if (devEl) devEl.textContent = d.dev_otp;
-                    }
                     startOtpCountdown(60);
                     alert(`A fresh verification code has been dispatched to ${window._regDraft.email}.`);
                 } else {

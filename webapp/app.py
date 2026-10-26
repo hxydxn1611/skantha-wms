@@ -147,9 +147,95 @@ def api_company_preview_recognition():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def send_verification_email(recipient_email: str, otp_code: str, username: str = None) -> tuple:
+    """Dispatches a real 6-digit OTP verification email via SMTP to any requested user email."""
+    try:
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+        smtp_port = int(os.environ.get('SMTP_PORT', 465))
+        smtp_user = os.environ.get('SMTP_USER', 'hayd161103@gmail.com')
+        smtp_password = os.environ.get('SMTP_PASSWORD', 'hwflfuagdsqglxkp')
+
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f'Your Skantha WMS Verification Code: {otp_code}'
+        msg['From'] = f'Skantha WMS Security <{smtp_user}>'
+        msg['To'] = recipient_email
+
+        greeting = f"Hello {username}," if username else "Hello,"
+        text_content = (
+            f"{greeting}\n\n"
+            f"Your Skantha WMS verification code for warehouse registration is:\n\n"
+            f"  {otp_code}\n\n"
+            f"This code will expire in 10 minutes.\n"
+            f"If you did not request this verification code, please ignore this email.\n\n"
+            f"— The Skantha WMS Security Team"
+        )
+
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; margin: 0; padding: 24px; color: #f8fafc; }}
+  .card {{ max-width: 520px; margin: 0 auto; background: #1e293b; border-radius: 12px; border: 1px solid #334155; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }}
+  .header {{ text-align: center; margin-bottom: 24px; }}
+  .logo {{ font-size: 22px; font-weight: 800; color: #38bdf8; letter-spacing: 1px; }}
+  .sub {{ font-size: 13px; color: #94a3b8; margin-top: 4px; }}
+  .otp-box {{ text-align: center; margin: 28px 0; padding: 18px; background: #0f172a; border-radius: 8px; border: 1px dashed #38bdf8; }}
+  .otp-code {{ font-size: 34px; font-weight: 900; letter-spacing: 8px; color: #38bdf8; font-family: monospace; }}
+  .footer {{ margin-top: 28px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #334155; padding-top: 16px; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="logo">⚡ SKANTHA WMS &amp; W.A.R.L.O.G.</div>
+      <div class="sub">Autonomous Warehouse Management System</div>
+    </div>
+    <p style="font-size: 15px; color: #e2e8f0; margin-bottom: 12px;">{greeting}</p>
+    <p style="font-size: 14px; color: #cbd5e1; line-height: 1.5;">
+      Use the following single-use verification code to complete your enterprise warehouse workspace registration:
+    </p>
+    <div class="otp-box">
+      <div class="otp-code">{otp_code}</div>
+      <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">Valid for 10 minutes</div>
+    </div>
+    <p style="font-size: 13px; color: #94a3b8; line-height: 1.4;">
+      If you did not request this registration code, you can safely ignore this email.
+    </p>
+    <div class="footer">
+      This is an automated security dispatch from Skantha WMS Enterprise Platform.
+    </div>
+  </div>
+</body>
+</html>"""
+
+        msg.attach(MIMEText(text_content, 'plain'))
+        msg.attach(MIMEText(html_content, 'html'))
+
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
+                server.login(smtp_user, smtp_password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_password)
+                server.send_message(msg)
+
+        logger.info(f"[AUTH SECURITY] Real OTP email successfully sent to {recipient_email}")
+        return True, "Email sent successfully"
+    except Exception as e:
+        logger.error(f"[AUTH SECURITY] Error dispatching verification email to {recipient_email}: {e}")
+        return False, str(e)
+
+
 @app.route('/api/auth/send_otp', methods=['POST'])
 def api_send_otp():
-    """Generates and dispatches a 6-digit verification code to the user's work email."""
+    """Generates and dispatches a 6-digit verification code directly to the user's email inbox."""
     try:
         data = request.json or request.form.to_dict() or {}
         email = (data.get('email') or '').strip().lower()
@@ -157,7 +243,7 @@ def api_send_otp():
         purpose = data.get('purpose', 'REGISTRATION')
 
         if not email or '@' not in email or '.' not in email:
-            return jsonify({'success': False, 'message': 'Please enter a valid work email address.'}), 400
+            return jsonify({'success': False, 'message': 'Please enter a valid email address.'}), 400
 
         # Check if email is already taken
         existing_user = db.get_user_by_email(email)
@@ -173,13 +259,21 @@ def api_send_otp():
         if not stored:
             return jsonify({'success': False, 'message': 'Failed to generate verification OTP. Please try again.'}), 500
 
-        logger.info(f"[AUTH SECURITY] Generated 6-digit registration OTP for '{email}': {otp_code}")
+        # Dispatch real email via SMTP
+        sent, err_msg = send_verification_email(recipient_email=email, otp_code=otp_code, username=username)
+        if not sent:
+            logger.error(f"[AUTH SECURITY] Delivery failure for {email}: {err_msg}")
+            return jsonify({
+                'success': False,
+                'message': f"Could not deliver verification code to {email}: {err_msg}. Please check the email address."
+            }), 502
+
+        logger.info(f"[AUTH SECURITY] Verification email delivered to '{email}'")
 
         return jsonify({
             'success': True,
-            'message': f'Verification code dispatched to {email}. Valid for 10 minutes.',
+            'message': f'Verification code sent directly to {email}. Please check your mail inbox.',
             'email': email,
-            'dev_otp': otp_code,  # Provided for immediate local verification/testing sandbox
             'expires_in_seconds': 600
         })
     except Exception as e:
