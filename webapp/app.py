@@ -5357,6 +5357,59 @@ def api_camera_snapshot(camera_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def _extract_uploaded_image_bgr(files_dict, *preferred_keys):
+    """
+    Safely extract and decode an uploaded image from request.files without
+    relying on Werkzeug FileStorage.__bool__ (which returns False if filename is empty).
+    """
+    if not files_dict:
+        return None
+    # 1. Try preferred keys first
+    for key in preferred_keys:
+        if key in files_dict:
+            fs = files_dict[key]
+            if fs is not None:
+                try:
+                    fs.seek(0)
+                    raw = fs.read()
+                    if raw and len(raw) > 0:
+                        nparr = np.frombuffer(raw, np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if img is not None:
+                            return img
+                except Exception as ex:
+                    logger.warning(f"Error decoding image file part '{key}': {ex}")
+    # 2. Fallback to any file part present
+    for key, fs in files_dict.items():
+        if key not in preferred_keys and fs is not None:
+            try:
+                fs.seek(0)
+                raw = fs.read()
+                if raw and len(raw) > 0:
+                    nparr = np.frombuffer(raw, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if img is not None:
+                        return img
+            except Exception as ex:
+                logger.warning(f"Error decoding fallback image file part '{key}': {ex}")
+    return None
+
+
+def _extract_base64_image_bgr(data_str):
+    if not data_str or not isinstance(data_str, str) or len(data_str) <= 20:
+        return None
+    try:
+        import base64
+        base64_str = data_str.split(',', 1)[1] if ',' in data_str else data_str
+        img_bytes = base64.b64decode(base64_str)
+        if img_bytes and len(img_bytes) > 0:
+            nparr = np.frombuffer(img_bytes, np.uint8)
+            return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    except Exception as b64_err:
+        logger.warning(f"Failed to decode base64 image data: {b64_err}")
+    return None
+
+
 @app.route('/api/pallets/count-pieces', methods=['POST'])
 def api_count_pallet_pieces():
     """
@@ -5402,16 +5455,19 @@ def api_count_pallet_pieces():
         if counting_mode == 'auto' and ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
             counting_mode = 'boxes'
 
-        image_bgr = None
-        # 1. Image file upload
-        if 'image' in request.files and request.files['image'].filename:
-            nparr = np.frombuffer(request.files['image'].read(), np.uint8)
-            image_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # 1. Image file upload from multipart request (supporting empty filenames/Blobs without relying on Werkzeug __bool__)
+        image_bgr = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
+
+        # 1b. Base64 image data payload fallback (e.g. from preview data URL or form field)
+        if image_bgr is None:
+            img_data = request.form.get('image_data') or data.get('image_data') or request.values.get('image_data')
+            image_bgr = _extract_base64_image_bgr(img_data)
+
         # 2. Camera snapshot capture
-        elif source_type == 'camera' or request.form.get('use_camera', '').lower() in ('true', '1', 'yes'):
+        if image_bgr is None and (source_type == 'camera' or request.form.get('use_camera', '').lower() in ('true', '1', 'yes')):
             image_bgr, _ = get_camera_frame_for_detection(camera_id)
         # 3. Explicit sample scene request ONLY if use_sample is explicitly true
-        elif sample_name or request.form.get('use_sample', '').lower() in ('true', '1', 'yes'):
+        elif image_bgr is None and (sample_name or request.form.get('use_sample', '').lower() in ('true', '1', 'yes')):
             fname = sample_name or 'sample_carton_boxes.png'
             sp = os.path.join(test_dir, fname)
             if os.path.isfile(sp):
@@ -5521,19 +5577,31 @@ def api_count_pallet_bundles():
         source_type = request.form.get('source_type') or data.get('source_type', 'upload')
         camera_id = request.form.get('camera_id') or data.get('camera_id') or 'cam_inbound_01'
 
-        img_a1 = None
-        img_a2 = None
+        img_a1 = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
+        if img_a1 is not None:
+            preset_name = None
 
-        if 'image' in request.files and request.files['image'].filename:
-            nparr = np.frombuffer(request.files['image'].read(), np.uint8)
-            img_a1 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            img_a2 = img_a1.copy() if img_a1 is not None else None
-        elif 'angle1' in request.files and request.files['angle1'].filename:
-            nparr = np.frombuffer(request.files['angle1'].read(), np.uint8)
-            img_a1 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if 'angle2' in request.files and request.files['angle2'].filename:
-            nparr = np.frombuffer(request.files['angle2'].read(), np.uint8)
-            img_a2 = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        img_a2 = None
+        if 'angle2' in request.files and request.files['angle2'] is not None:
+            try:
+                fs2 = request.files['angle2']
+                fs2.seek(0)
+                raw2 = fs2.read()
+                if raw2 and len(raw2) > 0:
+                    img_a2 = cv2.imdecode(np.frombuffer(raw2, np.uint8), cv2.IMREAD_COLOR)
+                    preset_name = None
+            except Exception:
+                pass
+
+        # Fallback to base64 image data payload if img_a1 is None
+        if img_a1 is None:
+            img_data = request.form.get('image_data') or data.get('image_data') or request.values.get('image_data')
+            img_a1 = _extract_base64_image_bgr(img_data)
+            if img_a1 is not None:
+                preset_name = None
+
+        if img_a1 is not None and img_a2 is None:
+            img_a2 = img_a1.copy()
 
         if img_a1 is None and source_type == 'camera':
             image_cam, _ = get_camera_frame_for_detection(camera_id)

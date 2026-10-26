@@ -1194,6 +1194,7 @@
     let wbThreeAnimId = null;
 
     let wbSelectedFile = null;
+    let wbCountRequestId = 0;
 
     window.openPalletCountingWorkbench = function(initialMode = 'pieces', triggerUpload = false) {
         const wb = document.getElementById('palletCountingWorkbench');
@@ -1292,6 +1293,7 @@
     };
 
     window.removeWorkbenchImage = function() {
+        wbCountRequestId++; // Invalidate any pending in-flight requests
         wbSelectedFile = null;
         wbLatestResult = null;
         wbCurrentPieces = [];
@@ -1355,7 +1357,8 @@
         }
     };
 
-    window.clearWorkbenchCount = function() {
+    window.clearWorkbenchCount = function(silent = false) {
+        wbCountRequestId++; // Invalidate any pending in-flight requests
         // Purge detections, markers, geometry, results, and 3D visualization, preserving the loaded image
         wbLatestResult = null;
         wbCurrentPieces = [];
@@ -1391,7 +1394,7 @@
         // Clear 3D model canvas
         initWb3DPalletViewer(null);
 
-        if (typeof showToast === 'function') {
+        if (!silent && typeof showToast === 'function') {
             showToast('Pallet count cleared. Ready to count again.', 'info');
         }
     };
@@ -1405,18 +1408,45 @@
         }
     };
 
+    let lastWbUploadFile = null;
+    let lastWbUploadTime = 0;
+
     window.previewWorkbenchUpload = function(inputOrFile) {
         let file = null;
-        if (inputOrFile instanceof File) {
+        if (inputOrFile instanceof File || inputOrFile instanceof Blob) {
             file = inputOrFile;
         } else if (inputOrFile && inputOrFile.files && inputOrFile.files[0]) {
             file = inputOrFile.files[0];
         }
         if (!file) return;
 
-        // Automatically purge any previous image's results and 3D visualization
-        window.clearWorkbenchCount();
+        // Prevent duplicate trigger within 250ms on identical file
+        const now = Date.now();
+        if (file === lastWbUploadFile && (now - lastWbUploadTime) < 250) {
+            return;
+        }
+        lastWbUploadFile = file;
+        lastWbUploadTime = now;
 
+        // Validate image file type
+        const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff'];
+        const nameLower = (file.name || '').toLowerCase();
+        const isImage = (file.type && file.type.startsWith('image/')) || validExtensions.some(ext => nameLower.endsWith(ext));
+        if (!isImage) {
+            if (typeof showToast === 'function') {
+                showToast('Unsupported file type. Please upload a valid warehouse image (JPG, PNG, WebP).', 'error');
+            } else {
+                alert('Unsupported file type. Please upload a valid warehouse image.');
+            }
+            const fi = document.getElementById('wbFileInput');
+            if (fi) fi.value = '';
+            return;
+        }
+
+        // Purge any previous results/3D state silently (wbCountRequestId is incremented here)
+        window.clearWorkbenchCount(true);
+
+        // Store active File object as single source of truth for counting
         wbSelectedFile = file;
 
         // Switch source to upload automatically
@@ -1436,11 +1466,15 @@
         // Update selected file badge
         const fnSpan = document.getElementById('wbSelectedFileName');
         const fiWrap = document.getElementById('wbSelectedFileInfo');
-        if (fnSpan) fnSpan.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        const fileName = file.name || 'pallet_image.jpg';
+        const fileSizeKb = file.size ? (file.size / 1024).toFixed(1) : '0';
+        if (fnSpan) fnSpan.textContent = `${fileName} (${fileSizeKb} KB)`;
         if (fiWrap) fiWrap.style.display = 'block';
 
+        const capturedReqId = wbCountRequestId;
         const reader = new FileReader();
         reader.onload = function(e) {
+            if (capturedReqId !== wbCountRequestId) return; // Discard if superseded
             const previewImg = document.getElementById('wbPreviewImg');
             const placeholder = document.getElementById('wbPlaceholder');
             if (previewImg) {
@@ -1450,7 +1484,7 @@
             if (placeholder) {
                 placeholder.style.display = 'none';
             }
-            // Trigger automated counting execution immediately
+            // Trigger automated counting execution immediately for the current file
             window.executeWorkbenchCount();
         };
         reader.readAsDataURL(file);
@@ -1463,6 +1497,8 @@
         if (btn) btn.disabled = true;
         if (spinner) spinner.style.display = 'block';
 
+        const thisRequestId = ++wbCountRequestId;
+
         try {
             const formData = new FormData();
             formData.append('source_type', wbSource);
@@ -1473,20 +1509,53 @@
             formData.append('camera_id', camId);
 
             if (wbSource === 'upload') {
-                const targetFile = wbSelectedFile || document.getElementById('wbFileInput')?.files[0];
+                let targetFile = wbSelectedFile;
+                if (!targetFile) {
+                    const fi = document.getElementById('wbFileInput');
+                    if (fi && fi.files && fi.files[0]) {
+                        targetFile = fi.files[0];
+                        wbSelectedFile = targetFile;
+                    }
+                }
+
+                // If wbSelectedFile is detached but preview image has an active data URL
+                if (!targetFile) {
+                    const previewImg = document.getElementById('wbPreviewImg');
+                    if (previewImg && previewImg.src && previewImg.src.startsWith('data:image/')) {
+                        try {
+                            const byteString = atob(previewImg.src.split(',')[1]);
+                            const mimeString = previewImg.src.split(',')[0].split(':')[1].split(';')[0];
+                            const ab = new ArrayBuffer(byteString.length);
+                            const ia = new Uint8Array(ab);
+                            for (let i = 0; i < byteString.length; i++) {
+                                ia[i] = byteString.charCodeAt(i);
+                            }
+                            targetFile = new Blob([ab], { type: mimeString });
+                            wbSelectedFile = targetFile;
+                        } catch (convErr) {
+                            console.warn('[Workbench] Fallback Blob reconstruction from preview failed:', convErr);
+                        }
+                    }
+                }
+
                 if (targetFile) {
-                    wbSelectedFile = targetFile;
-                    formData.append('image', targetFile);
-                    formData.append('angle1', targetFile);
+                    const filename = (targetFile && targetFile.name) ? targetFile.name : 'pallet_upload.jpg';
+                    formData.append('image', targetFile, filename);
+                    formData.append('angle1', targetFile, filename);
+
+                    // Also attach image_data as fallback base64 payload if preview is available
+                    const previewImg = document.getElementById('wbPreviewImg');
+                    if (previewImg && previewImg.src && previewImg.src.startsWith('data:image/')) {
+                        formData.append('image_data', previewImg.src);
+                    }
                 } else {
                     if (typeof showToast === 'function') {
-                        showToast('Please select or drop an image file first.', 'warning');
+                        showToast('No image file selected. Please click or drop a pallet photo to count.', 'warning');
                     } else {
-                        alert('Please select or drop an image file first.');
+                        alert('No image file selected. Please select an image file to count.');
                     }
                     if (btn) btn.disabled = false;
                     if (spinner) spinner.style.display = 'none';
-                    window.triggerWorkbenchUpload();
                     return;
                 }
             }
@@ -1497,10 +1566,19 @@
                 body: formData
             });
 
+            // Discard stale response if a newer request or reset occurred
+            if (thisRequestId !== wbCountRequestId) {
+                console.log(`[Workbench] Discarded stale response for request #${thisRequestId}`);
+                return;
+            }
+
             const data = await res.json();
             if (!res.ok || !data.success) {
                 throw new Error(data.error || 'Vision counting failed');
             }
+
+            // Check again after JSON decode
+            if (thisRequestId !== wbCountRequestId) return;
 
             wbLatestResult = data;
             wbCurrentPieces = (data.pieces || []).map((p, idx) => ({ ...p, id: idx + 1 }));
@@ -1508,12 +1586,18 @@
 
             renderWorkbenchResults(data);
 
+            const qb = data.quantity_breakdown || {};
+            const total = qb.total_units !== undefined ? qb.total_units : (data.total_pieces !== undefined ? data.total_pieces : (data.total_bundles || 0));
             if (typeof showToast === 'function') {
-                const total = data.quantity_breakdown?.total_units || data.total_pieces || data.total_bundles || 0;
-                showToast(`Pallet analyzed: ${total} ${data.mode === 'BUNDLE_STACK' ? 'bundles' : 'pieces'} counted.`, 'success');
+                if (total === 0) {
+                    showToast(data.message || 'Analysis complete: No countable objects localized from visual evidence.', 'info');
+                } else {
+                    showToast(`Pallet analyzed: ${total} ${data.mode === 'BUNDLE_STACK' ? 'bundles' : 'pieces'} counted.`, 'success');
+                }
             }
 
         } catch(err) {
+            if (thisRequestId !== wbCountRequestId) return;
             console.error('[Workbench Count Error]:', err);
             if (typeof showToast === 'function') {
                 showToast(`Counting Error: ${err.message}`, 'error');
@@ -1521,8 +1605,10 @@
                 alert(`Counting Error: ${err.message}`);
             }
         } finally {
-            if (btn) btn.disabled = false;
-            if (spinner) spinner.style.display = 'none';
+            if (thisRequestId === wbCountRequestId) {
+                if (btn) btn.disabled = false;
+                if (spinner) spinner.style.display = 'none';
+            }
         }
     };
 
@@ -1535,15 +1621,9 @@
             }, 100);
         }
 
-        const previewImg = document.getElementById('wbPreviewImg');
-        if (previewImg && data.annotated_image_url) {
-            previewImg.src = `${data.annotated_image_url}?t=${Date.now()}`;
-            previewImg.style.display = 'block';
-        }
-
         const qb = data.quantity_breakdown || {};
-        const total = qb.total_units !== undefined ? qb.total_units : (data.total_pieces !== undefined ? data.total_pieces : data.total_bundles);
-        const visible = qb.visible_count !== undefined ? qb.visible_count : (data.visible_pieces !== undefined ? data.visible_pieces : total);
+        const total = qb.total_units !== undefined ? qb.total_units : (data.total_pieces !== undefined ? data.total_pieces : (data.total_bundles || 0));
+        const visible = qb.visible_count !== undefined ? qb.visible_count : (data.visible_pieces !== undefined ? data.visible_pieces : (qb.visible_bundles !== undefined ? qb.visible_bundles : total));
         const inferred = qb.inferred_count !== undefined ? qb.inferred_count : (data.hidden_count || 0);
         const autoGeom = qb.automated_geometry || data.automated_geometry || {};
 
@@ -1560,15 +1640,21 @@
             methodBadge.textContent = qb.counting_method || data.method || 'AUTOMATED_CV';
         }
         if (formulaElem) {
-            if (autoGeom.stack_detected && autoGeom.layers && autoGeom.columns) {
+            if (total === 0) {
+                formulaElem.textContent = data.confidence_note || data.message || '0 Countable Units Localized (Insufficient Visual Evidence)';
+                formulaElem.style.color = '#f59e0b';
+            } else if (qb.formula) {
+                formulaElem.textContent = qb.formula;
+                formulaElem.style.color = '#10b981';
+            } else if ((autoGeom.stack_detected || autoGeom.is_regular_matrix) && autoGeom.layers && autoGeom.columns) {
                 const confText = qb.is_estimate ? 'Estimated Stack' : 'Direct Geometry';
                 formulaElem.textContent = `${autoGeom.layers} Layers × ${autoGeom.columns} Cols × ${autoGeom.rows || autoGeom.depth || 1} Depth = ${total} Units (${confText})`;
                 formulaElem.style.color = '#10b981';
             } else if (data.mode === 'BUNDLE_STACK') {
-                formulaElem.textContent = `${total} Bundles Detected (${data.bundle_clusters?.length || 1} Stack Cluster)`;
+                formulaElem.textContent = `${total} Bundles Detected (${data.stacks?.length || 1} Stack Groups)`;
                 formulaElem.style.color = '#38bdf8';
             } else {
-                formulaElem.textContent = `${visible} Visible Units Detected (Direct Visual Recognition)`;
+                formulaElem.textContent = `${visible} Exterior Units Localized`;
                 formulaElem.style.color = '#38bdf8';
             }
         }
@@ -1584,7 +1670,7 @@
             statForm.title = statForm.textContent;
         }
 
-        // Status badge: clear indication of PROPOSED (Estimated vs Direct vs Uncertain)
+        // Status badge: clear indication of PROPOSED (Estimated vs Direct vs Insufficient)
         const statusBadge = document.getElementById('wbVerificationStatusBadge');
         if (statusBadge) {
             let stText = 'PROPOSED (AI Estimate)';
@@ -1592,12 +1678,17 @@
             let stBorder = 'rgba(56,189,248,0.3)';
             let stBg = 'rgba(56,189,248,0.15)';
 
-            if (qb.verification_status === 'DIRECT_VISUAL' || inferred === 0) {
+            if (total === 0 || qb.verification_status === 'INSUFFICIENT_VISUAL_EVIDENCE') {
+                stText = 'INSUFFICIENT VISUAL EVIDENCE';
+                stColor = '#f59e0b';
+                stBorder = 'rgba(245,158,11,0.3)';
+                stBg = 'rgba(245,158,11,0.15)';
+            } else if (qb.verification_status === 'DIRECT_VISUAL' || qb.verification_status === 'AUTOMATED_DETECTION' || (inferred === 0 && !qb.is_estimate)) {
                 stText = 'DIRECT VISUAL (Confirmed)';
                 stColor = '#10b981';
                 stBorder = 'rgba(16,185,129,0.3)';
                 stBg = 'rgba(16,185,129,0.15)';
-            } else if (qb.verification_status === 'ESTIMATED_STACK') {
+            } else if (qb.verification_status === 'ESTIMATED_STACK' || qb.is_estimate) {
                 stText = 'PROPOSED (Estimated Stack)';
                 stColor = '#f59e0b';
                 stBorder = 'rgba(245,158,11,0.3)';

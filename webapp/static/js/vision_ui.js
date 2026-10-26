@@ -3879,7 +3879,7 @@
                     }
 
                     async function populateWorkerBoxCameras() {
-                        const select = document.getElementById('wbCameraSelect');
+                        const select = document.getElementById('workerBoxCameraSelect');
                         if (!select) return;
 
                         try {
@@ -3934,7 +3934,7 @@
 
                     function handleWorkerBoxSourceChange() {
                         const src = document.getElementById('wbSourceTypeSelect')?.value;
-                        const uploadContainer = document.getElementById('wbUploadContainer');
+                        const uploadContainer = document.getElementById('workerBoxUploadContainer');
                         if (uploadContainer) uploadContainer.style.display = (src === 'upload') ? 'block' : 'none';
                     }
 
@@ -4021,7 +4021,7 @@
                         }
 
                         try {
-                            const cameraId = document.getElementById('wbCameraSelect')?.value || 'CAM-001';
+                            const cameraId = document.getElementById('workerBoxCameraSelect')?.value || 'CAM-001';
                             const srcType = document.getElementById('wbSourceTypeSelect')?.value || 'association_worker_box_dock1.jpg';
 
                             if (srcType.startsWith('synthetic_')) {
@@ -4055,7 +4055,7 @@
                             if (srcType === 'camera') {
                                 payload.source_type = 'camera';
                             } else if (srcType === 'upload') {
-                                const fileInput = document.getElementById('wbFileInput');
+                                const fileInput = document.getElementById('workerBoxFileInput');
                                 if (!fileInput || !fileInput.files[0]) {
                                     alert("Please select an image file to upload.");
                                     return;
@@ -4114,7 +4114,7 @@
                         }
 
                         try {
-                            const cameraId = document.getElementById('wbCameraSelect')?.value || 'CAM-001';
+                            const cameraId = document.getElementById('workerBoxCameraSelect')?.value || 'CAM-001';
                             const srcType = document.getElementById('wbSourceTypeSelect')?.value || 'association_worker_box_dock1.jpg';
 
                             let payload = {
@@ -4163,7 +4163,7 @@
                     }
 
                     async function resetWorkerBoxSession() {
-                        const cameraId = document.getElementById('wbCameraSelect')?.value || 'CAM-001';
+                        const cameraId = document.getElementById('workerBoxCameraSelect')?.value || 'CAM-001';
                         try {
                             const res = await fetch('/api/vision/worker-box/reset', {
                                 method: 'POST',

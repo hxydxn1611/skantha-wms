@@ -4227,15 +4227,15 @@ window.switchSubTab = switchSubTab;
                             <!-- Camera Node -->
                             <div>
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Camera Session:</label>
-                                <select id="wbCameraSelect" style="margin-bottom:0;">
+                                <select id="workerBoxCameraSelect" style="margin-bottom:0;">
                                     <!-- Populated dynamically -->
                                 </select>
                             </div>
 
                             <!-- Upload File Container -->
-                            <div id="wbUploadContainer" style="display:none;">
+                            <div id="workerBoxUploadContainer" style="display:none;">
                                 <label style="font-size:0.82rem; font-weight:700; color:var(--text-main); margin-bottom:4px; display:block;">Choose Local Image:</label>
-                                <input type="file" id="wbFileInput" accept="image/*" style="margin-bottom:0; font-size:0.8rem; padding:4px;">
+                                <input type="file" id="workerBoxFileInput" accept="image/*" style="margin-bottom:0; font-size:0.8rem; padding:4px;">
                             </div>
 
                             <!-- Action Buttons -->
@@ -5611,7 +5611,7 @@ window.switchSubTab = switchSubTab;
                         <!-- Upload Drop Zone (Visible when Source = Upload) -->
                         <div id="wbDropZone" style="background:#1e293b; border-radius:10px; border:2px dashed #0284c7; padding:20px; text-align:center; cursor:pointer; position:relative; min-height:160px; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:all 0.2s;">
                             <!-- Full-overlay native file input: enables immediate OS file dialog on click anywhere and handles drag-and-drop natively -->
-                            <input type="file" id="wbFileInput" accept="image/*" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:25;" onchange="previewWorkbenchUpload(this)" title="Click or drop pallet photo here">
+                            <input type="file" id="wbFileInput" accept="image/*" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:25;" onclick="this.value='';" onchange="previewWorkbenchUpload(this)" title="Click or drop pallet photo here">
                             <div id="wbPlaceholder">
                                 <div style="width:44px; height:44px; border-radius:50%; background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.3); display:inline-flex; align-items:center; justify-content:center; color:#38bdf8; font-size:1.2rem; margin-bottom:6px;">
                                     <i class="fas fa-camera" id="wbPlaceholderIcon"></i>

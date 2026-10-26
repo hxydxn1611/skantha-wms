@@ -1104,6 +1104,9 @@ class CameraRuntimeSession:
                 time.sleep(0.2)
             time.sleep(sleep_interval)
 
+    def _run_live_gate_anpr_worker(self, frame: np.ndarray, vehicle_boxes: List[Dict[str, Any]]):
+        """Dedicated high-precision ANPR worker running on the LIVE feed.
+        Extracts real license plates and auto-creates connected Gate Passes in DB."""
         if self.test_mode:
             self.anpr_in_flight = False
             return

@@ -186,7 +186,15 @@ class PalletVisionCountingService:
                     box_res["ai_trained_reference"] = True
                 return box_res
 
-            # 5. Misplaced items candidate detection (rejecting racks, crates, floor noise)
+            # Standalone, image-evidence-driven counting
+            # Run accurate cross-section detector on actual image pixels
+            pieces = self._detect_cross_section_pieces_accurate(
+                image_bgr, roi=roi, sensitivity=sensitivity, min_dist=min_distance,
+                sku_anchor=sku_anchor
+            )
+
+        # Fallback to candidate piece contours if no circular/hollow cross-sections detected
+        if not pieces:
             misplaced_cands = self._extract_misplaced_item_candidates(
                 image_bgr, roi=roi, sensitivity=sensitivity
             )
@@ -201,23 +209,39 @@ class PalletVisionCountingService:
                         "w": int(cand["w"]),
                         "h": int(cand["h"])
                     })
-            else:
-                # 6. Dynamic Computer Vision Piece Detector for general pipes, tubes, bars, rods, billets
-                pieces = self._detect_cross_section_pieces_accurate(
-                    image_bgr, roi=roi, sensitivity=sensitivity, min_dist=min_distance,
-                    sku_anchor=sku_anchor
-                )
 
         total_count = len(pieces)
         if total_count == 0:
             res_payload = {
                 "success": True,
+                "mode": "INDIVIDUAL_PIECES",
                 "total_pieces": 0,
+                "visible_pieces": 0,
+                "hidden_count": 0,
+                "clusters_count": 0,
                 "clusters": [],
                 "pieces": [],
+                "pieces_sample": [],
                 "annotated_image_url": raw_url,
                 "raw_image_url": raw_url,
-                "message": "No countable pieces identified in image matching visual profile. Adjust ROI, sensitivity, or verify SKU reference photo."
+                "quantity_breakdown": {
+                    "visible_count": 0,
+                    "inferred_count": 0,
+                    "total_units": 0,
+                    "final_reviewed_quantity": 0,
+                    "formula": "0 Directly Visible Pieces",
+                    "counting_method": "DIRECT_CROSS_SECTION_DETECTION",
+                    "tare_excluded": True,
+                    "tare_packaging": {
+                        "pallet_base_count": 1,
+                        "notes": "Physical pallet base excluded from inventory piece/bundle counts"
+                    },
+                    "is_estimate": False,
+                    "verification_status": "INSUFFICIENT_VISUAL_EVIDENCE"
+                },
+                "confidence_note": "No countable piece cross-sections localized from visual evidence. Image may lack sufficient resolution, contrast, or countable cross-sections.",
+                "message": "No countable pieces identified in image matching visual profile. Adjust ROI, sensitivity, or provide an image with clear visible cross-sections.",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             if sku_anchor:
                 res_payload["sku_id"] = sku_anchor["sku_id"]
@@ -667,18 +691,8 @@ class PalletVisionCountingService:
         return ratio > 0.35
 
     def _is_continuous_profile_pallet(self, img: np.ndarray) -> bool:
-        """Determines if the inventory consists of continuous metal profiles, C-studs, or channels."""
-        h, w = img.shape[:2]
-        cy, cx = h // 2, w // 2
-        rh, rw = max(20, int(h * 0.40)), max(20, int(w * 0.40))
-        center = img[cy - rh//2 : cy + rh//2, cx - rw//2 : cx + rw//2]
-        hsv = cv2.cvtColor(center, cv2.COLOR_BGR2HSV)
-        mean_sat = float(np.mean(hsv[:,:,1]))
-        mean_val = float(np.mean(hsv[:,:,2]))
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        sobel_h = np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
-        horizontal_energy = float(np.mean(sobel_h))
-        return (mean_sat < 65 and 75 < mean_val < 220 and horizontal_energy > 10.0 and not self._is_cardboard_box_pallet(img))
+        """Disabled: removed hardcoded continuous profile heuristic shortcut."""
+        return False
 
     def _count_continuous_profile_pallet(
         self,
@@ -807,13 +821,8 @@ class PalletVisionCountingService:
         }
 
     def _is_whatsapp_profile_bundle(self, img: np.ndarray) -> bool:
-        """Verifies if image specifically matches the 48-bundle pallet stack photo."""
-        h, w = img.shape[:2]
-        if h != 1600 or w != 900:
-            return False
-        tl_mean = float(np.mean(img[0:60, 0:60]))
-        center_mean = float(np.mean(img[700:750, 300:350]))
-        return (tl_mean > 195.0 and 90.0 < center_mean < 125.0)
+        """Disabled: removed hardcoded 1600x900 image-dimension shortcut."""
+        return False
 
     def _count_profile_bundles_pallet(
         self,
@@ -932,15 +941,20 @@ class PalletVisionCountingService:
             else:
                 sx, sy, sw, sh = int(w * 0.08), int(h * 0.08), int(w * 0.84), int(h * 0.82)
 
-        stack_roi = gray[sy:sy+sh, sx:sx+sw]
+        # Exclude bottom tare pallet base (bottom 14% of overall pallet load height)
+        pallet_base_height = max(16, int(sh * 0.14))
+        box_sh = max(30, sh - pallet_base_height)
+        stack_roi = gray[sy:sy + box_sh, sx:sx + sw]
         rh, rw = stack_roi.shape[:2]
 
         if rh < 30 or rw < 30:
             return {
-                "stack_bounds": {"x": sx, "y": sy, "w": sw, "h": sh},
+                "box_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
+                "pallet_bounds": {"x": sx, "y": sy + box_sh, "w": sw, "h": pallet_base_height},
+                "stack_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
                 "layers": 1, "columns": 1, "rows": 1, "depth": 1,
                 "is_regular": False, "has_side_face": False,
-                "confidence": 0.5, "status": "UNKNOWN_GEOMETRY"
+                "confidence": 0.4, "status": "INSUFFICIENT_VISUAL_EVIDENCE"
             }
 
         # 2. Find front vertical corner separating left face and right face in central 30%..70%
@@ -966,28 +980,30 @@ class PalletVisionCountingService:
 
         # 3. Columns on Right Face
         right_prof = v_prof[corner_rel_x:]
-        min_d_r = max(20, int(len(right_prof) * 0.10))
-        peaks_r = _find_peaks_np(right_prof, min_dist=min_d_r, rel_thresh=0.9)
-        cols_front = max(1, min(5, len(peaks_r) + 1))
+        min_d_r = max(20, int(len(right_prof) * 0.12))
+        peaks_r = _find_peaks_np(right_prof, min_dist=min_d_r, rel_thresh=0.95)
+        cols_front = max(1, min(6, len(peaks_r) + 1))
 
         # 4. Columns on Left Face
         left_prof = v_prof[:corner_rel_x]
-        min_d_l = max(20, int(len(left_prof) * 0.10))
-        peaks_l = _find_peaks_np(left_prof, min_dist=min_d_l, rel_thresh=0.9)
-        cols_side = max(1, min(5, len(peaks_l) + 1))
+        min_d_l = max(20, int(len(left_prof) * 0.12))
+        peaks_l = _find_peaks_np(left_prof, min_dist=min_d_l, rel_thresh=0.95)
+        cols_side = max(1, min(6, len(peaks_l) + 1))
 
-        # 5. Layers
+        # 5. Layers (strictly within the box inventory, excluding tare pallet base)
         sobel_h = np.abs(cv2.Sobel(stack_roi, cv2.CV_32F, 0, 1, ksize=3))
         h_prof = np.mean(sobel_h, axis=1)
-        min_d_h = max(20, int(rh * 0.09))
-        peaks_h = _find_peaks_np(h_prof, min_dist=min_d_h, rel_thresh=0.85)
-        layers = max(1, min(5, len(peaks_h) + 1))
+        min_d_h = max(20, int(rh * 0.10))
+        peaks_h = _find_peaks_np(h_prof, min_dist=min_d_h, rel_thresh=0.90)
+        layers = max(1, min(6, len(peaks_h) + 1))
 
         is_regular = (layers >= 2 and cols_front >= 2)
         has_side_face = cols_side > 1
 
         return {
-            "stack_bounds": {"x": sx, "y": sy, "w": sw, "h": sh},
+            "box_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
+            "pallet_bounds": {"x": sx, "y": sy + box_sh, "w": sw, "h": pallet_base_height},
+            "stack_bounds": {"x": sx, "y": sy, "w": sw, "h": box_sh},
             "corner_x": corner_abs_x,
             "layers": layers,
             "columns": cols_front,
@@ -995,8 +1011,8 @@ class PalletVisionCountingService:
             "depth": cols_side,
             "is_regular": is_regular,
             "has_side_face": has_side_face,
-            "confidence": 0.90,
-            "status": "AUTO_INFERRED_REGULAR" if is_regular else "VISUAL_COUNT_ONLY"
+            "confidence": 0.90 if is_regular else 0.40,
+            "status": "AUTO_INFERRED_REGULAR" if is_regular else "INSUFFICIENT_VISUAL_EVIDENCE"
         }
 
     def _count_carton_boxes_pallet(
@@ -1009,8 +1025,11 @@ class PalletVisionCountingService:
     ) -> Dict[str, Any]:
         """
         Specialized 3D pallet matrix deconstruction for stacked cartons and boxes.
-        Accurately distinguishes visible faces from inferred hidden interior boxes.
-        Avoids double-counting objects visible on multiple faces (shared corner column).
+        Maintains honest separation between directly detected unique objects,
+        inferred visible exterior faces, inferred hidden interior boxes, and proposed total stack.
+        Explicitly excludes the wooden pallet base from inventory.
+        Avoids double-counting the shared corner column between front and side faces.
+        Never fabricates synthetic grid marker points.
         """
         h, w = img_bgr.shape[:2]
         vis = img_bgr.copy()
@@ -1020,71 +1039,56 @@ class PalletVisionCountingService:
         front_cols = geo["columns"]
         side_cols = geo["rows"]
         is_regular = geo["is_regular"]
+        has_side_face = geo.get("has_side_face", False)
         is_confirmed = (custom_matrix is not None)
 
-        sb = geo.get("stack_bounds") or {"x": int(w * 0.10), "y": int(h * 0.08), "w": int(w * 0.80), "h": int(h * 0.78)}
-        bx, by, bw, bh = sb["x"], sb["y"], sb["w"], sb["h"]
-        corner_x = geo.get("corner_x") or int(bx + bw * 0.49)
+        box_bounds = geo.get("box_bounds") or {"x": int(w * 0.10), "y": int(h * 0.08), "w": int(w * 0.80), "h": int(h * 0.68)}
+        pallet_bounds = geo.get("pallet_bounds") or {"x": int(w * 0.10), "y": int(h * 0.76), "w": int(w * 0.80), "h": int(h * 0.12)}
+        bx, by, bw, bh = box_bounds["x"], box_bounds["y"], box_bounds["w"], box_bounds["h"]
+        corner_x = geo.get("corner_x") or int(bx + bw * 0.50)
 
-        # Distribute markers across actual visible boxes on each face
-        # Front/Right Face: front_cols columns
-        front_xs = np.linspace(corner_x + int((bx + bw - corner_x) * 0.10), bx + bw - int((bx + bw - corner_x) * 0.08), front_cols).astype(int)
-        
-        # Left Face: (side_cols - 1) unique columns, since corner column is already represented on the front face
-        num_side_cols = max(0, side_cols - 1)
-        side_xs = np.linspace(bx + int((corner_x - bx) * 0.12), corner_x - int((corner_x - bx) * 0.15), num_side_cols).astype(int) if num_side_cols > 0 else []
-
-        layer_ys = np.linspace(by + bh * 0.14, by + bh * 0.86, layers).astype(int)
+        # Honest Geometric Counts & Corner Deduplication
+        front_faces = layers * front_cols
+        side_faces = (layers * side_cols) if has_side_face else 0
+        shared_corner_count = layers if has_side_face else 0
+        unique_exterior_visible = front_faces + max(0, side_faces - shared_corner_count)
+        total_3d_pallet = layers * front_cols * side_cols
+        hidden_count = max(0, total_3d_pallet - unique_exterior_visible)
 
         pieces = []
-        idx = 1
-        front_pieces = []
-        side_pieces = []
+        # For operator-confirmed matrix (e.g. test verification), generate exterior coordinate markers
+        if is_confirmed:
+            front_xs = np.linspace(corner_x + int((bx + bw - corner_x) * 0.10), bx + bw - int((bx + bw - corner_x) * 0.08), front_cols).astype(int)
+            num_side_cols = max(0, side_cols - 1)
+            side_xs = np.linspace(bx + int((corner_x - bx) * 0.12), corner_x - int((corner_x - bx) * 0.15), num_side_cols).astype(int) if num_side_cols > 0 else []
+            layer_ys = np.linspace(by + bh * 0.14, by + bh * 0.86, layers).astype(int)
 
-        # 1. Front-Right face visible boxes (Sky Blue badges)
-        for ly in layer_ys:
-            for fx in front_xs:
-                if 0 <= fx < w and 0 <= ly < h:
-                    p = {
-                        "id": idx,
-                        "index": idx,
-                        "x": int(fx),
-                        "y": int(ly),
-                        "cluster": "Front face",
-                        "cluster_name": "Front face",
-                        "color_bgr": (199, 132, 2),
-                        "color_hex": "#0284c7"
-                    }
-                    pieces.append(p)
-                    front_pieces.append(p)
-                    idx += 1
+            idx = 1
+            for ly in layer_ys:
+                for fx in front_xs:
+                    if 0 <= fx < w and 0 <= ly < h:
+                        pieces.append({
+                            "id": idx, "index": idx, "x": int(fx), "y": int(ly),
+                            "cluster": "Front Face Visible", "cluster_name": "Front Face Visible",
+                            "color_bgr": (199, 132, 2), "color_hex": "#0284c7"
+                        })
+                        idx += 1
+            for ly in layer_ys:
+                for sx in side_xs:
+                    if 0 <= sx < w and 0 <= ly + 18 < h:
+                        pieces.append({
+                            "id": idx, "index": idx, "x": int(sx), "y": int(ly + 18),
+                            "cluster": "Side Face (Excl Corner)", "cluster_name": "Side Face (Excl Corner)",
+                            "color_bgr": (74, 163, 22), "color_hex": "#16a34a"
+                        })
+                        idx += 1
+            total_visible = len(pieces)
+        else:
+            # Standalone Automated Count: DO NOT fabricate synthetic markers!
+            pieces = []
+            total_visible = unique_exterior_visible if is_regular else 0
 
-        # 2. Left face unique visible boxes (Emerald Green badges, corner box excluded to prevent double-count)
-        for ly in layer_ys:
-            for sx in side_xs:
-                if 0 <= sx < w and 0 <= ly + 18 < h:
-                    p = {
-                        "id": idx,
-                        "index": idx,
-                        "x": int(sx),
-                        "y": int(ly + 18),
-                        "cluster": "Side face",
-                        "cluster_name": "Side face",
-                        "color_bgr": (74, 163, 22),
-                        "color_hex": "#16a34a"
-                    }
-                    pieces.append(p)
-                    side_pieces.append(p)
-                    idx += 1
-
-        total_visible = len(pieces)
-        total_3d_pallet = layers * front_cols * side_cols
-        hidden_count = max(0, total_3d_pallet - total_visible)
-        formula_text = f"{side_cols} Rows × {front_cols} Columns × {layers} Layers = {total_3d_pallet} Pieces"
-        if hidden_count > 0 and not is_confirmed:
-            formula_text += f" ({hidden_count} Inferred Hidden)"
-
-        # 3. Construct 3D Digital Twin Voxel Grid
+        # Construct 3D Digital Twin Voxel Grid
         grid_3d = []
         g_id = 1
         for l in range(layers):
@@ -1103,62 +1107,119 @@ class PalletVisionCountingService:
                     })
                     g_id += 1
 
+        # Determine final proposed quantities and verification status
+        if is_confirmed:
+            total_pieces = total_3d_pallet
+            formula_text = f"{side_cols} Rows × {front_cols} Columns × {layers} Layers = {total_pieces} Pieces"
+            verif_status = "OPERATOR_CONFIRMED"
+            conf_note = f"Operator Confirmed: {formula_text}. {unique_exterior_visible} exterior cartons, {hidden_count} inferred hidden interior."
+        elif is_regular:
+            total_pieces = total_3d_pallet
+            formula_text = f"{side_cols} Rows × {front_cols} Columns × {layers} Layers = {total_pieces} Pieces (Proposed Stack: {unique_exterior_visible} Exterior, {hidden_count} Inferred Hidden)"
+            verif_status = "ESTIMATED_STACK (AI Proposed)"
+            conf_note = f"Proposed 3D Stack: {formula_text}. Exterior unique cartons ({unique_exterior_visible}) deduplicated across faces; {hidden_count} hidden core units separated. Tare pallet base excluded."
+        else:
+            total_pieces = 0
+            total_visible = 0
+            hidden_count = 0
+            total_3d_pallet = 0
+            formula_text = "0 Countable Units Localized (Insufficient Visual Evidence)"
+            verif_status = "INSUFFICIENT_VISUAL_EVIDENCE"
+            conf_note = "0 Countable Units Localized: Visual evidence is insufficient to reliably detect individual box boundaries or regular tier structures."
+
         matrix_3d_data = {
             "layers": layers,
             "columns": front_cols,
             "rows": side_cols,
             "depth": side_cols,
-            "total_boxes": total_3d_pallet,
+            "total_boxes": total_pieces,
             "visible_count": total_visible,
             "hidden_count": hidden_count,
             "formula": formula_text,
-            "boxes": grid_3d
+            "boxes": grid_3d if is_regular or is_confirmed else []
         }
 
-        clusters = [
-            {"name": "Front Face Boxes", "count": len(front_pieces), "color_bgr": (199, 132, 2), "color_hex": "#0284c7", "pieces": front_pieces},
-            {"name": "Side Face Boxes", "count": len(side_pieces), "color_bgr": (74, 163, 22), "color_hex": "#16a34a", "pieces": side_pieces},
-            {"name": "Hidden Core (Inferred)", "count": hidden_count, "color_bgr": (248, 189, 56), "color_hex": "#38bdf8", "pieces": []}
-        ]
+        # Cluster Breakdown with Explicit Corner Deduplication
+        side_unique_count = max(0, side_faces - shared_corner_count)
+        clean_clusters = [
+            {"name": f"Front Face ({front_faces} Visible)", "count": front_faces, "color_hex": "#0284c7", "color_bgr": [199, 132, 2]},
+            {"name": f"Side Face Excl Corner ({side_unique_count} Cartons)", "count": side_unique_count, "color_hex": "#16a34a", "color_bgr": [74, 163, 22]},
+            {"name": f"Shared Corner Column ({shared_corner_count} Shared)", "count": shared_corner_count, "color_hex": "#8b5cf6", "color_bgr": [246, 92, 139]},
+            {"name": f"Hidden Core ({hidden_count} Inferred)", "count": hidden_count, "color_hex": "#38bdf8", "color_bgr": [248, 189, 56]},
+            {"name": f"Proposed Total Stack ({total_pieces} Units)", "count": total_pieces, "color_hex": "#10b981", "color_bgr": [22, 163, 74]}
+        ] if is_regular or is_confirmed else []
 
-        annotated_img = self._render_individual_pieces_annotation(
-            vis, pieces, clusters, total_visible, force_legend=True, items_label="boxes"
-        )
+        # Annotate Visual Canvas
+        if is_regular or is_confirmed:
+            # 1. Box inventory boundary
+            cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), (199, 132, 2), 2)
+            cv2.putText(vis, f"Carton Inventory ({layers}L x {front_cols}C x {side_cols}R)",
+                        (bx + 6, max(20, by - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (199, 132, 2), 1, cv2.LINE_AA)
+
+            # 2. Excluded tare wooden pallet base
+            px, py, pw, ph = pallet_bounds["x"], pallet_bounds["y"], pallet_bounds["w"], pallet_bounds["h"]
+            cv2.rectangle(vis, (px, py), (px + pw, py + ph), (0, 165, 255), 2)
+            cv2.putText(vis, "Tare Pallet Base (Excluded from Inventory Count)",
+                        (px + 6, min(h - 8, py + ph - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 165, 255), 1, cv2.LINE_AA)
+
+            # 3. Corner vertical boundary line separating front and side face
+            if has_side_face:
+                cv2.line(vis, (corner_x, by), (corner_x, by + bh), (246, 92, 139), 2)
+                cv2.putText(vis, "Corner Seam", (corner_x - 45, by + 22),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (246, 92, 139), 1, cv2.LINE_AA)
+
+            # 4. Top HUD Banner
+            hud_h = 44
+            cv2.rectangle(vis, (0, 0), (w, hud_h), (15, 23, 42), -1)
+            cv2.line(vis, (0, hud_h), (w, hud_h), (51, 65, 85), 1)
+            cv2.putText(vis, f"PROPOSED: {total_pieces} PIECES ({side_cols}R x {front_cols}C x {layers}L) | Exterior Unique: {unique_exterior_visible} | Inferred Core: {hidden_count}",
+                        (14, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (248, 250, 252), 1, cv2.LINE_AA)
+            cv2.putText(vis, "Tare Packaging: 1 Pallet Base Excluded | Corner Column Deduplicated | Zero Fabricated Markers",
+                        (14, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (148, 163, 184), 1, cv2.LINE_AA)
+
+            # If confirmed markers are present, draw them
+            if pieces:
+                vis = self._render_individual_pieces_annotation(
+                    vis, pieces, clean_clusters, total_visible, force_legend=False, items_label="cartons"
+                )
+        else:
+            # Insufficient visual evidence overlay
+            cv2.rectangle(vis, (0, h - 36), (w, h), (15, 23, 42), -1)
+            cv2.putText(vis, "INSUFFICIENT VISUAL EVIDENCE: 0 Countable Units Localized (Confirm Geometry or Adjust Angle)",
+                        (16, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 180, 255), 1, cv2.LINE_AA)
 
         filename = f"box_grid_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         save_path = os.path.join(UPLOAD_DIR, filename)
-        cv2.imwrite(save_path, annotated_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        cv2.imwrite(save_path, vis, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         rel_url = f"/static/uploads/{filename}"
 
-        clean_clusters = [
-            {"name": "Front Face Boxes", "count": len(front_pieces), "color_hex": "#0284c7", "color_bgr": [199, 132, 2]},
-            {"name": "Side Face Boxes", "count": len(side_pieces), "color_hex": "#16a34a", "color_bgr": [74, 163, 22]},
-            {"name": f"Hidden Core ({hidden_count} Inferred)", "count": hidden_count, "color_hex": "#38bdf8", "color_bgr": [248, 189, 56]},
-            {"name": "3D Pallet Proposed", "count": total_3d_pallet, "color_hex": "#10b981", "color_bgr": [22, 163, 74]}
-        ]
-
-        total_pieces = total_3d_pallet if (is_regular or is_confirmed) else total_visible
         quantity_breakdown = {
             "visible_count": total_visible,
             "inferred_count": hidden_count,
+            "directly_detected_count": len(pieces),
+            "exterior_visible_count": unique_exterior_visible if (is_regular or is_confirmed) else 0,
+            "shared_corner_count": shared_corner_count,
+            "front_face_faces": front_faces if (is_regular or is_confirmed) else 0,
+            "side_face_faces": side_faces if (is_regular or is_confirmed) else 0,
             "automated_geometry": {
-                "rows": side_cols,
-                "columns": front_cols,
-                "layers": layers,
+                "rows": side_cols if (is_regular or is_confirmed) else 0,
+                "columns": front_cols if (is_regular or is_confirmed) else 0,
+                "layers": layers if (is_regular or is_confirmed) else 0,
                 "is_regular_matrix": is_regular,
-                "has_side_face": geo.get("has_side_face", False),
+                "stack_detected": bool(is_regular or is_confirmed),
+                "has_side_face": has_side_face,
                 "confidence": geo.get("confidence", 0.90),
-                "status": "AUTO_INFERRED_REGULAR" if is_regular else "VISUAL_COUNT_ONLY"
+                "status": "AUTO_INFERRED_REGULAR" if is_regular else "INSUFFICIENT_VISUAL_EVIDENCE"
             },
             "operator_confirmed_dimensions": {
                 "rows": side_cols,
                 "columns": front_cols,
                 "layers": layers
-            },
+            } if is_confirmed else None,
             "formula": formula_text,
             "total_units": total_pieces,
             "final_reviewed_quantity": total_pieces,
-            "counting_method": "CONFIRMED_REGULAR_MATRIX" if is_confirmed else "AUTOMATED_GEOMETRY_RECONSTRUCTION",
+            "counting_method": "CONFIRMED_REGULAR_MATRIX" if is_confirmed else ("AUTOMATED_GEOMETRY_RECONSTRUCTION" if is_regular else "INSUFFICIENT_VISUAL_EVIDENCE"),
             "tare_excluded": True,
             "tare_packaging": {
                 "pallet_base_count": 1,
@@ -1166,7 +1227,7 @@ class PalletVisionCountingService:
                 "notes": "Physical pallet base excluded from inventory piece/bundle counts"
             },
             "is_estimate": bool(hidden_count > 0 and not is_confirmed),
-            "verification_status": "OPERATOR_CONFIRMED" if is_confirmed else "ESTIMATED_STACK (AI Proposed)"
+            "verification_status": verif_status
         }
 
         return {
@@ -1174,7 +1235,7 @@ class PalletVisionCountingService:
             "mode": "BOX_GRID",
             "total_pieces": total_pieces,
             "visible_pieces": total_visible,
-            "total_3d_pallet": total_3d_pallet,
+            "total_3d_pallet": total_pieces,
             "hidden_count": hidden_count,
             "clusters_count": len(clean_clusters),
             "clusters": clean_clusters,
@@ -1185,7 +1246,7 @@ class PalletVisionCountingService:
             "grid_formula": formula_text,
             "matrix_3d": matrix_3d_data,
             "quantity_breakdown": quantity_breakdown,
-            "confidence_note": f"3D Pallet: {formula_text}. Front & side visible items indexed ({total_visible}); {hidden_count} inferred core units separated.",
+            "confidence_note": conf_note,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
@@ -1699,115 +1760,13 @@ class PalletVisionCountingService:
         if custom_stacks:
             stacks = custom_stacks
             comparison = {"human_count": sum(s["bundles"] for s in stacks), "model_count": sum(s["bundles"] for s in stacks), "difference": 0}
-            rule_used = "Custom verified stack formula"
+            rule_used = "Custom operator-confirmed stack formula"
             cross_checks = ["Verified bundle geometry across front and side viewpoints"]
-        elif sku_anchor and not preset_name:
-            # When an inventory SKU is specified, use dynamic CV stack deconstruction guided by SKU
-            stacks, comparison, rule_used, cross_checks = self._detect_arbitrary_bundle_stacks(angle1_bgr, angle2_bgr, depth_multiplier)
-            rule_used = f"Trained SKU Vision Model ('{sku_anchor['sku_id']}'): Dynamic stack layer detection\n" + rule_used
-        elif preset_name == "timber_48" or (preset_name is None and not sku_anchor and self._matches_timber_48_profile(angle1_bgr)):
-            # Image 2: Exact 48-bundle timber stack architecture
-            stacks = [
-                {
-                    "id": "A",
-                    "name": "STACK A",
-                    "layers": 5,
-                    "multiplier": 10,
-                    "partial_top": 8,
-                    "bundles": 48,
-                    "formula": "4x10 + 8 = 48",
-                    "description": "STACK A: 5 layers: 4x10 + 8 = 48",
-                    "color_bgr": STACK_COLORS["A"]["bgr"],
-                    "color_hex": STACK_COLORS["A"]["hex"],
-                    "depth_pos": 0,
-                    "col_pos": 0,
-                    "width_units": 10
-                }
-            ]
-            comparison = {"human_count": 48, "model_count": 48, "difference": 0}
-            rule_used = "column stack (all layers same orientation), in 3 tiers separated by timber dunnage: 2 + 2 + 1 layers; every layer = 10 bundles (1 long = 10 ends wide)\nA: 5 layers: 4x10 + 8 = 48"
-            cross_checks = [
-                "img1 layers (5) = img2 layers (2 + 2 + 1 = 5)",
-                "Orientation parity: img1 EEEEE vs img2 LLLLL, consistent with a column stack (no cross-lay flip)",
-                "Width: img1 row widths + face width = 10, 10, 10, 10, 8",
-                "Top-tier recess seen in both views, consistent with 8 bundles on top of 10",
-                "Depth = 1 bundle (full-length long sides with caps at both ends in img2), so no hidden rows"
-            ]
-        elif preset_name == "multistack_84" or (preset_name is None and self._matches_multistack_84_profile(angle1_bgr)):
-            # Image 3: Exact 84-bundle multi-stack pallet architecture
-            stacks = [
-                {
-                    "id": "A",
-                    "name": "Stack A (front)",
-                    "layers": 7,
-                    "multiplier": 3,
-                    "partial_top": 0,
-                    "bundles": 21,
-                    "formula": "7 x 3 = 21",
-                    "description": "Stack A: 7 layers x 3 = 21",
-                    "color_bgr": STACK_COLORS["A"]["bgr"],
-                    "color_hex": STACK_COLORS["A"]["hex"],
-                    "depth_pos": 0,
-                    "col_pos": 1,
-                    "width_units": 3
-                },
-                {
-                    "id": "B",
-                    "name": "Stack B (tall, wall)",
-                    "layers": 13,
-                    "multiplier": 3,
-                    "partial_top": 0,
-                    "bundles": 39,
-                    "formula": "13 x 3 = 39",
-                    "description": "Stack B: 13 layers x 3 = 39",
-                    "color_bgr": STACK_COLORS["B"]["bgr"],
-                    "color_hex": STACK_COLORS["B"]["hex"],
-                    "depth_pos": 2,
-                    "col_pos": 0,
-                    "width_units": 3
-                },
-                {
-                    "id": "C1",
-                    "name": "Stack C1 (blue plate)",
-                    "layers": 6,
-                    "multiplier": 3,
-                    "partial_top": 0,
-                    "bundles": 18,
-                    "formula": "6 x 3 = 18",
-                    "description": "Stack C1: 6 layers x 3 = 18",
-                    "color_bgr": STACK_COLORS["C1"]["bgr"],
-                    "color_hex": STACK_COLORS["C1"]["hex"],
-                    "depth_pos": 1,
-                    "col_pos": 2,
-                    "width_units": 3
-                },
-                {
-                    "id": "C2",
-                    "name": "Stack C2 (under foam)",
-                    "layers": 2,
-                    "multiplier": 3,
-                    "partial_top": 0,
-                    "bundles": 6,
-                    "formula": "2 x 3 = 6",
-                    "description": "Stack C2: 2 layers x 3 = 6",
-                    "color_bgr": STACK_COLORS["C2"]["bgr"],
-                    "color_hex": STACK_COLORS["C2"]["hex"],
-                    "depth_pos": 0,
-                    "col_pos": 3,
-                    "width_units": 3
-                }
-            ]
-            comparison = {"human_count": 84, "model_count": 84, "difference": 0}
-            rule_used = "Rule: every layer = 3 bundles (1 long side = 3 ends wide; layers cross-lay)\nB cross-check: 6 above A(7) = 13; 7 above C1(6) = 13\nVerify: C2 may have a 3rd layer (+3 -> 87). White boxes excluded."
-            cross_checks = [
-                "Stack A: 7 layers x 3 = 21 bundles",
-                "Stack B: 13 layers x 3 = 39 bundles",
-                "Stack C1: 6 layers x 3 = 18 bundles",
-                "Stack C2: 2 layers x 3 = 6 bundles"
-            ]
         else:
-            # Dynamic computer vision stack extraction from raw images
+            # Standalone image-content-driven dynamic stack deconstruction using computer vision
             stacks, comparison, rule_used, cross_checks = self._detect_arbitrary_bundle_stacks(angle1_bgr, angle2_bgr, depth_multiplier)
+            if sku_anchor:
+                rule_used = f"SKU Vision Context ('{sku_anchor['sku_id']}'): Dynamic stack layer detection\n" + rule_used
 
         total_bundles = sum(s["bundles"] for s in stacks)
 
@@ -1833,13 +1792,15 @@ class PalletVisionCountingService:
 
         u_per_b = (sku_anchor or {}).get("units_per_bundle") or 10
         total_pcs = total_bundles * u_per_b
+        verification_st = "PROPOSED_DETECTION" if total_bundles > 0 else "INSUFFICIENT_VISUAL_EVIDENCE"
+        formula_txt = f"{total_bundles} Bundles × {u_per_b} Pcs/Bundle = {total_pcs} Pieces" if total_bundles > 0 else "0 Bundles Detected"
         quantity_breakdown = {
             "visible_bundles": total_bundles,
             "inferred_bundles": 0,
             "total_bundles": total_bundles,
             "units_per_bundle": u_per_b,
             "total_pieces": total_pcs,
-            "formula": f"{total_bundles} Bundles × {u_per_b} Pcs/Bundle = {total_pcs} Pieces",
+            "formula": formula_txt,
             "counting_method": "BUNDLE_STACK_DECONSTRUCTION",
             "tare_excluded": True,
             "tare_packaging": {
@@ -1847,7 +1808,7 @@ class PalletVisionCountingService:
                 "notes": "Physical pallet base excluded from inventory piece/bundle counts"
             },
             "is_estimate": False,
-            "verification_status": "PROPOSED_DETECTION"
+            "verification_status": verification_st
         }
 
         res_payload = {
@@ -1875,18 +1836,11 @@ class PalletVisionCountingService:
         return res_payload
 
     def _matches_timber_48_profile(self, img: np.ndarray) -> bool:
-        """Heuristic check if input image matches the timber 48-bundle reference."""
-        h, w = img.shape[:2]
-        # Timber yellow floor marking or timber brown tones
-        if abs(w - 494) < 20 and abs(h - 388) < 20:
-            return True
+        """Disabled: removed hardcoded 494x388 image-dimension shortcut."""
         return False
 
     def _matches_multistack_84_profile(self, img: np.ndarray) -> bool:
-        """Heuristic check if input image matches the 84-bundle multi-stack reference."""
-        h, w = img.shape[:2]
-        if abs(w - 380) < 20 and abs(h - 475) < 20:
-            return True
+        """Disabled: removed hardcoded 380x475 image-dimension shortcut."""
         return False
 
     def _detect_arbitrary_bundle_stacks(
@@ -1896,7 +1850,7 @@ class PalletVisionCountingService:
         depth_multiplier: int = 1
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], str, List[str]]:
         """
-        Dynamically extracts bundle layers and stacks from arbitrary warehouse images.
+        Dynamically extracts bundle layers and stacks from arbitrary warehouse images based on actual edge evidence.
         """
         fh, fw = img_front.shape[:2]
         gray_f = cv2.cvtColor(img_front, cv2.COLOR_BGR2GRAY)
@@ -1910,7 +1864,6 @@ class PalletVisionCountingService:
         diffs = np.diff(np.sign(np.diff(h_smooth)))
         peaks = np.where(diffs < 0)[0] + 1
         sig_layers = [p for p in peaks if h_smooth[p] > h_max * 0.20]
-        detected_layers = max(2, min(16, len(sig_layers))) if len(sig_layers) >= 2 else 5
 
         # Vertical edge projection to detect bundle width
         v_proj = np.sum(edges_f[int(fh * 0.2):int(fh * 0.8), :], axis=0).astype(float)
@@ -1920,7 +1873,17 @@ class PalletVisionCountingService:
         diffs_v = np.diff(np.sign(np.diff(v_smooth)))
         peaks_v = np.where(diffs_v < 0)[0] + 1
         sig_cols = [p for p in peaks_v if v_smooth[p] > v_max * 0.22]
-        bundles_per_layer = max(2, min(14, len(sig_cols))) if len(sig_cols) >= 2 else 6
+
+        # Honest counting: require visual evidence for layer and column structures
+        if len(sig_layers) < 2 or len(sig_cols) < 2:
+            stacks = []
+            comp = {"human_count": 0, "model_count": 0, "difference": 0}
+            rule = "Insufficient visual evidence: edge projection did not detect regular layer or column boundaries."
+            checks = ["Front edge continuity does not establish distinct bundle tiers or columns."]
+            return stacks, comp, rule, checks
+
+        detected_layers = max(1, min(16, len(sig_layers)))
+        bundles_per_layer = max(1, min(14, len(sig_cols)))
 
         mult = max(1, depth_multiplier)
         total = detected_layers * bundles_per_layer * mult
@@ -1956,6 +1919,12 @@ class PalletVisionCountingService:
         """Annotates Front View with stack bounding polygons, layer lines, and bundle end badges."""
         vis = img.copy()
         h, w = vis.shape[:2]
+
+        if not stacks:
+            cv2.rectangle(vis, (0, h - 24), (w, h), (10, 10, 15), -1)
+            cv2.putText(vis, "NO BUNDLE STACKS DETECTED FROM VISUAL EVIDENCE", (int(w * 0.12), h - 7),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 180, 255), 1, cv2.LINE_AA)
+            return vis
 
         num_stacks = len(stacks)
         col_w = int(w / max(1, num_stacks))
@@ -2005,6 +1974,12 @@ class PalletVisionCountingService:
         vis = img.copy()
         h, w = vis.shape[:2]
 
+        if not stacks:
+            cv2.rectangle(vis, (0, h - 24), (w, h), (10, 10, 15), -1)
+            cv2.putText(vis, "NO BUNDLE STACKS DETECTED FROM VISUAL EVIDENCE", (int(w * 0.12), h - 7),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 180, 255), 1, cv2.LINE_AA)
+            return vis
+
         # Use primary stack for side layer labeling
         s = stacks[0]
         color = s["color_bgr"]
@@ -2051,6 +2026,11 @@ class PalletVisionCountingService:
         # Header title
         cv2.putText(canvas, "3D LAYOUT (abstract, not to scale)", (14, 24),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, (220, 225, 235), 1, cv2.LINE_AA)
+
+        if not stacks:
+            cv2.putText(canvas, "No Stack Layers Established from Evidence", (24, int(height * 0.5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.40, (140, 150, 165), 1, cv2.LINE_AA)
+            return canvas
 
         # Isometric projection parameters
         ox = int(width * 0.42)
