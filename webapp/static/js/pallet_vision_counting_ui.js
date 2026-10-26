@@ -1285,6 +1285,8 @@
 
     window.replaceWorkbenchImage = function() {
         window.setWorkbenchSource('upload');
+        lastWbUploadFile = null;
+        lastWbUploadTime = 0;
         const fi = document.getElementById('wbFileInput');
         if (fi) {
             fi.value = ''; // Reset so selecting the same image file again triggers preview
@@ -1295,6 +1297,8 @@
     window.removeWorkbenchImage = function() {
         wbCountRequestId++; // Invalidate any pending in-flight requests
         wbSelectedFile = null;
+        lastWbUploadFile = null;
+        lastWbUploadTime = 0;
         wbLatestResult = null;
         wbCurrentPieces = [];
         wbRawImageUrl = '';

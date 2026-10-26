@@ -5440,12 +5440,21 @@ def _extract_uploaded_image_bgr(files_dict, *preferred_keys):
     """
     Safely extract and decode an uploaded image from request.files without
     relying on Werkzeug FileStorage.__bool__ (which returns False if filename is empty).
+    Returns tuple: (image_bgr, error_reason)
+      image_bgr: numpy.ndarray or None
+      error_reason: None, 'no_file', 'empty_file', or 'invalid_image'
     """
     if not files_dict:
-        return None
+        return None, 'no_file'
+
+    found_part = False
+    saw_empty_data = False
+    saw_unreadable_data = False
+
     # 1. Try preferred keys first
     for key in preferred_keys:
         if key in files_dict:
+            found_part = True
             fs = files_dict[key]
             if fs is not None:
                 try:
@@ -5455,12 +5464,18 @@ def _extract_uploaded_image_bgr(files_dict, *preferred_keys):
                         nparr = np.frombuffer(raw, np.uint8)
                         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                         if img is not None:
-                            return img
+                            return img, None
+                        saw_unreadable_data = True
+                    else:
+                        saw_empty_data = True
                 except Exception as ex:
                     logger.warning(f"Error decoding image file part '{key}': {ex}")
+                    saw_unreadable_data = True
+
     # 2. Fallback to any file part present
     for key, fs in files_dict.items():
         if key not in preferred_keys and fs is not None:
+            found_part = True
             try:
                 fs.seek(0)
                 raw = fs.read()
@@ -5468,25 +5483,42 @@ def _extract_uploaded_image_bgr(files_dict, *preferred_keys):
                     nparr = np.frombuffer(raw, np.uint8)
                     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if img is not None:
-                        return img
+                        return img, None
+                    saw_unreadable_data = True
+                else:
+                    saw_empty_data = True
             except Exception as ex:
                 logger.warning(f"Error decoding fallback image file part '{key}': {ex}")
-    return None
+                saw_unreadable_data = True
+
+    if saw_unreadable_data:
+        return None, 'invalid_image'
+    if saw_empty_data:
+        return None, 'empty_file'
+    return None, 'no_file'
 
 
 def _extract_base64_image_bgr(data_str):
+    """
+    Safely extract and decode a base64-encoded image string (data URL or raw base64).
+    Returns tuple: (image_bgr, error_reason)
+    """
     if not data_str or not isinstance(data_str, str) or len(data_str) <= 20:
-        return None
+        return None, 'no_data'
     try:
         import base64
         base64_str = data_str.split(',', 1)[1] if ',' in data_str else data_str
         img_bytes = base64.b64decode(base64_str)
         if img_bytes and len(img_bytes) > 0:
             nparr = np.frombuffer(img_bytes, np.uint8)
-            return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is not None:
+                return img, None
+            return None, 'invalid_image'
+        return None, 'empty_data'
     except Exception as b64_err:
         logger.warning(f"Failed to decode base64 image data: {b64_err}")
-    return None
+        return None, 'invalid_image'
 
 
 @app.route('/api/pallets/count-pieces', methods=['POST'])
@@ -5535,12 +5567,13 @@ def api_count_pallet_pieces():
             counting_mode = 'boxes'
 
         # 1. Image file upload from multipart request (supporting empty filenames/Blobs without relying on Werkzeug __bool__)
-        image_bgr = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
+        image_bgr, upload_err = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
 
         # 1b. Base64 image data payload fallback (e.g. from preview data URL or form field)
         if image_bgr is None:
             img_data = request.form.get('image_data') or data.get('image_data') or request.values.get('image_data')
-            image_bgr = _extract_base64_image_bgr(img_data)
+            if img_data:
+                image_bgr, _ = _extract_base64_image_bgr(img_data)
 
         # 2. Camera snapshot capture
         if image_bgr is None and (source_type == 'camera' or request.form.get('use_camera', '').lower() in ('true', '1', 'yes')):
@@ -5554,7 +5587,12 @@ def api_count_pallet_pieces():
 
         if image_bgr is None:
             if source_type == 'upload':
-                return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
+                if upload_err == 'empty_file':
+                    return jsonify({"success": False, "error": "Uploaded image file is empty (0 bytes). Please select a valid photo."}), 400
+                elif upload_err == 'invalid_image':
+                    return jsonify({"success": False, "error": "Invalid or unreadable image file format. Please upload a standard photo (JPG, PNG, WebP)."}), 400
+                else:
+                    return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
             elif source_type == 'camera':
                 image_bgr, _ = get_camera_frame_for_detection(camera_id)
                 if image_bgr is None:
@@ -5656,7 +5694,7 @@ def api_count_pallet_bundles():
         source_type = request.form.get('source_type') or data.get('source_type', 'upload')
         camera_id = request.form.get('camera_id') or data.get('camera_id') or 'cam_inbound_01'
 
-        img_a1 = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
+        img_a1, upload_err = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
         if img_a1 is not None:
             preset_name = None
 
@@ -5675,9 +5713,10 @@ def api_count_pallet_bundles():
         # Fallback to base64 image data payload if img_a1 is None
         if img_a1 is None:
             img_data = request.form.get('image_data') or data.get('image_data') or request.values.get('image_data')
-            img_a1 = _extract_base64_image_bgr(img_data)
-            if img_a1 is not None:
-                preset_name = None
+            if img_data:
+                img_a1, _ = _extract_base64_image_bgr(img_data)
+                if img_a1 is not None:
+                    preset_name = None
 
         if img_a1 is not None and img_a2 is None:
             img_a2 = img_a1.copy()
@@ -5700,7 +5739,12 @@ def api_count_pallet_bundles():
 
         if img_a1 is None:
             if source_type == 'upload':
-                return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
+                if upload_err == 'empty_file':
+                    return jsonify({"success": False, "error": "Uploaded image file is empty (0 bytes). Please select a valid photo."}), 400
+                elif upload_err == 'invalid_image':
+                    return jsonify({"success": False, "error": "Invalid or unreadable image file format. Please upload a standard photo (JPG, PNG, WebP)."}), 400
+                else:
+                    return jsonify({"success": False, "error": "No image file uploaded. Please select an image file to count."}), 400
             return jsonify({"success": False, "error": "Unable to acquire image source for bundle counting"}), 400
 
         result = service.count_bundles_multi_view(
