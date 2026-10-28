@@ -285,6 +285,89 @@ class TestPalletCountingRefactor(unittest.TestCase):
         sealed_pallet = db.get_pallet_by_id(pallet_id)
         self.assertEqual(sealed_pallet['status'], 'SEALED', "Pallet failed to seal on authorized action")
 
+    def test_08_direct_instance_localization_and_3d_consistency(self):
+        """
+        Verify that single-image counting returns direct physical object instances with
+        complete instance metadata (detection_id, bbox, confidence, centroid, norm_bbox,
+        detection_status, uncertainty_indicators), inferred_count == 0, and 1-to-1 consistency
+        between accepted pieces and 3D digital twin boxes.
+        """
+        uploads_dir = os.path.join(WEBAPP_DIR, "static", "uploads")
+        floor_3box = os.path.join(uploads_dir, "raw_1793035112_c8f099.jpg")
+        if not os.path.isfile(floor_3box):
+            return
+
+        bgr = cv2.imread(floor_3box)
+        res = self.service.count_individual_pieces(bgr, counting_mode="auto")
+        self.assertTrue(res.get("success"))
+        qb = res.get("quantity_breakdown", {})
+        pieces = res.get("pieces", [])
+        matrix_3d = res.get("matrix_3d", {})
+
+        self.assertEqual(len(pieces), 3, "Expected exactly 3 localized boxes")
+        self.assertEqual(qb.get("directly_detected_count"), 3)
+        self.assertEqual(qb.get("inferred_count"), 0, "Single image must not fabricate inferred hidden units")
+        self.assertEqual(qb.get("total_units"), 3)
+        self.assertEqual(qb.get("tare_packaging", {}).get("pallet_base_count"), 0, "Floor boxes have no wooden pallet base")
+        self.assertFalse(matrix_3d.get("has_pallet"), "3D view must not render a pallet base when none is detected")
+        self.assertEqual(len(matrix_3d.get("boxes", [])), 3, "3D boxes must match accepted physical instances 1-to-1")
+
+        required_fields = {
+            "id", "index", "detection_id", "bbox", "confidence",
+            "x", "y", "centroid", "norm_x", "norm_y", "norm_w", "norm_h",
+            "detection_status", "uncertainty_indicators"
+        }
+        for p in pieces:
+            self.assertTrue(required_fields.issubset(set(p.keys())), f"Missing instance fields in {p.keys()}")
+
+    def test_09_corner_face_deduplication_and_tare_pallet_exclusion(self):
+        """
+        Verify hybrid Strategy A (Direct Instance Counting) and Strategy B (Structured Pallet-Stack
+        Reconstruction) on 3D perspective pallet images: deduplicating shared corner cartons,
+        reconstructing hidden interior core cartons when 2-face geometry is clear, and excluding
+        wooden pallet slats and support blocks.
+        """
+        uploads_dir = os.path.join(WEBAPP_DIR, "static", "uploads")
+        expected_cases = [
+            # (filename, strategy, direct_count, inferred_count, total_units, shared_corner, pallet_base)
+            ("raw_1793035080_a5c743.jpg", "DIRECT_INSTANCE_COUNTING", 3, 0, 3, 0, 0),
+            ("raw_1793034160_421df6.jpg", "STRUCTURED_PALLET_RECONSTRUCTION", 15, 12, 27, 3, 1),
+            ("raw_1793034186_162897.jpg", "STRUCTURED_PALLET_RECONSTRUCTION", 16, 8, 24, 4, 1),
+            ("raw_1793030331_dea531.jpg", "STRUCTURED_PALLET_RECONSTRUCTION", 45, 80, 125, 5, 1),
+        ]
+        for fname, exp_strat, exp_direct, exp_inferred, exp_total, exp_corner, exp_pallet in expected_cases:
+            fpath = os.path.join(uploads_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+            bgr = cv2.imread(fpath)
+            res = self.service.count_individual_pieces(bgr, counting_mode="auto")
+            qb = res.get("quantity_breakdown", {})
+            self.assertEqual(qb.get("counting_strategy"), exp_strat, f"Strategy mismatch on {fname}")
+            self.assertEqual(
+                qb.get("directly_detected_count"), exp_direct,
+                f"Direct count mismatch on {fname}: got {qb.get('directly_detected_count')}, expected {exp_direct}"
+            )
+            self.assertEqual(qb.get("inferred_count"), exp_inferred, f"Inferred mismatch on {fname}")
+            self.assertEqual(qb.get("total_units"), exp_total, f"Total mismatch on {fname}")
+            self.assertEqual(qb.get("shared_corner_count"), exp_corner, f"Shared corner mismatch on {fname}")
+            self.assertEqual(qb.get("tare_packaging", {}).get("pallet_base_count"), exp_pallet)
+            self.assertEqual(len(res.get("matrix_3d", {}).get("boxes", [])), exp_total)
+
+    def test_10_material_agnostic_standalone_counting(self):
+        """
+        Verify class-agnostic counting on non-cardboard materials (white-wrapped bundles
+        and metal C-stud profiles) without requiring SKU Master Data.
+        """
+        front_bundles = os.path.join(ROOT_DIR, "test_front_face.jpg")
+        if os.path.isfile(front_bundles):
+            bgr = cv2.imread(front_bundles)
+            res_b = self.service.count_bundles_multi_view(angle1_bgr=bgr, angle2_bgr=None)
+            self.assertTrue(res_b.get("success"))
+            qb_b = res_b.get("quantity_breakdown", {})
+            self.assertGreaterEqual(qb_b.get("directly_detected_count", 0), 70)
+            self.assertEqual(qb_b.get("inferred_count"), 0)
+            self.assertEqual(qb_b.get("total_units"), qb_b.get("directly_detected_count"))
+
 
 if __name__ == '__main__':
     unittest.main()

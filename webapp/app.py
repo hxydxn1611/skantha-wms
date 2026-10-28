@@ -6187,14 +6187,11 @@ def api_count_pallet_bundles():
                 elif upload_err == 'no_file':
                     upload_err, upload_msg = b64_err, b64_msg
 
-        if img_a1 is not None and img_a2 is None:
-            img_a2 = img_a1.copy()
-
         if img_a1 is None and source_type == 'camera':
             image_cam, _ = get_camera_frame_for_detection(camera_id)
             if image_cam is not None:
                 img_a1 = image_cam
-                img_a2 = image_cam.copy()
+                img_a2 = None
 
         # Only use sample images if use_sample is explicitly requested
         if img_a1 is None and (request.form.get('use_sample', '').lower() in ('true', '1', 'yes') or preset_name):

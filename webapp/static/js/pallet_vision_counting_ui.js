@@ -489,64 +489,14 @@
         const imgW = imgElem.naturalWidth || imgElem.clientWidth || 1;
         const imgH = imgElem.naturalHeight || imgElem.clientHeight || 1;
 
-        // In BOX_GRID mode (or when backend image already contains authoritative annotations):
-        // The backend has burned primary numbered badges, bounding boxes, and confidence tags directly
-        // into the image pixels with 1-to-1 coordinate fidelity.
-        // We do NOT draw a duplicate layer of DOM numbered circles over every automated detection!
-        // The overlay is reserved strictly for manual operator pins (+M1, +M2...) added by clicking.
-        if (latestPiecesResult && (latestPiecesResult.mode === 'BOX_GRID' || latestPiecesResult.matrix_3d)) {
-            manualPinsList.forEach((pin, pIdx) => {
-                const leftPct = (pin.x / imgW) * 100;
-                const topPct = (pin.y / imgH) * 100;
-
-                const badge = document.createElement('div');
-                badge.className = 'interactive-piece-badge manual-operator-pin';
-                badge.style.cssText = `
-                    position: absolute;
-                    left: ${leftPct}%;
-                    top: ${topPct}%;
-                    transform: translate(-50%, -50%);
-                    width: 24px;
-                    height: 24px;
-                    border-radius: 50%;
-                    background: #f59e0b;
-                    border: 2px solid #ffffff;
-                    color: #ffffff;
-                    font-size: 10px;
-                    font-weight: 800;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    pointer-events: auto;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.6);
-                    user-select: none;
-                    transition: transform 0.15s, background 0.15s;
-                    z-index: 10;
-                `;
-                badge.title = `Manual Operator Pin #M${pIdx + 1}\nClick to Remove`;
-                badge.textContent = `M${pIdx + 1}`;
-                badge.onmouseenter = () => {
-                    badge.style.transform = 'translate(-50%, -50%) scale(1.3)';
-                    badge.style.background = '#ef4444';
-                };
-                badge.onmouseleave = () => {
-                    badge.style.transform = 'translate(-50%, -50%) scale(1)';
-                    badge.style.background = '#f59e0b';
-                };
-                badge.onclick = (e) => {
-                    e.stopPropagation();
-                    window.removeManualPin(pIdx);
-                };
-                overlay.appendChild(badge);
-            });
-            return;
-        }
-
-        // For Individual Pieces pinpoint mode (non-carton):
+        // The backend annotated image already contains the authoritative numbered markers and bounding boxes.
+        // Do NOT render a duplicate visible layer of automated frontend numbered markers!
+        // Render transparent interactive hit-zones for existing detections (lighting up only on hover to delete),
+        // and visible badges only for un-rendered manual operator additions.
         currentPiecesList.forEach((p, idx) => {
             const leftPct = (p.x / imgW) * 100;
             const topPct = (p.y / imgH) * 100;
+            const isUnrenderedManual = Boolean(p.is_unrendered_pin);
 
             const badge = document.createElement('div');
             badge.className = 'interactive-piece-badge';
@@ -555,12 +505,12 @@
                 left: ${leftPct}%;
                 top: ${topPct}%;
                 transform: translate(-50%, -50%);
-                width: 22px;
-                height: 22px;
+                width: 24px;
+                height: 24px;
                 border-radius: 50%;
-                background: ${p.color_hex || '#0284c7'};
-                border: 2px solid #ffffff;
-                color: #ffffff;
+                background: ${isUnrenderedManual ? '#10b981' : 'transparent'};
+                border: 2px solid ${isUnrenderedManual ? '#ffffff' : 'transparent'};
+                color: ${isUnrenderedManual ? '#ffffff' : 'transparent'};
                 font-size: 10px;
                 font-weight: 800;
                 display: flex;
@@ -568,20 +518,26 @@
                 justify-content: center;
                 cursor: pointer;
                 pointer-events: auto;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.5);
                 user-select: none;
-                transition: transform 0.15s, background 0.15s;
+                transition: transform 0.15s, background 0.15s, border-color 0.15s;
             `;
-            badge.title = `Piece #${p.id || (idx + 1)} (${p.cluster || 'Item'})\nClick to Delete`;
-            badge.textContent = p.id || (idx + 1);
+            const confStr = p.confidence !== undefined ? ` (Conf ${Number(p.confidence).toFixed(2)})` : '';
+            badge.title = `Detection #${p.id || (idx + 1)}${confStr}\nClick to Remove`;
+            badge.textContent = isUnrenderedManual ? (p.id || (idx + 1)) : '';
 
             badge.onmouseenter = () => {
-                badge.style.transform = 'translate(-50%, -50%) scale(1.4)';
-                badge.style.background = '#ef4444'; // Red delete indicator
+                badge.style.transform = 'translate(-50%, -50%) scale(1.35)';
+                badge.style.background = 'rgba(239, 68, 68, 0.85)';
+                badge.style.borderColor = '#ffffff';
+                badge.style.color = '#ffffff';
+                badge.textContent = '×';
             };
             badge.onmouseleave = () => {
                 badge.style.transform = 'translate(-50%, -50%) scale(1)';
-                badge.style.background = p.color_hex || '#0284c7';
+                badge.style.background = isUnrenderedManual ? '#10b981' : 'transparent';
+                badge.style.borderColor = isUnrenderedManual ? '#ffffff' : 'transparent';
+                badge.style.color = isUnrenderedManual ? '#ffffff' : 'transparent';
+                badge.textContent = isUnrenderedManual ? (p.id || (idx + 1)) : '';
             };
             badge.onclick = (e) => {
                 e.stopPropagation();
@@ -606,28 +562,26 @@
         const naturalX = Math.round((clickX / rect.width) * imgW);
         const naturalY = Math.round((clickY / rect.height) * imgH);
 
-        if (latestPiecesResult && (latestPiecesResult.mode === 'BOX_GRID' || latestPiecesResult.matrix_3d)) {
-            // Add manual operator pin in carton mode without altering automated verified count
-            const pIdx = manualPinsList.length + 1;
-            manualPinsList.push({
-                id: `M${pIdx}`,
-                x: naturalX,
-                y: naturalY,
-                is_manual: true
-            });
-            updateLocalManualPinsState();
-            renderInteractiveBadgesOverlay();
+        // Check if click hits an existing detection centroid (within 18px in image space)
+        const hitIdx = currentPiecesList.findIndex(p => Math.hypot((p.x || 0) - naturalX, (p.y || 0) - naturalY) <= 18);
+        if (hitIdx !== -1) {
+            window.removePieceBadge(hitIdx);
             return;
         }
 
-        // Add verified point for individual pieces
         const newIdx = currentPiecesList.length + 1;
         currentPiecesList.push({
             id: newIdx,
+            index: newIdx,
+            detection_id: `MAN-${String(newIdx).padStart(3, '0')}`,
             x: naturalX,
             y: naturalY,
-            cluster: 'Verified item',
-            color_hex: '#10b981'
+            w: 36,
+            h: 36,
+            confidence: 1.0,
+            cluster: 'Operator Verified',
+            color_hex: '#10b981',
+            is_unrendered_pin: true
         });
 
         updateLocalPiecesState();
@@ -837,10 +791,6 @@
                 const f2 = document.getElementById('fileBundleAngle2')?.files[0];
                 if (f1) formData.append('angle1', f1);
                 if (f2) formData.append('angle2', f2);
-
-                if (!f1 && !f2 && !selectedSku) {
-                    formData.append('preset_name', 'timber_48');
-                }
             }
 
             const res = await fetch('/api/pallets/count-bundles', {
@@ -1104,16 +1054,19 @@
         container.insertBefore(threeRenderer.domElement, container.firstChild);
 
         // 4. Orbit Controls
-        const cols = matrix3D.columns || 3;
-        const depth = matrix3D.depth || 1;
-        const layers = matrix3D.layers || 4;
-        const isRegularGrid = (matrix3D.reconstruction_mode === 'OPERATOR_CONFIRMED');
-        const SCENE_SPAN_X = Math.max(2.4, Math.min(5.2, cols * 1.05));
-        const SCENE_SPAN_Y = Math.max(1.8, Math.min(4.5, layers * 0.85));
+        const cols = Math.max(1, matrix3D.columns || 3);
+        const depth = Math.max(1, matrix3D.rows || matrix3D.depth || 1);
+        const layers = Math.max(1, matrix3D.layers || 4);
+        const isRegularGrid = (
+            matrix3D.reconstruction_mode === 'OPERATOR_CONFIRMED' ||
+            matrix3D.reconstruction_mode === 'STRUCTURED_PALLET_RECONSTRUCTION'
+        );
+        const SCENE_SPAN_X = Math.max(2.4, Math.min(5.6, cols * 0.96));
+        const SCENE_SPAN_Y = Math.max(1.8, Math.min(4.5, layers * 0.78));
 
         const hasPallet = matrix3D.has_pallet === true;
-        const palletW = isRegularGrid ? (cols * 1.05 + 0.35) : (SCENE_SPAN_X + 0.4);
-        const palletD = isRegularGrid ? Math.max(depth * 1.05 + 0.35, 1.4) : 1.4;
+        const palletW = isRegularGrid ? (cols * 0.94 + 0.36) : (SCENE_SPAN_X + 0.45);
+        const palletD = isRegularGrid ? Math.max(depth * 0.94 + 0.36, 1.5) : 1.6;
         const palletH = hasPallet ? 0.16 : 0.0;
 
         if (typeof THREE.OrbitControls !== 'undefined') {
@@ -1123,7 +1076,7 @@
             threeControls.maxPolarAngle = Math.PI / 2 - 0.02; // Don't go below ground
             threeControls.minDistance = 2.0;
             threeControls.maxDistance = 20.0;
-            const targetY = isRegularGrid ? (layers * 0.80 / 2) + palletH : (SCENE_SPAN_Y / 2) + palletH;
+            const targetY = isRegularGrid ? (layers * 0.74 / 2) + palletH : (SCENE_SPAN_Y / 2) + palletH;
             threeControls.target.set(0, targetY, 0);
             threeControls.update();
         }
@@ -1150,14 +1103,12 @@
 
         // 7. Wooden Pallet Base (only render if image evidence supports a pallet base)
         if (hasPallet) {
-            // Wooden material
             const woodMat = new THREE.MeshStandardMaterial({
                 color: 0x92663b,
                 roughness: 0.85,
                 metalness: 0.05
             });
 
-            // Top deck slats
             const slatCount = Math.max(5, cols * 2 + 1);
             const slatW = palletW / slatCount * 0.75;
             for (let i = 0; i < slatCount; i++) {
@@ -1169,7 +1120,6 @@
                 threeScene.add(slatMesh);
             }
 
-            // Bottom runners (3 stringers)
             for (let s = -1; s <= 1; s++) {
                 const runnerGeo = new THREE.BoxGeometry(0.12, palletH - 0.04, palletD);
                 const runnerMesh = new THREE.Mesh(runnerGeo, woodMat);
@@ -1179,27 +1129,42 @@
             }
         }
 
-        // 8. Construct 3D Boxes (Visible front/side solid, Hidden rear/interior translucent)
+        // Precompute cumulative layer heights for irregular 3D stacks so boxes rest solidly on lower layers
+        const layerMaxH = {};
         (matrix3D.boxes || []).forEach(b => {
-            let boxW = 0.96;
-            let boxH = 0.76;
-            let boxD = 0.96;
+            const lyr = b.layer || 0;
+            const bh = isRegularGrid ? 0.68 : Math.max(0.48, Math.min(1.35, (b.rel_h_ratio || 1.0) * 0.70));
+            if (!layerMaxH[lyr] || bh > layerMaxH[lyr]) layerMaxH[lyr] = bh;
+        });
+        const layerBaseY = {};
+        let cumY = palletH;
+        for (let lyr = 0; lyr < layers + 2; lyr++) {
+            layerBaseY[lyr] = cumY;
+            cumY += (layerMaxH[lyr] || 0.68) + 0.02;
+        }
+
+        // 8. Construct 3D Cuboids (Visible front/side solid, Shared Corner accented, Hidden interior translucent)
+        (matrix3D.boxes || []).forEach(b => {
+            let boxW = 0.86;
+            let boxH = 0.68;
+            let boxD = 0.86;
             let posX = 0;
             let posY = 0;
             let posZ = 0;
 
             if (isRegularGrid) {
-                // Regular confirmed 3D matrix (rows x cols x layers)
-                posX = (b.col - (cols - 1) / 2) * 1.02;
-                posY = b.layer * 0.80 + 0.38 + palletH;
-                posZ = (b.depth - (depth - 1) / 2) * 1.02;
+                posX = (b.col - (cols - 1) / 2) * 0.92;
+                posY = (b.layer || 0) * 0.72 + (boxH / 2) + palletH;
+                posZ = (b.depth - (depth - 1) / 2) * 0.92;
             } else {
-                // Direct Physical Object Localization (irregular stack or elevation facade)
-                boxW = Math.max(0.35, (b.norm_w || 0.3) * SCENE_SPAN_X * 0.96);
-                boxH = Math.max(0.28, (b.norm_h || 0.25) * SCENE_SPAN_Y * 0.96);
-                boxD = Math.min(boxW, 1.2);
-                posX = (b.norm_x || 0) * SCENE_SPAN_X;
-                posY = (b.norm_y || 0) * SCENE_SPAN_Y + (boxH / 2) + palletH;
+                boxW = Math.max(0.68, Math.min(2.20, (b.rel_w_ratio || 1.0) * 1.15));
+                boxH = Math.max(0.48, Math.min(1.35, (b.rel_h_ratio || 1.0) * 0.70));
+                boxD = Math.max(0.76, Math.min(1.55, boxW * 0.88));
+                const lyr = b.layer || 0;
+                posX = (cols === 1 && b.rel_x_offset !== undefined)
+                    ? (b.rel_x_offset * 1.25)
+                    : (((b.norm_x !== undefined ? b.norm_x : 0.5) - 0.5) * SCENE_SPAN_X);
+                posY = (layerBaseY[lyr] !== undefined ? layerBaseY[lyr] : palletH) + (boxH / 2);
                 posZ = 0;
             }
 
@@ -1210,7 +1175,6 @@
             let edgeMat = null;
 
             if (b.is_hidden) {
-                // OCCLUDED / REAR / INTERIOR BOXES: Translucent Holographic Glass
                 boxMat = new THREE.MeshPhysicalMaterial({
                     color: 0x0284c7,
                     roughness: 0.15,
@@ -1225,10 +1189,19 @@
                     transparent: true,
                     opacity: 0.85
                 });
-            } else {
-                // VISIBLE FRONT & SIDE BOXES: Realistic Warm Cardboard Box
+            } else if (b.face_role === 'shared_corner') {
                 boxMat = new THREE.MeshStandardMaterial({
-                    color: 0xcba06c, // Cardboard kraft paper
+                    color: 0xd4a373,
+                    roughness: 0.70,
+                    metalness: 0.06
+                });
+                edgeMat = new THREE.LineBasicMaterial({
+                    color: 0x8b5cf6,
+                    linewidth: 2
+                });
+            } else {
+                boxMat = new THREE.MeshStandardMaterial({
+                    color: 0xcba06c,
                     roughness: 0.75,
                     metalness: 0.05
                 });
@@ -1529,9 +1502,11 @@
         const statVis = document.getElementById('wbStatVisible');
         const statInf = document.getElementById('wbStatInferred');
         const statForm = document.getElementById('wbStatFormula');
+        const statTare = document.getElementById('wbStatTare');
         if (statVis) statVis.textContent = '0';
         if (statInf) statInf.textContent = '0';
         if (statForm) statForm.textContent = '--';
+        if (statTare) statTare.textContent = '0 Pallet Base Detected';
 
         // Clear 3D model canvas immediately
         initWb3DPalletViewer(null);
@@ -1571,9 +1546,11 @@
         const statVis = document.getElementById('wbStatVisible');
         const statInf = document.getElementById('wbStatInferred');
         const statForm = document.getElementById('wbStatFormula');
+        const statTare = document.getElementById('wbStatTare');
         if (statVis) statVis.textContent = '0';
         if (statInf) statInf.textContent = '0';
         if (statForm) statForm.textContent = '--';
+        if (statTare) statTare.textContent = '0 Pallet Base Detected';
 
         // Clear 3D model canvas
         initWb3DPalletViewer(null);
@@ -1702,6 +1679,13 @@
 
         if (btn) btn.disabled = true;
         if (spinner) spinner.style.display = 'block';
+
+        // Purge stale detections and cached 3D geometry before starting a recount
+        wbLatestResult = null;
+        wbCurrentPieces = [];
+        const prevOverlay = document.getElementById('wbBadgesOverlay');
+        if (prevOverlay) prevOverlay.innerHTML = '';
+        initWb3DPalletViewer(null);
 
         const thisRequestId = ++wbCountRequestId;
 
@@ -1839,7 +1823,7 @@
 
         const qb = data.quantity_breakdown || {};
         const total = qb.total_units !== undefined ? qb.total_units : (data.total_pieces !== undefined ? data.total_pieces : (data.total_bundles || 0));
-        const visible = qb.visible_count !== undefined ? qb.visible_count : (data.visible_pieces !== undefined ? data.visible_pieces : (qb.visible_bundles !== undefined ? qb.visible_bundles : total));
+        const visible = qb.directly_detected_count !== undefined ? qb.directly_detected_count : (qb.visible_count !== undefined ? qb.visible_count : (data.visible_pieces !== undefined ? data.visible_pieces : (qb.visible_bundles !== undefined ? qb.visible_bundles : total)));
         const inferred = qb.inferred_count !== undefined ? qb.inferred_count : (data.hidden_count || 0);
         const autoGeom = qb.automated_geometry || data.automated_geometry || {};
 
@@ -1853,7 +1837,7 @@
         const formulaElem = document.getElementById('wbAutoGeometryFormula');
         const methodBadge = document.getElementById('wbCountingMethodBadge');
         if (methodBadge) {
-            methodBadge.textContent = qb.counting_method || data.method || 'AUTOMATED_CV';
+            methodBadge.textContent = qb.counting_method || data.method || 'DIRECT_INSTANCE_LOCALIZATION';
         }
         if (formulaElem) {
             if (total === 0) {
@@ -1863,49 +1847,64 @@
                 formulaElem.textContent = qb.formula;
                 formulaElem.style.color = '#10b981';
             } else if ((autoGeom.stack_detected || autoGeom.is_regular_matrix) && autoGeom.layers && autoGeom.columns) {
-                const confText = qb.is_estimate ? 'Estimated Stack' : 'Direct Geometry';
-                formulaElem.textContent = `${autoGeom.layers} Layers × ${autoGeom.columns} Cols × ${autoGeom.rows || autoGeom.depth || 1} Depth = ${total} Units (${confText})`;
+                const confText = qb.is_estimate ? 'Estimated Stack' : 'Direct Instance Localization';
+                const depthStr = autoGeom.is_depth_unknown ? 'Unknown Interior Depth' : `${autoGeom.rows || autoGeom.depth || 1} Depth`;
+                formulaElem.textContent = `${visible} Directly Localized (${autoGeom.layers} Layers × ${autoGeom.columns} Cols • ${depthStr} • ${confText})`;
                 formulaElem.style.color = '#10b981';
             } else if (data.mode === 'BUNDLE_STACK') {
-                formulaElem.textContent = `${total} Bundles Detected (${data.stacks?.length || 1} Stack Groups)`;
+                formulaElem.textContent = `${total} Bundles Directly Localized (${data.stacks?.length || 1} Stack Groups)`;
                 formulaElem.style.color = '#38bdf8';
             } else {
-                formulaElem.textContent = `${visible} Exterior Units Localized`;
+                formulaElem.textContent = `${visible} Physical Instances Directly Localized`;
                 formulaElem.style.color = '#38bdf8';
             }
         }
 
-        // Update 4-Stat breakdown
+        // Update 4-Stat breakdown (including dynamic Tare Packaging readout)
         const statVis = document.getElementById('wbStatVisible');
         const statInf = document.getElementById('wbStatInferred');
         const statForm = document.getElementById('wbStatFormula');
+        const statTare = document.getElementById('wbStatTare');
         if (statVis) statVis.textContent = visible;
         if (statInf) statInf.textContent = inferred;
         if (statForm) {
             statForm.textContent = qb.formula || data.grid_formula || `${visible} Visible Units`;
             statForm.title = statForm.textContent;
         }
+        if (statTare) {
+            const palletBaseCount = qb.tare_packaging?.pallet_base_count !== undefined
+                ? qb.tare_packaging.pallet_base_count
+                : (data.tare_pallet_base_detected ? 1 : 0);
+            statTare.textContent = palletBaseCount > 0 ? `${palletBaseCount} Pallet Base (Excluded)` : '0 Pallet Base Detected';
+        }
 
-        // Status badge: clear indication of PROPOSED (Estimated vs Direct vs Insufficient)
+        // Status badge: clear indication of Direct Instance Detection vs Estimated vs Insufficient
         const statusBadge = document.getElementById('wbVerificationStatusBadge');
         if (statusBadge) {
-            let stText = 'PROPOSED (AI Estimate)';
-            let stColor = '#38bdf8';
-            let stBorder = 'rgba(56,189,248,0.3)';
-            let stBg = 'rgba(56,189,248,0.15)';
+            let stText = 'DIRECT INSTANCE DETECTION';
+            let stColor = '#10b981';
+            let stBorder = 'rgba(16,185,129,0.3)';
+            let stBg = 'rgba(16,185,129,0.15)';
 
             if (total === 0 || qb.verification_status === 'INSUFFICIENT_VISUAL_EVIDENCE') {
                 stText = 'INSUFFICIENT VISUAL EVIDENCE';
                 stColor = '#f59e0b';
                 stBorder = 'rgba(245,158,11,0.3)';
                 stBg = 'rgba(245,158,11,0.15)';
-            } else if (qb.verification_status === 'DIRECT_VISUAL' || qb.verification_status === 'AUTOMATED_DETECTION' || (inferred === 0 && !qb.is_estimate)) {
+            } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION (Total Unknown)' || autoGeom.is_depth_unknown) {
+                stText = 'DIRECT VISUAL (Interior Depth Unknown)';
+                stColor = '#10b981';
+                stBorder = 'rgba(16,185,129,0.3)';
+                stBg = 'rgba(16,185,129,0.15)';
+            } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION' || qb.verification_status === 'DIRECT_VISUAL' || qb.verification_status === 'AUTOMATED_DETECTION' || (inferred === 0 && !qb.is_estimate)) {
                 stText = 'DIRECT VISUAL (Confirmed)';
                 stColor = '#10b981';
                 stBorder = 'rgba(16,185,129,0.3)';
                 stBg = 'rgba(16,185,129,0.15)';
             } else if (qb.verification_status === 'ESTIMATED_STACK' || qb.is_estimate) {
-                stText = 'PROPOSED (Estimated Stack)';
+                stText = qb.counting_strategy === 'STRUCTURED_PALLET_RECONSTRUCTION'
+                    ? 'PROPOSED (Structured 3D Stack)'
+                    : 'PROPOSED (Estimated Stack)';
                 stColor = '#f59e0b';
                 stBorder = 'rgba(245,158,11,0.3)';
                 stBg = 'rgba(245,158,11,0.15)';
@@ -1933,7 +1932,7 @@
         // Cluster pills
         renderWbClusterPills(data.clusters);
 
-        // 3D Digital Twin: only render if multi-layer stacked geometry exists
+        // 3D Digital Twin: render localized physical objects accurately
         if (data.matrix_3d && data.matrix_3d.boxes && data.matrix_3d.boxes.length > 0) {
             setTimeout(() => {
                 initWb3DPalletViewer(data.matrix_3d);
@@ -1970,12 +1969,16 @@
         const imgW = imgElem.naturalWidth || imgElem.clientWidth || 1;
         const imgH = imgElem.naturalHeight || imgElem.clientHeight || 1;
 
+        // Do NOT render a duplicate set of visible numbered DOM markers over backend-rendered markers.
+        // Instead, render transparent interactive hit-zones over each accepted detection (revealing a delete
+        // highlight on hover), and only render visible badges for un-rendered manual pins prior to re-render.
         wbCurrentPieces.forEach((p, idx) => {
             const seqId = idx + 1;
             p.id = seqId;
 
             const leftPct = (p.x / imgW) * 100;
             const topPct = (p.y / imgH) * 100;
+            const isUnrenderedPin = Boolean(p.is_unrendered_pin);
 
             const badge = document.createElement('div');
             badge.className = 'interactive-piece-badge';
@@ -1984,12 +1987,12 @@
                 left: ${leftPct}%;
                 top: ${topPct}%;
                 transform: translate(-50%, -50%);
-                width: 22px;
-                height: 22px;
+                width: 24px;
+                height: 24px;
                 border-radius: 50%;
-                background: ${p.color_hex || '#0284c7'};
-                border: 2px solid #ffffff;
-                color: #ffffff;
+                background: ${isUnrenderedPin ? (p.color_hex || '#10b981') : 'transparent'};
+                border: ${isUnrenderedPin ? '2px solid #ffffff' : '2px solid transparent'};
+                color: ${isUnrenderedPin ? '#ffffff' : 'transparent'};
                 font-size: 10px;
                 font-weight: 800;
                 display: flex;
@@ -1997,20 +2000,27 @@
                 justify-content: center;
                 cursor: pointer;
                 pointer-events: auto;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+                box-shadow: ${isUnrenderedPin ? '0 2px 6px rgba(0,0,0,0.5)' : 'none'};
                 user-select: none;
-                transition: transform 0.15s, background 0.15s;
+                transition: transform 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
             `;
-            badge.title = `Visible Item #${seqId} (${p.cluster || 'Item'})\nClick to Delete`;
-            badge.textContent = seqId;
+            const confPct = p.confidence ? ` • ${Math.round(p.confidence * 100)}% conf` : '';
+            badge.title = `Object #${seqId} (${p.cluster || 'Detected Object'}${confPct})\nClick to Delete`;
+            badge.textContent = isUnrenderedPin ? seqId : '×';
 
             badge.onmouseenter = () => {
-                badge.style.transform = 'translate(-50%, -50%) scale(1.35)';
-                badge.style.background = '#ef4444';
+                badge.style.transform = 'translate(-50%, -50%) scale(1.25)';
+                badge.style.background = 'rgba(239, 68, 68, 0.9)';
+                badge.style.borderColor = '#ffffff';
+                badge.style.color = '#ffffff';
+                badge.textContent = '×';
             };
             badge.onmouseleave = () => {
                 badge.style.transform = 'translate(-50%, -50%) scale(1)';
-                badge.style.background = p.color_hex || '#0284c7';
+                badge.style.background = isUnrenderedPin ? (p.color_hex || '#10b981') : 'transparent';
+                badge.style.borderColor = isUnrenderedPin ? '#ffffff' : 'transparent';
+                badge.style.color = isUnrenderedPin ? '#ffffff' : 'transparent';
+                badge.textContent = isUnrenderedPin ? seqId : '×';
             };
             badge.onclick = (e) => {
                 e.stopPropagation();
@@ -2035,25 +2045,49 @@
         const naturalX = Math.round((clickX / rect.width) * imgW);
         const naturalY = Math.round((clickY / rect.height) * imgH);
 
+        // Check if click is near an existing detection first
+        const hitRadiusNat = Math.max(14, Math.round((18 / Math.max(rect.width, 1)) * imgW));
+        const hitIdx = wbCurrentPieces.findIndex(p => Math.hypot((p.x || 0) - naturalX, (p.y || 0) - naturalY) <= hitRadiusNat);
+        if (hitIdx !== -1) {
+            window.removeWorkbenchBadge(hitIdx);
+            return;
+        }
+
         const newId = wbCurrentPieces.length + 1;
         wbCurrentPieces.push({
             id: newId,
+            index: newId,
+            detection_id: `op_pin_${newId}`,
             x: naturalX,
             y: naturalY,
+            centroid: [naturalX, naturalY],
+            norm_x: Number((naturalX / imgW).toFixed(4)),
+            norm_y: Number((naturalY / imgH).toFixed(4)),
+            norm_w: 0.08,
+            norm_h: 0.08,
+            confidence: 1.0,
+            detection_status: 'OPERATOR_ADDED',
+            uncertainty_indicators: [],
             cluster: 'Operator Added',
-            color_hex: '#10b981'
+            color_hex: '#10b981',
+            is_unrendered_pin: true
         });
 
         updateLocalWorkbenchState();
         renderWbBadgesOverlay();
+        window.recertifyWorkbenchMarkers(true);
     };
 
     window.removeWorkbenchBadge = function(index) {
         if (index >= 0 && index < wbCurrentPieces.length) {
             wbCurrentPieces.splice(index, 1);
-            wbCurrentPieces.forEach((p, i) => { p.id = i + 1; });
+            wbCurrentPieces.forEach((p, i) => {
+                p.id = i + 1;
+                p.index = i + 1;
+            });
             updateLocalWorkbenchState();
             renderWbBadgesOverlay();
+            window.recertifyWorkbenchMarkers(true);
         }
     };
 
@@ -2077,50 +2111,43 @@
         }
         if (totalBadge) totalBadge.textContent = `${total} ${wbMode === 'bundles' ? 'BUNDLES' : 'PIECES'}`;
         if (statusBadge) {
-            statusBadge.textContent = 'PROPOSED (Operator Adjusted)';
+            statusBadge.textContent = 'DIRECT VISUAL (Operator Verified)';
             statusBadge.style.color = '#38bdf8';
             statusBadge.style.borderColor = 'rgba(56,189,248,0.3)';
             statusBadge.style.background = 'rgba(56,189,248,0.15)';
         }
     }
 
-    window.recertifyWorkbenchMarkers = async function() {
-        if (!wbRawImageUrl || wbCurrentPieces.length === 0) {
-            alert('No image loaded to re-render.');
+    window.recertifyWorkbenchMarkers = async function(silent = false) {
+        if (!wbRawImageUrl) {
+            if (!silent) alert('No image loaded to re-render.');
             return;
         }
 
         try {
-            const autoGeom = wbLatestResult?.quantity_breakdown?.automated_geometry || {};
             const res = await fetch('/api/pallets/re-render-pieces', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     raw_image_url: wbRawImageUrl,
                     pieces: wbCurrentPieces,
-                    matrix_dimensions: autoGeom.stack_detected ? {
-                        rows: autoGeom.rows || 1,
-                        columns: autoGeom.columns || 1,
-                        layers: autoGeom.layers || 1
-                    } : null
+                    matrix_dimensions: null
                 })
             });
             const data = await res.json();
             if (res.ok && data.success) {
-                const img = document.getElementById('wbResultImg');
-                if (img && data.annotated_image_url) {
-                    img.src = `${data.annotated_image_url}?t=${Date.now()}`;
-                }
+                wbLatestResult = data;
+                wbCurrentPieces = (data.pieces || []).map((p, idx) => ({ ...p, id: idx + 1, is_unrendered_pin: false }));
                 renderWorkbenchResults(data);
-                if (typeof showToast === 'function') {
+                if (!silent && typeof showToast === 'function') {
                     showToast(`Re-rendered: ${data.total_pieces} pieces verified.`, 'success');
                 }
-            } else {
+            } else if (!silent) {
                 alert(`Re-render error: ${data.error || 'Failed to re-render'}`);
             }
         } catch(e) {
             console.error('Re-render error:', e);
-            alert(`Error: ${e.message}`);
+            if (!silent) alert(`Error: ${e.message}`);
         }
     };
 
@@ -2130,16 +2157,18 @@
 
         const loading = document.getElementById('wbThreeJsLoading');
         const placeholder = document.getElementById('wbThreeJsPlaceholder');
+        const depthBanner = document.getElementById('wbThreeJsDepthBanner');
         if (loading) loading.style.display = 'none';
 
-        // If no multi-layer 3D stack was recognized, display the clean 2D planar status
+        // If no 3D stack boxes exist, display the clean 2D planar status
         if (!matrixData || !matrixData.boxes || matrixData.boxes.length === 0) {
+            if (depthBanner) depthBanner.style.display = 'none';
             if (placeholder) {
                 placeholder.style.display = 'block';
                 placeholder.innerHTML = `
                     <i class="fas fa-layer-group" style="font-size:1.8rem; margin-bottom:6px; opacity:0.5; color:#38bdf8; display:block;"></i>
                     <div style="font-weight:700; color:#cbd5e1; font-size:0.78rem;">Direct Visual Count Active (2D Surface)</div>
-                    <div style="font-size:0.7rem; color:#64748b; margin-top:2px;">3D Digital Twin generates automatically when a multi-layer stacked geometry is detected.</div>
+                    <div style="font-size:0.7rem; color:#64748b; margin-top:2px;">3D Digital Twin renders localized physical objects when detected.</div>
                 `;
             }
             const existingCanvas = container.querySelector('canvas');
@@ -2148,6 +2177,28 @@
         }
 
         if (placeholder) placeholder.style.display = 'none';
+
+        if (depthBanner) {
+            if (matrixData.is_depth_unknown) {
+                depthBanner.style.display = 'block';
+                depthBanner.style.color = '#f59e0b';
+                const visCount = matrixData.visible_count !== undefined ? matrixData.visible_count : matrixData.boxes.length;
+                depthBanner.textContent = `Single-View Localization: ${visCount} Directly Detected • Interior Depth Unknown (0 Fabricated)`;
+            } else if (matrixData.reconstruction_mode === 'STRUCTURED_PALLET_RECONSTRUCTION') {
+                depthBanner.style.display = 'block';
+                depthBanner.style.color = '#38bdf8';
+                const rVal = matrixData.rows || matrixData.depth || 1;
+                const cVal = matrixData.columns || 1;
+                const lVal = matrixData.layers || 1;
+                const totVal = matrixData.total_3d_capacity || matrixData.boxes.length;
+                const visVal = matrixData.visible_count || 0;
+                const hidVal = matrixData.hidden_count || 0;
+                const shVal = matrixData.shared_corner_count || lVal;
+                depthBanner.textContent = `Structured 3D Stack: ${rVal}R × ${cVal}C × ${lVal}L = ${totVal} Units (${visVal} Direct + ${hidVal} Core • ${shVal} Shared Corner)`;
+            } else {
+                depthBanner.style.display = 'none';
+            }
+        }
 
         if (typeof THREE === 'undefined') {
             console.warn('[3D Viewer] Three.js not loaded');
@@ -2181,13 +2232,27 @@
         wbThreeRenderer.shadowMap.enabled = true;
         container.insertBefore(wbThreeRenderer.domElement, container.firstChild);
 
+        const cols = Math.max(1, matrixData.columns || 1);
+        const rows = Math.max(1, matrixData.rows || matrixData.depth || 1);
+        const layers = Math.max(1, matrixData.layers || 1);
+        const hasPallet = matrixData.has_pallet === true;
+        const isStructuredGrid = (
+            matrixData.reconstruction_mode === 'OPERATOR_CONFIRMED' ||
+            matrixData.reconstruction_mode === 'STRUCTURED_PALLET_RECONSTRUCTION'
+        );
+
+        const spanW = Math.max(2.6, Math.min(6.4, cols * 0.92));
+        const spanD = Math.max(1.8, Math.min(5.6, rows * 0.92));
+        const palletH = hasPallet ? 0.16 : 0.0;
+
         const ControlsClass = THREE.OrbitControls || window.OrbitControls;
         if (typeof ControlsClass !== 'undefined') {
             wbThreeControls = new ControlsClass(wbThreeCamera, wbThreeRenderer.domElement);
             wbThreeControls.enableDamping = true;
             wbThreeControls.dampingFactor = 0.08;
             wbThreeControls.maxPolarAngle = Math.PI / 2 - 0.02;
-            wbThreeControls.target.set(0, 1.0, 0);
+            const targetY = isStructuredGrid ? (layers * 0.72 / 2) + palletH : (layers * 0.65 / 2) + palletH;
+            wbThreeControls.target.set(0, targetY, 0);
             wbThreeControls.update();
         }
 
@@ -2198,34 +2263,73 @@
         dirLight.position.set(8, 14, 10);
         wbThreeScene.add(dirLight);
 
+        const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.40);
+        rimLight.position.set(-7, 6, -7);
+        wbThreeScene.add(rimLight);
+
         const gridHelper = new THREE.GridHelper(14, 14, 0x1e293b, 0x0f172a);
         wbThreeScene.add(gridHelper);
 
-        // Wooden Pallet Base (Tare packaging, excluded from inventory count)
-        const cols = matrixData.columns || 5;
-        const rows = matrixData.rows || matrixData.depth || 5;
-        const layers = matrixData.layers || 5;
-
-        const palletW = cols * 0.9 + 0.3;
-        const palletD = rows * 0.9 + 0.3;
-        const palletH = 0.15;
-
-        const woodMat = new THREE.MeshStandardMaterial({ color: 0x8a5d3b, roughness: 0.85 });
-        const slatGeo = new THREE.BoxGeometry(palletW, 0.04, 0.12);
-        for (let i = 0; i < 7; i++) {
-            const slat = new THREE.Mesh(slatGeo, woodMat);
-            slat.position.set(0, palletH - 0.02, -palletD/2 + (i + 0.5) * (palletD / 7));
-            wbThreeScene.add(slat);
+        // Render wooden pallet base with top deck slats and bottom stringer runners if tare pallet was detected
+        if (hasPallet) {
+            const palletW = isStructuredGrid ? (cols * 0.90 + 0.36) : (spanW + 0.4);
+            const palletD = isStructuredGrid ? Math.max(rows * 0.90 + 0.36, 1.5) : (Math.max(spanD, 1.6) + 0.4);
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x8a5d3b, roughness: 0.85, metalness: 0.05 });
+            const slatCount = Math.max(5, cols * 2 + 1);
+            const slatW = (palletW / slatCount) * 0.74;
+            for (let i = 0; i < slatCount; i++) {
+                const slatGeo = new THREE.BoxGeometry(slatW, 0.04, palletD);
+                const slat = new THREE.Mesh(slatGeo, woodMat);
+                const xPos = -palletW / 2 + (i + 0.5) * (palletW / slatCount);
+                slat.position.set(xPos, palletH - 0.02, 0);
+                wbThreeScene.add(slat);
+            }
+            for (let s = -1; s <= 1; s++) {
+                const runnerGeo = new THREE.BoxGeometry(0.12, palletH - 0.04, palletD);
+                const runner = new THREE.Mesh(runnerGeo, woodMat);
+                runner.position.set(s * (palletW * 0.42), (palletH - 0.04) / 2, 0);
+                wbThreeScene.add(runner);
+            }
         }
 
-        // Inventory Boxes
-        const boxGeo = new THREE.BoxGeometry(0.82, 0.65, 0.82);
-        const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+        // Precompute cumulative layer heights for irregular 3D stacks so boxes rest solidly on lower layers
+        const layerMaxH = {};
+        (matrixData.boxes || []).forEach(b => {
+            const lyr = b.layer || 0;
+            const bh = isStructuredGrid ? 0.66 : Math.max(0.48, Math.min(1.35, (b.rel_h_ratio || 1.0) * 0.70));
+            if (!layerMaxH[lyr] || bh > layerMaxH[lyr]) layerMaxH[lyr] = bh;
+        });
+        const layerBaseY = {};
+        let cumY = palletH;
+        for (let lyr = 0; lyr < layers + 2; lyr++) {
+            layerBaseY[lyr] = cumY;
+            cumY += (layerMaxH[lyr] || 0.66) + 0.02;
+        }
 
         (matrixData.boxes || []).forEach(b => {
-            const posX = (b.col - (cols - 1) / 2) * 0.88;
-            const posY = b.layer * 0.70 + 0.35 + palletH;
-            const posZ = (b.depth - (rows - 1) / 2) * 0.88;
+            let boxW = 0.84;
+            let boxH = 0.66;
+            let boxD = 0.84;
+            let posX, posY, posZ;
+
+            if (isStructuredGrid) {
+                posX = (b.col - (cols - 1) / 2) * 0.90;
+                posY = (b.layer || 0) * 0.70 + (boxH / 2) + palletH;
+                posZ = (b.depth - (rows - 1) / 2) * 0.90;
+            } else {
+                boxW = Math.max(0.68, Math.min(2.20, (b.rel_w_ratio || 1.0) * 1.15));
+                boxH = Math.max(0.48, Math.min(1.35, (b.rel_h_ratio || 1.0) * 0.70));
+                boxD = Math.max(0.76, Math.min(1.55, boxW * 0.88));
+                const lyr = b.layer || 0;
+                posX = (cols === 1 && b.rel_x_offset !== undefined)
+                    ? (b.rel_x_offset * 1.25)
+                    : (((b.norm_x !== undefined ? b.norm_x : 0.5) - 0.5) * spanW);
+                posY = (layerBaseY[lyr] !== undefined ? layerBaseY[lyr] : palletH) + (boxH / 2);
+                posZ = rows > 1 ? ((b.depth || 0) - (rows - 1) / 2) * 0.88 : 0.0;
+            }
+
+            const itemGeo = new THREE.BoxGeometry(boxW, boxH, boxD);
+            const itemEdgesGeo = new THREE.EdgesGeometry(itemGeo);
 
             let mat, edgeMat;
             if (b.is_hidden) {
@@ -2233,19 +2337,22 @@
                     color: 0x0284c7,
                     roughness: 0.15,
                     transmission: 0.78,
-                    opacity: 0.38,
+                    opacity: 0.36,
                     transparent: true,
                     depthWrite: false
                 });
-                edgeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
+                edgeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 });
+            } else if (b.face_role === 'shared_corner') {
+                mat = new THREE.MeshStandardMaterial({ color: 0xd4a373, roughness: 0.70, metalness: 0.06 });
+                edgeMat = new THREE.LineBasicMaterial({ color: 0x8b5cf6, linewidth: 2 });
             } else {
-                mat = new THREE.MeshStandardMaterial({ color: 0xcba06c, roughness: 0.75 });
+                mat = new THREE.MeshStandardMaterial({ color: 0xcba06c, roughness: 0.75, metalness: 0.05 });
                 edgeMat = new THREE.LineBasicMaterial({ color: 0x6e471d });
             }
 
-            const mesh = new THREE.Mesh(boxGeo, mat);
+            const mesh = new THREE.Mesh(itemGeo, mat);
             mesh.position.set(posX, posY, posZ);
-            const edge = new THREE.LineSegments(edgesGeo, edgeMat);
+            const edge = new THREE.LineSegments(itemEdgesGeo, edgeMat);
             edge.position.copy(mesh.position);
             wbThreeScene.add(edge);
 
@@ -2254,8 +2361,8 @@
                 layer: b.layer,
                 col: b.col,
                 depth: b.depth,
-                label: b.label || `Box #${b.id} (Layer ${b.layer + 1}, Col ${b.col + 1}, Row ${b.depth + 1})`,
-                isHidden: b.is_hidden,
+                label: b.label || `Object #${b.id} (Layer ${(b.layer || 0) + 1}, Col ${(b.col || 0) + 1})`,
+                isHidden: Boolean(b.is_hidden),
                 origPos: { x: posX, y: posY, z: posZ },
                 edgesMesh: edge
             };
@@ -2283,7 +2390,7 @@
                 hoverDiv.innerHTML = `
                     <div style="font-weight:700; color:#38bdf8;">${item.label}</div>
                     <div style="font-size:0.65rem; color:${item.isHidden ? '#f59e0b' : '#10b981'};">
-                        ${item.isHidden ? 'Inferred Hidden Unit' : 'Observed Surface Unit'}
+                        ${item.isHidden ? 'Inferred Hidden Unit' : 'Directly Localized Physical Object'}
                     </div>
                 `;
             } else if (hoverDiv) {
