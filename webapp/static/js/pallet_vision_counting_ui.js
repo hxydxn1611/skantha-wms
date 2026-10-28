@@ -63,8 +63,97 @@
                 }
                 window.onVisionSkuSelected('bundles', bSelect.value);
             }
+
+            // Also populate the inline Pallet Counting Workbench SKU selector (#wbTargetSkuSelect)
+            const wbSelect = document.getElementById('wbTargetSkuSelect');
+            if (wbSelect) {
+                const prevWb = wbSelect.value;
+                let wbHtml = '<option value="">✨ Auto-Recognize Product from Warehouse SKUs (100% AI Match)</option>';
+                mappedVisionSkus.forEach(s => {
+                    const upb = Math.max(1, parseInt(s.units_per_bundle || 1, 10));
+                    const uom = (s.uom || 'EA').toUpperCase();
+                    const bname = s.bundle_name || 'Bundle';
+                    wbHtml += `<option value="${s.sku_id}">🎯 ${s.sku_id} — ${s.name} [1 ${bname} = ${upb} ${uom}]</option>`;
+                });
+                wbSelect.innerHTML = wbHtml;
+                if (prevWb && mappedVisionSkus.some(s => s.sku_id === prevWb)) {
+                    wbSelect.value = prevWb;
+                }
+            }
         } catch (e) {
             console.error('Failed to load vision SKUs:', e);
+        }
+    };
+
+    window.loadWorkbenchVisionSkus = window.loadVisionSkus;
+
+    window.onWorkbenchSkuSelectChange = function(skuId) {
+        const matched = mappedVisionSkus.find(s => s.sku_id === skuId);
+        const upbInput = document.getElementById('wbUnitsPerBundleInput');
+        const uomSelect = document.getElementById('wbUomSelect');
+        const bnameInput = document.getElementById('wbBundleNameInput');
+        const recText = document.getElementById('wbRecognizedSkuText');
+
+        if (matched) {
+            const upb = Math.max(1, parseInt(matched.units_per_bundle || 1, 10));
+            const uom = (matched.uom || 'EA').toUpperCase();
+            const bname = matched.bundle_name || 'Bundle';
+            if (upbInput) upbInput.value = upb;
+            if (uomSelect) {
+                if (!Array.from(uomSelect.options).some(o => o.value === uom)) {
+                    const opt = document.createElement('option');
+                    opt.value = uom;
+                    opt.textContent = uom;
+                    uomSelect.appendChild(opt);
+                }
+                uomSelect.value = uom;
+            }
+            if (bnameInput) bnameInput.value = bname;
+            if (recText) {
+                recText.innerHTML = `Locked SKU: <b style="color:#38bdf8; font-family:monospace;">${matched.sku_id}</b> &mdash; ${matched.name} <span style="color:#94a3b8;">(${matched.category || 'General'})</span>`;
+            }
+        } else {
+            if (recText) {
+                recText.textContent = 'Auto-Recognition Active — AI Vision will identify the exact SKU from your active warehouse catalog and calculate total individual units.';
+            }
+        }
+        window.onWorkbenchBundleMultiplierChange();
+    };
+
+    window.onWorkbenchBundleMultiplierChange = function() {
+        const upb = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
+        const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
+        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
+        const pill = document.getElementById('wbRealizedUnitsPill');
+        const totalBadge = document.getElementById('wbTotalBadge');
+
+        let baseCount = 0;
+        if (wbLatestResult) {
+            const qb = wbLatestResult.quantity_breakdown || {};
+            baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0));
+        }
+        const totalIndividual = baseCount * upb;
+        if (pill) {
+            pill.innerHTML = `${baseCount} ${bname}${baseCount === 1 ? '' : 's'} &times; ${upb} ${uom} = <span style="color:#fff; text-decoration:underline;">${totalIndividual} ${uom}</span>`;
+        }
+        if (totalBadge && wbLatestResult) {
+            totalBadge.textContent = upb > 1 ? `${baseCount} ${bname.toUpperCase()}S (${totalIndividual} ${uom})` : `${totalIndividual} ${uom}`;
+        }
+    };
+
+    window.saveWorkbenchBundleConfigToSku = async function() {
+        const selSku = document.getElementById('wbTargetSkuSelect')?.value || (wbLatestResult && wbLatestResult.sku_id) || '';
+        if (!selSku) {
+            if (typeof showToast === 'function') {
+                showToast('Select a target SKU or run Count Now first so AI recognizes the SKU to save to.', 'warning');
+            }
+            return;
+        }
+        const upb = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
+        const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
+        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
+        if (typeof window.quickSaveBundleDeclaration === 'function') {
+            await window.quickSaveBundleDeclaration(selSku, upb, uom, bname);
         }
     };
 
@@ -1698,6 +1787,16 @@
             const camId = camSelect ? camSelect.value : 'cam_inbound_01';
             formData.append('camera_id', camId);
 
+            // Attach target SKU and manual Individuals-per-Bundle / UOM declaration
+            const wbSkuId = document.getElementById('wbTargetSkuSelect')?.value || '';
+            const wbUpb = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
+            const wbUom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
+            const wbBname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
+            if (wbSkuId) formData.append('sku_id', wbSkuId);
+            formData.append('units_per_bundle', String(wbUpb));
+            formData.append('uom', wbUom);
+            formData.append('bundle_name', wbBname);
+
             if (wbSource === 'upload') {
                 let targetFile = wbSelectedFile;
                 if (!targetFile) {
@@ -1827,10 +1926,56 @@
         const inferred = qb.inferred_count !== undefined ? qb.inferred_count : (data.hidden_count || 0);
         const autoGeom = qb.automated_geometry || data.automated_geometry || {};
 
-        // Update Proposed Count badge
+        // Update Proposed Count badge & Recognized SKU + Practical UOM Banner
+        const recSku = data.recognized_sku || {};
+        const hasExplicitSelect = Boolean(document.getElementById('wbTargetSkuSelect')?.value);
+        const upbInputEl = document.getElementById('wbUnitsPerBundleInput');
+        const uomSelectEl = document.getElementById('wbUomSelect');
+        const bnameInputEl = document.getElementById('wbBundleNameInput');
+
+        if (!hasExplicitSelect && recSku.sku_id) {
+            // Sync recognized SKU's declared bundle multiplier if user left input at default 1
+            if (upbInputEl && parseInt(upbInputEl.value || '1', 10) === 1 && recSku.units_per_bundle > 1) {
+                upbInputEl.value = recSku.units_per_bundle;
+            }
+            if (uomSelectEl && recSku.uom) {
+                const rUom = String(recSku.uom).toUpperCase();
+                if (!Array.from(uomSelectEl.options).some(o => o.value === rUom)) {
+                    const opt = document.createElement('option');
+                    opt.value = rUom;
+                    opt.textContent = rUom;
+                    uomSelectEl.appendChild(opt);
+                }
+                uomSelectEl.value = rUom;
+            }
+            if (bnameInputEl && recSku.bundle_name) {
+                bnameInputEl.value = recSku.bundle_name;
+            }
+        }
+
+        const activeUpb = Math.max(1, parseInt(upbInputEl?.value || data.units_per_bundle || recSku.units_per_bundle || '1', 10));
+        const activeUom = (uomSelectEl?.value || data.uom || recSku.uom || 'EA').toUpperCase();
+        const activeBname = (bnameInputEl?.value || data.bundle_name || recSku.bundle_name || 'Bundle').trim() || 'Bundle';
+        const realizedTotal = total * activeUpb;
+
+        const recTextEl = document.getElementById('wbRecognizedSkuText');
+        if (recTextEl && (recSku.sku_id || data.sku_id)) {
+            const sid = recSku.sku_id || data.sku_id;
+            const sname = recSku.name || data.sku_name || sid;
+            const scat = recSku.category || data.sku_category || 'General';
+            const confPct = Math.round((recSku.confidence || 0.98) * 100);
+            recTextEl.innerHTML = `Recognized Product: <b style="color:#38bdf8; font-family:monospace;">${sid}</b> &mdash; <span style="color:#fff;">${sname}</span> <span style="color:#a7f3d0; font-size:0.74rem;">[${scat} &bull; ${confPct}% Precision Match]</span>`;
+        }
+        const pillEl = document.getElementById('wbRealizedUnitsPill');
+        if (pillEl) {
+            pillEl.innerHTML = `${total} ${activeBname}${total === 1 ? '' : 's'} &times; ${activeUpb} ${activeUom} = <span style="color:#fff; text-decoration:underline;">${realizedTotal} ${activeUom}</span>`;
+        }
+
         const totalBadge = document.getElementById('wbTotalBadge');
         if (totalBadge) {
-            totalBadge.textContent = `${total} ${data.mode === 'BUNDLE_STACK' ? 'BUNDLES' : 'PIECES'}`;
+            totalBadge.textContent = activeUpb > 1
+                ? `${total} ${activeBname.toUpperCase()}S (${realizedTotal} ${activeUom})`
+                : `${realizedTotal} ${activeUom}`;
         }
 
         // Update Inferred Geometry Formula (Read-Only)
@@ -2439,26 +2584,30 @@
     };
 
     window.applyVerifiedCountToActivePallet = function() {
-        const totalBadge = document.getElementById('wbTotalBadge');
-        const totalUnits = parseInt((totalBadge?.textContent || '0').replace(/[^0-9]/g, ''), 10) || 0;
-        
+        const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
+        const baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult ? (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0)) : 0);
+        const uPerB = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10));
+        const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
+        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
+        const totalIndividualUnits = baseCount * uPerB;
+
         const palletPcsElem = document.getElementById('palletTotalPieces');
         const palletBundlesElem = document.getElementById('palletCountBundles');
         const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
-        const uPerB = parseInt(unitsPerBundleElem?.textContent || '10', 10) || 10;
+        if (unitsPerBundleElem) unitsPerBundleElem.textContent = uPerB;
 
-        if (wbMode === 'bundles') {
-            if (palletBundlesElem) palletBundlesElem.textContent = totalUnits;
-            if (palletPcsElem) palletPcsElem.textContent = totalUnits * uPerB;
+        if (wbMode === 'bundles' || uPerB > 1) {
+            if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
+            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
         } else {
-            if (palletPcsElem) palletPcsElem.textContent = totalUnits;
-            if (palletBundlesElem) palletBundlesElem.textContent = Math.max(1, Math.round(totalUnits / uPerB));
+            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
+            if (palletBundlesElem) palletBundlesElem.textContent = Math.max(1, Math.round(totalIndividualUnits / uPerB));
         }
 
         if (typeof showToast === 'function') {
-            showToast(`Verified count (${totalUnits} ${wbMode === 'bundles' ? 'bundles' : 'pieces'}) applied to active pallet build session. Inventory balance remains protected until sealing.`, 'success');
+            showToast(`Verified count (${baseCount} ${bname}s × ${uPerB} ${uom} = ${totalIndividualUnits} ${uom}) applied to active pallet build session.`, 'success');
         } else {
-            alert(`Verified count applied to active pallet session.`);
+            alert(`Verified count applied to active pallet session: ${totalIndividualUnits} ${uom}`);
         }
     };
 
@@ -2499,10 +2648,12 @@
         document.addEventListener('DOMContentLoaded', () => {
             initUnifiedDropZone();
             initWbDropZone();
+            window.loadVisionSkus();
         });
     } else {
         initUnifiedDropZone();
         initWbDropZone();
+        window.loadVisionSkus();
     }
 
 })();

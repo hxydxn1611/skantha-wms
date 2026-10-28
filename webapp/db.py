@@ -2192,13 +2192,31 @@ def get_all_skus():
     conn.close()
     return skus
 
-def add_sku(sku_id, name, description, category, unit_weight, unit_volume, units_per_bundle=1):
+def add_sku(sku_id, name, description, category, unit_weight=0.0, unit_volume=0.0, units_per_bundle=1, uom='EA', bundle_name='Bundle', target_bundles_per_pallet=10):
     conn = get_db()
+    sku_code = str(sku_id).strip().upper()
+    uom_val = str(uom or 'EA').strip().upper()
+    upb_val = max(1, int(units_per_bundle or 1))
+    bname_val = str(bundle_name or 'Bundle').strip() or 'Bundle'
+    tbp_val = max(1, int(target_bundles_per_pallet or 10))
+    wt_val = float(unit_weight or 0.0)
+    vol_val = float(unit_volume or 0.0)
     with conn:
         conn.execute('''
-            INSERT INTO skus (sku_id, name, description, category, unit_weight, unit_volume, units_per_bundle, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ''', (sku_id, name, description, category, unit_weight, unit_volume, units_per_bundle))
+            INSERT INTO skus (sku_id, name, description, category, uom, unit_weight, unit_volume, units_per_bundle, bundle_name, target_bundles_per_pallet, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(sku_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                category = excluded.category,
+                uom = excluded.uom,
+                unit_weight = excluded.unit_weight,
+                unit_volume = excluded.unit_volume,
+                units_per_bundle = excluded.units_per_bundle,
+                bundle_name = excluded.bundle_name,
+                target_bundles_per_pallet = excluded.target_bundles_per_pallet,
+                updated_at = CURRENT_TIMESTAMP
+        ''', (sku_code, name, description, category, uom_val, wt_val, vol_val, upb_val, bname_val, tbp_val))
     conn.close()
 
 def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
@@ -2414,7 +2432,11 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
     conn = get_db()
     query = """
         SELECT s.sku_id, s.name, s.description, s.category, s.unit_weight, s.unit_volume,
-               COALESCE(s.uom, 'EA') as uom, COALESCE(s.status, 'Active') as status,
+               COALESCE(s.uom, 'EA') as uom,
+               COALESCE(s.units_per_bundle, 1) as units_per_bundle,
+               COALESCE(s.bundle_name, 'Bundle') as bundle_name,
+               COALESCE(s.target_bundles_per_pallet, 10) as target_bundles_per_pallet,
+               COALESCE(s.status, 'Active') as status,
                s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at,
                COUNT(si.id) as image_count,
                MAX(CASE WHEN si.is_primary = 1 THEN si.file_path ELSE NULL END) as primary_image_path,
@@ -2462,6 +2484,9 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
         d = dict(r)
         d['primary_image_path'] = d['primary_image_path'] or d['fallback_image_path']
         d['has_image'] = bool(d['image_count'] > 0)
+        d['units_per_bundle'] = max(1, int(d.get('units_per_bundle') or 1))
+        d['target_bundles_per_pallet'] = max(1, int(d.get('target_bundles_per_pallet') or 10))
+        d['bundle_name'] = d.get('bundle_name') or 'Bundle'
         items.append(d)
 
     total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
@@ -2478,7 +2503,11 @@ def get_sku_by_id(sku_id):
     conn = get_db()
     row = conn.execute("""
         SELECT s.sku_id, s.name, s.description, s.category, s.unit_weight, s.unit_volume,
-               COALESCE(s.uom, 'EA') as uom, COALESCE(s.status, 'Active') as status,
+               COALESCE(s.uom, 'EA') as uom,
+               COALESCE(s.units_per_bundle, 1) as units_per_bundle,
+               COALESCE(s.bundle_name, 'Bundle') as bundle_name,
+               COALESCE(s.target_bundles_per_pallet, 10) as target_bundles_per_pallet,
+               COALESCE(s.status, 'Active') as status,
                s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at
         FROM skus s WHERE s.sku_id = ?
     """, (str(sku_id).strip(),)).fetchone()
@@ -2488,6 +2517,9 @@ def get_sku_by_id(sku_id):
         return None
 
     sku_dict = dict(row)
+    sku_dict['units_per_bundle'] = max(1, int(sku_dict.get('units_per_bundle') or 1))
+    sku_dict['target_bundles_per_pallet'] = max(1, int(sku_dict.get('target_bundles_per_pallet') or 10))
+    sku_dict['bundle_name'] = sku_dict.get('bundle_name') or 'Bundle'
     img_rows = conn.execute("""
         SELECT id, sku_id, filename, original_filename, file_path, file_size, mime_type, is_primary, created_at
         FROM sku_images WHERE sku_id = ? ORDER BY is_primary DESC, id ASC
@@ -2511,8 +2543,17 @@ def save_sku_master_record(data):
 
     description = str(data.get('description', '')).strip()
     category = str(data.get('category', 'General')).strip()
-    uom = str(data.get('uom', 'EA')).strip().upper()
-    status = str(data.get('status', 'Active')).strip()
+    uom = str(data.get('uom', 'EA') or 'EA').strip().upper()
+    status = str(data.get('status', 'Active') or 'Active').strip()
+    bundle_name = str(data.get('bundle_name', 'Bundle') or 'Bundle').strip() or 'Bundle'
+    try:
+        units_per_bundle = max(1, int(float(data.get('units_per_bundle', 1) or 1)))
+    except (ValueError, TypeError):
+        units_per_bundle = 1
+    try:
+        target_bundles_per_pallet = max(1, int(float(data.get('target_bundles_per_pallet', 10) or 10)))
+    except (ValueError, TypeError):
+        target_bundles_per_pallet = 10
     try:
         unit_weight = float(data.get('unit_weight', 0.0) or 0.0)
     except (ValueError, TypeError):
@@ -2526,20 +2567,67 @@ def save_sku_master_record(data):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with conn:
         conn.execute("""
-            INSERT INTO skus (sku_id, name, description, category, uom, unit_weight, unit_volume, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO skus (
+                sku_id, name, description, category, uom,
+                units_per_bundle, bundle_name, target_bundles_per_pallet,
+                unit_weight, unit_volume, status, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sku_id) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
                 category = excluded.category,
                 uom = excluded.uom,
+                units_per_bundle = excluded.units_per_bundle,
+                bundle_name = excluded.bundle_name,
+                target_bundles_per_pallet = excluded.target_bundles_per_pallet,
                 unit_weight = excluded.unit_weight,
                 unit_volume = excluded.unit_volume,
                 status = excluded.status,
                 updated_at = excluded.updated_at
-        """, (sku_id, name, description, category, uom, unit_weight, unit_volume, status, now, now))
+        """, (
+            sku_id, name, description, category, uom,
+            units_per_bundle, bundle_name, target_bundles_per_pallet,
+            unit_weight, unit_volume, status, now, now
+        ))
     conn.close()
     return get_sku_by_id(sku_id), None
+
+
+def update_sku_bundle_config(sku_id, units_per_bundle, uom=None, bundle_name=None, target_bundles_per_pallet=None):
+    """
+    Fast inline update for SKU bundle declaration ('Individuals per Bundle') and practical UOM.
+    """
+    from datetime import datetime
+    sku_code = str(sku_id or '').strip().upper()
+    if not sku_code:
+        return None, "SKU Code is required."
+    try:
+        upb = max(1, int(float(units_per_bundle or 1)))
+    except (ValueError, TypeError):
+        return None, "Individuals per Bundle must be a positive integer."
+
+    existing = get_sku_by_id(sku_code)
+    if not existing:
+        return None, f"SKU '{sku_code}' not found."
+
+    new_uom = str(uom or existing.get('uom') or 'EA').strip().upper()
+    new_bname = str(bundle_name or existing.get('bundle_name') or 'Bundle').strip() or 'Bundle'
+    try:
+        new_tbp = max(1, int(float(target_bundles_per_pallet if target_bundles_per_pallet is not None else existing.get('target_bundles_per_pallet', 10))))
+    except (ValueError, TypeError):
+        new_tbp = existing.get('target_bundles_per_pallet', 10) or 10
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    with conn:
+        conn.execute("""
+            UPDATE skus
+            SET units_per_bundle = ?, uom = ?, bundle_name = ?, target_bundles_per_pallet = ?, updated_at = ?
+            WHERE sku_id = ?
+        """, (upb, new_uom, new_bname, new_tbp, now, sku_code))
+    conn.close()
+    return get_sku_by_id(sku_code), None
 
 def delete_sku_master_record(sku_id):
     """Deletes an SKU and associated image records (if not referenced by inventory)."""
@@ -2581,6 +2669,10 @@ def batch_import_sku_records(skus_list, duplicate_policy='skip'):
                 errors.append({"row": row_num, "sku_id": sku_id, "error": "SKU Code and Product Name are mandatory."})
                 continue
 
+            upb_val = max(1, int(float(item.get('units_per_bundle', 1) or 1)))
+            bname_val = str(item.get('bundle_name', 'Bundle') or 'Bundle').strip() or 'Bundle'
+            tbp_val = max(1, int(float(item.get('target_bundles_per_pallet', 10) or 10)))
+
             existing = conn.execute("SELECT sku_id FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
             if existing:
                 if duplicate_policy == 'skip':
@@ -2593,6 +2685,9 @@ def batch_import_sku_records(skus_list, duplicate_policy='skip'):
                             description = ?,
                             category = ?,
                             uom = ?,
+                            units_per_bundle = ?,
+                            bundle_name = ?,
+                            target_bundles_per_pallet = ?,
                             unit_weight = ?,
                             unit_volume = ?,
                             status = ?,
@@ -2603,6 +2698,9 @@ def batch_import_sku_records(skus_list, duplicate_policy='skip'):
                         item.get('description', ''),
                         item.get('category', 'General'),
                         str(item.get('uom', 'EA')).upper(),
+                        upb_val,
+                        bname_val,
+                        tbp_val,
                         float(item.get('unit_weight', 0.0) or 0.0),
                         float(item.get('unit_volume', 0.0) or 0.0),
                         item.get('status', 'Active'),
@@ -2612,14 +2710,21 @@ def batch_import_sku_records(skus_list, duplicate_policy='skip'):
                     updated += 1
             else:
                 conn.execute("""
-                    INSERT INTO skus (sku_id, name, description, category, uom, unit_weight, unit_volume, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO skus (
+                        sku_id, name, description, category, uom,
+                        units_per_bundle, bundle_name, target_bundles_per_pallet,
+                        unit_weight, unit_volume, status, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     sku_id,
                     name,
                     item.get('description', ''),
                     item.get('category', 'General'),
                     str(item.get('uom', 'EA')).upper(),
+                    upb_val,
+                    bname_val,
+                    tbp_val,
                     float(item.get('unit_weight', 0.0) or 0.0),
                     float(item.get('unit_volume', 0.0) or 0.0),
                     item.get('status', 'Active'),

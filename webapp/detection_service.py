@@ -66,7 +66,7 @@ DEFAULT_CLASS_MAPPING = {
     "refrigerator": "BOX",   # Large industrial crate proxy in COCO
     "tv": "BOX",             # Large flat box proxy in COCO
 
-    # Automotive & Industrial Components
+    # Automotive & Industrial Components + Multi-Industry (Glass, Wood/Timber, Construction, Chemicals, Textiles)
     "engine block": "ENGINE_BLOCK",
     "windshield": "WINDSHIELD",
     "bumper": "BUMPER",
@@ -76,7 +76,25 @@ DEFAULT_CLASS_MAPPING = {
     "hood": "HOOD",
     "bin": "BIN",
     "material": "MATERIAL",
-    "glass": "GLASS",
+    "glass": "GLASS_SHEET_STACK",
+    "glass sheet": "GLASS_SHEET_STACK",
+    "glass stack": "GLASS_SHEET_STACK",
+    "glass crate": "WOODEN_GLASS_CRATE",
+    "a-frame": "GLASS_A_FRAME",
+    "plywood": "PLYWOOD_STACK",
+    "plywood stack": "PLYWOOD_STACK",
+    "timber": "TIMBER_PLANK_BUNDLE",
+    "timber plank": "TIMBER_PLANK_BUNDLE",
+    "lumber": "TIMBER_PLANK_BUNDLE",
+    "wood plank": "TIMBER_PLANK_BUNDLE",
+    "mdf": "MDF_BOARD_PALLET",
+    "ibc tote": "IBC_TOTE",
+    "drum": "DRUM_PALLET",
+    "fabric roll": "FABRIC_ROLL",
+    "cotton bale": "COTTON_BALE",
+    "reach truck": "FORKLIFT",
+    "pallet jack": "FORKLIFT",
+    "motorcycle": "FORKLIFT",
     "rod": "ROD",
     "part": "PART",
     "component": "COMPONENT",
@@ -90,9 +108,19 @@ FALLBACK_CLASS_NAMES = {
     "WORKER": "Worker / Personnel",
     "TRUCK": "Truck / Carrier",
     "PALLET": "Storage Pallet",
-    "FORKLIFT": "Forklift / Vehicle",
+    "FORKLIFT": "Forklift / MHE Vehicle",
     "BIN": "Storage Bin / Tote",
-    "BUNDLE": "Bundle",
+    "BUNDLE": "Stock Bundle",
+    "GLASS_A_FRAME": "Glass A-Frame Stillage",
+    "GLASS_SHEET_STACK": "Float Glass Sheet Stack",
+    "WOODEN_GLASS_CRATE": "Wooden Glass Crate",
+    "PLYWOOD_STACK": "Plywood Sheet Stack",
+    "TIMBER_PLANK_BUNDLE": "Timber Plank Bundle",
+    "MDF_BOARD_PALLET": "MDF / Particle Board Pallet",
+    "IBC_TOTE": "Chemical IBC Tote",
+    "DRUM_PALLET": "Industrial Drum Pallet",
+    "FABRIC_ROLL": "Textile Fabric Roll",
+    "COTTON_BALE": "Compressed Cotton Bale",
     "ENGINE_BLOCK": "Engine Block",
     "WINDSHIELD": "Windshield",
     "BUMPER": "Bumper",
@@ -101,10 +129,10 @@ FALLBACK_CLASS_NAMES = {
     "TIRE_BUNDLE": "Tire Bundle",
     "HOOD": "Hood",
     "LICENSE_PLATE": "License Plate",
-    "MATERIAL": "Automotive Material",
-    "GLASS": "Automotive Glass / Windshield",
+    "MATERIAL": "Industrial Material",
+    "GLASS": "Glass Sheet / Panel",
     "ROD": "Rod / Tube / Shaft",
-    "PART": "Automotive Part",
+    "PART": "Industrial Part",
     "COMPONENT": "Component / Assembly",
     "FASTENER": "Fastener / Hardware",
     "SKU": "Material SKU"
@@ -297,6 +325,74 @@ class ObjectDetectionEngine:
             "limitations": MODEL_LIMITATIONS
         }
 
+    def _resolve_sku_for_detection(
+        self,
+        frame_bgr: np.ndarray,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        mapped_code: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Matches a detected stock/bundle/box/pallet crop to the active warehouse's SKU catalog
+        and attaches its SKU code, product name, declared units_per_bundle, and practical UOM.
+        """
+        try:
+            import db
+            skus = db.get_all_skus() or []
+            if not skus:
+                return None
+
+            h, w = frame_bgr.shape[:2]
+            cx1, cy1 = max(0, min(w - 2, x1)), max(0, min(h - 2, y1))
+            cx2, cy2 = max(cx1 + 2, min(w, x2)), max(cy1 + 2, min(h, y2))
+            crop = frame_bgr[cy1:cy2, cx1:cx2]
+
+            best_sku = None
+            best_score = -1.0
+            code_l = str(mapped_code or "").lower()
+
+            try:
+                from pallet_service import SkuVisualSignatureMatcher
+                matcher = SkuVisualSignatureMatcher()
+            except Exception:
+                matcher = None
+
+            for s in skus:
+                sid = s.get("sku_id", "")
+                blob = f"{sid} {s.get('name', '')} {s.get('category', '')} {s.get('bundle_name', '')}".lower()
+                sim = 0.45
+                if matcher and crop.size > 0:
+                    try:
+                        sc = matcher.compute_similarity(crop, sid)
+                        if sc > 0:
+                            sim = float(sc)
+                    except Exception:
+                        pass
+                if any(tok in blob for tok in code_l.split("_") if len(tok) >= 3):
+                    sim += 0.25
+                if sim > best_score:
+                    best_score = sim
+                    best_sku = s
+
+            if not best_sku:
+                best_sku = skus[0]
+
+            upb = max(1, int(best_sku.get("units_per_bundle") or 1))
+            uom = str(best_sku.get("uom") or "EA").upper()
+            bname = best_sku.get("bundle_name") or "Bundle"
+            return {
+                "sku_id": best_sku["sku_id"],
+                "sku_name": best_sku.get("name") or best_sku["sku_id"],
+                "sku_category": best_sku.get("category") or "General",
+                "uom": uom,
+                "units_per_bundle": upb,
+                "bundle_name": bname
+            }
+        except Exception:
+            return None
+
     def detect(
         self,
         image_input: Union[np.ndarray, bytes, str],
@@ -485,6 +581,11 @@ class ObjectDetectionEngine:
                         },
                         "roi": roi_context
                     }
+                    # Attach active warehouse SKU recognition for stock/bundle/box/pallet items
+                    if mapped_code not in ("WORKER", "FORKLIFT", "TRUCK", "LICENSE_PLATE"):
+                        sku_meta = self._resolve_sku_for_detection(frame_bgr, x1, y1, x2, y2, mapped_code)
+                        if sku_meta:
+                            det_record.update(sku_meta)
                     detections.append(det_record)
 
         t_end = time.perf_counter()

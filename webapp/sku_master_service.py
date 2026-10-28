@@ -27,7 +27,13 @@ COLUMN_SYNONYMS = {
     "name": ["product name", "product_name", "item name", "item_name", "name", "title", "product title"],
     "description": ["description", "desc", "details", "product description", "item description"],
     "category": ["category", "cat", "product category", "group", "product group", "type"],
-    "uom": ["uom", "unit of measure", "unit_of_measure", "unit", "units"],
+    "uom": ["uom", "unit of measure", "unit_of_measure", "unit", "units", "measure"],
+    "units_per_bundle": [
+        "individuals per bundle", "individuals_per_bundle", "units per bundle", "units_per_bundle",
+        "pieces per bundle", "pieces_per_bundle", "pcs per bundle", "items per bundle", "bundle qty", "pack size"
+    ],
+    "bundle_name": ["bundle / pack type", "bundle type", "bundle_name", "pack type", "packaging type", "bundle"],
+    "target_bundles_per_pallet": ["target bundles / pallet", "target bundles", "bundles per pallet", "target_bundles_per_pallet"],
     "unit_weight": ["unit weight", "unit_weight", "weight (kg)", "weight", "unit weight (kg)"],
     "unit_volume": ["unit volume", "unit_volume", "volume (m3)", "volume", "unit volume (m3)"],
     "status": ["status", "active status", "item status"]
@@ -37,7 +43,7 @@ COLUMN_SYNONYMS = {
 def generate_sku_excel_template() -> bytes:
     """
     Generates a professional .xlsx master data template with clear required columns,
-    sample rows, and styling.
+    practical industrial UOMs, manual Individuals per Bundle declaration, and styling.
     """
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -48,9 +54,10 @@ def generate_sku_excel_template() -> bytes:
         "Product Name *",
         "Description",
         "Category",
-        "UOM",
-        "Unit Weight (kg)",
-        "Unit Volume (m3)",
+        "UOM *",
+        "Individuals per Bundle *",
+        "Bundle / Pack Type",
+        "Target Bundles / Pallet",
         "Status"
     ]
 
@@ -73,12 +80,13 @@ def generate_sku_excel_template() -> bytes:
         cell.border = thin_border
     ws.row_dimensions[1].height = 28
 
-    # Sample rows for user guidance
+    # Sample rows for user guidance across Glass, Wood/Timber, Metal, and Packaging
     sample_data = [
-        ["SKU-ELEC-001", "Precision Optical Sensor Pro", "High sensitivity optical sensor for sorting conveyors", "Electronics", "EA", 0.45, 0.002, "Active"],
-        ["SKU-PKG-002", "Heavy Duty Corrugated Carton", "Double-wall corrugated shipping box 40x30x25cm", "Packaging", "BOX", 0.85, 0.030, "Active"],
-        ["SKU-MECH-003", "Stainless Steel Bearing 20mm", "Industrial grade low friction ball bearing", "Mechanical", "EA", 1.20, 0.001, "Active"],
-        ["SKU-CHEM-004", "Industrial Cleaning Solvent 5L", "Non-flammable electronic parts wash", "Chemicals", "CAN", 5.10, 0.008, "Active"],
+        ["GLS-FLT-012", "12mm Clear Toughened Float Glass", "Architectural jumbo tempered float glass 3660x2440mm", "Float Glass", "SHEETS", 25, "A-Frame Stillage", 2, "Active"],
+        ["WOD-PLY-018", "18mm BWP Marine Grade Plywood", "Boiling waterproof hardwood structural plywood 8x4ft", "Plywood", "SHEETS", 40, "Strapped Plywood Stack", 4, "Active"],
+        ["WOD-TMB-004", "Seasoned Burma Teak Timber Plank", "Kiln-dried structural timber planks 2x6 inch x 10ft", "Timber & Lumber", "PLANKS", 30, "Banded Timber Pack", 4, "Active"],
+        ["MTL-PIP-050", "50mm Galvanized Steel Conduit Pipe", "Heavy gauge hot-dip galvanized structural tubes 6m", "Metals & Tubes", "PIPES", 45, "Hexagonal Steel Bundle", 6, "Active"],
+        ["SKU-PKG-002", "Heavy Duty Corrugated Master Carton", "Double-wall corrugated shipping cartons 40x30x25cm", "Packaging", "BOXES", 20, "Pallet Layer Pack", 8, "Active"],
     ]
 
     sample_font = Font(name="Calibri", size=10)
@@ -88,9 +96,9 @@ def generate_sku_excel_template() -> bytes:
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.font = sample_font
             cell.border = thin_border
-            if col_idx in (1, 5, 8):
+            if col_idx in (1, 5, 9):
                 cell.alignment = Alignment(horizontal="center", vertical="center")
-            elif col_idx in (6, 7):
+            elif col_idx in (6, 8):
                 cell.alignment = Alignment(horizontal="right", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
@@ -212,15 +220,33 @@ def parse_and_validate_sku_excel(file_bytes: bytes, duplicate_policy: str = "ski
         desc = str(raw_item.get("description") or "").strip()
         category = str(raw_item.get("category") or "General").strip() or "General"
         uom = str(raw_item.get("uom") or "EA").strip().upper() or "EA"
+        bundle_name = str(raw_item.get("bundle_name") or "Bundle").strip() or "Bundle"
         status_val = str(raw_item.get("status") or "Active").strip().capitalize()
         if status_val not in ("Active", "Disabled"):
             status_val = "Active"
 
         # Validate numbers
+        upb_err = None
         weight_err = None
         vol_err = None
+        raw_upb = raw_item.get("units_per_bundle")
+        raw_tbp = raw_item.get("target_bundles_per_pallet")
         raw_wt = raw_item.get("unit_weight")
         raw_vol = raw_item.get("unit_volume")
+
+        try:
+            units_per_bundle = int(float(raw_upb)) if raw_upb is not None and str(raw_upb).strip() != '' else 1
+            if units_per_bundle < 1:
+                upb_err = "Individuals per Bundle must be >= 1"
+                units_per_bundle = 1
+        except (ValueError, TypeError):
+            upb_err = f"Invalid Individuals per Bundle '{raw_upb}'"
+            units_per_bundle = 1
+
+        try:
+            target_bundles_per_pallet = max(1, int(float(raw_tbp))) if raw_tbp is not None and str(raw_tbp).strip() != '' else 10
+        except (ValueError, TypeError):
+            target_bundles_per_pallet = 10
 
         try:
             unit_weight = float(raw_wt) if raw_wt is not None and str(raw_wt).strip() != '' else 0.0
@@ -243,6 +269,8 @@ def parse_and_validate_sku_excel(file_bytes: bytes, duplicate_policy: str = "ski
             row_errors.append("SKU Code is required.")
         if not prod_name:
             row_errors.append("Product Name is required.")
+        if upb_err:
+            row_errors.append(upb_err)
         if weight_err:
             row_errors.append(weight_err)
         if vol_err:
@@ -281,6 +309,9 @@ def parse_and_validate_sku_excel(file_bytes: bytes, duplicate_policy: str = "ski
             "description": desc,
             "category": category,
             "uom": uom,
+            "units_per_bundle": units_per_bundle,
+            "bundle_name": bundle_name,
+            "target_bundles_per_pallet": target_bundles_per_pallet,
             "unit_weight": round(unit_weight, 4),
             "unit_volume": round(unit_volume, 4),
             "status": status_val,

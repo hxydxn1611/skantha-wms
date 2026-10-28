@@ -3397,13 +3397,23 @@ window.fetchSkus = async function() {
         if(!tbody) return;
         tbody.innerHTML = '';
         skus.forEach(s => {
+            const uom = (s.uom || 'EA').toUpperCase();
+            const upb = Math.max(1, parseInt(s.units_per_bundle || 1, 10));
+            const bname = s.bundle_name || 'Bundle';
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong>${s.sku_id}</strong></td>
-                <td>${s.name}</td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${s.category}</span></td>
-                <td>${s.unit_volume} m³</td>
-                <td>${s.unit_weight} kg</td>
+                <td><strong style="font-family:monospace; color:#0284c7;">${s.sku_id}</strong></td>
+                <td><strong>${s.name}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${s.category || 'General'}</span></td>
+                <td><span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; font-family:monospace;">${uom}</span></td>
+                <td>
+                    <div style="display:inline-flex; align-items:center; gap:6px;">
+                        <input type="number" min="1" value="${upb}" id="quickUpb_${s.sku_id}" style="width:74px; padding:4px 8px; border-radius:6px; border:1px solid var(--border-light); font-weight:700; margin:0;">
+                        <span style="font-size:0.78rem; color:var(--text-muted);">${uom} / ${bname}</span>
+                        <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:0.72rem;" onclick="window.quickSaveBundleDeclaration && window.quickSaveBundleDeclaration('${s.sku_id}')">Save</button>
+                    </div>
+                </td>
+                <td><span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">${bname}</span></td>
             `;
             tbody.appendChild(tr);
         });
@@ -3494,9 +3504,12 @@ window.submitAddSku = async function() {
     const data = {
         sku_id: skuId,
         name: name,
-        category: cat,
-        unit_volume: parseFloat(document.getElementById('newSkuVol').value),
-        unit_weight: parseFloat(document.getElementById('newSkuWt').value)
+        category: cat || 'General',
+        uom: (document.getElementById('newSkuUom')?.value || 'EA').toUpperCase(),
+        units_per_bundle: Math.max(1, parseInt(document.getElementById('newSkuUpb')?.value || '1', 10)),
+        bundle_name: (document.getElementById('newSkuBundleName')?.value || 'Bundle').trim() || 'Bundle',
+        unit_volume: parseFloat(document.getElementById('newSkuVol')?.value || '0') || 0.0,
+        unit_weight: parseFloat(document.getElementById('newSkuWt')?.value || '0') || 0.0
     };
     try {
         const res = await fetch('/api/skus', {

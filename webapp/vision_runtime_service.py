@@ -1275,31 +1275,37 @@ class CameraRuntimeSession:
                 for p_idx in range(1, len(points)):
                     cv2.line(display_frame, points[p_idx - 1], points[p_idx], trail_color, max(1, int(p_idx / 4)))
 
-        # 3. Draw Detected Objects (Workers in Cyan/Blue, Stock in Green, Vehicles in Emerald)
+        # 3. Draw Detected Objects (Workers in Cyan/Blue, Forklifts in Coral Orange, Stock in Green, Vehicles in Emerald)
         for box in self.latest_boxes:
             x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
             is_person = box.get('is_person', False)
+            is_forklift = box.get('is_forklift', False)
             is_veh = box.get('is_vehicle', False)
             if is_person:
-                color = (255, 200, 0) # Cyan/Blue for Personnel / Workers
+                color = (255, 200, 0)   # Cyan/Blue for Personnel / Workers
+            elif is_forklift:
+                color = (20, 140, 255)  # Vivid Orange/Coral for Forklift / MHE
             elif is_veh:
-                color = (0, 255, 160) # Emerald for Vehicles
+                color = (0, 255, 160)   # Emerald for Vehicles
             else:
-                color = (0, 255, 128) # Vibrant Green for Warehouse Stock / Boxes
+                color = (0, 255, 128)   # Vibrant Green for Warehouse Stock / Bundles
 
-            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
             label = box.get('type', '')
-            cv2.putText(display_frame, label, (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.44, 1)
+            by1 = max(0, y1 - th - 8)
+            cv2.rectangle(display_frame, (x1, by1), (min(w, x1 + tw + 8), y1), color, -1)
+            cv2.putText(display_frame, label, (x1 + 4, max(12, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (10, 15, 25), 1, cv2.LINE_AA)
 
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
-            cv2.circle(display_frame, (cx, cy), 3, (255, 255, 255), -1)
+            cv2.circle(display_frame, (cx, cy), 4, (255, 255, 255), -1)
 
             tid = box.get('track_id')
             if tid in self.track_motion_vectors:
                 mv_x, mv_y = self.track_motion_vectors[tid]
-                if abs(mv_x) > 1 or abs(mv_y) > 1:
-                    arrow_end = (cx + int(mv_x * 2.5), cy + int(mv_y * 2.5))
-                    cv2.arrowedLine(display_frame, (cx, cy), arrow_end, color, 2, tipLength=0.35)
+                if abs(mv_x) > 0.6 or abs(mv_y) > 0.6:
+                    arrow_end = (cx + int(mv_x * 3.0), cy + int(mv_y * 3.0))
+                    cv2.arrowedLine(display_frame, (cx, cy), arrow_end, color, 2, cv2.LINE_AA, tipLength=0.35)
 
         # 4. Draw Floating Flash Indicators
         for fc in self.flash_counters:
@@ -1408,21 +1414,32 @@ class CameraRuntimeSession:
                 active_stock_count = 0
 
                 has_vehicle = False
+                forklifts_count = 0
                 for t in raw_tracks:
                     cls_code = str(t.get("class_code", "")).upper()
                     is_person = (cls_code in ("WORKER", "PERSON"))
+                    is_forklift = (cls_code == "FORKLIFT")
                     is_vehicle = (cls_code in ("TRUCK", "CAR", "BUS", "VEHICLE", "LICENSE_PLATE"))
-                    is_stock = not is_person and not is_vehicle
+                    is_stock = not is_person and not is_vehicle and not is_forklift
                     tid = t.get("track_id")
                     bb = t.get("bbox", {})
                     x1, y1 = max(0, int(bb.get("x1", 0))), max(0, int(bb.get("y1", 0)))
                     x2, y2 = min(640, int(bb.get("x2", 640))), min(480, int(bb.get("y2", 480)))
                     cx = int((x1 + x2) / 2)
                     cy = int((y1 + y2) / 2)
+                    mov_state = t.get("movement_state") or ""
+                    sku_code = t.get("sku_id") or (t.get("identity") or {}).get("value")
+                    upb = max(1, int(t.get("units_per_bundle") or 1))
+                    uom = str(t.get("uom") or "EA").upper()
 
                     if is_person:
                         workers_count += 1
-                        v_type = f"Worker #{tid}" if tid is not None else "Worker"
+                        state_tag = f" [{mov_state}]" if mov_state else ""
+                        v_type = f"Worker #{tid}{state_tag}" if tid is not None else f"Worker{state_tag}"
+                    elif is_forklift:
+                        forklifts_count += 1
+                        state_tag = f" [{mov_state}]" if mov_state else " [MHE]"
+                        v_type = f"Forklift #{tid}{state_tag}" if tid is not None else f"Forklift{state_tag}"
                     elif is_vehicle:
                         has_vehicle = True
                         if cls_code in ("TRUCK", "BUS"):
@@ -1434,7 +1451,10 @@ class CameraRuntimeSession:
                     else:
                         active_stock_count += 1
                         box_count += 1
-                        v_type = f"Stock #{tid}" if tid is not None else "Stock"
+                        if sku_code:
+                            v_type = f"{sku_code} ({upb} {uom}) #{tid}" if tid is not None else f"{sku_code} ({upb} {uom})"
+                        else:
+                            v_type = f"{cls_code.replace('_', ' ').title()} #{tid}" if tid is not None else "Stock"
 
                     if tid is not None:
                         self.tracked_centroids[tid] = (cx, cy)
@@ -1443,7 +1463,7 @@ class CameraRuntimeSession:
                         traj = self.track_trajectories[tid]
                         prev_pos = traj[-1] if traj else (cx, cy)
                         traj.append((cx, cy))
-                        if len(traj) > 18:
+                        if len(traj) > 24:
                             traj.pop(0)
 
                         dx = cx - prev_pos[0]
@@ -1463,8 +1483,9 @@ class CameraRuntimeSession:
                             if crossing == 'IN' and self.counted_track_states.get(tid) != 'IN':
                                 self.inbound_count += 1
                                 self.counted_track_states[tid] = 'IN'
+                                flash_lbl = f"+1 IN ({sku_code}: +{upb} {uom})" if sku_code else "+1 IN (STOCK ADDED)"
                                 self.flash_counters.append({
-                                    'text': '+1 IN (STOCK ADDED)',
+                                    'text': flash_lbl,
                                     'pos': (cx, cy),
                                     'ttl': 24,
                                     'color': (0, 255, 128)
@@ -1472,8 +1493,9 @@ class CameraRuntimeSession:
                             elif crossing == 'OUT' and self.counted_track_states.get(tid) != 'OUT':
                                 self.outbound_count += 1
                                 self.counted_track_states[tid] = 'OUT'
+                                flash_lbl = f"-1 OUT ({sku_code}: -{upb} {uom})" if sku_code else "-1 OUT (STOCK SUBTRACTED)"
                                 self.flash_counters.append({
-                                    'text': '-1 OUT (STOCK SUBTRACTED)',
+                                    'text': flash_lbl,
                                     'pos': (cx, cy),
                                     'ttl': 24,
                                     'color': (0, 140, 255)
@@ -1482,8 +1504,13 @@ class CameraRuntimeSession:
                     new_boxes.append({
                         "x1": x1, "y1": y1, "x2": x2, "y2": y2,
                         "type": v_type,
+                        "sku_id": sku_code,
+                        "uom": uom,
+                        "units_per_bundle": upb,
+                        "movement_state": mov_state,
                         "is_package": is_stock,
                         "is_person": is_person,
+                        "is_forklift": is_forklift,
                         "is_vehicle": is_vehicle,
                         "track_id": tid
                     })

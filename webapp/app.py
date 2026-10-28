@@ -589,10 +589,47 @@ def api_get_skus():
 def api_add_sku():
     data = request.get_json(force=True)
     try:
-        db.add_sku(data['sku_id'], data['name'], data.get('description', ''), data.get('category', ''), data.get('unit_weight', 0.0), data.get('unit_volume', 0.0))
-        return jsonify({'success': True})
+        db.add_sku(
+            sku_id=data['sku_id'],
+            name=data['name'],
+            description=data.get('description', ''),
+            category=data.get('category', 'General'),
+            unit_weight=data.get('unit_weight', 0.0),
+            unit_volume=data.get('unit_volume', 0.0),
+            units_per_bundle=data.get('units_per_bundle', 1),
+            uom=data.get('uom', 'EA'),
+            bundle_name=data.get('bundle_name', 'Bundle'),
+            target_bundles_per_pallet=data.get('target_bundles_per_pallet', 10)
+        )
+        return jsonify({'success': True, 'sku': db.get_sku_by_id(data['sku_id'])})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/skus/<sku_id>/bundle_config', methods=['POST', 'PUT'])
+def api_update_sku_bundle_config(sku_id):
+    """
+    Allows operators to manually declare or update how many individual units are in 1 bundle
+    ('units_per_bundle'), the practical UOM ('SHEETS', 'PLANKS', 'PIPES', 'EA', etc.), and bundle type.
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        record, err = db.update_sku_bundle_config(
+            sku_id=sku_id,
+            units_per_bundle=data.get('units_per_bundle', 1),
+            uom=data.get('uom'),
+            bundle_name=data.get('bundle_name'),
+            target_bundles_per_pallet=data.get('target_bundles_per_pallet')
+        )
+        if err:
+            return jsonify({'success': False, 'error': err}), 400
+        return jsonify({
+            'success': True,
+            'message': f"Updated {sku_id}: 1 {record.get('bundle_name', 'Bundle')} = {record.get('units_per_bundle', 1)} {record.get('uom', 'EA')}",
+            'sku': record
+        })
+    except Exception as e:
+        logger.exception(f"Failed updating bundle config for SKU {sku_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==============================================================================
 # MULTI-WAREHOUSE & INDUSTRY BLUEPRINT API ROUTES
@@ -5846,13 +5883,17 @@ def api_sync_audit_count():
 @app.route('/api/pallets/vision-skus', methods=['GET'])
 def api_get_vision_skus():
     """
-    Returns SKUs that have mapped visual training photos in the AI Vision / SKU Master Data module.
-    Enables operators to select the exact warehouse inventory item so the vision model only counts
-    pieces/bundles matching that trained template.
+    Returns active warehouse SKUs (with mapped visual training photos prioritized) along with
+    their declared 'units_per_bundle', 'uom', 'bundle_name', and 'target_bundles_per_pallet'.
     """
     try:
-        data = db.get_sku_master_records(image_status='mapped', limit=100)
+        data = db.get_sku_master_records(status='Active', limit=200)
         items = data.get('items', [])
+        if not items:
+            data = db.get_sku_master_records(limit=200)
+            items = data.get('items', [])
+        # Prioritize SKUs with mapped images first
+        items.sort(key=lambda x: (0 if x.get('has_image') else 1, str(x.get('sku_id', ''))))
         skus = []
         for it in items:
             raw_path = it.get('primary_image_path') or ''
@@ -5870,8 +5911,13 @@ def api_get_vision_skus():
                 "sku_id": it["sku_id"],
                 "name": it.get("name", it["sku_id"]),
                 "category": it.get("category", "General"),
+                "description": it.get("description", ""),
                 "image_url": image_url,
+                "has_image": bool(it.get("has_image")),
                 "uom": it.get("uom", "EA"),
+                "units_per_bundle": max(1, int(it.get("units_per_bundle") or 1)),
+                "bundle_name": it.get("bundle_name") or "Bundle",
+                "target_bundles_per_pallet": max(1, int(it.get("target_bundles_per_pallet") or 10)),
                 "unit_weight": it.get("unit_weight", 0)
             })
         return jsonify({"success": True, "skus": skus, "count": len(skus)})
@@ -6151,6 +6197,18 @@ def api_count_pallet_pieces():
                 "depth": int(c_rows) if c_rows else 1
             }
 
+        # Manual declaration of individuals per bundle & practical UOM from operator
+        raw_upb = request.form.get('units_per_bundle') or data.get('units_per_bundle')
+        manual_upb = max(1, int(float(raw_upb))) if (raw_upb and str(raw_upb).strip()) else None
+        manual_uom = (request.form.get('uom') or data.get('uom') or '').strip().upper() or None
+        manual_bundle_name = (request.form.get('bundle_name') or data.get('bundle_name') or '').strip() or None
+
+        if sku_id and sku_id != 'MULTI_ALL' and (manual_upb or manual_uom or manual_bundle_name):
+            try:
+                db.update_sku_bundle_config(sku_id, manual_upb or 1, uom=manual_uom, bundle_name=manual_bundle_name)
+            except Exception:
+                pass
+
         result = service.count_individual_pieces(
             image_bgr,
             counting_mode=counting_mode,
@@ -6158,7 +6216,10 @@ def api_count_pallet_pieces():
             sensitivity=sensitivity,
             target_clusters=target_clusters,
             sku_id=sku_id,
-            custom_matrix=custom_matrix
+            custom_matrix=custom_matrix,
+            manual_units_per_bundle=manual_upb,
+            manual_uom=manual_uom,
+            manual_bundle_name=manual_bundle_name
         )
 
         result['source_type'] = source_type
@@ -6283,12 +6344,26 @@ def api_count_pallet_bundles():
                 }), 400
             return jsonify({"success": False, "error": "Unable to acquire image source for bundle counting"}), 400
 
+        raw_upb = request.form.get('units_per_bundle') or data.get('units_per_bundle')
+        manual_upb = max(1, int(float(raw_upb))) if (raw_upb and str(raw_upb).strip()) else None
+        manual_uom = (request.form.get('uom') or data.get('uom') or '').strip().upper() or None
+        manual_bundle_name = (request.form.get('bundle_name') or data.get('bundle_name') or '').strip() or None
+
+        if sku_id and sku_id != 'MULTI_ALL' and (manual_upb or manual_uom or manual_bundle_name):
+            try:
+                db.update_sku_bundle_config(sku_id, manual_upb or 1, uom=manual_uom, bundle_name=manual_bundle_name)
+            except Exception:
+                pass
+
         result = service.count_bundles_multi_view(
             angle1_bgr=img_a1,
             angle2_bgr=img_a2,
             preset_name=preset_name,
             depth_multiplier=depth_multiplier,
-            sku_id=sku_id
+            sku_id=sku_id,
+            manual_units_per_bundle=manual_upb,
+            manual_uom=manual_uom,
+            manual_bundle_name=manual_bundle_name
         )
 
         result['source_type'] = source_type

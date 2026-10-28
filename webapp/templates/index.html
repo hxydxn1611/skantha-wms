@@ -2165,8 +2165,11 @@
 </div>
 
 <div id="sku-master-sub" class="sub-master-section" style="display:none;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-        <h3>SKU Master (Product Catalog)</h3>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:10px;">
+        <div>
+            <h3 style="margin:0;">SKU Master (Product Catalog &amp; Bundle UOM Declarations)</h3>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin:4px 0 0 0;">Declare practical UOMs (Sheets, Planks, Pipes, EA, Sq.Ft, etc.) and how many individual items are inside 1 bundle.</p>
+        </div>
         <button class="btn-primary" onclick="document.getElementById('addSkuModal').style.display='flex'">+ Add SKU</button>
     </div>
     <div style="overflow-x:auto;">
@@ -2174,10 +2177,11 @@
             <thead>
                 <tr>
                     <th>SKU ID</th>
-                    <th>Name</th>
+                    <th>Product Name</th>
                     <th>Category</th>
-                    <th>Unit Vol</th>
-                    <th>Unit Wt</th>
+                    <th>UOM</th>
+                    <th>Individuals in 1 Bundle</th>
+                    <th>Bundle / Pack Type</th>
                 </tr>
             </thead>
             <tbody id="skuMasterBody"></tbody>
@@ -2631,18 +2635,52 @@ async function fetchSkus() {
         if(!tbody) return;
         tbody.innerHTML = '';
         skus.forEach(s => {
+            const uom = (s.uom || 'EA').toUpperCase();
+            const upb = Math.max(1, parseInt(s.units_per_bundle || 1, 10));
+            const bname = s.bundle_name || 'Bundle';
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong>${s.sku_id}</strong></td>
-                <td>${s.name}</td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${s.category}</span></td>
-                <td>${s.unit_volume} m³</td>
-                <td>${s.unit_weight} kg</td>
+                <td><strong style="font-family:monospace; color:#0284c7;">${s.sku_id}</strong></td>
+                <td><strong>${s.name}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${s.category || 'General'}</span></td>
+                <td><span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; font-family:monospace;">${uom}</span></td>
+                <td>
+                    <div style="display:inline-flex; align-items:center; gap:6px;">
+                        <input type="number" min="1" value="${upb}" id="quickUpb_${s.sku_id}" style="width:74px; padding:4px 8px; border-radius:6px; border:1px solid var(--border-light); font-weight:700; margin:0;">
+                        <span style="font-size:0.78rem; color:var(--text-muted);">${uom} / ${bname}</span>
+                        <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:0.72rem;" onclick="window.quickSaveBundleDeclaration('${s.sku_id}')">Save</button>
+                    </div>
+                </td>
+                <td><span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">${bname}</span></td>
             `;
             tbody.appendChild(tr);
         });
     } catch(e) { console.error(e); }
 }
+
+window.quickSaveBundleDeclaration = async function(skuId, customUpb, customUom, customBundleName) {
+    try {
+        const upbInput = document.getElementById(`quickUpb_${skuId}`) || document.getElementById(`visionUpb_${skuId}`);
+        const upbVal = customUpb !== undefined ? customUpb : (upbInput ? parseInt(upbInput.value || '1', 10) : 1);
+        const payload = { units_per_bundle: Math.max(1, upbVal) };
+        if (customUom) payload.uom = customUom;
+        if (customBundleName) payload.bundle_name = customBundleName;
+        const res = await fetch(`/api/skus/${encodeURIComponent(skuId)}/bundle_config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (typeof showToast === 'function') showToast(data.message || `Updated ${skuId}`, 'success');
+            fetchSkus();
+            if (typeof loadSkuMasterTable === 'function') loadSkuMasterTable();
+            if (typeof loadWorkbenchVisionSkus === 'function') loadWorkbenchVisionSkus();
+        }
+    } catch (e) {
+        console.error('Error saving bundle config:', e);
+    }
+};
 
 window.fetchBins = fetchBins;
 window.fetchSkus = fetchSkus;
@@ -2775,7 +2813,7 @@ window.switchSubTab = switchSubTab;
                                 <th style="padding:12px 14px;">Product Name &amp; Description</th>
                                 <th style="padding:12px 14px;">Category</th>
                                 <th style="padding:12px 14px;">UOM</th>
-                                <th style="padding:12px 14px;">Weight / Vol</th>
+                                <th style="padding:12px 14px;">Individuals / Bundle</th>
                                 <th style="padding:12px 14px;">Status</th>
                                 <th style="padding:12px 14px;">Vision Mapping</th>
                                 <th style="padding:12px 14px; text-align:right;">Actions</th>
@@ -5971,6 +6009,62 @@ window.switchSubTab = switchSubTab;
                     </div>
                 </div>
 
+                <!-- 2B. High-Precision SKU Product Recognition + Manual "Individuals per Bundle" & Practical UOM Bar -->
+                <div style="background:linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border:1px solid #334155; border-radius:8px; padding:10px 14px; margin-bottom:1.1rem; display:flex; flex-direction:column; gap:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <!-- Target / Auto-Recognize SKU Selector -->
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; min-width:260px;">
+                            <span style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:#38bdf8; letter-spacing:0.5px; display:inline-flex; align-items:center; gap:5px;">
+                                <i class="fas fa-microchip"></i> SKU Recognition:
+                            </span>
+                            <select id="wbTargetSkuSelect" onchange="onWorkbenchSkuSelectChange(this.value)" style="background:#0f172a; color:#f8fafc; border:1px solid #0284c7; border-radius:6px; font-size:0.78rem; padding:6px 10px; font-weight:700; min-width:250px; flex:1;">
+                                <option value="">✨ Auto-Recognize Product from Warehouse SKUs (100% AI Match)</option>
+                            </select>
+                        </div>
+
+                        <!-- Manual Declaration: Individuals in 1 Bundle + Practical UOM -->
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; background:rgba(15,23,42,0.75); padding:6px 10px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">
+                            <label for="wbUnitsPerBundleInput" style="font-size:0.73rem; font-weight:700; color:#e2e8f0; margin:0; white-space:nowrap;">
+                                <i class="fas fa-cubes" style="color:#f59e0b; margin-right:4px;"></i>1 Bundle =
+                            </label>
+                            <input type="number" id="wbUnitsPerBundleInput" min="1" max="10000" value="1" oninput="onWorkbenchBundleMultiplierChange()" style="width:72px; background:#1e293b; color:#38bdf8; border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.82rem; font-weight:800; text-align:center; margin:0;" title="Declare how many individual items (sheets, planks, pipes, pieces) are in 1 bundle">
+                            <select id="wbUomSelect" onchange="onWorkbenchBundleMultiplierChange()" style="background:#1e293b; color:#10b981; border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.76rem; font-weight:800; margin:0;" title="Select practical Unit of Measure (UOM)">
+                                <option value="SHEETS">SHEETS (Glass / Plywood / MDF)</option>
+                                <option value="PANES">PANES (Architectural / Auto Glass)</option>
+                                <option value="PLANKS">PLANKS (Timber / Hardwood Lumber)</option>
+                                <option value="BEAMS">BEAMS (Structural Timber / Steel)</option>
+                                <option value="PIPES">PIPES / TUBES (Conduit / Hollow Section)</option>
+                                <option value="RODS">RODS / BARS (Rebar / Shafts)</option>
+                                <option value="EA" selected>EA (Individual Pieces / Units)</option>
+                                <option value="BOXES">BOXES / CARTONS</option>
+                                <option value="CRATES">CRATES (Wooden / Glass Crates)</option>
+                                <option value="BUNDLES">BUNDLES / PACKS</option>
+                                <option value="SQ.FT">SQ.FT (Square Feet Area)</option>
+                                <option value="SQ.M">SQ.M (Square Meters Area)</option>
+                                <option value="CFT">CFT (Cubic Feet Timber)</option>
+                                <option value="ROLLS">ROLLS (Fabric / Textile / Coils)</option>
+                                <option value="DRUMS">DRUMS / IBC TOTES</option>
+                                <option value="PALLETS">PALLETS</option>
+                            </select>
+                            <input type="text" id="wbBundleNameInput" value="Bundle" placeholder="Pack Type (e.g. A-Frame, Stack)" oninput="onWorkbenchBundleMultiplierChange()" style="width:118px; background:#1e293b; color:#cbd5e1; border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.75rem; font-weight:600; margin:0;" title="Bundle or Pack Type (e.g. A-Frame Stillage, Plywood Stack, Timber Pack)">
+                            <button type="button" onclick="saveWorkbenchBundleConfigToSku()" style="background:#10b981; color:#052e16; border:none; border-radius:5px; padding:5px 10px; font-size:0.72rem; font-weight:800; cursor:pointer; white-space:nowrap;" title="Save this Individuals-per-Bundle and UOM declaration to the active SKU">
+                                <i class="fas fa-floppy-disk"></i> Save to SKU
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Recognized Product & Realized Individual Units Banner -->
+                    <div id="wbRecognizedSkuBanner" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.35); border-radius:6px; padding:7px 12px;">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <span style="background:#10b981; color:#052e16; font-size:0.68rem; font-weight:900; padding:2px 7px; border-radius:4px; text-transform:uppercase; letter-spacing:0.5px;">AI SKU READY</span>
+                            <span id="wbRecognizedSkuText" style="font-size:0.8rem; font-weight:700; color:#f8fafc;">Select or upload any Glass, Timber, Pipe, or Carton image — AI Vision will recognize the exact SKU and calculate total individual units.</span>
+                        </div>
+                        <div id="wbRealizedUnitsPill" style="font-family:monospace; font-size:0.84rem; font-weight:800; color:#34d399; background:rgba(6,78,59,0.7); padding:4px 10px; border-radius:5px; border:1px solid rgba(52,211,153,0.4);">
+                            0 Bundles &times; 1 EA = 0 EA
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 3. Main 2-Column Responsive Workspace -->
                 <div style="display:grid; grid-template-columns: 1.15fr 0.85fr; gap:18px; align-items:start;" id="wbMainGrid">
                     
@@ -6297,27 +6391,47 @@ window.switchSubTab = switchSubTab;
     <div id="addSkuModal" class="modal-overlay" onclick="if(event.target===this) this.style.display='none'">
         <div class="modal-dialog">
             <div class="modal-header">
-                <h3>Add New SKU</h3>
+                <h3>Add New SKU &amp; Bundle Declaration</h3>
                 <button type="button" class="modal-close-btn" onclick="document.getElementById('addSkuModal').style.display='none'">&times;</button>
             </div>
             <div class="modal-body">
                 <form id="addSkuForm">
                     <label>SKU ID (Leave blank to auto-generate)</label>
-                    <input type="text" id="newSkuId" placeholder="e.g. ELEC-S23-01">
-                    <label>Product Name</label>
-                    <input type="text" id="newSkuName" placeholder="e.g. Galaxy S23" required>
-                    <label>Category</label>
-                    <input type="text" id="newSkuCategory" placeholder="e.g. Electronics" required>
+                    <input type="text" id="newSkuId" placeholder="e.g. GLS-FLT-012 or WOD-PLY-018">
+                    <label>Product Name *</label>
+                    <input type="text" id="newSkuName" placeholder="e.g. 12mm Toughened Float Glass Sheet" required>
+                    <label>Category *</label>
+                    <input type="text" id="newSkuCategory" placeholder="e.g. Float Glass / Plywood / Timber / Metals" required>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
                         <div>
-                            <label>Unit Volume (mA3)</label>
-                            <input type="number" id="newSkuVol" step="0.1" placeholder="0.5" required>
+                            <label>Practical UOM *</label>
+                            <select id="newSkuUom" required>
+                                <option value="SHEETS">SHEETS (Glass / Plywood / MDF)</option>
+                                <option value="PANES">PANES (Architectural / Auto Glass)</option>
+                                <option value="PLANKS">PLANKS (Timber / Lumber)</option>
+                                <option value="BEAMS">BEAMS (Structural)</option>
+                                <option value="PIPES">PIPES / TUBES</option>
+                                <option value="RODS">RODS / BARS</option>
+                                <option value="EA" selected>EA (Pieces)</option>
+                                <option value="BOXES">BOXES / CARTONS</option>
+                                <option value="CRATES">CRATES</option>
+                                <option value="BUNDLES">BUNDLES</option>
+                                <option value="SQ.FT">SQ.FT</option>
+                                <option value="SQ.M">SQ.M</option>
+                                <option value="CFT">CFT</option>
+                                <option value="ROLLS">ROLLS</option>
+                                <option value="DRUMS">DRUMS</option>
+                            </select>
                         </div>
                         <div>
-                            <label>Unit Weight (kg)</label>
-                            <input type="number" id="newSkuWt" step="0.1" placeholder="1.2" required>
+                            <label>Individuals in 1 Bundle *</label>
+                            <input type="number" id="newSkuUpb" min="1" step="1" value="1" placeholder="e.g. 25" required>
                         </div>
                     </div>
+                    <label>Bundle / Pack Type</label>
+                    <input type="text" id="newSkuBundleName" value="Bundle" placeholder="e.g. A-Frame Stillage, Plywood Stack, Timber Pack">
+                    <input type="hidden" id="newSkuVol" value="0">
+                    <input type="hidden" id="newSkuWt" value="0">
                 </form>
             </div>
             <div class="modal-footer">
@@ -6376,20 +6490,39 @@ window.switchSubTab = switchSubTab;
                         <textarea id="skuModalDesc" placeholder="Product specifications, packaging details, and visual identification cues" rows="2" style="width:100%; border:1px solid var(--border-light); border-radius:6px; padding:8px; font-size:0.85rem; margin-bottom:0; background:var(--input-bg); color:var(--text-color);"></textarea>
                     </div>
 
-                    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-bottom:1rem;">
+                    <div style="display:grid; grid-template-columns: 1.1fr 1fr 1.1fr; gap:10px; margin-bottom:1rem;">
                         <div>
-                            <label for="skuModalUom">UOM</label>
-                            <input type="text" id="skuModalUom" value="EA" placeholder="EA, BOX, CAN" style="text-transform:uppercase; margin-bottom:0;">
+                            <label for="skuModalUom">Practical UOM *</label>
+                            <select id="skuModalUom" style="margin-bottom:0; font-weight:700;">
+                                <option value="SHEETS">SHEETS (Glass / Plywood)</option>
+                                <option value="PANES">PANES (Glass Panes)</option>
+                                <option value="PLANKS">PLANKS (Timber / Wood)</option>
+                                <option value="BEAMS">BEAMS (Structural)</option>
+                                <option value="PIPES">PIPES / TUBES</option>
+                                <option value="RODS">RODS / BARS</option>
+                                <option value="EA" selected>EA (Individual Pieces)</option>
+                                <option value="BOXES">BOXES / CARTONS</option>
+                                <option value="CRATES">CRATES</option>
+                                <option value="BUNDLES">BUNDLES / PACKS</option>
+                                <option value="SQ.FT">SQ.FT (Square Feet)</option>
+                                <option value="SQ.M">SQ.M (Square Meters)</option>
+                                <option value="CFT">CFT (Cubic Feet)</option>
+                                <option value="ROLLS">ROLLS (Fabric / Coils)</option>
+                                <option value="DRUMS">DRUMS / TOTES</option>
+                                <option value="PALLETS">PALLETS</option>
+                            </select>
                         </div>
                         <div>
-                            <label for="skuModalWeight">Weight (kg)</label>
-                            <input type="number" id="skuModalWeight" step="0.01" min="0" value="0.0" placeholder="0.0" style="margin-bottom:0;">
+                            <label for="skuModalUnitsPerBundle">Individuals in 1 Bundle *</label>
+                            <input type="number" id="skuModalUnitsPerBundle" step="1" min="1" value="1" placeholder="e.g. 25" style="margin-bottom:0; font-weight:700;" required>
                         </div>
                         <div>
-                            <label for="skuModalVolume">Volume (m³)</label>
-                            <input type="number" id="skuModalVolume" step="0.001" min="0" value="0.0" placeholder="0.0" style="margin-bottom:0;">
+                            <label for="skuModalBundleName">Bundle / Pack Type</label>
+                            <input type="text" id="skuModalBundleName" value="Bundle" placeholder="e.g. A-Frame, Stack" style="margin-bottom:0;">
                         </div>
                     </div>
+                    <input type="hidden" id="skuModalWeight" value="0.0">
+                    <input type="hidden" id="skuModalVolume" value="0.0">
 
                     <div style="margin-bottom:0.5rem;">
                         <label for="skuModalStatus">Status</label>

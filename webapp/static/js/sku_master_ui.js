@@ -134,9 +134,13 @@
                             <small style="color:var(--text-muted); font-size:0.75rem; display:block; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${safeDesc}</small>
                         </td>
                         <td><span style="background:rgba(99,102,241,0.08); color:#4f46e5; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:600;">${safeCat}</span></td>
-                        <td style="font-size:0.8rem; font-weight:600;">${safeUom}</td>
-                        <td style="font-size:0.78rem; color:var(--text-muted);">
-                            ${sku.unit_weight || 0} kg<br><span style="font-size:0.72rem;">${sku.unit_volume || 0} m³</span>
+                        <td style="font-size:0.8rem; font-weight:700; font-family:monospace; color:#0284c7;">${safeUom}</td>
+                        <td style="font-size:0.8rem;">
+                            <div style="display:inline-flex; align-items:center; gap:5px;">
+                                <input type="number" min="1" value="${Math.max(1, parseInt(sku.units_per_bundle || 1, 10))}" id="visionUpb_${safeSkuId}" style="width:66px; padding:3px 6px; border-radius:5px; border:1px solid var(--border-light); font-weight:700; font-size:0.8rem; margin:0;">
+                                <span style="font-size:0.74rem; color:var(--text-muted);">${safeUom} / ${escapeHtml(sku.bundle_name || 'Bundle')}</span>
+                                <button type="button" class="btn-secondary btn-sm" onclick="window.quickSaveBundleDeclaration && window.quickSaveBundleDeclaration('${safeSkuId}', document.getElementById('visionUpb_${safeSkuId}')?.value)" style="padding:3px 7px; font-size:0.7rem;" title="Save Individuals per Bundle">Save</button>
+                            </div>
                         </td>
                         <td>${statusBadge}</td>
                         <td>${imgStatusBadge}</td>
@@ -228,9 +232,25 @@
                 document.getElementById('skuModalName').value = s.name || '';
                 document.getElementById('skuModalDesc').value = s.description || '';
                 document.getElementById('skuModalCategory').value = s.category || 'General';
-                document.getElementById('skuModalUom').value = s.uom || 'EA';
-                document.getElementById('skuModalWeight').value = s.unit_weight || 0;
-                document.getElementById('skuModalVolume').value = s.unit_volume || 0;
+                const uomEl = document.getElementById('skuModalUom');
+                if (uomEl) {
+                    const uomVal = (s.uom || 'EA').toUpperCase();
+                    if (!Array.from(uomEl.options || []).some(o => o.value === uomVal) && uomEl.tagName === 'SELECT') {
+                        const opt = document.createElement('option');
+                        opt.value = uomVal;
+                        opt.textContent = uomVal;
+                        uomEl.appendChild(opt);
+                    }
+                    uomEl.value = uomVal;
+                }
+                if (document.getElementById('skuModalUnitsPerBundle')) {
+                    document.getElementById('skuModalUnitsPerBundle').value = Math.max(1, parseInt(s.units_per_bundle || 1, 10));
+                }
+                if (document.getElementById('skuModalBundleName')) {
+                    document.getElementById('skuModalBundleName').value = s.bundle_name || 'Bundle';
+                }
+                if (document.getElementById('skuModalWeight')) document.getElementById('skuModalWeight').value = s.unit_weight || 0;
+                if (document.getElementById('skuModalVolume')) document.getElementById('skuModalVolume').value = s.unit_volume || 0;
                 document.getElementById('skuModalStatus').value = s.status || 'Active';
             }
         } catch (e) {
@@ -250,7 +270,9 @@
         const name = document.getElementById('skuModalName')?.value.trim();
         const desc = document.getElementById('skuModalDesc')?.value.trim();
         const cat = document.getElementById('skuModalCategory')?.value.trim();
-        const uom = document.getElementById('skuModalUom')?.value.trim();
+        const uom = (document.getElementById('skuModalUom')?.value || 'EA').trim().toUpperCase();
+        const upb = Math.max(1, parseInt(document.getElementById('skuModalUnitsPerBundle')?.value || '1', 10));
+        const bundleName = (document.getElementById('skuModalBundleName')?.value || 'Bundle').trim() || 'Bundle';
         const wt = parseFloat(document.getElementById('skuModalWeight')?.value || 0);
         const vol = parseFloat(document.getElementById('skuModalVolume')?.value || 0);
         const status = document.getElementById('skuModalStatus')?.value;
@@ -273,6 +295,8 @@
                     description: desc,
                     category: cat,
                     uom: uom,
+                    units_per_bundle: upb,
+                    bundle_name: bundleName,
                     unit_weight: wt,
                     unit_volume: vol,
                     status: status
@@ -282,6 +306,8 @@
             if (data.success) {
                 closeSkuModal();
                 fetchSkuMaster();
+                if (typeof window.fetchSkus === 'function') window.fetchSkus();
+                if (typeof window.loadWorkbenchVisionSkus === 'function') window.loadWorkbenchVisionSkus();
             } else {
                 alertBox.style.display = 'block';
                 alertBox.style.background = '#fef2f2';

@@ -44,16 +44,42 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Class taxonomy integer mapping for tracker internal indexing
+# Class taxonomy integer mapping for tracker internal indexing (supports dynamic industry classes)
 CLASS_CODE_TO_ID = {
     "BOX": 0,
     "WORKER": 1,
     "TRUCK": 2,
     "PALLET": 3,
     "FORKLIFT": 4,
-    "BIN": 5
+    "BIN": 5,
+    "BUNDLE": 6,
+    "GLASS_A_FRAME": 7,
+    "GLASS_SHEET_STACK": 8,
+    "WOODEN_GLASS_CRATE": 9,
+    "PLYWOOD_STACK": 10,
+    "TIMBER_PLANK_BUNDLE": 11,
+    "MDF_BOARD_PALLET": 12,
+    "IBC_TOTE": 13,
+    "DRUM_PALLET": 14,
+    "FABRIC_ROLL": 15,
+    "COTTON_BALE": 16,
+    "BEVERAGE_CRATE": 17,
+    "CAN_BUNDLE": 18,
+    "BOTTLE_PACK": 19,
+    "CEMENT_BAG": 20,
+    "STEEL_REBAR_BUNDLE": 21
 }
 ID_TO_CLASS_CODE = {v: k for k, v in CLASS_CODE_TO_ID.items()}
+
+
+def get_or_register_class_id(class_code: str) -> int:
+    """Dynamically registers any custom/industry class code so ByteTrack never collapses it to BOX."""
+    code = str(class_code or "BOX").strip().upper()
+    if code not in CLASS_CODE_TO_ID:
+        new_id = max(CLASS_CODE_TO_ID.values(), default=0) + 1
+        CLASS_CODE_TO_ID[code] = new_id
+        ID_TO_CLASS_CODE[new_id] = code
+    return CLASS_CODE_TO_ID[code]
 
 
 class SimpleDetections:
@@ -122,6 +148,8 @@ class CameraTrackingSession:
 
         # Smoothed bounding boxes across frames to eliminate jitter (EMA filter)
         self.smoothed_bboxes: Dict[int, List[float]] = {}
+        self.track_velocities: Dict[int, Tuple[float, float]] = {}
+        self.track_metadata: Dict[int, Dict[str, Any]] = {}
         self.track_last_seen: Dict[int, int] = {}
 
         # Cache of latest active track records
@@ -144,6 +172,8 @@ class CameraTrackingSession:
         self._next_local_id = 1
         self.trajectories.clear()
         self.smoothed_bboxes.clear()
+        self.track_velocities.clear()
+        self.track_metadata.clear()
         self.track_last_seen.clear()
         self.latest_tracks.clear()
         if BYTETRACKER_AVAILABLE:
@@ -158,7 +188,8 @@ class CameraTrackingSession:
         roi_zone_code: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Feed structured detection records into ByteTrack and compute persistent tracks.
+        Feed structured detection records into ByteTrack and compute persistent tracks
+        with ultra-smooth EMA + velocity smoothing and SKU metadata association.
         """
         self.frame_index += 1
 
@@ -169,25 +200,32 @@ class CameraTrackingSession:
         xywh_list = []
         conf_list = []
         cls_list = []
+        det_centers = []
 
         for d in detections:
             bbox = d.get('bbox', {})
-            x1 = float(bbox.get('x1', 0))
-            y1 = float(bbox.get('y1', 0))
-            x2 = float(bbox.get('x2', 0))
-            y2 = float(bbox.get('y2', 0))
+            if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+                x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+            elif isinstance(bbox, dict):
+                x1 = float(bbox.get('x1', 0))
+                y1 = float(bbox.get('y1', 0))
+                x2 = float(bbox.get('x2', 0))
+                y2 = float(bbox.get('y2', 0))
+            else:
+                x1, y1, x2, y2 = 0.0, 0.0, 0.0, 0.0
             w = max(1.0, x2 - x1)
             h = max(1.0, y2 - y1)
             xc = x1 + w / 2.0
             yc = y1 + h / 2.0
 
             cls_code = d.get('class_code', 'BOX')
-            cls_idx = CLASS_CODE_TO_ID.get(cls_code, 0)
+            cls_idx = get_or_register_class_id(cls_code)
             conf = float(d.get('confidence', 0.5))
 
             xywh_list.append([xc, yc, w, h])
             conf_list.append(conf)
             cls_list.append(cls_idx)
+            det_centers.append((xc, yc, d))
 
         if len(xywh_list) > 0:
             det_input = SimpleDetections(
@@ -221,27 +259,32 @@ class CameraTrackingSession:
 
             # Bounding box coordinates from ByteTrack top-left-width-height [tl_x, tl_y, w, h]
             tlwh = strack.tlwh
-            x1 = int(round(max(0, float(tlwh[0]))))
+            raw_x1 = float(tlwh[0])
+            raw_y1 = float(tlwh[1])
+            raw_x2 = raw_x1 + max(4.0, float(tlwh[2]))
+            raw_y2 = raw_y1 + max(4.0, float(tlwh[3]))
+
             # Map raw track ID to camera-isolated local Track ID
             local_id = self.get_local_track_id(int(strack.track_id))
 
-            # Apply Exponential Moving Average (EMA) smoothing to eliminate bounding box jitter
+            # Apply adaptive Exponential Moving Average (EMA) smoothing to eliminate bounding box jitter
+            alpha = getattr(self, 'smoothing_alpha', 0.68)
             if local_id in self.smoothed_bboxes:
                 prev_b = self.smoothed_bboxes[local_id]
-                x1_f = self.smoothing_alpha * float(x1) + (1.0 - self.smoothing_alpha) * prev_b[0]
-                y1_f = self.smoothing_alpha * float(y1) + (1.0 - self.smoothing_alpha) * prev_b[1]
-                x2_f = self.smoothing_alpha * float(x2) + (1.0 - self.smoothing_alpha) * prev_b[2]
-                y2_f = self.smoothing_alpha * float(y2) + (1.0 - self.smoothing_alpha) * prev_b[3]
+                x1_f = alpha * raw_x1 + (1.0 - alpha) * prev_b[0]
+                y1_f = alpha * raw_y1 + (1.0 - alpha) * prev_b[1]
+                x2_f = alpha * raw_x2 + (1.0 - alpha) * prev_b[2]
+                y2_f = alpha * raw_y2 + (1.0 - alpha) * prev_b[3]
             else:
-                x1_f, y1_f, x2_f, y2_f = float(x1), float(y1), float(x2), float(y2)
+                x1_f, y1_f, x2_f, y2_f = raw_x1, raw_y1, raw_x2, raw_y2
 
             self.smoothed_bboxes[local_id] = [x1_f, y1_f, x2_f, y2_f]
             self.track_last_seen[local_id] = self.frame_index
 
-            x1 = int(round(max(0, x1_f)))
-            y1 = int(round(max(0, y1_f)))
-            x2 = int(round(min(frame_width, x2_f)))
-            y2 = int(round(min(frame_height, y2_f)))
+            x1 = int(round(max(0, min(frame_width - 2, x1_f))))
+            y1 = int(round(max(0, min(frame_height - 2, y1_f))))
+            x2 = int(round(max(x1 + 2, min(frame_width, x2_f))))
+            y2 = int(round(max(y1 + 2, min(frame_height, y2_f))))
 
             # Normalized bounding box [0.0 - 1.0]
             norm_x1 = round(float(x1) / max(1, frame_width), 4)
@@ -258,11 +301,31 @@ class CameraTrackingSession:
             # Class code & name
             cls_idx = int(round(float(strack.cls))) if hasattr(strack, 'cls') else 0
             cls_code = ID_TO_CLASS_CODE.get(cls_idx, "BOX")
-            cls_name = FALLBACK_CLASS_NAMES.get(cls_code, cls_code)
+            cls_name = FALLBACK_CLASS_NAMES.get(cls_code, cls_code.replace("_", " ").title())
 
-            # Append to recent center trajectory
+            # Associate closest detection metadata (SKU recognition, bundle count, UOM)
+            best_det = None
+            best_dist = 1e9
+            for dxc, dyc, det_obj in det_centers:
+                if det_obj.get('class_code', 'BOX') == cls_code:
+                    dist = float(np.hypot(dxc - cx, dyc - cy))
+                    if dist < best_dist and dist <= max(120.0, (x2 - x1) * 0.85):
+                        best_dist = dist
+                        best_det = det_obj
+            if best_det:
+                meta = self.track_metadata.get(local_id, {})
+                for k in ("sku_id", "sku_name", "sku_category", "uom", "units_per_bundle", "bundle_name", "class_name"):
+                    if best_det.get(k):
+                        meta[k] = best_det[k]
+                self.track_metadata[local_id] = meta
+
+            saved_meta = self.track_metadata.get(local_id, {})
+            if saved_meta.get("class_name"):
+                cls_name = saved_meta["class_name"]
+
+            # Append to recent center trajectory (up to 32 points for smooth motion ribbon)
             if local_id not in self.trajectories:
-                self.trajectories[local_id] = deque(maxlen=25)
+                self.trajectories[local_id] = deque(maxlen=32)
             self.trajectories[local_id].append({
                 "x": norm_cx,
                 "y": norm_cy,
@@ -270,6 +333,27 @@ class CameraTrackingSession:
                 "py": cy,
                 "frame": self.frame_index
             })
+
+            # Compute smoothed velocity vector (vx, vy) and movement state
+            traj_pts = list(self.trajectories[local_id])
+            vx, vy = 0.0, 0.0
+            if len(traj_pts) >= 2:
+                lookback = min(4, len(traj_pts) - 1)
+                p_prev = traj_pts[-1 - lookback]
+                df = max(1, self.frame_index - p_prev["frame"])
+                raw_vx = (cx - p_prev["px"]) / float(df)
+                raw_vy = (cy - p_prev["py"]) / float(df)
+                prev_vx, prev_vy = self.track_velocities.get(local_id, (raw_vx, raw_vy))
+                vx = round(0.6 * raw_vx + 0.4 * prev_vx, 2)
+                vy = round(0.6 * raw_vy + 0.4 * prev_vy, 2)
+                self.track_velocities[local_id] = (vx, vy)
+            speed_px = round(float(np.hypot(vx, vy)), 2)
+            if speed_px >= 2.2:
+                movement_state = "MOVING"
+            elif cls_code in ("WORKER", "FORKLIFT") and speed_px >= 0.6:
+                movement_state = "OPERATING"
+            else:
+                movement_state = "STATIONARY"
 
             # Check spatial ROI containment (Part 4 / Section 13)
             roi_info = {
@@ -289,6 +373,13 @@ class CameraTrackingSession:
                 "class_code": cls_code,
                 "class_name": cls_name,
                 "confidence": round(float(strack.score), 4),
+                "sku_id": saved_meta.get("sku_id"),
+                "sku_name": saved_meta.get("sku_name"),
+                "uom": saved_meta.get("uom"),
+                "units_per_bundle": saved_meta.get("units_per_bundle"),
+                "bundle_name": saved_meta.get("bundle_name"),
+                "velocity": {"vx": vx, "vy": vy, "speed_px": speed_px},
+                "movement_state": movement_state,
                 "bbox": {
                     "x1": x1,
                     "y1": y1,
@@ -655,14 +746,28 @@ class MultiObjectTrackingService:
             # Bounding box
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
 
-            # Center tracking dot
+            # Center tracking dot + directional velocity vector arrow for moving workers/forklifts/stock
             cx, cy = track["center"]["x"], track["center"]["y"]
             cv2.circle(annotated, (cx, cy), 5, color, -1)
             cv2.circle(annotated, (cx, cy), 7, (0, 0, 0), 1)
+            vel = track.get("velocity") or {}
+            vx, vy = float(vel.get("vx", 0.0)), float(vel.get("vy", 0.0))
+            if abs(vx) > 0.6 or abs(vy) > 0.6:
+                end_x = int(round(max(4, min(w - 4, cx + vx * 5.0))))
+                end_y = int(round(max(4, min(h - 4, cy + vy * 5.0))))
+                cv2.arrowedLine(annotated, (cx, cy), (end_x, end_y), (255, 255, 255), 2, cv2.LINE_AA, tipLength=0.32)
 
-            # Label text adhering to Section 11 specifications:
-            # "CLASS | ID <track_id> | <conf>"
-            label_text = f"{cls_code} | ID {tid} | {conf:.2f}"
+            # Label text including SKU or movement state
+            sku_code = track.get("sku_id")
+            mov_state = track.get("movement_state", "")
+            if sku_code and cls_code not in ("WORKER", "FORKLIFT", "TRUCK"):
+                upb = track.get("units_per_bundle") or 1
+                uom = track.get("uom") or "EA"
+                label_text = f"{sku_code} ({upb} {uom}) | ID {tid} | {conf:.2f}"
+            elif cls_code in ("WORKER", "FORKLIFT", "TRUCK") and mov_state:
+                label_text = f"{cls_code} [{mov_state}] | ID {tid} | {conf:.2f}"
+            else:
+                label_text = f"{cls_code} | ID {tid} | {conf:.2f}"
             roi_info = track.get("roi", {})
             if roi_info.get("configured"):
                 label_text += " [IN ROI]" if roi_info.get("inside") else " [OUT]"
