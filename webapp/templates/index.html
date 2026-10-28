@@ -317,7 +317,7 @@
                             <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Company Name * <span style="font-size:0.75rem; font-weight:normal; color:#38bdf8;">(Auto-inferred)</span></label>
                             <div class="input-group" style="margin-bottom: 0;">
                                 <i class="fas fa-building"></i>
-                                <input type="text" id="reg-company" required placeholder="e.g. Coca-Cola, Tesla Motors, Sun Pharma, DHL..." oninput="handleCompanyInputAutoDetect()">
+                                <input type="text" id="reg-company" required placeholder="e.g. Saint-Gobain Glass, CenturyPly Wood, Coca-Cola, Tata Steel..." oninput="handleCompanyInputAutoDetect()">
                             </div>
                         </div>
                     </div>
@@ -327,7 +327,7 @@
                             <label style="display:block; font-size:0.83rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Primary Facility / Warehouse Name</label>
                             <div class="input-group" style="margin-bottom: 0;">
                                 <i class="fas fa-warehouse"></i>
-                                <input type="text" id="reg-warehouse" placeholder="e.g. Central Bottling Plant & DC">
+                                <input type="text" id="reg-warehouse" placeholder="e.g. Glass & Glazing Depot, Timber Yard, Bottling Hub..." oninput="handleCompanyInputAutoDetect()">
                             </div>
                         </div>
                         <div>
@@ -350,11 +350,16 @@
                         <div class="input-group" style="margin-bottom: 0;">
                             <i class="fas fa-sliders" style="color:#38bdf8;"></i>
                             <select id="reg-environment" style="width:100%; box-sizing:border-box; background:rgba(15,23,42,0.88); border:1px solid rgba(56,189,248,0.38); border-radius:9px; padding:10px 18px 10px 46px; color:#ffffff; font-size:0.95rem; outline:none;" onchange="onEnvironmentDropdownChange()">
+                                <option value="glass">🪟 Glass, Glazing &amp; Architectural Sheets (A-Frame Stillages, Float/Toughened Panes, Sq.Ft &amp; Breakage Tracking)</option>
+                                <option value="wood">🪵 Wood, Timber, Plywood &amp; Laminates (Cantilever Racks, Marine Plywood/MDF Stacks, CFT &amp; Moisture Tracking)</option>
+                                <option value="construction">🧱 Construction, Cement, Tiles &amp; Building Materials (Cement Sling Bays, Vitrified Tile Pallets, Drywall Boards)</option>
+                                <option value="metals">🏗️ Heavy Metals, Steel &amp; Profiles (High-Capacity Floor Bays, Coils, Tubes &amp; Rebar Racks)</option>
+                                <option value="chemicals">🧪 Chemicals, Paints, Polymers &amp; Resins (IBC Totes, Spill-Bunded Drum Racks, Hazmat &amp; SDS Tracking)</option>
+                                <option value="textiles">🧵 Textiles, Fabrics, Yarn &amp; Apparel (Fabric Roll Cradles, Cotton Bales, Shade-Lot &amp; GSM Tracking)</option>
                                 <option value="beverage">🥤 Food, Beverage &amp; FMCG (Cold Storage, High-Throughput Pallets, Expiry Tracking)</option>
                                 <option value="automotive">🚗 Automotive &amp; Discrete Manufacturing (Heavy Racks, Parts Kitting, Assembly)</option>
                                 <option value="electronics">⚡ High-Tech Electronics &amp; Hardware (Anti-Static, High-Security, Serial/IMEI Tracking)</option>
                                 <option value="pharma">💊 Pharmaceuticals &amp; Cold Chain Healthcare (Temperature Control, Quarantine Bins, Batch Recall)</option>
-                                <option value="metals">🏗️ Heavy Metals &amp; Raw Materials (High-Capacity Floor Bays, Coils &amp; Rebar Racks)</option>
                                 <option value="3pl">📦 E-Commerce, 3PL &amp; Retail Fulfillment (Multi-Client Sorting, Fast Pick Bins, Dispatch)</option>
                                 <option value="custom" selected>🏢 General Modern Warehousing (Standard Pallet Racking, Ambient Storage)</option>
                             </select>

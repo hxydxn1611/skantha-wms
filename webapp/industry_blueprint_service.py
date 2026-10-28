@@ -47,6 +47,11 @@ def auto_detect_company_industry(company_name: str, description: str = "") -> Di
         "electronics": 0,
         "pharma": 0,
         "metals": 0,
+        "glass": 0,
+        "wood": 0,
+        "construction": 0,
+        "chemicals": 0,
+        "textiles": 0,
         "3pl": 0
     }
 
@@ -61,7 +66,7 @@ def auto_detect_company_industry(company_name: str, description: str = "") -> Di
         "automotive": [
             "tata motors", "hyundai", "automotive", "auto", "car", "motor", "engine",
             "chassis", "oem", "assembly", "maruti", "mahindra", "toyota", "ford",
-            "vehicle", "suspension", "brake", "windshield", "tesla", "bosch", "honda", "bmw",
+            "vehicle", "suspension", "brake", "tesla", "bosch", "honda", "bmw",
             "nissan", "audi", "mercedes", "volvo", "volkswagen", "kia", "continental", "denso"
         ],
         "electronics": [
@@ -81,6 +86,40 @@ def auto_detect_company_industry(company_name: str, description: str = "") -> Di
             "foundry", "iron", "smelter", "aluminum", "vedanta", "crane", "heavy industrial",
             "coil", "beam", "girders", "fabrication", "alloy", "arcelor", "sail", "posco",
             "hindalco", "copper", "brass", "zinc", "nippon"
+        ],
+        "glass": [
+            "saint-gobain", "saint gobain", "asahi", "ais glass", "gold plus", "guardian glass",
+            "borosil", "corning", "pilkington", "schott", "glass", "glazing", "float glass",
+            "toughened", "tempered glass", "laminated glass", "mirror", "dgu", "insulated glass",
+            "fenestration", "architectural glass", "safety glass", "tinted glass", "frosted glass",
+            "a-frame", "glass sheet", "glass pane", "cullet", "borosilicate", "glassware"
+        ],
+        "wood": [
+            "centuryply", "century ply", "greenply", "greenpanel", "action tesa", "merino",
+            "kitply", "archidply", "sylvan", "wood", "timber", "plywood", "lumber",
+            "mdf", "hdf", "hdhmr", "particle board", "veneer", "laminate", "teak",
+            "pine", "oak", "mahogany", "hardwood", "softwood", "sawmill", "carpentry",
+            "plank", "wooden", "joinery", "bwp", "blockboard", "shuttering ply", "forestry"
+        ],
+        "construction": [
+            "ultratech", "ambuja", "acc cement", "shree cement", "dalmia", "ramco",
+            "kajaria", "somany", "nitco", "cera", "hindware", "jaquar", "gyproc",
+            "cement", "concrete", "mortar", "tile", "tiles", "ceramic", "vitrified",
+            "porcelain", "gypsum", "drywall", "plasterboard", "brick", "aac block",
+            "construction", "building material", "sanitaryware", "roofing", "aggregate"
+        ],
+        "chemicals": [
+            "pidilite", "asian paints", "berger", "nerolac", "akzonobel", "basf",
+            "dow chemical", "upl", "coromandel", "tata chemicals", "aarti industries", "srf",
+            "deepak nitrite", "chemical", "polymer", "resin", "epoxy", "solvent",
+            "adhesive", "paint", "coating", "fertilizer", "agrochemical", "acid",
+            "alkali", "petrochemical", "polyurethane", "silicone", "pigment"
+        ],
+        "textiles": [
+            "raymond", "arvind", "welspun", "vardhman", "trident", "page industries",
+            "alok industries", "kpr mill", "grasim", "textile", "fabric", "cotton",
+            "yarn", "spinning", "garment", "apparel", "denim", "polyester",
+            "loom", "weaving", "knitting", "cloth", "dyeing", "silk", "wool"
         ],
         "3pl": [
             "dhl", "3pl", "logistics", "courier", "freight", "schenker", "commercial hub",
@@ -443,6 +482,261 @@ INDUSTRY_BLUEPRINTS: Dict[str, Dict[str, Any]] = {
             {"po_number": "PO-SAMS-8820", "plate": "KA-03-KY-0875", "vendor": "Samsung Supply Chain Logistics", "load_description": "12x 55-inch Smart TV Pallets", "sku": "3PL-SAMS-TV", "expected": 12},
             {"po_number": "PO-TATA-3101", "plate": "MH-12-DE-1432", "vendor": "Tata AutoComp Delivery Fleet", "load_description": "6x Tier-1 Rod Packs", "sku": "3PL-TATA-PARTS", "expected": 6}
         ]
+    },
+
+    # --------------------------------------------------------------------------
+    # 7. ARCHITECTURAL GLASS, GLAZING & MIRROR HUB (Saint-Gobain / AIS Style)
+    # --------------------------------------------------------------------------
+    "glass": {
+        "key": "glass",
+        "name": "Glass, Glazing & Architectural Sheets",
+        "badge_icon": "fa-border-all",
+        "theme_color": "#06b6d4",
+        "company_example": "Saint-Gobain Glass / Asahi India Glass (AIS) Hub",
+        "operating_mode": "DEDICATED",
+        "description": "Jumbo float glass sheets, toughened safety panes, laminated acoustic glass, DGU units, mirrors, A-frame stillages, and CNC cutting remnants.",
+        "skus": [
+            # Clear Float Glass Sheets
+            {"sku_id": "GLS-FLT-04MM", "name": "4mm Clear Float Glass Sheet (2440x1830mm)", "category": "Float Glass", "description": "Architectural grade 4mm Annealed Clear Float Glass sheets packed on vertical wooden end-cap crates (48 sq.ft/sheet).", "unit_weight": 44.6, "unit_volume": 0.018, "uom": "Sheet", "units_per_bundle": 40, "target_bundles_per_pallet": 1, "bundle_name": "End-Cap Glass Crate (40 Sheets)", "visual_color": (190, 210, 60), "icon_shape": "glass"},
+            {"sku_id": "GLS-FLT-06MM", "name": "6mm Clear Float Glass Sheet (3660x2440mm)", "category": "Float Glass", "description": "Jumbo 6mm Clear Float Glass master sheets stored on heavy A-frame stillage (96 sq.ft/sheet).", "unit_weight": 134.0, "unit_volume": 0.054, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "A-Frame Pack (25 Sheets)", "visual_color": (200, 195, 45), "icon_shape": "glass"},
+            {"sku_id": "GLS-FLT-08MM", "name": "8mm Extra-Clear Low-Iron Float Glass (3660x2440)", "category": "Float Glass", "description": "High-clarity low-iron Diamant 8mm architectural glass sheet with cork spacer pads.", "unit_weight": 178.5, "unit_volume": 0.071, "uom": "Sheet", "units_per_bundle": 20, "target_bundles_per_pallet": 1, "bundle_name": "A-Frame Pack (20 Sheets)", "visual_color": (220, 210, 80), "icon_shape": "glass"},
+            {"sku_id": "GLS-FLT-10MM", "name": "10mm Heavy Float Glass Sheet (3660x2440mm)", "category": "Float Glass", "description": "Thick 10mm commercial storefront float glass sheet on reinforced steel A-frame.", "unit_weight": 223.2, "unit_volume": 0.089, "uom": "Sheet", "units_per_bundle": 16, "target_bundles_per_pallet": 1, "bundle_name": "A-Frame Pack (16 Sheets)", "visual_color": (180, 175, 40), "icon_shape": "glass"},
+            {"sku_id": "GLS-FLT-12MM", "name": "12mm Jumbo Structural Float Glass (3660x2440mm)", "category": "Float Glass", "description": "Heavy 12mm structural glazing float glass sheet requiring vacuum-lifter crane handling.", "unit_weight": 268.0, "unit_volume": 0.107, "uom": "Sheet", "units_per_bundle": 12, "target_bundles_per_pallet": 1, "bundle_name": "Heavy A-Frame (12 Sheets)", "visual_color": (165, 160, 35), "icon_shape": "glass"},
+
+            # Toughened / Tempered Safety Glass
+            {"sku_id": "GLS-TGH-08MM", "name": "8mm Toughened Safety Glass Panel (2440x1220mm)", "category": "Toughened Glass", "description": "Heat-strengthened 8mm tempered safety glass with polished pencil edges.", "unit_weight": 59.5, "unit_volume": 0.024, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Harp Rack Slot (25 Panes)", "visual_color": (210, 160, 30), "icon_shape": "glass"},
+            {"sku_id": "GLS-TGH-10MM", "name": "10mm Toughened Shower & Partition Glass (2440x1830)", "category": "Toughened Glass", "description": "EN-12150 certified 10mm frameless partition tempered glass panel.", "unit_weight": 111.6, "unit_volume": 0.045, "uom": "Sheet", "units_per_bundle": 20, "target_bundles_per_pallet": 1, "bundle_name": "A-Frame Stillage (20 Panes)", "visual_color": (200, 145, 25), "icon_shape": "glass"},
+            {"sku_id": "GLS-TGH-12MM", "name": "12mm Toughened Facade Safety Glass (3050x2140mm)", "category": "Toughened Glass", "description": "High-impact 12mm spider-glazing toughened facade glass with counter-sunk holes.", "unit_weight": 195.8, "unit_volume": 0.078, "uom": "Sheet", "units_per_bundle": 15, "target_bundles_per_pallet": 1, "bundle_name": "Facade Stillage (15 Panes)", "visual_color": (185, 130, 20), "icon_shape": "glass"},
+            {"sku_id": "GLS-TGH-15MM", "name": "15mm Balustrade Toughened Glass (2440x1220mm)", "category": "Toughened Glass", "description": "Extra-thick 15mm structural balustrade safety glass panel.", "unit_weight": 111.5, "unit_volume": 0.045, "uom": "Sheet", "units_per_bundle": 12, "target_bundles_per_pallet": 1, "bundle_name": "Balustrade Stillage (12 Panes)", "visual_color": (170, 120, 20), "icon_shape": "glass"},
+
+            # Laminated & Insulated (DGU) Glass
+            {"sku_id": "GLS-LAM-638", "name": "6.38mm Laminated Safety Glass (3+0.38 PVB+3mm)", "category": "Laminated Glass", "description": "Shatter-resistant laminated safety glass with 0.38mm clear PVB acoustic interlayer.", "unit_weight": 71.2, "unit_volume": 0.029, "uom": "Sheet", "units_per_bundle": 24, "target_bundles_per_pallet": 1, "bundle_name": "Laminated Crate (24 Sheets)", "visual_color": (190, 180, 70), "icon_shape": "glass"},
+            {"sku_id": "GLS-LAM-1076", "name": "10.76mm Acoustic Laminated Glass (5+0.76+5mm)", "category": "Laminated Glass", "description": "Sound-control laminated facade glass with 0.76mm acoustic PVB interlayer.", "unit_weight": 120.5, "unit_volume": 0.048, "uom": "Sheet", "units_per_bundle": 18, "target_bundles_per_pallet": 1, "bundle_name": "Acoustic Stillage (18 Sheets)", "visual_color": (175, 165, 65), "icon_shape": "glass"},
+            {"sku_id": "GLS-LAM-1352", "name": "13.52mm SentryGlas Structural Laminated (6+1.52+6)", "category": "Laminated Glass", "description": "Hurricane and security rated structural ionoplast interlayer laminated glass.", "unit_weight": 152.0, "unit_volume": 0.061, "uom": "Sheet", "units_per_bundle": 14, "target_bundles_per_pallet": 1, "bundle_name": "Security Stillage (14 Sheets)", "visual_color": (160, 150, 55), "icon_shape": "glass"},
+            {"sku_id": "GLS-DGU-24MM", "name": "24mm Double Glazed Low-E Argon Unit (6+12A+6mm)", "category": "Insulated Glass (DGU)", "description": "Hermetically sealed argon-filled solar control Low-E Double Glazed Unit.", "unit_weight": 90.0, "unit_volume": 0.072, "uom": "Unit", "units_per_bundle": 10, "target_bundles_per_pallet": 1, "bundle_name": "DGU Padded Rack (10 Units)", "visual_color": (210, 175, 50), "icon_shape": "glass"},
+            {"sku_id": "GLS-DGU-28MM", "name": "28mm Triple-Silver Solar DGU (8+12A+8mm)", "category": "Insulated Glass (DGU)", "description": "High-performance curtain wall insulated glazing unit with warm-edge spacer.", "unit_weight": 120.0, "unit_volume": 0.084, "uom": "Unit", "units_per_bundle": 8, "target_bundles_per_pallet": 1, "bundle_name": "DGU Curtain Rack (8 Units)", "visual_color": (195, 160, 45), "icon_shape": "glass"},
+
+            # Mirrors, Tinted & Specialty Glass
+            {"sku_id": "GLS-MIR-05MM", "name": "5mm Copper-Free Silver Mirror Sheet (2440x1830)", "category": "Mirrors & Coated", "description": "Corrosion-resistant copper-free silver mirror sheet with moisture barrier backing.", "unit_weight": 55.8, "unit_volume": 0.022, "uom": "Sheet", "units_per_bundle": 30, "target_bundles_per_pallet": 1, "bundle_name": "Mirror Crate (30 Sheets)", "visual_color": (210, 215, 220), "icon_shape": "glass"},
+            {"sku_id": "GLS-TNT-BRZ6", "name": "6mm Solar Control Bronze Tinted Glass (2440x1830)", "category": "Mirrors & Coated", "description": "Heat-absorbing bronze body-tinted architectural float glass sheet.", "unit_weight": 67.0, "unit_volume": 0.027, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Tinted Crate (25 Sheets)", "visual_color": (70, 110, 160), "icon_shape": "glass"},
+            {"sku_id": "GLS-TNT-BLU6", "name": "6mm Ocean Blue Hard-Coat Reflective Glass", "category": "Mirrors & Coated", "description": "Pyrolytic reflective solar control facade glass sheet.", "unit_weight": 67.0, "unit_volume": 0.027, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Reflective Crate (25 Sheets)", "visual_color": (220, 130, 30), "icon_shape": "glass"},
+            {"sku_id": "GLS-FRS-08MM", "name": "8mm Acid-Etched Satin Frosted Glass (2440x1830)", "category": "Mirrors & Coated", "description": "Translucent matte acid-etched privacy partition glass sheet.", "unit_weight": 89.3, "unit_volume": 0.036, "uom": "Sheet", "units_per_bundle": 20, "target_bundles_per_pallet": 1, "bundle_name": "Frosted Crate (20 Sheets)", "visual_color": (225, 230, 235), "icon_shape": "glass"},
+            {"sku_id": "GLS-FIR-BORO", "name": "6mm Fire-Rated Borosilicate Glass (E-120 Rated)", "category": "Specialty Glass", "description": "2-hour fire and thermal shock resistant clear borosilicate safety glass.", "unit_weight": 52.0, "unit_volume": 0.021, "uom": "Sheet", "units_per_bundle": 15, "target_bundles_per_pallet": 1, "bundle_name": "Fire-Glass Crate (15 Sheets)", "visual_color": (160, 190, 210), "icon_shape": "glass"},
+
+            # Glazing Accessories, Hardware & Consumables
+            {"sku_id": "GLS-PAD-CORK", "name": "Anti-Slip Adhesive Cork Spacer Pads (Roll 5000)", "category": "Glazing Consumables", "description": "18x18x3mm static-cling cork separator pads preventing glass sheet contact damage.", "unit_weight": 4.5, "unit_volume": 0.012, "uom": "Box", "units_per_bundle": 5000, "target_bundles_per_pallet": 48, "bundle_name": "Cork Pad Carton", "visual_color": (90, 140, 190), "icon_shape": "box"},
+            {"sku_id": "GLS-SIL-200L", "name": "Two-Part Structural Glazing Silicone (200L Drum)", "category": "Sealants & Interlayers", "description": "High-modulus neutral cure structural glazing and DGU secondary sealant drum.", "unit_weight": 245.0, "unit_volume": 0.28, "uom": "Drum", "units_per_bundle": 1, "target_bundles_per_pallet": 4, "bundle_name": "Silicone Drum 200L", "visual_color": (60, 70, 90), "icon_shape": "cylinder"},
+            {"sku_id": "GLS-PVB-ROLL", "name": "0.76mm Clear PVB Lamination Film Roll (2440mm)", "category": "Sealants & Interlayers", "description": "Refrigerated polyvinyl butyral interlayer roll for autoclave glass lamination.", "unit_weight": 165.0, "unit_volume": 0.32, "uom": "Roll", "units_per_bundle": 1, "target_bundles_per_pallet": 2, "bundle_name": "Foil-Sealed PVB Roll", "visual_color": (180, 190, 200), "icon_shape": "cylinder"}
+        ],
+        "vision_classes": [
+            ("GLASS_A_FRAME", "A-Frame Glass Stillage", "Vertical steel A-frame and L-frame racks holding jumbo glass sheets"),
+            ("GLASS_SHEET_STACK", "Stacked Glass Sheets", "Multi-sheet float, toughened, and laminated glass stacks with edge visibility"),
+            ("WOODEN_GLASS_CRATE", "End-Cap Wooden Glass Crate", "Imported timber end-cap crates containing annealed glass sheets"),
+            ("BOX", "Glazing Hardware & Spacer Box", "Cartons of patch fittings, cork pads, and desiccant spacers"),
+            ("PALLET", "Heavy Stillage Base", "Reinforced steel and hardwood glass transport bases"),
+            ("FORKLIFT", "Glass Handler / Vacuum Crane", "Side-loader forklifts and overhead vacuum suction lifters"),
+            ("WORKER", "Glazing Safety Handler", "Operators wearing cut-resistant Kevlar sleeves, suction cups, and helmets"),
+            ("TRUCK", "Floatliner / Inloader Glass Truck", "Specialized A-frame flatbed and inloader glass transport trailers"),
+            ("LICENSE_PLATE", "License Plate", "Automated ANPR check-in for glass carriers and returnable stillage tracking")
+        ],
+        "zones": [
+            ("TB-GLS", "Gate 01 Floatliner ANPR & Stillage Bay", "TRUCK_BAY", "Inbound check-in for inloader glass trailers and returnable A-frame tracking"),
+            ("DOCK-JUMBO", "Overhead Vacuum Crane Offloading Bay", "DOCK", "Gantry crane bay with vacuum suction frames for 3660x2440mm jumbo crates"),
+            ("RACK-AFRAME", "Heavy A-Frame & Harp Rack Storage Hall", "STORAGE", "Angled vertical A-frame and slotted harp racks for float and toughened sheets"),
+            ("CUT-TABLE", "CNC Glass Cutting & Remnant Off-Cut Bay", "STAGING", "Automated bridge cutting table and indexed usable remnant slot racks"),
+            ("QUAR-BRK", "Cullet & Breakage Quarantine Bin", "INSPECTION", "Transit breakage inspection and crushed glass cullet recycling bunker")
+        ],
+        "deliveries": [
+            {"po_number": "PO-SGG-4011", "plate": "TN-21-AX-7741", "vendor": "Saint-Gobain Glass India (Sriperumbudur)", "load_description": "8x A-Frames 6mm Clear Float Glass Jumbo (200 Sheets)", "sku": "GLS-FLT-06MM", "expected": 8},
+            {"po_number": "PO-AIS-4012", "plate": "MH-04-GL-3390", "vendor": "Asahi India Glass Ltd (AIS)", "load_description": "6x Stillages 12mm Toughened Facade Glass (90 Panes)", "sku": "GLS-TGH-12MM", "expected": 6},
+            {"po_number": "PO-GPL-4013", "plate": "HR-55-CD-1920", "vendor": "Gold Plus Float Glass Ltd", "load_description": "10x Crates 5mm Copper-Free Silver Mirror (300 Sheets)", "sku": "GLS-MIR-05MM", "expected": 10}
+        ]
+    },
+
+    # --------------------------------------------------------------------------
+    # 8. WOOD, TIMBER, PLYWOOD & ENGINEERED BOARDS (CenturyPly / Greenply Style)
+    # --------------------------------------------------------------------------
+    "wood": {
+        "key": "wood",
+        "name": "Wood, Timber, Plywood & Engineered Boards",
+        "badge_icon": "fa-tree",
+        "theme_color": "#d97706",
+        "company_example": "CenturyPly / Greenply & Seasoned Timber Hub",
+        "operating_mode": "DEDICATED",
+        "description": "Marine BWP plywood stacks, HDHMR/MDF boards, seasoned Burma teak & pine timber planks (CFT), decorative veneers, laminates, and cantilever storage.",
+        "skus": [
+            # Plywood Sheets (8x4 ft = 32 sq.ft)
+            {"sku_id": "WD-PLY-BWP18", "name": "18mm BWP Marine Waterproof Plywood (8x4 ft)", "category": "Marine & Commercial Plywood", "description": "IS:710 certified 18mm Boiling Water Proof marine grade gurjan plywood sheet (32 sq.ft).", "unit_weight": 36.5, "unit_volume": 0.053, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Strapped Plywood Stack (25 Sheets)", "visual_color": (60, 120, 185), "icon_shape": "wood"},
+            {"sku_id": "WD-PLY-BWP12", "name": "12mm BWP Marine Waterproof Plywood (8x4 ft)", "category": "Marine & Commercial Plywood", "description": "IS:710 12mm marine plywood treated with GLP preservative against borer and termite.", "unit_weight": 24.8, "unit_volume": 0.035, "uom": "Sheet", "units_per_bundle": 35, "target_bundles_per_pallet": 1, "bundle_name": "Strapped Plywood Stack (35 Sheets)", "visual_color": (55, 115, 175), "icon_shape": "wood"},
+            {"sku_id": "WD-PLY-MR18", "name": "18mm MR Grade Commercial Plywood (8x4 ft)", "category": "Marine & Commercial Plywood", "description": "IS:303 Moisture Resistant 18mm interior furniture grade calibrated plywood.", "unit_weight": 33.0, "unit_volume": 0.053, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Commercial Ply Bundle (25 Sheets)", "visual_color": (70, 135, 195), "icon_shape": "wood"},
+            {"sku_id": "WD-PLY-MR06", "name": "6mm Flexible Gurjan Plywood Sheet (8x4 ft)", "category": "Marine & Commercial Plywood", "description": "Bendable 6mm flexi-ply sheet for curved architectural millwork and arches.", "unit_weight": 11.2, "unit_volume": 0.018, "uom": "Sheet", "units_per_bundle": 60, "target_bundles_per_pallet": 1, "bundle_name": "Flexi-Ply Stack (60 Sheets)", "visual_color": (80, 145, 205), "icon_shape": "wood"},
+            {"sku_id": "WD-PLY-FIRE18", "name": "18mm Firewall Fire-Retardant Plywood (8x4 ft)", "category": "Specialty Boards", "description": "IS:5509 certified low-flammability, low-smoke fire-retardant structural plywood.", "unit_weight": 38.0, "unit_volume": 0.053, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Fire-Rated Ply Stack (25 Sheets)", "visual_color": (50, 80, 190), "icon_shape": "wood"},
+            {"sku_id": "WD-PLY-SHUT12", "name": "12mm Phenolic Film-Faced Shuttering Ply (8x4)", "category": "Specialty Boards", "description": "High-density 30kg densified concrete formwork shuttering plywood with WBP glue.", "unit_weight": 30.0, "unit_volume": 0.036, "uom": "Sheet", "units_per_bundle": 30, "target_bundles_per_pallet": 1, "bundle_name": "Shuttering Ply Pack (30 Sheets)", "visual_color": (45, 55, 110), "icon_shape": "wood"},
+            {"sku_id": "WD-BLK-19MM", "name": "19mm Pinewood Core Blockboard (8x4 ft)", "category": "Marine & Commercial Plywood", "description": "Kiln-seasoned imported pinewood baton core blockboard for warp-free long shutters.", "unit_weight": 31.5, "unit_volume": 0.056, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Blockboard Pack (25 Sheets)", "visual_color": (65, 125, 180), "icon_shape": "wood"},
+
+            # MDF, HDHMR & Particle Boards
+            {"sku_id": "WD-HDHMR-18", "name": "18mm Green High-Density HDHMR Board (8x4 ft)", "category": "MDF & Engineered Boards", "description": "High-Density High-Moisture-Resistant eucalyptus fiber board (850 kg/m3 density).", "unit_weight": 44.0, "unit_volume": 0.053, "uom": "Sheet", "units_per_bundle": 22, "target_bundles_per_pallet": 1, "bundle_name": "HDHMR Pallet (22 Boards)", "visual_color": (70, 140, 95), "icon_shape": "wood"},
+            {"sku_id": "WD-MDF-18MM", "name": "18mm Interior Plain MDF Board (8x4 ft)", "category": "MDF & Engineered Boards", "description": "Smooth homogeneous Medium Density Fiberboard for CNC routing and lacquer finishes.", "unit_weight": 39.5, "unit_volume": 0.053, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "MDF Pallet Stack (25 Boards)", "visual_color": (85, 150, 195), "icon_shape": "wood"},
+            {"sku_id": "WD-MDF-12MM", "name": "12mm Calibrated Plain MDF Board (8x4 ft)", "category": "MDF & Engineered Boards", "description": "12mm medium density fiberboard for wall paneling and cabinet backs.", "unit_weight": 26.5, "unit_volume": 0.035, "uom": "Sheet", "units_per_bundle": 35, "target_bundles_per_pallet": 1, "bundle_name": "MDF Pallet Stack (35 Boards)", "visual_color": (90, 155, 200), "icon_shape": "wood"},
+            {"sku_id": "WD-PRT-PRE18", "name": "18mm Twin-Side Pre-Laminated Particle Board", "category": "MDF & Engineered Boards", "description": "Melamine-faced Frosty White & Walnut pre-laminated modular office furniture board.", "unit_weight": 34.0, "unit_volume": 0.053, "uom": "Sheet", "units_per_bundle": 25, "target_bundles_per_pallet": 1, "bundle_name": "Pre-Lam Board Pack (25 Sheets)", "visual_color": (120, 145, 175), "icon_shape": "wood"},
+
+            # Sawn Hardwood & Softwood Timber Planks / Beams (CFT Tracked)
+            {"sku_id": "WD-TEAK-PLK", "name": "Burma Teak Kiln-Seasoned Plank (10ft x 8in x 2in)", "category": "Hardwood & Softwood Timber", "description": "First-class golden Burma Teak sawn plank kiln-dried to 10% moisture content (1.11 CFT/plank).", "unit_weight": 22.0, "unit_volume": 0.031, "uom": "Plank", "units_per_bundle": 20, "target_bundles_per_pallet": 1, "bundle_name": "Strapped Teak Pack (22.2 CFT)", "visual_color": (35, 95, 165), "icon_shape": "wood"},
+            {"sku_id": "WD-OAK-PLK", "name": "American White Oak Planed Timber (8ft x 6in x 1.5in)", "category": "Hardwood & Softwood Timber", "description": "FAS-grade kiln-dried white oak hardwood lumber for premium flooring and joinery (0.5 CFT).", "unit_weight": 11.5, "unit_volume": 0.014, "uom": "Plank", "units_per_bundle": 32, "target_bundles_per_pallet": 1, "bundle_name": "Oak Lumber Pack (16 CFT)", "visual_color": (75, 140, 195), "icon_shape": "wood"},
+            {"sku_id": "WD-PINE-BEAM", "name": "Structural Southern Yellow Pine Beam (12ft x 4in x 4in)", "category": "Hardwood & Softwood Timber", "description": "Pressure-treated structural softwood timber beam for framing and trusses (1.33 CFT).", "unit_weight": 21.0, "unit_volume": 0.038, "uom": "Beam", "units_per_bundle": 16, "target_bundles_per_pallet": 1, "bundle_name": "Pine Beam Bundle (21.3 CFT)", "visual_color": (80, 165, 215), "icon_shape": "wood"},
+            {"sku_id": "WD-MRNT-FRM", "name": "Malaysian Sal / Meranti Door Frame Scantling (7ft x 5x3in)", "category": "Hardwood & Softwood Timber", "description": "Heavy hardwood door chowkhat scantling treated against warping (0.73 CFT).", "unit_weight": 16.8, "unit_volume": 0.021, "uom": "Piece", "units_per_bundle": 24, "target_bundles_per_pallet": 1, "bundle_name": "Scantling Bundle (24 Pcs)", "visual_color": (45, 85, 155), "icon_shape": "wood"},
+
+            # Veneers, Laminates & Wood Adhesives
+            {"sku_id": "WD-LAM-1MM", "name": "1.0mm High-Pressure Decorative Laminate (8x4 ft)", "category": "Laminates & Veneers", "description": "Scratch-resistant suede & high-gloss phenolic decorative laminate sheets packed in flat wooden crates.", "unit_weight": 4.2, "unit_volume": 0.003, "uom": "Sheet", "units_per_bundle": 100, "target_bundles_per_pallet": 1, "bundle_name": "Laminate Crate (100 Sheets)", "visual_color": (90, 110, 145), "icon_shape": "wood"},
+            {"sku_id": "WD-VNR-TEAK4", "name": "4mm Natural Smoked Teak Crown Veneer (8x4 ft)", "category": "Laminates & Veneers", "description": "Book-matched natural hardwood decorative sliced veneer on MDF recon backing.", "unit_weight": 7.8, "unit_volume": 0.012, "uom": "Sheet", "units_per_bundle": 50, "target_bundles_per_pallet": 1, "bundle_name": "Veneer Flat Pallet (50 Sheets)", "visual_color": (40, 90, 145), "icon_shape": "wood"},
+            {"sku_id": "WD-ADH-D3-50", "name": "D3 Waterproof PVA Wood Adhesive (50kg Carboy)", "category": "Wood Adhesives & Edgeband", "description": "Cross-linking waterproof synthetic resin carpenter adhesive (Fevicol Marine / SH grade).", "unit_weight": 52.0, "unit_volume": 0.055, "uom": "Drum", "units_per_bundle": 1, "target_bundles_per_pallet": 12, "bundle_name": "Adhesive Carboy 50kg", "visual_color": (190, 130, 40), "icon_shape": "cylinder"}
+        ],
+        "vision_classes": [
+            ("PLYWOOD_STACK", "Plywood / MDF Board Stack", "Flat-stacked bundles of 8x4ft plywood, blockboard, HDHMR, and MDF sheets"),
+            ("TIMBER_PLANK_BUNDLE", "Strapped Timber / Plank Bundle", "Steel/PET-strapped bundles of sawn hardwood planks, beams, and scantlings"),
+            ("PALLET", "Timber Dunnage / Skids", "Heavy wooden skids, cantilever cradles, and laminate crates"),
+            ("BOX", "Hardware & Adhesive Carton", "Boxes of edge-banding tape, laminates, and wood adhesive drums"),
+            ("FORKLIFT", "Side-Loader / Cantilever Forklift", "Wide-carriage and multi-directional side-loader forklifts for 8ft-12ft timber"),
+            ("WORKER", "Timber Yard Operator", "Operators with dust masks, ear protection, and moisture meters"),
+            ("TRUCK", "Flatbed Timber Lorry", "Inbound timber flatbed trailers and container trucks"),
+            ("LICENSE_PLATE", "License Plate", "Forestry transit pass and gate ANPR vehicle verification")
+        ],
+        "zones": [
+            ("TB-WOOD", "Gate 01 Timber Weighbridge & Moisture Check Bay", "TRUCK_BAY", "ANPR check-in, forestry transit permit verification, and timber moisture audit"),
+            ("YRD-CANT", "Cantilever Heavy Timber & Beam Racking", "STORAGE", "Multi-tier heavy cantilever arms for 10ft-12ft teak planks and pine beams"),
+            ("BAY-PLY", "Flat-Stack Plywood & MDF Humidity-Controlled Hall", "STORAGE", "Level concrete dunnage bays keeping 8x4ft plywood and MDF boards warp-free"),
+            ("KILN-DRY", "Kiln Seasoning & Anti-Borer Treatment Chamber", "INSPECTION", "Thermal seasoning chamber reducing timber moisture to 8-12%"),
+            ("SAW-REM", "CNC Panel Saw & Off-Cut Remnant Racks", "STAGING", "Beam-saw sizing station and barcoded off-cut remnant storage slots")
+        ],
+        "deliveries": [
+            {"po_number": "PO-CENT-5011", "plate": "WB-03-MP-6612", "vendor": "CenturyPly Panels Ltd", "load_description": "12x Stacks 18mm BWP Marine Plywood (300 Sheets)", "sku": "WD-PLY-BWP18", "expected": 12},
+            {"po_number": "PO-GRN-5012", "plate": "UK-06-TR-4409", "vendor": "Greenpanel Industries Ltd", "load_description": "10x Pallets 18mm Green HDHMR Boards (220 Sheets)", "sku": "WD-HDHMR-18", "expected": 10},
+            {"po_number": "PO-TEAK-5013", "plate": "KL-07-BW-8910", "vendor": "Malabar Seasoned Timber Corp", "load_description": "8x Strapped Bundles Burma Teak Planks (177.6 CFT)", "sku": "WD-TEAK-PLK", "expected": 8}
+        ]
+    },
+
+    # --------------------------------------------------------------------------
+    # 9. CONSTRUCTION, CEMENT, TILES & BUILDING MATERIALS (UltraTech / Kajaria)
+    # --------------------------------------------------------------------------
+    "construction": {
+        "key": "construction",
+        "name": "Construction, Cement, Tiles & Building Materials",
+        "badge_icon": "fa-trowel-bricks",
+        "theme_color": "#f97316",
+        "company_example": "UltraTech Cement / Kajaria Ceramics Depot",
+        "operating_mode": "DEDICATED",
+        "description": "OPC/PPC cement bags, vitrified & porcelain tile pallets, gypsum drywall boards, AAC blocks, tile adhesives, and uPVC plumbing bundles.",
+        "skus": [
+            {"sku_id": "BLD-CEM-OPC53", "name": "OPC 53 Grade Structural Cement (50kg Bag)", "category": "Cement & Binders", "description": "High-early-strength Ordinary Portland Cement 50kg laminated polypropylene sack.", "unit_weight": 50.0, "unit_volume": 0.036, "uom": "Bag", "units_per_bundle": 40, "target_bundles_per_pallet": 1, "bundle_name": "Sling Pallet (40 Bags / 2T)", "visual_color": (120, 125, 130), "icon_shape": "box"},
+            {"sku_id": "BLD-CEM-PPC", "name": "Weather-Shield Pozzolana Cement (50kg Bag)", "category": "Cement & Binders", "description": "Moisture-resistant Portland Pozzolana Cement in tamper-proof AD-Star sack.", "unit_weight": 50.0, "unit_volume": 0.036, "uom": "Bag", "units_per_bundle": 40, "target_bundles_per_pallet": 1, "bundle_name": "Sling Pallet (40 Bags)", "visual_color": (90, 130, 160), "icon_shape": "box"},
+            {"sku_id": "BLD-TIL-VIT60", "name": "600x600mm Double-Charged Vitrified Tiles (Box 4)", "category": "Ceramic & Vitrified Tiles", "description": "High-gloss nano-polished 600x600mm floor tiles (1.44 sq.m / 15.5 sq.ft per carton).", "unit_weight": 29.5, "unit_volume": 0.018, "uom": "Box", "units_per_bundle": 40, "target_bundles_per_pallet": 1, "bundle_name": "Strapped Tile Pallet (40 Boxes)", "visual_color": (150, 140, 125), "icon_shape": "box"},
+            {"sku_id": "BLD-TIL-SLB16", "name": "800x1600mm Glazed Porcelain GVT Slab (Box 2)", "category": "Ceramic & Vitrified Tiles", "description": "Large-format Italian marble finish glazed vitrified slab tiles on A-frame pallet.", "unit_weight": 54.0, "unit_volume": 0.034, "uom": "Box", "units_per_bundle": 24, "target_bundles_per_pallet": 1, "bundle_name": "Vertical Slab Pallet (24 Boxes)", "visual_color": (170, 160, 150), "icon_shape": "glass"},
+            {"sku_id": "BLD-GYP-12MM", "name": "12.5mm Gyproc Fireline Plasterboard (8x4 ft)", "category": "Drywall & Ceilings", "description": "Glass-fiber reinforced gypsum drywall board for fire-rated partitions.", "unit_weight": 28.0, "unit_volume": 0.037, "uom": "Sheet", "units_per_bundle": 40, "target_bundles_per_pallet": 1, "bundle_name": "Drywall Stack (40 Boards)", "visual_color": (140, 130, 170), "icon_shape": "wood"},
+            {"sku_id": "BLD-AAC-200", "name": "600x200x200mm AAC Lightweight Blocks (Pallet)", "category": "Masonry & Blocks", "description": "Autoclaved Aerated Concrete thermal-insulating structural masonry blocks.", "unit_weight": 14.5, "unit_volume": 0.024, "uom": "Block", "units_per_bundle": 60, "target_bundles_per_pallet": 1, "bundle_name": "Shrink-Wrapped AAC Pallet (60)", "visual_color": (165, 165, 170), "icon_shape": "block"},
+            {"sku_id": "BLD-ADH-TILE", "name": "Polymer-Modified Tile & Stone Adhesive (20kg)", "category": "Cement & Binders", "description": "C2TE-S1 deformable cementitious adhesive for large-format vitrified tiles.", "unit_weight": 20.0, "unit_volume": 0.016, "uom": "Bag", "units_per_bundle": 50, "target_bundles_per_pallet": 1, "bundle_name": "Adhesive Pallet (50 Bags)", "visual_color": (70, 110, 175), "icon_shape": "box"},
+            {"sku_id": "BLD-PIP-UPVC", "name": "110mm SWR uPVC Drainage Pipe 6m (Bundle 10)", "category": "Plumbing & Sanitary", "description": "Ring-fit UV-stabilized uPVC soil, waste, and rainwater pipes.", "unit_weight": 68.0, "unit_volume": 0.35, "uom": "Bundle", "units_per_bundle": 10, "target_bundles_per_pallet": 4, "bundle_name": "Strapped Pipe Bundle", "visual_color": (150, 155, 165), "icon_shape": "bundle"}
+        ],
+        "vision_classes": [
+            ("BOX", "Tile Carton / Cement Sling Bag", "Corrugated vitrified tile boxes and 50kg cement/adhesive sacks"),
+            ("PALLET", "Heavy Tile / AAC Block Pallet", "Shrink-wrapped masonry and ceramic tile pallets"),
+            ("BUNDLE", "uPVC / Conduit Pipe Bundle", "Strapped 6m plumbing and electrical pipe bundles"),
+            ("FORKLIFT", "Heavy Counterbalance Forklift", "3-5 Tonne diesel/electric yard forklifts"),
+            ("WORKER", "Depot Loader / Inspector", "Safety helmet and vest equipped depot crew"),
+            ("TRUCK", "Flatbed / Bulker Lorry", "Cement bag flatbed trucks and tile container trailers"),
+            ("LICENSE_PLATE", "License Plate", "Automated weighbridge and gate ANPR check-in")
+        ],
+        "zones": [
+            ("TB-BLD", "Gate 01 Weighbridge & ANPR Bay", "TRUCK_BAY", "Inbound weighbridge for cement bulkers and tile trailers"),
+            ("BAY-CEM", "Moisture-Proof Cement & Mortar Godown", "STORAGE", "Raised dunnage floor bays preventing ground moisture ingress"),
+            ("RACK-TILE", "Batch-Indexed Vitrified Tile Racking", "STORAGE", "Heavy pallet racking segregating tiles by shade and caliber lot"),
+            ("YRD-PIPE", "Outdoor AAC Block & uPVC Pipe Yard", "STORAGE", "Cantilever and block-stacking yard for weather-proof materials")
+        ],
+        "deliveries": [
+            {"po_number": "PO-ULT-6011", "plate": "RJ-14-GC-8821", "vendor": "UltraTech Cement Works", "load_description": "20x Sling Pallets OPC 53 Grade Cement (800 Bags)", "sku": "BLD-CEM-OPC53", "expected": 20},
+            {"po_number": "PO-KAJ-6012", "plate": "GJ-03-AT-5519", "vendor": "Kajaria Ceramics Morbi Plant", "load_description": "15x Pallets 600x600mm Vitrified Tiles (600 Boxes)", "sku": "BLD-TIL-VIT60", "expected": 15}
+        ]
+    },
+
+    # --------------------------------------------------------------------------
+    # 10. CHEMICALS, PAINTS, POLYMERS & RESINS (Asian Paints / Pidilite / BASF)
+    # --------------------------------------------------------------------------
+    "chemicals": {
+        "key": "chemicals",
+        "name": "Chemicals, Paints, Polymers & Resins",
+        "badge_icon": "fa-flask-vial",
+        "theme_color": "#14b8a6",
+        "company_example": "Asian Paints / Pidilite & BASF Chemical Hub",
+        "operating_mode": "DEDICATED",
+        "description": "Emulsion paint pails, 200L epoxy/solvent drums, 1000L IBC chemical totes, polymer resin granules, and hazmat spill-containment racking.",
+        "skus": [
+            {"sku_id": "CHM-PNT-20L", "name": "Apex Weatherproof Exterior Emulsion (20L Pail)", "category": "Architectural Coatings", "description": "100% acrylic elastomeric exterior wall paint in heavy HDPE bucket.", "unit_weight": 26.5, "unit_volume": 0.028, "uom": "Pail", "units_per_bundle": 24, "target_bundles_per_pallet": 1, "bundle_name": "Palletized Paint Pails (24)", "visual_color": (160, 150, 40), "icon_shape": "cylinder"},
+            {"sku_id": "CHM-EPX-200L", "name": "Bisphenol-A Liquid Epoxy Resin (200L Drum)", "category": "Industrial Resins", "description": "Unmodified liquid epoxy resin in tight-head UN-certified steel drum.", "unit_weight": 232.0, "unit_volume": 0.28, "uom": "Drum", "units_per_bundle": 4, "target_bundles_per_pallet": 1, "bundle_name": "4-Drum Spill Pallet", "visual_color": (180, 90, 30), "icon_shape": "cylinder"},
+            {"sku_id": "CHM-IBC-1000", "name": "Polyurethane Polyol Blend (1000L IBC Tote)", "category": "Bulk Liquid Chemicals", "description": "Galvanized steel-caged 1000-litre HDPE Intermediate Bulk Container with bottom valve.", "unit_weight": 1120.0, "unit_volume": 1.35, "uom": "IBC", "units_per_bundle": 1, "target_bundles_per_pallet": 1, "bundle_name": "Caged IBC Tote 1000L", "visual_color": (190, 185, 175), "icon_shape": "block"},
+            {"sku_id": "CHM-PLY-HDPE", "name": "Virgin Injection-Grade HDPE Granules (25kg Bag)", "category": "Polymers & Plastics", "description": "High-Density Polyethylene virgin pellets in moisture-barrier FFS woven sack.", "unit_weight": 25.0, "unit_volume": 0.042, "uom": "Bag", "units_per_bundle": 40, "target_bundles_per_pallet": 1, "bundle_name": "Stretch-Hooded Polymer Pallet", "visual_color": (140, 160, 180), "icon_shape": "box"},
+            {"sku_id": "CHM-TIO2-25", "name": "Rutile Titanium Dioxide Pigment (25kg Sack)", "category": "Pigments & Additives", "description": "High-opacity white TiO2 pigment powder for coatings and masterbatches.", "unit_weight": 25.0, "unit_volume": 0.032, "uom": "Bag", "units_per_bundle": 40, "target_bundles_per_pallet": 1, "bundle_name": "Pigment Pallet (1 Tonne)", "visual_color": (200, 205, 210), "icon_shape": "box"},
+            {"sku_id": "CHM-SLV-200L", "name": "Industrial Grade Ethyl Acetate Solvent (200L)", "category": "Solvents & Hazmat", "description": "Flammable Class-3 organic solvent in grounded explosion-proof steel drum.", "unit_weight": 198.0, "unit_volume": 0.28, "uom": "Drum", "units_per_bundle": 4, "target_bundles_per_pallet": 1, "bundle_name": "Hazmat 4-Drum Bund", "visual_color": (40, 60, 190), "icon_shape": "cylinder"}
+        ],
+        "vision_classes": [
+            ("IBC_TOTE", "1000L Caged IBC Chemical Tote", "Steel-caged 1000L intermediate bulk liquid containers"),
+            ("DRUM_PALLET", "200L Steel Drum / Paint Pail Pallet", "4-drum spill containment pallets and stacked 20L paint pails"),
+            ("BOX", "Polymer / Pigment Sack Pallet", "Stretch-hooded 25kg resin and chemical powder bags"),
+            ("PALLET", "Spill-Containment Bund Pallet", "Chemical-resistant polyethylene and steel pallets"),
+            ("FORKLIFT", "Flameproof Ex-Rated Forklift", "ATEX explosion-proof reach trucks and drum clamp handlers"),
+            ("WORKER", "Hazmat PPE Operator", "Operators with chemical respirators, goggles, and nitrile aprons"),
+            ("TRUCK", "ISO Chemical Tanker / Box Van", "ADR/HAZCHEM certified chemical transport trucks"),
+            ("LICENSE_PLATE", "License Plate", "HAZCHEM gate manifest and ANPR check-in")
+        ],
+        "zones": [
+            ("TB-CHM", "Gate 01 HAZCHEM & SDS Verification Bay", "TRUCK_BAY", "ANPR check-in and Safety Data Sheet (SDS) compliance check"),
+            ("DOCK-LIQ", "Spill-Bunded Drum & IBC Offloading Dock", "DOCK", "Containment-trenched dock for 1000L IBCs and 200L drums"),
+            ("HAZ-FLAM", "Class-3 Flammable Solvent Bunker", "STORAGE", "Foam-suppressed, grounded explosion-proof drum storage"),
+            ("RACK-PNT", "High-Bay Paint & Polymer Racking", "STORAGE", "Selective pallet racking for paint pails and resin bags")
+        ],
+        "deliveries": [
+            {"po_number": "PO-APNT-7011", "plate": "GJ-16-CH-4490", "vendor": "Asian Paints Ankleshwar Plant", "load_description": "16x Pallets 20L Apex Exterior Emulsion Pails", "sku": "CHM-PNT-20L", "expected": 16},
+            {"po_number": "PO-BASF-7012", "plate": "MH-43-BZ-9910", "vendor": "BASF India Chemical Complex", "load_description": "10x 1000L Caged IBC Totes Polyurethane Polyol", "sku": "CHM-IBC-1000", "expected": 10}
+        ]
+    },
+
+    # --------------------------------------------------------------------------
+    # 11. TEXTILES, FABRICS, YARN & APPAREL MILL HUB (Arvind / Welspun / Raymond)
+    # --------------------------------------------------------------------------
+    "textiles": {
+        "key": "textiles",
+        "name": "Textiles, Fabrics, Yarn & Apparel Hub",
+        "badge_icon": "fa-shirt",
+        "theme_color": "#ec4899",
+        "company_example": "Arvind Mills / Welspun & Raymond Textile Hub",
+        "operating_mode": "DEDICATED",
+        "description": "Woven denim & cotton fabric rolls, combed yarn cone pallets, compressed cotton/polyester bales, dye-lot shade tracking, and apparel cartons.",
+        "skus": [
+            {"sku_id": "TXT-DEN-200M", "name": "12oz Indigo Stretch Denim Fabric Roll (200m)", "category": "Woven Fabric Rolls", "description": "Rope-dyed 62-inch width sanforized indigo denim fabric roll wrapped in UV poly sleeve.", "unit_weight": 95.0, "unit_volume": 0.18, "uom": "Roll", "units_per_bundle": 6, "target_bundles_per_pallet": 1, "bundle_name": "Fabric Roll Cradle (6 Rolls)", "visual_color": (150, 75, 40), "icon_shape": "cylinder"},
+            {"sku_id": "TXT-COT-POP", "name": "100% Organic Cotton Poplin Bolt (150m Roll)", "category": "Woven Fabric Rolls", "description": "Mercerized 60s count bleached white shirting cotton fabric roll.", "unit_weight": 42.0, "unit_volume": 0.11, "uom": "Roll", "units_per_bundle": 10, "target_bundles_per_pallet": 1, "bundle_name": "Shirting Roll Rack (10 Rolls)", "visual_color": (190, 185, 180), "icon_shape": "cylinder"},
+            {"sku_id": "TXT-YRN-40S", "name": "40s Combed Compact Cotton Yarn Cones (Bag 24)", "category": "Spun Yarn & Fibers", "description": "Auto-coned waxing-grade knitting cotton yarn cones (1.89kg each) in HDPE master bag.", "unit_weight": 45.4, "unit_volume": 0.085, "uom": "Bag", "units_per_bundle": 16, "target_bundles_per_pallet": 1, "bundle_name": "Yarn Cone Pallet (16 Bags)", "visual_color": (160, 130, 175), "icon_shape": "box"},
+            {"sku_id": "TXT-BAL-COT", "name": "Pressed Raw Shankar-6 Cotton Bale (170kg)", "category": "Spun Yarn & Fibers", "description": "High-density hydraulically pressed raw cotton lint bale with cotton cloth wrapping.", "unit_weight": 170.0, "unit_volume": 0.42, "uom": "Bale", "units_per_bundle": 4, "target_bundles_per_pallet": 1, "bundle_name": "4-Bale Clamp Load", "visual_color": (175, 170, 155), "icon_shape": "block"},
+            {"sku_id": "TXT-KNT-FRT", "name": "320 GSM Loopback French Terry Knit Roll (25kg)", "category": "Knitted Fabrics", "description": "Bio-washed reactive dyed tubular knitted hoodie fabric roll.", "unit_weight": 25.0, "unit_volume": 0.075, "uom": "Roll", "units_per_bundle": 12, "target_bundles_per_pallet": 1, "bundle_name": "Knit Roll Stillage (12 Rolls)", "visual_color": (130, 70, 165), "icon_shape": "cylinder"},
+            {"sku_id": "TXT-GAR-BOX", "name": "Export Ready-Made Garment Shipper (60 Pcs)", "category": "Finished Apparel", "description": "RFID-tagged polybagged garments in 5-ply export corrugated master carton.", "unit_weight": 16.5, "unit_volume": 0.072, "uom": "Carton", "units_per_bundle": 20, "target_bundles_per_pallet": 1, "bundle_name": "Apparel Export Pallet (20 Ctn)", "visual_color": (110, 90, 150), "icon_shape": "box"}
+        ],
+        "vision_classes": [
+            ("FABRIC_ROLL", "Woven / Knitted Fabric Roll", "Cylindrical poly-wrapped fabric bolts and denim rolls on cradles"),
+            ("COTTON_BALE", "Compressed Fiber / Cotton Bale", "Strapped high-density raw cotton and polyester fiber bales"),
+            ("BOX", "Yarn Cone Bag / Apparel Carton", "Export garment cartons and palletized yarn cone sacks"),
+            ("PALLET", "Roll Stillage / Pallet", "Steel fabric roll stillages and plastic pallets"),
+            ("FORKLIFT", "Bale-Clamp / Carpet-Pole Forklift", "Specialized bale-clamp and boom-pole forklifts for fabric rolls"),
+            ("WORKER", "Mill & QA Inspector", "Fabric shade-matching and warehouse operators"),
+            ("TRUCK", "Container Trailer", "Dry-van apparel and textile container trucks"),
+            ("LICENSE_PLATE", "License Plate", "Automated textile mill gate ANPR check-in")
+        ],
+        "zones": [
+            ("TB-TXT", "Gate 01 Textile Mill ANPR Bay", "TRUCK_BAY", "Carrier check-in for yarn, bale, and export garment containers"),
+            ("BAY-BALE", "Fire-Protected Raw Cotton Bale Godown", "STORAGE", "Humidity-controlled block storage for compressed cotton bales"),
+            ("RACK-ROLL", "Cantilever & Stillage Fabric Roll Racks", "STORAGE", "Shade-lot segregated honeycomb racks for denim and woven fabric rolls"),
+            ("STG-INSP", "4-Point Fabric Inspection & Shade Lot Bay", "INSPECTION", "Light-box fabric inspection and GSM verification tables")
+        ],
+        "deliveries": [
+            {"po_number": "PO-ARV-8011", "plate": "GJ-01-TX-3318", "vendor": "Arvind Denim Division Ahmedabad", "load_description": "12x Cradles 12oz Indigo Denim Fabric Rolls (72 Rolls)", "sku": "TXT-DEN-200M", "expected": 12},
+            {"po_number": "PO-VRD-8012", "plate": "PB-10-YN-7704", "vendor": "Vardhman Spinning & General Mills", "load_description": "15x Pallets 40s Combed Cotton Yarn Cones", "sku": "TXT-YRN-40S", "expected": 15}
+        ]
     }
 }
 
@@ -502,10 +796,26 @@ def generate_sku_thumbnail(sku_id: str, sku_name: str, category: str, bg_color: 
         cv2.line(img, (center_x - 45, center_y - 10), (center_x + 45, center_y - 10), (255, 255, 255), 2)
         cv2.line(img, (center_x - 45, center_y + 20), (center_x + 45, center_y + 20), (255, 255, 255), 2)
     elif icon_shape == "glass":
-        # A-frame glass panel
-        pts = np.array([[center_x - 45, center_y + 50], [center_x, center_y - 50], [center_x + 45, center_y + 50]], np.int32)
-        cv2.polylines(img, [pts], True, (0, 200, 255), 4)
-        cv2.rectangle(img, (center_x - 35, center_y - 30), (center_x + 35, center_y + 40), (220, 240, 255), 2)
+        # A-frame steel stillage with stacked translucent architectural glass sheets
+        pts = np.array([[center_x - 52, center_y + 52], [center_x, center_y - 52], [center_x + 52, center_y + 52]], np.int32)
+        cv2.polylines(img, [pts], True, (0, 200, 255), 3)
+        for offset in (8, 4, 0):
+            cv2.rectangle(img, (center_x - 42 + offset, center_y - 36 - offset), (center_x + 36 + offset, center_y + 44 - offset), (235, 245, 220), -1)
+            cv2.rectangle(img, (center_x - 42 + offset, center_y - 36 - offset), (center_x + 36 + offset, center_y + 44 - offset), (255, 255, 255), 2)
+        # Diagonal glass reflection lines
+        cv2.line(img, (center_x - 28, center_y + 25), (center_x + 15, center_y - 22), (255, 255, 255), 3)
+        cv2.line(img, (center_x - 12, center_y + 30), (center_x + 25, center_y - 10), (255, 255, 255), 1)
+    elif icon_shape in ("wood", "plank", "sheet"):
+        # Stacked timber planks / layered marine plywood sheets with strapping bands
+        for layer in range(4):
+            y_top = center_y - 38 + (layer * 20)
+            y_bot = y_top + 15
+            cv2.rectangle(img, (center_x - 62, y_top), (center_x + 62, y_bot), (70, 145, 210), -1)
+            cv2.rectangle(img, (center_x - 62, y_top), (center_x + 62, y_bot), (45, 95, 150), 2)
+            cv2.line(img, (center_x - 55, y_top + 7), (center_x + 55, y_top + 7), (55, 115, 175), 1)
+        # Vertical steel/PET strapping bands
+        cv2.line(img, (center_x - 32, center_y - 40), (center_x - 32, center_y + 40), (0, 230, 255), 3)
+        cv2.line(img, (center_x + 32, center_y - 40), (center_x + 32, center_y + 40), (0, 230, 255), 3)
     else:
         # Standard industrial carton box with 3D isometric flap lines
         cv2.rectangle(img, (center_x - 55, center_y - 45), (center_x + 55, center_y + 45), (int(b * 1.3), int(g * 1.3), int(r * 1.3)), -1)
@@ -679,7 +989,9 @@ def apply_industry_blueprint(
 
             created_skus.append({**item, "image_url": img_rel_url})
 
-        # 3. Synchronize AI Vision Object Classes for YOLO-World
+        # 3. Synchronize AI Vision Object Classes for YOLO-World (Strictly scoped to active warehouse industry)
+        cur.execute("DELETE FROM vision_camera_object_classes")
+        cur.execute("DELETE FROM object_classes")
         for cls_code, cls_name, cls_desc in bp["vision_classes"]:
             cur.execute("""
                 INSERT INTO object_classes (code, name, description, status)

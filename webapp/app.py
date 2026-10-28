@@ -98,6 +98,37 @@ def api_login():
         # Tenant / Session isolation: automatically switch active facility to user's assigned warehouse
         wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
         switched = db.set_active_warehouse(wh_code)
+        if switched:
+            try:
+                from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
+                wh_name = switched.get('name') or ''
+                wh_city = switched.get('city') or 'Bengaluru'
+                wh_comp = switched.get('company_name') or user.get('company_name') or ''
+                wh_ind = switched.get('industry') or ''
+                det = auto_detect_company_industry(f"{wh_comp} {wh_name}", wh_ind)
+                bp_key = det.get('detected_key', 'custom')
+                res = apply_industry_blueprint(
+                    blueprint_key=bp_key,
+                    warehouse_code=wh_code,
+                    custom_company_name=wh_comp or wh_name,
+                    custom_prompt=f"{wh_comp} {wh_ind}"
+                )
+                if res.get('success'):
+                    switched = db.create_or_update_warehouse(
+                        code=wh_code,
+                        name=wh_name,
+                        city=wh_city,
+                        operating_mode=switched.get('operating_mode', 'DEDICATED'),
+                        industry=wh_ind or res.get('blueprint_name', 'General'),
+                        company_name=wh_comp
+                    )
+                    db.set_active_warehouse(wh_code)
+                    try:
+                        get_vision_runtime_manager().refresh_cameras()
+                    except Exception:
+                        pass
+            except Exception as e_sync:
+                logger.warning(f"Login warehouse blueprint sync notice: {e_sync}")
         user_clean = {
             "username": user.get("username"),
             "company_name": user.get("company_name", "Skantha Industrial Solutions"),
@@ -130,7 +161,7 @@ def api_company_preview_recognition():
         if not combined_text:
             return jsonify({'success': True, 'detected': None})
 
-        detected = auto_detect_company_industry(company_name or warehouse_name, description)
+        detected = auto_detect_company_industry(f"{company_name} {warehouse_name}".strip(), description)
         bp = INDUSTRY_BLUEPRINTS.get(detected.get('detected_key'), {})
         
         return jsonify({
@@ -292,6 +323,7 @@ def api_verify_otp_and_register():
         password = (data.get('password') or '').strip()
         company_name = (data.get('company_name') or '').strip()
         warehouse_name = (data.get('warehouse_name') or '').strip()
+        description = (data.get('description') or '').strip()
         city = (data.get('city') or 'Bengaluru').strip()
         env_choice = (data.get('environment_blueprint') or '').strip().lower()
 
@@ -305,30 +337,30 @@ def api_verify_otp_and_register():
         if not is_valid:
             return jsonify({'success': False, 'message': verify_msg}), 400
 
-        # Determine Environment: Use explicit user dropdown or auto-detect from company name
+        # Determine Environment: Use explicit user dropdown or auto-detect from company name / warehouse / description
         from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-        if env_choice and env_choice != 'auto':
+        if env_choice and env_choice not in ('auto', 'custom'):
             detected_key = env_choice
             detected_info = {'detected_key': detected_key, 'confidence': 1.0, 'reason': 'Selected via Industry Environment Selector'}
-        elif company_name:
-            detected_info = auto_detect_company_industry(company_name)
+        elif company_name or warehouse_name or description:
+            detected_info = auto_detect_company_industry(f"{company_name} {warehouse_name}".strip(), description)
             detected_key = detected_info.get('detected_key', 'custom')
         else:
             detected_key = 'custom'
             detected_info = {'detected_key': 'custom', 'confidence': 0.8, 'reason': 'Standard Warehousing Workspace'}
 
         assigned_wh_code = 'WH-MAIN'
-        if company_name:
+        if company_name or warehouse_name:
             try:
-                slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:5] or "WH"
+                slug_comp = re.sub(r'[^A-Z0-9]', '', (company_name or warehouse_name).upper())[:5] or "WH"
                 slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
                 wh_code_custom = f"WH-{slug_comp}-{slug_city}"
 
                 res = apply_industry_blueprint(
                     blueprint_key=detected_key,
                     warehouse_code=wh_code_custom,
-                    custom_company_name=company_name,
-                    custom_prompt=f"{company_name} in {city}"
+                    custom_company_name=company_name or warehouse_name,
+                    custom_prompt=f"{company_name} {warehouse_name} {description} in {city}".strip()
                 )
                 if res.get('success') and res.get('warehouse'):
                     assigned_wh_code = res['warehouse']['code']
@@ -340,6 +372,10 @@ def api_verify_otp_and_register():
                         industry=res.get('blueprint_name', 'General'),
                         company_name=company_name
                     )
+                    try:
+                        get_vision_runtime_manager().refresh_cameras()
+                    except Exception:
+                        pass
             except Exception as e_ind:
                 logger.warning(f"Error provisioning industry blueprint: {e_ind}")
 
@@ -385,6 +421,7 @@ def api_register():
     email = (data.get('email') or '').strip().lower()
     company_name = (data.get('company_name') or '').strip()
     warehouse_name = (data.get('warehouse_name') or '').strip()
+    description = (data.get('description') or '').strip()
     city = (data.get('city') or 'Bengaluru').strip()
     env_choice = (data.get('environment_blueprint') or '').strip().lower()
     
@@ -393,18 +430,18 @@ def api_register():
     
     assigned_wh_code = 'WH-MAIN'
     detected_info = None
-    if company_name:
+    if company_name or warehouse_name:
         try:
             from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-            if env_choice and env_choice != 'auto':
+            if env_choice and env_choice not in ('auto', 'custom'):
                 detected_key = env_choice
                 detected_info = {'detected_key': detected_key, 'confidence': 1.0}
             else:
-                detected = auto_detect_company_industry(company_name)
+                detected = auto_detect_company_industry(f"{company_name} {warehouse_name}".strip(), description)
                 detected_info = detected
                 detected_key = detected['detected_key']
             
-            slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:5] or "WH"
+            slug_comp = re.sub(r'[^A-Z0-9]', '', (company_name or warehouse_name).upper())[:5] or "WH"
             slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
             wh_code_custom = f"WH-{slug_comp}-{slug_city}"
             
@@ -412,8 +449,8 @@ def api_register():
             res = apply_industry_blueprint(
                 blueprint_key=detected_key,
                 warehouse_code=wh_code_custom,
-                custom_company_name=company_name,
-                custom_prompt=f"{company_name} in {city}"
+                custom_company_name=company_name or warehouse_name,
+                custom_prompt=f"{company_name} {warehouse_name} {description} in {city}".strip()
             )
             if res.get('success') and res.get('warehouse'):
                 assigned_wh_code = res['warehouse']['code']
@@ -425,6 +462,10 @@ def api_register():
                     industry=res.get('blueprint_name', 'General'),
                     company_name=company_name
                 )
+                try:
+                    get_vision_runtime_manager().refresh_cameras()
+                except Exception:
+                    pass
         except Exception as e_ind:
             logger.warning(f"Auto-industry setup on registration notice: {e_ind}")
     
@@ -592,6 +633,36 @@ def api_switch_warehouse():
         switched = db.set_active_warehouse(code)
         if not switched:
             return jsonify({"success": False, "error": f"Warehouse '{code}' not found"}), 404
+        try:
+            from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
+            wh_name = switched.get('name') or ''
+            wh_city = switched.get('city') or 'Bengaluru'
+            wh_comp = switched.get('company_name') or ''
+            wh_ind = switched.get('industry') or ''
+            det = auto_detect_company_industry(f"{wh_comp} {wh_name}", wh_ind)
+            bp_key = det.get('detected_key', 'custom')
+            res = apply_industry_blueprint(
+                blueprint_key=bp_key,
+                warehouse_code=code,
+                custom_company_name=wh_comp or wh_name,
+                custom_prompt=f"{wh_comp} {wh_ind}"
+            )
+            if res.get('success'):
+                switched = db.create_or_update_warehouse(
+                    code=code,
+                    name=wh_name,
+                    city=wh_city,
+                    operating_mode=switched.get('operating_mode', 'DEDICATED'),
+                    industry=wh_ind or res.get('blueprint_name', 'General'),
+                    company_name=wh_comp
+                )
+                db.set_active_warehouse(code)
+                try:
+                    get_vision_runtime_manager().refresh_cameras()
+                except Exception:
+                    pass
+        except Exception as e_sync:
+            logger.warning(f"Switch warehouse blueprint sync notice: {e_sync}")
         return jsonify({"success": True, "warehouse": switched, "message": f"Switched to {switched['name']} ({switched['code']})"})
     except Exception as e:
         logger.error(f"Error switching warehouse: {e}")

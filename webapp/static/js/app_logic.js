@@ -199,6 +199,11 @@
         window._regDraft = null;
 
         const ENV_FEATURE_DESCRIPTIONS = {
+            'glass': 'Tailored for architectural float/toughened glass sheets, A-frame & harp rack stillages, sq.ft area math, and breakage quarantine.',
+            'wood': 'Tailored for marine BWP plywood stacks, MDF/HDHMR boards, seasoned timber planks (CFT), moisture checks, and cantilever racks.',
+            'construction': 'Tailored for OPC/PPC cement sling bays, vitrified & porcelain tile shade-lot pallets, gypsum drywall boards, and uPVC pipe bundles.',
+            'chemicals': 'Tailored for 1000L IBC totes, spill-bunded 200L epoxy/solvent drums, paint pails, polymer resin sacks, and HAZCHEM/SDS tracking.',
+            'textiles': 'Tailored for woven denim & cotton fabric roll cradles, combed yarn cone pallets, compressed cotton bales, and dye-lot shade tracking.',
             'beverage': 'Tailored for beverage bottling, cold-store staging, high-throughput pallet lanes, and freshness tracking.',
             'automotive': 'Tailored for OEM parts staging, heavy stamping/component racking, parts kitting, and strict barcode scanning.',
             'electronics': 'Tailored for ESD anti-static sensitive bins, serial/IMEI validation, high-security lockups, and cleanrooms.',
@@ -222,23 +227,36 @@
             clearTimeout(regRecognitionTimeout);
             regRecognitionTimeout = setTimeout(async () => {
                 const compInput = document.getElementById('reg-company');
+                const whInput = document.getElementById('reg-warehouse');
                 const comp = compInput ? compInput.value.trim() : '';
+                const wh = whInput ? whInput.value.trim() : '';
+                const combined = `${comp} ${wh}`.trim();
                 const badge = document.getElementById('regAutoDetectBadge');
                 const envSelect = document.getElementById('reg-environment');
                 const featureText = document.getElementById('envFeatureText');
-                if (!comp || comp.length < 2) {
+                if (!combined || combined.length < 2) {
                     if (badge) badge.style.display = 'none';
                     return;
                 }
 
                 // Fast client-side keyword heuristics
-                const lower = comp.toLowerCase();
+                const lower = combined.toLowerCase();
                 let detectedEnv = null;
-                if (/coca|pepsi|beverage|drink|beer|brew|dairy|amul|milk|juice|soda|nestle|tropicana/i.test(lower)) {
+                if (/saint-gobain|saint gobain|asahi|ais glass|gold plus|guardian|borosil|glass|glazing|float glass|toughened|tempered|mirror|dgu|fenestration|a-frame/i.test(lower)) {
+                    detectedEnv = 'glass';
+                } else if (/centuryply|century ply|greenply|greenpanel|action tesa|merino|kitply|wood|timber|plywood|lumber|mdf|hdf|hdhmr|veneer|laminate|teak|pine|oak|sawmill|carpentry|plank/i.test(lower)) {
+                    detectedEnv = 'wood';
+                } else if (/ultratech|ambuja|acc cement|kajaria|somany|cera|hindware|gyproc|cement|concrete|mortar|tile|ceramic|vitrified|gypsum|drywall|brick|construction|sanitaryware/i.test(lower)) {
+                    detectedEnv = 'construction';
+                } else if (/pidilite|asian paints|berger|nerolac|basf|tata chemicals|chemical|polymer|resin|epoxy|solvent|adhesive|paint|coating|fertilizer/i.test(lower)) {
+                    detectedEnv = 'chemicals';
+                } else if (/raymond|arvind|welspun|vardhman|trident|textile|fabric|cotton|yarn|spinning|garment|apparel|denim|polyester|loom|weaving/i.test(lower)) {
+                    detectedEnv = 'textiles';
+                } else if (/coca|pepsi|beverage|drink|beer|brew|dairy|amul|milk|juice|soda|nestle|tropicana|bisleri|kinley/i.test(lower)) {
                     detectedEnv = 'beverage';
                 } else if (/motor|auto|car|tata motors|hyundai|tesla|ford|toyota|bosch|vehicle|chassis|engine|bmw/i.test(lower)) {
                     detectedEnv = 'automotive';
-                } else if (/samsung|apple|electronics|intel|chip|semiconductor|oled|lg|phone|hardware|device|sony/i.test(lower)) {
+                } else if (/samsung|apple|electronics|intel|chip|semiconductor|oled|lg|phone|hardware|device|sony|foxconn/i.test(lower)) {
                     detectedEnv = 'electronics';
                 } else if (/pharma|pfizer|cipla|vaccine|medicine|drug|health|biotech|serum|dr reddy|sun pharma/i.test(lower)) {
                     detectedEnv = 'pharma';
@@ -264,7 +282,7 @@
                     const res = await fetch('/api/company/preview_recognition', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ company_name: comp })
+                        body: JSON.stringify({ company_name: comp, warehouse_name: wh })
                     });
                     const d = await res.json();
                     if (d.success && d.detected_key && d.detected_key !== 'custom' && envSelect) {
