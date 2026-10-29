@@ -129,10 +129,32 @@ class PalletVisionCountingService:
         3. Material & geometry spectrum classification (translucent cyan/aqua float glass sheets,
            warm brown timber planks/plywood stacks, metallic grey tubes/pipes, corrugated cartons, etc.).
         """
+        # Extract visual material properties of the central region
+        h_t, w_t = image_bgr.shape[:2]
+        cy1_t, cy2_t = int(h_t * 0.12), int(h_t * 0.88)
+        cx1_t, cx2_t = int(w_t * 0.12), int(w_t * 0.88)
+        roi_crop_t = image_bgr[cy1_t:max(cy1_t + 10, cy2_t), cx1_t:max(cx1_t + 10, cx2_t)]
+        hsv_t = cv2.cvtColor(roi_crop_t, cv2.COLOR_BGR2HSV)
+        mean_h_t = float(np.mean(hsv_t[:, :, 0]))
+        mean_s_t = float(np.mean(hsv_t[:, :, 1]))
+        mean_v_t = float(np.mean(hsv_t[:, :, 2]))
+        is_metallic_grey_t = (mean_s_t < 42 and 60 <= mean_v_t <= 205)
+        is_cyan_glass_t = (78 <= mean_h_t <= 112 and mean_v_t >= 95)
+
         if explicit_sku_id and explicit_sku_id.strip() not in ("", "AUTO", "MULTI_ALL"):
             anchor = self.get_sku_visual_anchor(explicit_sku_id)
             if anchor:
-                return {
+                sku_text = f"{anchor.get('sku_id','')} {anchor.get('name','')} {anchor.get('category','')}".lower()
+                is_conflicting = False
+                mismatch_msg = None
+                if is_metallic_grey_t and any(g in sku_text for g in ("glass", "float", "dgu", "igu", "mirror", "pane")):
+                    is_conflicting = True
+                    mismatch_msg = f"Visual evidence indicates metallic steel profiles, but selected SKU '{anchor['sku_id']}' is a glass product."
+                elif is_cyan_glass_t and any(m in sku_text for m in ("steel", "pipe", "metal", "tube", "wood", "timber")):
+                    is_conflicting = True
+                    mismatch_msg = f"Visual evidence indicates glass sheets, but selected SKU '{anchor['sku_id']}' is a metal/wood product."
+
+                ret_dict = {
                     "sku_id": anchor["sku_id"],
                     "name": anchor["name"],
                     "category": anchor["category"],
@@ -141,9 +163,12 @@ class PalletVisionCountingService:
                     "bundle_name": anchor["bundle_name"],
                     "target_bundles_per_pallet": anchor["target_bundles_per_pallet"],
                     "image_url": anchor.get("image_url"),
-                    "confidence": 0.99,
+                    "confidence": 0.45 if is_conflicting else 0.99,
                     "recognition_method": "OPERATOR_SELECTED_SKU_LOCK"
                 }
+                if mismatch_msg:
+                    ret_dict["mismatch_warning"] = mismatch_msg
+                return ret_dict
 
         all_skus = []
         if db:
@@ -251,7 +276,30 @@ class PalletVisionCountingService:
             else:
                 image_url = f"/static/uploads/sku_images/{os.path.basename(norm)}"
 
-        conf = round(min(0.99, max(0.88, best_score if best_score <= 1.0 else 0.92 + min(0.07, (best_score - 1.0) * 0.15))), 3)
+        # Material sanity check: if visual evidence shows metallic steel sections but catalog only has glass/other
+        is_best_metal = any(k in f"{best_sku.get('sku_id','')} {best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("metal", "steel", "pipe", "tube", "profile", "bar", "iron"))
+        if is_metallic_grey and not is_best_metal:
+            return {
+                "sku_id": "INFERRED-STEEL-PROFILE",
+                "name": "Hollow Structural Steel Sections / Pipes",
+                "category": "Structural Metals & Profiles",
+                "uom": "PIPES" if not is_bundle_mode else "BUNDLES",
+                "units_per_bundle": 10 if is_bundle_mode else 1,
+                "bundle_name": "Steel Bundle",
+                "target_bundles_per_pallet": 1,
+                "image_url": None,
+                "confidence": 0.55,
+                "recognition_method": "MATERIAL_FAMILY_INFERRED"
+            }
+
+        # Do not artificially clamp confidence to 0.88 if match score was low
+        if best_score < 0.65:
+            conf = round(max(0.40, min(0.64, best_score)), 3)
+            rec_method = "CATALOG_FALLBACK"
+        else:
+            conf = round(min(0.99, 0.82 + min(0.17, (best_score - 0.65) * 0.30)), 3)
+            rec_method = "AI_VISION_SKU_SIGNATURE_MATCH"
+
         return {
             "sku_id": best_sku["sku_id"],
             "name": best_sku.get("name") or best_sku["sku_id"],
@@ -262,7 +310,7 @@ class PalletVisionCountingService:
             "target_bundles_per_pallet": max(1, int(best_sku.get("target_bundles_per_pallet") or 10)),
             "image_url": image_url,
             "confidence": conf,
-            "recognition_method": "AI_VISION_SKU_SIGNATURE_MATCH"
+            "recognition_method": rec_method
         }
 
     def _enrich_with_sku_and_bundle_uom(
@@ -1050,7 +1098,7 @@ class PalletVisionCountingService:
                 p["norm_h"] = round(ph_i / float(max(1, h)), 4)
                 p["confidence"] = round(float(p.get("confidence", 0.82)), 3)
                 p["is_direct_detection"] = True
-                p["detection_status"] = "UNCERTAIN_CANDIDATE" if p.get("is_boundary_case") else "ACCEPTED_CROSS_SECTION_INSTANCE"
+                p["detection_status"] = p.get("detection_status") or ("UNCERTAIN_CANDIDATE" if p.get("is_boundary_case") else "ACCEPTED_CROSS_SECTION_INSTANCE")
                 p["cluster_name"] = cl["name"]
                 p["cluster"] = cl["name"]
                 p["color_bgr"] = cl["color_bgr"]
@@ -1099,7 +1147,7 @@ class PalletVisionCountingService:
 
         filename = f"piece_count_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         save_path = os.path.join(UPLOAD_DIR, filename)
-        cv2.imwrite(save_path, annotated_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        cv2.imwrite(save_path, annotated_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
         rel_url = f"/static/uploads/{filename}"
 
         clean_clusters = []
@@ -3636,12 +3684,15 @@ class PalletVisionCountingService:
     ) -> List[Dict[str, Any]]:
         """
         High-precision computer vision cross-section piece detector (Zero-Shot / SKU-Guided).
-        When sku_anchor is provided, uses the trained SKU reference photo from AI Vision
-        to perform color histogram matching, material contour verification, and background clutter suppression.
+        - When dedup_hollow_profiles=True (Individual Pieces Mode):
+          Applies scale-invariant hollow void segmentation, single physical instance deduplication
+          (merging inner/outer/shadow contours within the same opening), background rafter/floor suppression,
+          and spatial lattice neighbor verification.
+        - When dedup_hollow_profiles=False (Metal Bundle End-Face Clustering):
+          Preserves the high-density distance transform peak extractor with NMS for bundle clustering.
         """
         full_h, full_w = img_bgr.shape[:2]
 
-        # Apply ROI if provided
         if roi and isinstance(roi, dict):
             rx = max(0, min(full_w - 10, int(roi.get("x", 0))))
             ry = max(0, min(full_h - 10, int(roi.get("y", 0))))
@@ -3655,15 +3706,14 @@ class PalletVisionCountingService:
 
         h, w = work_img.shape[:2]
         gray = cv2.cvtColor(work_img, cv2.COLOR_BGR2GRAY)
+        scale = float(np.sqrt((w * h) / (1280.0 * 720.0)))
 
-        # 1. CLAHE Contrast Normalization
+        # 1. CLAHE Contrast Normalization & Bilateral Wall Preservation
         clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
         norm_gray = clahe.apply(gray)
-
-        # 2. Bilateral smoothing to preserve sharp cross-section wall boundaries
         smoothed = cv2.bilateralFilter(norm_gray, 7, 45, 45)
 
-        # 2.5. SKU Exemplar Color Pre-Filter: if SKU visual anchor is available, boost matching pixels
+        # 2. SKU Exemplar Color Pre-Filter if SKU visual anchor is available
         if sku_anchor and sku_anchor.get("signature"):
             try:
                 sig = sku_anchor["signature"]
@@ -3674,7 +3724,6 @@ class PalletVisionCountingService:
                 h_tol = max(28, int(45 * (1.2 - sensitivity)))
                 s_min = max(15, int(mean_s * 0.35))
                 v_min = max(25, int(mean_v * 0.30))
-
                 low_bnd = np.array([max(0, int(mean_h - h_tol)), s_min, v_min], dtype=np.uint8)
                 high_bnd = np.array([min(180, int(mean_h + h_tol)), 255, 255], dtype=np.uint8)
                 sku_mask = cv2.inRange(hsv_work, low_bnd, high_bnd)
@@ -3683,127 +3732,57 @@ class PalletVisionCountingService:
             except Exception as e:
                 logger.debug(f"SKU color prefilter skipped: {e}")
 
-        # 3. Detect hollow interior cores / dark tube voids or bright ends
-        block_size = 21
-        c_val = 3.5 + (0.5 - sensitivity) * 4.0
-        thresh_inv = cv2.adaptiveThreshold(
-            smoothed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV, block_size, c_val
-        )
-
-        # Remove thin long continuous lines (floor cracks, straps, shelf rails)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        thresh_inv = cv2.morphologyEx(thresh_inv, cv2.MORPH_OPEN, kernel)
-
-        # 4. Distance Transform to isolate individual centroids even when touching
-        dist = cv2.distanceTransform(thresh_inv, cv2.DIST_L2, 5)
-        dist_norm = cv2.normalize(dist, None, 0, 1.0, cv2.NORM_MINMAX)
-
-        # Dynamic peak threshold based on sensitivity
-        thresh_val = max(0.18, min(0.65, 0.40 - (sensitivity - 0.5) * 0.30))
-        _, peaks = cv2.threshold(dist_norm, thresh_val, 1.0, cv2.THRESH_BINARY)
-        peaks = (peaks * 255).astype(np.uint8)
-
-        # 5. Extract piece centroids and bounding boxes from peaks
-        cnts, _ = cv2.findContours(peaks, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        candidates = []
-        for c in cnts:
-            area = cv2.contourArea(c)
-            if area >= 3:
-                x_b, y_b, w_b, h_b = cv2.boundingRect(c)
-                aspect = max(w_b, h_b) / (min(w_b, h_b) + 1e-5)
-                if aspect < 2.8:  # Reject long lines/straps
-                    M = cv2.moments(c)
-                    if M['m00'] > 0:
-                        cx = int(M['m10'] / M['m00']) + offset_x
-                        cy = int(M['m01'] / M['m00']) + offset_y
-                        bw_est = max(12, int(w_b * 1.4))
-                        bh_est = max(12, int(h_b * 1.4))
-                        bx1 = max(0, cx - bw_est // 2)
-                        by1 = max(0, cy - bh_est // 2)
-                        bx2 = min(full_w, cx + bw_est // 2)
-                        by2 = min(full_h, cy + bh_est // 2)
-                        peak_conf = float(np.max(dist_norm[y_b:y_b+max(1, h_b), x_b:x_b+max(1, w_b)])) if dist_norm.size > 0 else 0.75
-                        candidates.append({
-                            "x": cx,
-                            "y": cy,
-                            "w": max(1, bx2 - bx1),
-                            "h": max(1, by2 - by1),
-                            "bbox": [bx1, by1, bx2, by2],
-                            "area": area,
-                            "confidence": round(min(0.98, max(0.55, peak_conf)), 3)
-                        })
-
-        if not candidates:
-            return []
-
-        # 6. Statistical Modal Area Outlier Rejection:
-        areas = [c["area"] for c in candidates]
-        med_area = float(np.median(areas))
-
-        filtered_by_area = [
-            c for c in candidates
-            if (0.30 * med_area <= c["area"] <= 3.2 * med_area)
-        ]
-        if len(filtered_by_area) < 5:
-            filtered_by_area = candidates
-
-        # 6.5. SKU Exemplar Verification against Mapped AI Vision Reference Photo
-        if sku_anchor and sku_anchor.get("signature") and len(filtered_by_area) > 0:
-            matcher = sku_anchor.get("matcher")
-            sku_key = sku_anchor.get("sku_id")
-            crop_rad = max(10, min(45, int(math.sqrt(med_area) * 1.8)))
-            verified_by_sku = []
-
-            for c in filtered_by_area:
-                cx, cy = c["x"], c["y"]
-                y1 = max(0, cy - crop_rad)
-                y2 = min(full_h, cy + crop_rad)
-                x1 = max(0, cx - crop_rad)
-                x2 = min(full_w, cx + crop_rad)
-                cand_crop = img_bgr[y1:y2, x1:x2]
-
-                if cand_crop.shape[0] < 6 or cand_crop.shape[1] < 6:
-                    continue
-
-                sim = 0.0
-                if matcher and sku_key:
-                    sim = matcher.compute_similarity(cand_crop, sku_key)
-
-                sim_thresh = max(0.12, 0.28 - (sensitivity - 0.5) * 0.20)
-                if sim >= sim_thresh:
-                    c["sku_similarity"] = sim
-                    verified_by_sku.append(c)
-
-            if len(verified_by_sku) >= 3:
-                filtered_by_area = verified_by_sku
-
-        # 6.8. Concrete Floor Noise Rejection
-        clean_non_floor = []
-        for c in filtered_by_area:
-            cx, cy = c["x"], c["y"]
-            patch = img_bgr[max(0, cy - 8):min(full_h, cy + 8), max(0, cx - 8):min(full_w, cx + 8)]
-            if patch.size > 0:
-                mean_val = float(np.mean(patch))
-                if cy > full_h * 0.65 and mean_val < 78.0:
-                    continue
-            clean_non_floor.append(c)
-        filtered_by_area = clean_non_floor
-
-        # 7. Dynamic Physical Scale Estimation & Instance Merging:
-        # Prevents counting concentric inner void, outer rim, wall highlight, and bottom shadow as multiple pieces.
-        strong_peaks = sorted(filtered_by_area, key=lambda c: float(c.get("confidence", 0.5)), reverse=True)[:min(len(filtered_by_area), 300)]
-        if len(strong_peaks) >= 8:
-            sc_coords = np.array([[c["x"], c["y"]] for c in strong_peaks])
-            p_dists = np.linalg.norm(sc_coords[:, None, :] - sc_coords[None, :, :], axis=-1)
-            np.fill_diagonal(p_dists, np.inf)
-            valid_p_dists = p_dists[(p_dists >= 22.0) & (p_dists <= 70.0)]
-            char_spacing = float(np.median(valid_p_dists)) if len(valid_p_dists) > 0 else 38.0
-        else:
-            char_spacing = 38.0
-
+        # Branch for Metal Bundle End-Face Clustering (Preserves legacy distance transform peak finding)
         if not dedup_hollow_profiles:
-            # Fast/legacy NMS by min_dist for bundle-level clustering in _detect_physical_metal_bundles
+            block_size = 21
+            c_val = 3.5 + (0.5 - sensitivity) * 4.0
+            thresh_inv = cv2.adaptiveThreshold(
+                smoothed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY_INV, block_size, c_val
+            )
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            thresh_inv = cv2.morphologyEx(thresh_inv, cv2.MORPH_OPEN, kernel)
+            dist = cv2.distanceTransform(thresh_inv, cv2.DIST_L2, 5)
+            dist_norm = cv2.normalize(dist, None, 0, 1.0, cv2.NORM_MINMAX)
+            thresh_val = max(0.18, min(0.65, 0.40 - (sensitivity - 0.5) * 0.30))
+            _, peaks = cv2.threshold(dist_norm, thresh_val, 1.0, cv2.THRESH_BINARY)
+            peaks = (peaks * 255).astype(np.uint8)
+            cnts, _ = cv2.findContours(peaks, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            candidates = []
+            for c in cnts:
+                area = cv2.contourArea(c)
+                if area >= 3:
+                    x_b, y_b, w_b, h_b = cv2.boundingRect(c)
+                    aspect = max(w_b, h_b) / (min(w_b, h_b) + 1e-5)
+                    if aspect < 2.8:
+                        M = cv2.moments(c)
+                        if M["m00"] > 0:
+                            cx = int(M["m10"] / M["m00"]) + offset_x
+                            cy = int(M["m01"] / M["m00"]) + offset_y
+                            bw_est = max(12, int(w_b * 1.4))
+                            bh_est = max(12, int(h_b * 1.4))
+                            bx1 = max(0, cx - bw_est // 2)
+                            by1 = max(0, cy - bh_est // 2)
+                            bx2 = min(full_w, cx + bw_est // 2)
+                            by2 = min(full_h, cy + bh_est // 2)
+                            peak_conf = float(np.max(dist_norm[y_b:y_b+max(1, h_b), x_b:x_b+max(1, w_b)])) if dist_norm.size > 0 else 0.75
+                            candidates.append({
+                                "x": cx,
+                                "y": cy,
+                                "w": max(1, bx2 - bx1),
+                                "h": max(1, by2 - by1),
+                                "bbox": [bx1, by1, bx2, by2],
+                                "area": area,
+                                "confidence": round(min(0.98, max(0.55, peak_conf)), 3)
+                            })
+            if not candidates:
+                return []
+            areas = [c["area"] for c in candidates]
+            med_area = float(np.median(areas))
+            filtered_by_area = [c for c in candidates if (0.30 * med_area <= c["area"] <= 3.2 * med_area)]
+            if len(filtered_by_area) < 5:
+                filtered_by_area = candidates
+
             sorted_cands = sorted(filtered_by_area, key=lambda c: float(c.get("confidence", 0.5)), reverse=True)
             simple_pieces = []
             for c in sorted_cands:
@@ -3822,102 +3801,129 @@ class PalletVisionCountingService:
                 })
             return simple_pieces
 
-        # Physical section merge radius: candidates closer than ~0.85 * char_spacing belong to the same opening/profile
-        merge_radius = max(float(min_dist), char_spacing * 0.85)
+        # Dedicated Scale-Invariant Hollow Structural Section Detection (Individual Pieces Mode)
+        bs = int(max(15, int(35 * scale))) | 1
+        c_val = 3.5 + (0.5 - sensitivity) * 3.0
+        thresh_inv = cv2.adaptiveThreshold(
+            smoothed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV, bs, c_val
+        )
 
-        # Sort candidates by peak strength descending
-        sorted_cands = sorted(filtered_by_area, key=lambda c: float(c.get("confidence", 0.5)), reverse=True)
-        physical_instances = []
+        k_size = int(max(3, int(3 * scale))) | 1
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (k_size, k_size))
+        thresh_clean = cv2.morphologyEx(thresh_inv, cv2.MORPH_OPEN, kernel_open)
 
-        for c in sorted_cands:
-            cx, cy = c["x"], c["y"]
-            if cx < 12 or cx > (full_w - 12) or cy < 12 or cy > (full_h - 12):
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(thresh_clean)
+        min_area = max(20.0, 50.0 * (scale ** 2))
+        max_area = 3500.0 * (scale ** 2)
+
+        candidates = []
+        for i in range(1, num_labels):
+            area = stats[i, cv2.CC_STAT_AREA]
+            bw = stats[i, cv2.CC_STAT_WIDTH]
+            bh = stats[i, cv2.CC_STAT_HEIGHT]
+            cx, cy = centroids[i]
+
+            if cx < 12 or cx > (w - 12) or cy < 12 or cy > (h - 12):
                 continue
-            # Dunnage and floor suppression
-            if cy > full_h * 0.70:
-                patch = img_bgr[max(0, cy - 8):min(full_h, cy + 8), max(0, cx - 8):min(full_w, cx + 8)]
-                if patch.size > 0 and float(np.mean(patch)) < 75.0:
-                    continue
 
+            aspect = max(bw, bh) / (min(bw, bh) + 1e-5)
+            solidity = area / float(bw * bh + 1e-5)
+
+            if min_area <= area <= max_area and aspect <= 3.2 and solidity >= 0.50:
+                bx1 = max(0, int(cx - bw // 2)) + offset_x
+                by1 = max(0, int(cy - bh // 2)) + offset_y
+                bx2 = min(full_w, int(cx + bw // 2)) + offset_x
+                by2 = min(full_h, int(cy + bh // 2)) + offset_y
+                candidates.append({
+                    "cx": float(cx) + offset_x,
+                    "cy": float(cy) + offset_y,
+                    "bw": int(bw),
+                    "bh": int(bh),
+                    "area": float(area),
+                    "bbox": [bx1, by1, bx2, by2],
+                    "confidence": round(min(0.98, max(0.60, 0.70 + 0.25 * solidity)), 3)
+                })
+
+        if not candidates:
+            return []
+
+        # Deduplicate concentric or fragmented void detections of the same physical opening
+        candidates.sort(key=lambda c: float(c["area"]), reverse=True)
+        dedup_instances = []
+        for c in candidates:
             matched = False
-            for u in physical_instances:
-                d = math.hypot(u["x"] - cx, u["y"] - cy)
-                if d < merge_radius:
-                    # Concentric / same opening duplicate: update weighted centroid
-                    c_conf = float(c.get("confidence", 0.5))
-                    wt = float(u["weight"]) + c_conf
-                    u["x"] = int((u["x"] * u["weight"] + cx * c_conf) / wt)
-                    u["y"] = int((u["y"] * u["weight"] + cy * c_conf) / wt)
-                    u["weight"] = wt
-                    u["sub_detections"] += 1
-                    u["confidence"] = max(float(u["confidence"]), c_conf)
+            for u in dedup_instances:
+                d = np.hypot(u["cx"] - c["cx"], u["cy"] - c["cy"])
+                merge_dist = max(12.0 * scale, max(u["bw"], u["bh"]) * 0.52)
+                if d < merge_dist:
+                    tot_a = u["area"] + c["area"]
+                    u["cx"] = (u["cx"] * u["area"] + c["cx"] * c["area"]) / tot_a
+                    u["cy"] = (u["cy"] * u["area"] + c["cy"] * c["area"]) / tot_a
+                    u["area"] = tot_a
+                    u["confidence"] = max(float(u["confidence"]), float(c["confidence"]))
                     matched = True
                     break
             if not matched:
-                physical_instances.append({
-                    "x": cx,
-                    "y": cy,
-                    "weight": float(c.get("confidence", 0.5)),
-                    "confidence": float(c.get("confidence", 0.5)),
-                    "w": c["w"],
-                    "h": c["h"],
-                    "bbox": c["bbox"],
-                    "sub_detections": 1
-                })
+                dedup_instances.append(c.copy())
 
-        # 8. Stack Lattice Consistency & Spatial Support Filter:
-        # Real stacked hollow profiles form a dense regular lattice.
-        # Distinguish confirmed interior pieces, uncertain boundary candidates, and reject isolated noise.
-        if len(physical_instances) > 6:
-            u_coords = np.array([[u["x"], u["y"]] for u in physical_instances])
-            u_dists = np.linalg.norm(u_coords[:, None, :] - u_coords[None, :, :], axis=-1)
-            np.fill_diagonal(u_dists, np.inf)
-
-            final_pieces = []
-            for i, u in enumerate(physical_instances):
-                near_nbrs = np.sum(u_dists[i] <= (char_spacing * 1.55))
-                min_nbr_d = np.min(u_dists[i])
-                if near_nbrs >= 2 and min_nbr_d <= (char_spacing * 1.45):
-                    # Solidly confirmed interior physical section
-                    final_pieces.append({
-                        "x": u["x"],
-                        "y": u["y"],
-                        "w": u["w"],
-                        "h": u["h"],
-                        "bbox": u["bbox"],
-                        "confidence": u["confidence"],
-                        "detection_status": "ACCEPTED_CROSS_SECTION_INSTANCE",
-                        "uncertainty_indicators": []
-                    })
-                elif near_nbrs >= 1 and min_nbr_d <= (char_spacing * 1.75):
-                    # Boundary profile: mark uncertain for operator review
-                    final_pieces.append({
-                        "x": u["x"],
-                        "y": u["y"],
-                        "w": u["w"],
-                        "h": u["h"],
-                        "bbox": u["bbox"],
-                        "confidence": round(u["confidence"] * 0.75, 2),
-                        "detection_status": "UNCERTAIN_BOUNDARY_INSTANCE",
-                        "uncertainty_indicators": ["BOUNDARY_PROFILE"]
-                    })
-                else:
-                    # Isolated noise on background wall or floor: rejected
-                    pass
-        else:
-            final_pieces = [
+        if len(dedup_instances) < 6:
+            return [
                 {
-                    "x": u["x"],
-                    "y": u["y"],
-                    "w": u["w"],
-                    "h": u["h"],
+                    "x": int(u["cx"]),
+                    "y": int(u["cy"]),
+                    "w": u["bw"],
+                    "h": u["bh"],
                     "bbox": u["bbox"],
                     "confidence": u["confidence"],
                     "detection_status": "ACCEPTED_CROSS_SECTION_INSTANCE",
                     "uncertainty_indicators": []
                 }
-                for u in physical_instances
+                for u in dedup_instances
             ]
+
+        # Spatial Lattice Neighbor Verification & Background Suppression
+        coords = np.array([[u["cx"], u["cy"]] for u in dedup_instances])
+        dists = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
+        np.fill_diagonal(dists, np.inf)
+
+        final_pieces = []
+        for i, u in enumerate(dedup_instances):
+            local_dim = max(u["bw"], u["bh"])
+            interact_r = max(42.0 * scale, local_dim * 2.2)
+            near_nbrs = np.sum(dists[i] <= interact_r)
+            min_d = np.min(dists[i])
+
+            # Floor noise suppression
+            if u["cy"] > full_h * 0.88 and near_nbrs < 3:
+                continue
+
+            # Ceiling / roof rafter suppression (sparse isolated peaks in top 22% of image)
+            if u["cy"] < full_h * 0.22 and near_nbrs < 4:
+                continue
+
+            if near_nbrs >= 2 and min_d <= interact_r * 0.95:
+                final_pieces.append({
+                    "x": int(u["cx"]),
+                    "y": int(u["cy"]),
+                    "w": u["bw"],
+                    "h": u["bh"],
+                    "bbox": u["bbox"],
+                    "confidence": u["confidence"],
+                    "detection_status": "ACCEPTED_CROSS_SECTION_INSTANCE",
+                    "uncertainty_indicators": []
+                })
+            elif near_nbrs >= 1 and min_d <= interact_r * 1.25:
+                final_pieces.append({
+                    "x": int(u["cx"]),
+                    "y": int(u["cy"]),
+                    "w": u["bw"],
+                    "h": u["bh"],
+                    "bbox": u["bbox"],
+                    "confidence": round(u["confidence"] * 0.75, 2),
+                    "detection_status": "UNCERTAIN_BOUNDARY_INSTANCE",
+                    "uncertainty_indicators": ["BOUNDARY_PROFILE"]
+                })
 
         return final_pieces
 
@@ -4206,7 +4212,7 @@ class PalletVisionCountingService:
                     hull_area = cv2.contourArea(hull)
                     
                     # Check truncation against image bounds
-                    is_truncated = (len(c_pts) < 15) and (rx1 + bx <= 3 or rx1 + bx + bw >= w - 3 or ry1 + by <= 3)
+                    is_truncated = (len(c_pts) < 12) and (rx1 + bx <= 3 or rx1 + bx + bw >= w - 3 or ry1 + by <= 3)
                     is_dense = len(c_pts) >= 10 or hull_area >= (cw * stock_h * 0.03)
 
                     b_dict = {

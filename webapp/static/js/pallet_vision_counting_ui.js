@@ -1497,6 +1497,11 @@
             if (regBar) regBar.style.display = 'flex';
             if (matWrap) matWrap.style.display = 'none';
             if (glassBar) glassBar.style.display = 'none';
+            // Clear target SKU selector if it was locked to a bundle/glass SKU
+            const wbSkuSel = document.getElementById('wbTargetSkuSelect');
+            if (wbSkuSel && wbSkuSel.value && wbSkuSel.value.startsWith('GLS-')) {
+                wbSkuSel.value = '';
+            }
         } else {
             if (btnB) { btnB.style.background = '#0284c7'; btnB.style.color = '#fff'; }
             if (btnP) { btnP.style.background = 'transparent'; btnP.style.color = '#94a3b8'; }
@@ -2558,7 +2563,14 @@
             const sname = recSku.name || data.sku_name || sid;
             const scat = recSku.category || data.sku_category || 'General';
             const confPct = Math.round((recSku.confidence || 0.98) * 100);
-            recTextEl.innerHTML = `Recognized Product: <b style="color:#38bdf8; font-family:monospace;">${sid}</b> &mdash; <span style="color:#fff;">${sname}</span> <span style="color:#a7f3d0; font-size:0.74rem;">[${scat} &bull; ${confPct}% Precision Match]</span>`;
+            const recMethod = recSku.recognition_method || '';
+            let matchTag = `<span style="color:#a7f3d0; font-size:0.74rem;">[${scat} &bull; ${confPct}% Precision Match]</span>`;
+            if (recMethod === 'MATERIAL_FAMILY_INFERRED') {
+                matchTag = `<span style="color:#f59e0b; font-size:0.74rem;">[Material Inferred &bull; Catalog SKU Not Mapped]</span>`;
+            } else if (recSku.mismatch_warning) {
+                matchTag = `<span style="color:#ef4444; font-size:0.74rem;">[Warning: ${recSku.mismatch_warning}]</span>`;
+            }
+            recTextEl.innerHTML = `Recognized Product: <b style="color:#38bdf8; font-family:monospace;">${sid}</b> &mdash; <span style="color:#fff;">${sname}</span> ${matchTag}`;
         }
         const pillEl = document.getElementById('wbRealizedUnitsPill');
         if (pillEl) {
