@@ -112,6 +112,17 @@
             if (recText) {
                 recText.innerHTML = `Locked SKU: <b style="color:#38bdf8; font-family:monospace;">${matched.sku_id}</b> &mdash; ${matched.name} <span style="color:#94a3b8;">(${matched.category || 'General'})</span>`;
             }
+            const bMatSelect = document.getElementById('wbBundleMaterialSelect');
+            if (bMatSelect) {
+                const textBlob = `${matched.sku_id} ${matched.name || ''} ${matched.category || ''}`.toLowerCase();
+                if (textBlob.includes('box') || textBlob.includes('carton')) {
+                    bMatSelect.value = 'carton_boxes';
+                } else if (textBlob.includes('pipe') || textBlob.includes('tube') || textBlob.includes('steel') || textBlob.includes('metal') || textBlob.includes('rod') || textBlob.includes('profile') || textBlob.includes('bar')) {
+                    bMatSelect.value = 'metal_bundles';
+                } else if (textBlob.includes('timber') || textBlob.includes('wood') || textBlob.includes('plank')) {
+                    bMatSelect.value = 'timber_bundles';
+                }
+            }
         } else {
             if (recText) {
                 recText.textContent = 'Auto-Recognition Active — AI Vision will identify the exact SKU from your active warehouse catalog and calculate total individual units.';
@@ -1437,6 +1448,11 @@
 
     let wbSelectedFile = null;
     let wbCountRequestId = 0;
+    let wbRegions = [];
+    let wbCurrentTool = 'none';
+    let wbDrawingPolyPoints = [];
+    let wbIsDraggingRect = false;
+    let wbDragStart = null;
 
     window.openPalletCountingWorkbench = function(initialMode = 'pieces', triggerUpload = false) {
         const wb = document.getElementById('palletCountingWorkbench');
@@ -1469,12 +1485,158 @@
         wbMode = mode;
         const btnP = document.getElementById('wbModePiecesBtn');
         const btnB = document.getElementById('wbModeBundlesBtn');
+        const regBar = document.getElementById('wbRegionControlsBar');
+        const matWrap = document.getElementById('wbBundleMaterialSelectWrap');
+        const glassBar = document.getElementById('wbGlassProfileBar');
+        const matSelect = document.getElementById('wbBundleMaterialSelect');
+        const currentMat = matSelect ? matSelect.value : '';
+
         if (mode === 'pieces') {
             if (btnP) { btnP.style.background = '#0284c7'; btnP.style.color = '#fff'; }
             if (btnB) { btnB.style.background = 'transparent'; btnB.style.color = '#94a3b8'; }
+            if (regBar) regBar.style.display = 'flex';
+            if (matWrap) matWrap.style.display = 'none';
+            if (glassBar) glassBar.style.display = 'none';
         } else {
             if (btnB) { btnB.style.background = '#0284c7'; btnB.style.color = '#fff'; }
             if (btnP) { btnP.style.background = 'transparent'; btnP.style.color = '#94a3b8'; }
+            if (regBar) regBar.style.display = 'none';
+            if (matWrap) matWrap.style.display = 'inline-flex';
+            if (glassBar) {
+                glassBar.style.display = (currentMat === 'glass_bundles') ? 'flex' : 'none';
+            }
+            if (currentMat === 'glass_bundles') {
+                window.loadWorkbenchGlassProfiles();
+            }
+            if (typeof window.setWorkbenchRegionTool === 'function') {
+                window.setWorkbenchRegionTool('none');
+            }
+        }
+    };
+
+    window.onWorkbenchBundleMaterialChange = function(mat) {
+        const glassBar = document.getElementById('wbGlassProfileBar');
+        if (glassBar) {
+            glassBar.style.display = (mat === 'glass_bundles') ? 'flex' : 'none';
+        }
+        if (mat === 'glass_bundles') {
+            window.loadWorkbenchGlassProfiles();
+        }
+        if (wbRawImageUrl && wbMode === 'bundles') {
+            window.executeWorkbenchCount();
+        }
+    };
+
+    let wbGlassProfilesCache = [];
+    window.loadWorkbenchGlassProfiles = async function() {
+        try {
+            const res = await fetch('/api/pallets/glass-profiles');
+            const data = await res.json();
+            if (res.ok && data.success && Array.isArray(data.profiles)) {
+                wbGlassProfilesCache = data.profiles;
+                const sel = document.getElementById('wbGlassProfileSelect');
+                if (sel) {
+                    const currVal = sel.value;
+                    sel.innerHTML = '<option value="">-- Custom / Manual Dimensions --</option>';
+                    data.profiles.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p.id;
+                        opt.textContent = `${p.name} (${p.length}×${p.width}×${p.thickness} ${p.unit})`;
+                        sel.appendChild(opt);
+                    });
+                    if (currVal && data.profiles.some(p => p.id === currVal)) {
+                        sel.value = currVal;
+                    } else if (data.profiles.length > 0) {
+                        sel.value = data.profiles[0].id;
+                        window.onWorkbenchGlassProfileChange(data.profiles[0].id);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load glass profiles:', e);
+        }
+    };
+
+    window.onWorkbenchGlassProfileChange = function(profileId) {
+        const p = wbGlassProfilesCache.find(x => x.id === profileId);
+        if (p) {
+            const lIn = document.getElementById('wbGlassLengthInput');
+            const wIn = document.getElementById('wbGlassWidthInput');
+            const tIn = document.getElementById('wbGlassThicknessInput');
+            const uSel = document.getElementById('wbGlassUnitSelect');
+            const pkgSel = document.getElementById('wbGlassPackagingSelect');
+            const ppbIn = document.getElementById('wbGlassSheetsPerBundleInput');
+            if (lIn) lIn.value = p.length;
+            if (wIn) wIn.value = p.width;
+            if (tIn) tIn.value = p.thickness;
+            if (uSel && p.unit) uSel.value = p.unit;
+            if (pkgSel && p.packaging_type) pkgSel.value = p.packaging_type;
+            if (ppbIn) ppbIn.value = p.pieces_per_bundle || '';
+
+            if (p.pieces_per_bundle) {
+                const upbIn = document.getElementById('wbUnitsPerBundleInput');
+                if (upbIn) upbIn.value = p.pieces_per_bundle;
+            }
+            const uomSel = document.getElementById('wbUomSelect');
+            if (uomSel) uomSel.value = 'SHEETS';
+
+            if (wbRawImageUrl && wbMode === 'bundles') {
+                window.executeWorkbenchCount();
+            }
+        }
+    };
+
+    window.onWorkbenchGlassDimInput = function() {
+        if (wbRawImageUrl && wbMode === 'bundles') {
+            clearTimeout(window._glassDimTimeout);
+            window._glassDimTimeout = setTimeout(() => {
+                window.executeWorkbenchCount();
+            }, 400);
+        }
+    };
+
+    window.saveCurrentGlassProfilePrompt = async function() {
+        const l = parseFloat(document.getElementById('wbGlassLengthInput')?.value || '2440');
+        const w = parseFloat(document.getElementById('wbGlassWidthInput')?.value || '1830');
+        const t = parseFloat(document.getElementById('wbGlassThicknessInput')?.value || '6');
+        const u = document.getElementById('wbGlassUnitSelect')?.value || 'mm';
+        const pkg = document.getElementById('wbGlassPackagingSelect')?.value || 'A_FRAME_STILLAGE';
+        const ppb = document.getElementById('wbGlassSheetsPerBundleInput')?.value;
+
+        const defaultName = `Glass Pack (${l}×${w}×${t} ${u})`;
+        const name = prompt('Enter a name for this Glass Measurement Profile:', defaultName);
+        if (!name) return;
+
+        try {
+            const res = await fetch('/api/pallets/glass-profiles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name.trim(),
+                    length: l,
+                    width: w,
+                    thickness: t,
+                    unit: u,
+                    packaging_type: pkg,
+                    pieces_per_bundle: ppb ? parseInt(ppb, 10) : null
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                if (typeof showToast === 'function') {
+                    showToast(`Glass profile '${name}' saved successfully!`, 'success');
+                }
+                await window.loadWorkbenchGlassProfiles();
+                const sel = document.getElementById('wbGlassProfileSelect');
+                if (sel && data.profile?.id) {
+                    sel.value = data.profile.id;
+                }
+            } else {
+                alert(`Error saving profile: ${data.error || 'Unknown error'}`);
+            }
+        } catch (e) {
+            console.error('Error saving glass profile:', e);
+            alert(`Network error: ${e.message}`);
         }
     };
 
@@ -1529,6 +1691,9 @@
         window.setWorkbenchSource('upload');
         lastWbUploadFile = null;
         lastWbUploadTime = 0;
+        if (typeof window.clearWorkbenchRegions === 'function') {
+            window.clearWorkbenchRegions(true);
+        }
         const fi = document.getElementById('wbFileInput');
         if (fi) {
             fi.value = ''; // Reset so selecting the same image file again triggers preview
@@ -1544,6 +1709,9 @@
         wbLatestResult = null;
         wbCurrentPieces = [];
         wbRawImageUrl = '';
+        if (typeof window.clearWorkbenchRegions === 'function') {
+            window.clearWorkbenchRegions(true);
+        }
 
         const fi = document.getElementById('wbFileInput');
         if (fi) fi.value = '';
@@ -1661,6 +1829,207 @@
     let lastWbUploadFile = null;
     let lastWbUploadTime = 0;
 
+        // =========================================================================
+    // STAGE 5: MULTI-VIEW SESSION STATE & WORKBENCH TRAY HELPERS
+    // =========================================================================
+    let wbMultiViews = []; // Array of { id, label, isRef, file, dataUrl, regions }
+
+    window.getWorkbenchMultiViews = function() {
+        return wbMultiViews;
+    };
+
+    window.renderWorkbenchMultiViewStrip = function() {
+        const strip = document.getElementById('wbMultiViewStrip');
+        const pill = document.getElementById('wbMultiViewCountPill');
+        if (pill) {
+            pill.textContent = `${wbMultiViews.length} View${wbMultiViews.length === 1 ? '' : 's'} Staged`;
+        }
+        if (!strip) return;
+        strip.innerHTML = '';
+
+        if (wbMultiViews.length === 0) {
+            strip.innerHTML = `
+                <div id="wbMultiViewEmptyPrompt" style="color:#64748b; font-size:0.74rem; font-style:italic; padding:6px 0;">
+                    Drop a primary photo below, or click "+ Add View Photo" to stage multiple camera angles (Front, Rear, Left, Right, Top).
+                </div>
+            `;
+            return;
+        }
+
+        wbMultiViews.forEach((v, idx) => {
+            const card = document.createElement('div');
+            card.style.cssText = `
+                display:inline-flex; align-items:center; gap:8px; background:#0f172a;
+                border:1px solid ${v.isRef ? '#0284c7' : '#334155'}; border-radius:6px;
+                padding:4px 8px; flex-shrink:0; font-size:0.72rem; position:relative;
+            `;
+
+            const imgThumb = document.createElement('img');
+            imgThumb.src = v.dataUrl || (v.file ? URL.createObjectURL(v.file) : '');
+            imgThumb.style.cssText = 'width:38px; height:38px; object-fit:cover; border-radius:4px; border:1px solid #475569;';
+
+            const infoDiv = document.createElement('div');
+            infoDiv.style.cssText = 'display:flex; flex-direction:column; gap:2px;';
+
+            const labelSel = document.createElement('select');
+            labelSel.style.cssText = 'background:#1e293b; color:#38bdf8; border:1px solid #475569; border-radius:3px; font-size:0.68rem; padding:1px 4px; font-weight:700;';
+            const labels = ['front', 'rear', 'left', 'right', 'top', 'side', 'perspective'];
+            labels.forEach(lbl => {
+                const opt = document.createElement('option');
+                opt.value = lbl;
+                opt.textContent = lbl.toUpperCase();
+                if (v.label === lbl) opt.selected = true;
+                labelSel.appendChild(opt);
+            });
+            labelSel.onchange = function() {
+                v.label = this.value;
+            };
+
+            const actRow = document.createElement('div');
+            actRow.style.cssText = 'display:flex; align-items:center; gap:4px;';
+
+            const refBtn = document.createElement('button');
+            refBtn.type = 'button';
+            refBtn.style.cssText = `
+                background:${v.isRef ? '#0284c7' : 'transparent'}; color:${v.isRef ? '#fff' : '#94a3b8'};
+                border:1px solid #475569; border-radius:3px; font-size:0.62rem; padding:1px 5px; cursor:pointer; font-weight:700;
+            `;
+            refBtn.textContent = v.isRef ? '★ REF' : 'Set Ref';
+            refBtn.onclick = function() {
+                wbMultiViews.forEach(x => x.isRef = false);
+                v.isRef = true;
+                window.renderWorkbenchMultiViewStrip();
+            };
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.style.cssText = 'background:transparent; color:#ef4444; border:none; font-size:0.75rem; cursor:pointer; padding:0 3px;';
+            delBtn.innerHTML = '<i class="fas fa-xmark"></i>';
+            delBtn.title = 'Remove this view';
+            delBtn.onclick = function() {
+                window.removeWorkbenchView(v.id);
+            };
+
+            actRow.appendChild(refBtn);
+            actRow.appendChild(delBtn);
+
+            infoDiv.appendChild(labelSel);
+            infoDiv.appendChild(actRow);
+
+            card.appendChild(imgThumb);
+            card.appendChild(infoDiv);
+            strip.appendChild(card);
+        });
+    };
+
+    window.addWorkbenchView = function(fileOrBlob, label = null, isRef = false) {
+        if (!fileOrBlob) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const dataUrl = e.target.result;
+            const viewId = 'view_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+            const defaultLabels = ['front', 'rear', 'left', 'right', 'top', 'side'];
+            const assignedLabel = label || defaultLabels[wbMultiViews.length % defaultLabels.length];
+            const shouldBeRef = isRef || (wbMultiViews.length === 0);
+
+            if (shouldBeRef) {
+                wbMultiViews.forEach(x => x.isRef = false);
+            }
+
+            wbMultiViews.push({
+                id: viewId,
+                label: assignedLabel,
+                isRef: shouldBeRef,
+                file: fileOrBlob,
+                dataUrl: dataUrl,
+                regions: []
+            });
+
+            window.renderWorkbenchMultiViewStrip();
+
+            // Set main preview to reference view
+            const previewImg = document.getElementById('wbPreviewImg');
+            const placeholder = document.getElementById('wbPlaceholder');
+            if (previewImg) {
+                previewImg.src = dataUrl;
+                previewImg.style.display = 'block';
+            }
+            if (placeholder) placeholder.style.display = 'none';
+
+            window.executeWorkbenchCount();
+        };
+        reader.readAsDataURL(fileOrBlob);
+    };
+
+    window.removeWorkbenchView = function(viewId) {
+        const wasRef = wbMultiViews.find(v => v.id === viewId)?.isRef;
+        wbMultiViews = wbMultiViews.filter(v => v.id !== viewId);
+        if (wasRef && wbMultiViews.length > 0) {
+            wbMultiViews[0].isRef = true;
+        }
+        window.renderWorkbenchMultiViewStrip();
+        if (wbMultiViews.length > 0) {
+            window.executeWorkbenchCount();
+        } else {
+            window.clearWorkbenchCount();
+        }
+    };
+
+    window.clearAllWorkbenchViews = function() {
+        wbMultiViews = [];
+        window.renderWorkbenchMultiViewStrip();
+        window.clearWorkbenchCount();
+    };
+
+    window.handleWorkbenchAddViewUpload = function(fileInput) {
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+            const file = fileInput.files[0];
+            fileInput.value = '';
+            window.addWorkbenchView(file);
+        }
+    };
+
+    window.captureWorkbenchCameraAsView = function() {
+        const camSel = document.getElementById('wbCameraSelect') || document.getElementById('palletCameraSelect');
+        const camId = camSel ? camSel.value : 'cam_inbound_01';
+
+        fetch(`/snapshot/${camId}`)
+            .then(res => {
+                if (!res.ok) throw new Error('Camera snapshot failed');
+                return res.blob();
+            })
+            .then(blob => {
+                const f = new File([blob], `cam_${camId}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                window.addWorkbenchView(f);
+                if (typeof showToast === 'function') {
+                    showToast(`Captured snapshot from ${camId} into Multi-View session.`, 'success');
+                }
+            })
+            .catch(err => {
+                console.warn('[Workbench] Camera snapshot fetch fallback:', err);
+                // Fallback: draw live feed element to canvas blob
+                const liveImg = document.getElementById('palletLiveFeedImg');
+                if (liveImg && liveImg.naturalWidth) {
+                    const c = document.createElement('canvas');
+                    c.width = liveImg.naturalWidth;
+                    c.height = liveImg.naturalHeight;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(liveImg, 0, 0);
+                    c.toBlob(b => {
+                        if (b) {
+                            const f = new File([b], `cam_frame_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                            window.addWorkbenchView(f);
+                        }
+                    }, 'image/jpeg', 0.95);
+                } else {
+                    if (typeof showToast === 'function') {
+                        showToast('Camera capture unavailable. Upload an image view instead.', 'warning');
+                    }
+                }
+            });
+    };
+
+    
     window.previewWorkbenchUpload = function(inputOrFile) {
         let file = null;
         if (inputOrFile instanceof File || inputOrFile instanceof Blob) {
@@ -1756,6 +2125,24 @@
                 };
                 previewImg.src = e.target.result;
             }
+            // Sync into wbMultiViews as reference view
+            if (!wbMultiViews || wbMultiViews.length === 0) {
+                wbMultiViews = [{
+                    id: 'view_ref',
+                    label: 'front',
+                    isRef: true,
+                    file: file,
+                    dataUrl: e.target.result,
+                    regions: wbRegions || []
+                }];
+            } else {
+                wbMultiViews[0].file = file;
+                wbMultiViews[0].dataUrl = e.target.result;
+            }
+            if (typeof window.renderWorkbenchMultiViewStrip === 'function') {
+                window.renderWorkbenchMultiViewStrip();
+            }
+
             // Trigger automated counting execution immediately for the current file
             window.executeWorkbenchCount();
         };
@@ -1781,7 +2168,40 @@
         try {
             const formData = new FormData();
             formData.append('source_type', wbSource);
-            formData.append('counting_mode', wbMode === 'bundles' ? 'bundles' : 'auto');
+            if (wbMode === 'bundles') {
+                const matSelect = document.getElementById('wbBundleMaterialSelect');
+                const matVal = matSelect ? matSelect.value : 'metal_bundles';
+                formData.append('counting_mode', 'bundles');
+                formData.append('material_type', matVal);
+                if (wbRegions && wbRegions.length > 0) {
+                    formData.append('regions', JSON.stringify(wbRegions));
+                }
+                if (matVal === 'glass_bundles') {
+                    const lIn = document.getElementById('wbGlassLengthInput');
+                    const wIn = document.getElementById('wbGlassWidthInput');
+                    const tIn = document.getElementById('wbGlassThicknessInput');
+                    const uSel = document.getElementById('wbGlassUnitSelect');
+                    const pkgSel = document.getElementById('wbGlassPackagingSelect');
+                    const ppbIn = document.getElementById('wbGlassSheetsPerBundleInput');
+                    const pSel = document.getElementById('wbGlassProfileSelect');
+                    const glassProf = {
+                        length: parseFloat(lIn?.value || '2440'),
+                        width: parseFloat(wIn?.value || '1830'),
+                        thickness: parseFloat(tIn?.value || '6'),
+                        unit: uSel?.value || 'mm',
+                        packaging_type: pkgSel?.value || 'A_FRAME_STILLAGE',
+                        pieces_per_bundle: ppbIn?.value ? parseInt(ppbIn.value, 10) : undefined,
+                        id: pSel?.value || undefined
+                    };
+                    formData.append('glass_profile', JSON.stringify(glassProf));
+                }
+            } else {
+                formData.append('counting_mode', 'pieces');
+                formData.append('material_type', 'individual_pieces');
+                if (wbRegions && wbRegions.length > 0) {
+                    formData.append('regions', JSON.stringify(wbRegions));
+                }
+            }
 
             const camSelect = document.getElementById('wbCameraSelect') || document.getElementById('palletCameraSelect');
             const camId = camSelect ? camSelect.value : 'cam_inbound_01';
@@ -1849,7 +2269,24 @@
                 }
             }
 
-            const endpoint = wbMode === 'bundles' ? '/api/pallets/count-bundles' : '/api/pallets/count-pieces';
+            let endpoint = wbMode === 'bundles' ? '/api/pallets/count-bundles' : '/api/pallets/count-pieces';
+
+            // STAGE 5: If 2 or more views are staged, route to dedicated multi-view fusion endpoint
+            if (wbMultiViews && wbMultiViews.length >= 2) {
+                endpoint = '/api/pallets/count-multiview';
+                wbMultiViews.forEach((v, vIdx) => {
+                    if (v.file) {
+                        formData.append(`view_image_${vIdx}`, v.file, v.file.name || `${v.label}.jpg`);
+                    } else if (v.dataUrl) {
+                        formData.append(`view_image_${vIdx}`, v.dataUrl);
+                    }
+                    formData.append(`view_label_${vIdx}`, v.label);
+                    formData.append(`is_ref_${vIdx}`, String(v.isRef));
+                    if (v.regions && v.regions.length > 0) {
+                        formData.append(`regions_${vIdx}`, JSON.stringify(v.regions));
+                    }
+                });
+            }
             const res = await fetch(endpoint, {
                 method: 'POST',
                 body: formData
@@ -1912,6 +2349,163 @@
     };
 
     function renderWorkbenchResults(data) {
+        // STAGE 5: Render Multi-View Cross-View Fusion Traceability if present
+        const traceCard = document.getElementById('wbMultiViewTraceabilityCard');
+        const switcherBar = document.getElementById('wbViewSwitcherBar');
+        const switcherTabs = document.getElementById('wbViewSwitcherTabs');
+
+        if (data.fusion_status) {
+            if (traceCard) {
+                traceCard.style.display = 'block';
+
+                const statusBadge = document.getElementById('wbFusionStatusBadge');
+                if (statusBadge) {
+                    const st = String(data.fusion_status).toUpperCase();
+                    statusBadge.textContent = st;
+                    if (st === 'COMPLETE') {
+                        statusBadge.style.background = 'rgba(16,185,129,0.15)';
+                        statusBadge.style.color = '#34d399';
+                        statusBadge.style.borderColor = 'rgba(16,185,129,0.3)';
+                    } else if (st === 'PARTIAL') {
+                        statusBadge.style.background = 'rgba(245,158,11,0.15)';
+                        statusBadge.style.color = '#fbbf24';
+                        statusBadge.style.borderColor = 'rgba(245,158,11,0.3)';
+                    } else {
+                        statusBadge.style.background = 'rgba(239,68,68,0.15)';
+                        statusBadge.style.color = '#f87171';
+                        statusBadge.style.borderColor = 'rgba(239,68,68,0.3)';
+                    }
+                }
+
+                const dupsElem = document.getElementById('wbFusionDupsRemoved');
+                if (dupsElem) {
+                    dupsElem.textContent = `${data.duplicate_observations_removed || 0} Merged`;
+                }
+
+                const confElem = document.getElementById('wbFusionConfidenceVal');
+                if (confElem) {
+                    const score = data.heuristic_association_score !== undefined ? data.heuristic_association_score : (data.fusion_confidence || 0.95);
+                    confElem.textContent = `${Math.round(score * 100)}%`;
+                }
+
+                // Stage 6: Honest Confidence Semantics
+                const confNatureEl = document.getElementById('wbConfNatureVal');
+                if (confNatureEl) confNatureEl.textContent = data.confidence_nature || 'HEURISTIC_ASSOCIATION_SCORE';
+
+                const calibStatusEl = document.getElementById('wbCalibStatusVal');
+                if (calibStatusEl) calibStatusEl.textContent = (data.calibration_status || 'UNCALIBRATED').replace('_', ' ');
+
+                const detConfEl = document.getElementById('wbDetectorConfMeanVal');
+                if (detConfEl) {
+                    detConfEl.textContent = data.detector_confidence_mean ? `${Math.round(data.detector_confidence_mean * 100)}%` : 'N/A';
+                }
+
+                const conflictsEl = document.getElementById('wbConflictsCountVal');
+                if (conflictsEl) conflictsEl.textContent = data.conflicting_observations_count || 0;
+
+                const assocQualEl = document.getElementById('wbAssocQualityPill');
+                if (assocQualEl) {
+                    const q = (data.association_quality || 'HIGH').toUpperCase();
+                    assocQualEl.textContent = `${q} QUALITY`;
+                    if (q === 'HIGH') {
+                        assocQualEl.style.background = 'rgba(16,185,129,0.15)';
+                        assocQualEl.style.color = '#34d399';
+                        assocQualEl.style.borderColor = 'rgba(16,185,129,0.3)';
+                    } else if (q === 'MODERATE') {
+                        assocQualEl.style.background = 'rgba(245,158,11,0.15)';
+                        assocQualEl.style.color = '#fbbf24';
+                        assocQualEl.style.borderColor = 'rgba(245,158,11,0.3)';
+                    } else {
+                        assocQualEl.style.background = 'rgba(239,68,68,0.15)';
+                        assocQualEl.style.color = '#f87171';
+                        assocQualEl.style.borderColor = 'rgba(239,68,68,0.3)';
+                    }
+                }
+
+                const reviewBadge = document.getElementById('wbReviewStatusBadge');
+                if (reviewBadge) {
+                    const rSt = (data.review_status || 'AUTOMATED_PROPOSAL').toUpperCase();
+                    reviewBadge.textContent = rSt.replace('_', ' ');
+                    if (rSt === 'OPERATOR_REVIEWED') {
+                        reviewBadge.style.background = 'rgba(16,185,129,0.15)';
+                        reviewBadge.style.color = '#34d399';
+                        reviewBadge.style.borderColor = 'rgba(16,185,129,0.3)';
+                    } else {
+                        reviewBadge.style.background = 'rgba(56,189,248,0.15)';
+                        reviewBadge.style.color = '#38bdf8';
+                        reviewBadge.style.borderColor = 'rgba(56,189,248,0.3)';
+                    }
+                }
+
+                const geoLimitsEl = document.getElementById('wbGeoLimitsNote');
+                if (geoLimitsEl && data.geometric_limitations) {
+                    geoLimitsEl.textContent = data.geometric_limitations;
+                }
+
+                const pillsWrap = document.getElementById('wbFusionPerViewPills');
+                if (pillsWrap && data.per_view_counts) {
+                    pillsWrap.innerHTML = Object.entries(data.per_view_counts)
+                        .map(([lbl, cnt]) => `<span style="background:#0f172a; border:1px solid #334155; padding:3px 8px; border-radius:4px; font-size:0.72rem; color:#38bdf8;"><b>${lbl.toUpperCase()}:</b> ${cnt}</span>`)
+                        .join('');
+                }
+
+                const assocsWrap = document.getElementById('wbFusionAssocsList');
+                if (assocsWrap && data.object_view_associations) {
+                    assocsWrap.innerHTML = Object.entries(data.object_view_associations)
+                        .slice(0, 15)
+                        .map(([objId, vList]) => `<span style="background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.3); padding:2px 6px; border-radius:4px; font-size:0.68rem; color:#f8fafc;">${objId} (${vList.join('+')})</span>`)
+                        .join('') + (Object.keys(data.object_view_associations).length > 15 ? `<span style="font-size:0.68rem; color:#94a3b8; align-self:center;">+${Object.keys(data.object_view_associations).length - 15} more</span>` : '');
+                }
+
+                const warnElem = document.getElementById('wbFusionAmbiguityWarning');
+                if (warnElem) {
+                    warnElem.style.display = (data.fusion_status === 'ambiguous' || (data.uncertain_count && data.uncertain_count > 0)) ? 'block' : 'none';
+                }
+
+                // Render Stage 6 Operator Review Drawer Items
+                window.currentMultiViewSession = data;
+                renderOperatorReviewDrawer(data);
+            }
+
+            // Populate View Switcher Tabs
+            if (switcherBar && switcherTabs && data.annotated_views) {
+                switcherBar.style.display = 'flex';
+                switcherTabs.innerHTML = '';
+
+                // 1. Unified Audit Board Tab
+                const boardTab = document.createElement('button');
+                boardTab.type = 'button';
+                boardTab.style.cssText = 'background:#0284c7; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:700; cursor:pointer; white-space:nowrap;';
+                boardTab.textContent = '★ Fused Audit Board';
+                boardTab.onclick = function() {
+                    Array.from(switcherTabs.children).forEach(t => t.style.background = '#1e293b');
+                    boardTab.style.background = '#0284c7';
+                    const resImg = document.getElementById('wbResultImg');
+                    if (resImg) resImg.src = data.annotated_image_url || data.audit_image_url;
+                };
+                switcherTabs.appendChild(boardTab);
+
+                // 2. Individual View Tabs
+                Object.entries(data.annotated_views).forEach(([vLabel, vUrl]) => {
+                    if (!vUrl) return;
+                    const vTab = document.createElement('button');
+                    vTab.type = 'button';
+                    vTab.style.cssText = 'background:#1e293b; color:#cbd5e1; border:1px solid #334155; border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer; white-space:nowrap;';
+                    vTab.textContent = `View: ${vLabel.toUpperCase()}`;
+                    vTab.onclick = function() {
+                        Array.from(switcherTabs.children).forEach(t => t.style.background = '#1e293b');
+                        vTab.style.background = '#0284c7';
+                        const resImg = document.getElementById('wbResultImg');
+                        if (resImg) resImg.src = vUrl;
+                    };
+                    switcherTabs.appendChild(vTab);
+                });
+            }
+        } else {
+            if (traceCard) traceCard.style.display = 'none';
+            if (switcherBar) switcherBar.style.display = 'none';
+        }
+
         const stageCard = document.getElementById('wbInteractiveStageCard');
         if (stageCard) {
             stageCard.style.display = 'block';
@@ -1973,9 +2567,27 @@
 
         const totalBadge = document.getElementById('wbTotalBadge');
         if (totalBadge) {
-            totalBadge.textContent = activeUpb > 1
-                ? `${total} ${activeBname.toUpperCase()}S (${realizedTotal} ${activeUom})`
-                : `${realizedTotal} ${activeUom}`;
+            if (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING') {
+                const bCount = data.physical_bundles_count !== undefined ? data.physical_bundles_count : total;
+                totalBadge.textContent = activeUpb > 1
+                    ? `${bCount} METAL BUNDLE${bCount === 1 ? '' : 'S'} (${realizedTotal} ${activeUom})`
+                    : `${bCount} METAL BUNDLE${bCount === 1 ? '' : 'S'}`;
+            } else if (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING') {
+                const bCount = data.physical_bundles_count !== undefined ? data.physical_bundles_count : total;
+                const prof = data.glass_profile || {};
+                const dimStr = prof.length && prof.width ? ` [${prof.length}×${prof.width} ${prof.unit || 'mm'}]` : '';
+                totalBadge.textContent = activeUpb > 1
+                    ? `${bCount} GLASS BUNDLE${bCount === 1 ? '' : 'S'}${dimStr} (${realizedTotal} ${activeUom})`
+                    : `${bCount} GLASS BUNDLE${bCount === 1 ? '' : 'S'}${dimStr}`;
+            } else if (wbMode === 'bundles' || data.mode === 'BUNDLE_STACK') {
+                totalBadge.textContent = activeUpb > 1
+                    ? `${total} ${activeBname.toUpperCase()}S (${realizedTotal} ${activeUom})`
+                    : `${total} ${activeBname.toUpperCase()}S`;
+            } else {
+                totalBadge.textContent = activeUpb > 1
+                    ? `${total} ${activeBname.toUpperCase()}S (${realizedTotal} ${activeUom})`
+                    : `${realizedTotal} ${activeUom}`;
+            }
         }
 
         // Update Inferred Geometry Formula (Read-Only)
@@ -2025,6 +2637,19 @@
 
         // Status badge: clear indication of Direct Instance Detection vs Estimated vs Insufficient
         const statusBadge = document.getElementById('wbVerificationStatusBadge');
+        if (statusBadge && (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING')) {
+            const hasUncertain = Boolean(data.uncertain_count && data.uncertain_count > 0);
+            statusBadge.textContent = hasUncertain ? 'DIRECT METAL BUNDLES (With Uncertainty)' : 'DIRECT METAL BUNDLES (Confirmed)';
+            statusBadge.style.color = hasUncertain ? '#f59e0b' : '#10b981';
+            statusBadge.style.borderColor = hasUncertain ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)';
+            statusBadge.style.background = hasUncertain ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)';
+        } else if (statusBadge && (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING')) {
+            const hasUncertain = Boolean(data.uncertain_count && data.uncertain_count > 0);
+            statusBadge.textContent = hasUncertain ? 'GLASS BUNDLES (With Uncertainty)' : 'MEASUREMENT-AWARE GLASS (Confirmed)';
+            statusBadge.style.color = hasUncertain ? '#f59e0b' : '#06b6d4';
+            statusBadge.style.borderColor = hasUncertain ? 'rgba(245,158,11,0.3)' : 'rgba(6,182,212,0.3)';
+            statusBadge.style.background = hasUncertain ? 'rgba(245,158,11,0.15)' : 'rgba(6,182,212,0.15)';
+        } else 
         if (statusBadge) {
             let stText = 'DIRECT INSTANCE DETECTION';
             let stColor = '#10b981';
@@ -2073,6 +2698,34 @@
                 renderWbBadgesOverlay();
             };
         }
+
+        // Update 4-stat labels for pieces mode or dedicated metal bundles
+        const isMetalBundle = (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING');
+        const isGlassBundle = (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING');
+        const isPiecesMode = !isMetalBundle && !isGlassBundle && (data.mode === 'INDIVIDUAL_PIECES' || data.counting_mode === 'individual_pieces' || wbMode === 'pieces');
+        const lblStatVis = document.getElementById('wbLabelStatVisible');
+        const lblStatInf = document.getElementById('wbLabelStatInferred');
+        if (lblStatVis) {
+            lblStatVis.textContent = isMetalBundle ? 'Confirmed Bundles:' : (isGlassBundle ? 'Confirmed Glass Bundles:' : (isPiecesMode ? 'Confirmed Pieces:' : 'Visible Detected:'));
+        }
+        if (lblStatInf) {
+            lblStatInf.textContent = (isMetalBundle || isGlassBundle) ? 'Uncertain Bundles:' : ((isPiecesMode && data.regions && data.regions.length > 0)
+                ? 'Excluded / Review:'
+                : 'Inferred (Hidden):');
+        }
+        if (statInf && (isMetalBundle || isGlassBundle)) {
+            statInf.textContent = data.uncertain_count || 0;
+            statInf.title = `${data.uncertain_count || 0} Uncertain bundle candidates`;
+        }
+        if (statVis && (isMetalBundle || isGlassBundle)) {
+            statVis.textContent = data.confirmed_count !== undefined ? data.confirmed_count : (data.physical_bundles_count || total);
+        }
+        if (statInf && isPiecesMode && data.regions && data.regions.length > 0) {
+            statInf.textContent = `${data.excluded_count || 0} Exc / ${data.uncertain_count || 0} Review`;
+            statInf.title = `Excluded: ${data.excluded_count || 0} | Boundary Review: ${data.uncertain_count || 0}`;
+        }
+
+        renderWorkbenchRegionsOverlay();
 
         // Cluster pills
         renderWbClusterPills(data.clusters);
@@ -2177,6 +2830,7 @@
     }
 
     window.handleWorkbenchCanvasClick = function(event) {
+        if (wbCurrentTool !== 'none') return;
         const imgElem = document.getElementById('wbResultImg');
         if (!imgElem) return;
 
@@ -2276,7 +2930,9 @@
                 body: JSON.stringify({
                     raw_image_url: wbRawImageUrl,
                     pieces: wbCurrentPieces,
-                    matrix_dimensions: null
+                    matrix_dimensions: null,
+                    counting_mode: wbMode === 'bundles' ? 'bundles' : 'pieces',
+                    regions: (wbMode !== 'bundles' && wbRegions.length > 0) ? wbRegions : null
                 })
             });
             const data = await res.json();
@@ -2487,6 +3143,17 @@
                     depthWrite: false
                 });
                 edgeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 });
+            } else if (b.is_glass || matrixData.is_glass) {
+                mat = new THREE.MeshPhysicalMaterial({
+                    color: 0x06b6d4,
+                    roughness: 0.12,
+                    transmission: 0.82,
+                    opacity: 0.58,
+                    transparent: true,
+                    depthWrite: false,
+                    metalness: 0.08
+                });
+                edgeMat = new THREE.LineBasicMaterial({ color: 0x22d3ee, linewidth: 2 });
             } else if (b.face_role === 'shared_corner') {
                 mat = new THREE.MeshStandardMaterial({ color: 0xd4a373, roughness: 0.70, metalness: 0.06 });
                 edgeMat = new THREE.LineBasicMaterial({ color: 0x8b5cf6, linewidth: 2 });
@@ -2644,16 +3311,515 @@
         }, false);
     }
 
+    // =========================================================================
+    // INTERACTIVE INCLUDE / EXCLUDE COUNTING REGIONS CONTROLLER
+    // =========================================================================
+
+    window.setWorkbenchRegionTool = function(toolName) {
+        wbCurrentTool = toolName || 'none';
+        cancelWorkbenchRegionDraft();
+
+        const canvas = document.getElementById('wbRegionDrawCanvas');
+        if (canvas) {
+            canvas.style.display = (wbCurrentTool === 'none') ? 'none' : 'block';
+            if (wbCurrentTool !== 'none') {
+                syncRegionDrawCanvasSize();
+            }
+        }
+
+        const tools = ['Pointer', 'IncludeRect', 'ExcludeRect', 'IncludePoly', 'ExcludePoly'];
+        tools.forEach(t => {
+            const btn = document.getElementById(`wbBtnTool${t}`);
+            if (btn) {
+                btn.style.borderColor = 'rgba(255,255,255,0.15)';
+                btn.style.boxShadow = 'none';
+            }
+        });
+
+        let activeId = 'wbBtnToolPointer';
+        if (wbCurrentTool === 'include_rect') activeId = 'wbBtnToolIncludeRect';
+        else if (wbCurrentTool === 'exclude_rect') activeId = 'wbBtnToolExcludeRect';
+        else if (wbCurrentTool === 'include_poly') activeId = 'wbBtnToolIncludePoly';
+        else if (wbCurrentTool === 'exclude_poly') activeId = 'wbBtnToolExcludePoly';
+
+        const activeBtn = document.getElementById(activeId);
+        if (activeBtn) {
+            activeBtn.style.borderColor = (wbCurrentTool.startsWith('exclude')) ? '#ef4444' : '#10b981';
+            activeBtn.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.2)';
+        }
+    };
+
+    window.clearWorkbenchRegions = function(silent = false) {
+        wbRegions = [];
+        cancelWorkbenchRegionDraft();
+        renderWorkbenchRegionsOverlay();
+        updateRegionStatusBadge();
+        if (!silent && wbRawImageUrl) {
+            window.recertifyWorkbenchMarkers(true);
+        }
+    };
+
+    function updateRegionStatusBadge() {
+        const statusEl = document.getElementById('wbActiveRegionStatusText');
+        if (!statusEl) return;
+        if (!wbRegions || wbRegions.length === 0) {
+            statusEl.textContent = 'No regions drawn';
+            statusEl.style.color = '#64748b';
+        } else {
+            const inc = wbRegions.filter(r => r.region_type === 'include').length;
+            const exc = wbRegions.filter(r => r.region_type === 'exclude').length;
+            statusEl.textContent = `${wbRegions.length} Active (${inc} Inc, ${exc} Exc)`;
+            statusEl.style.color = '#10b981';
+        }
+    }
+
+    function syncRegionDrawCanvasSize() {
+        const imgElem = document.getElementById('wbResultImg');
+        const canvas = document.getElementById('wbRegionDrawCanvas');
+        if (!imgElem || !canvas) return;
+        const natW = imgElem.naturalWidth || imgElem.clientWidth || 800;
+        const natH = imgElem.naturalHeight || imgElem.clientHeight || 600;
+        canvas.width = natW;
+        canvas.height = natH;
+    }
+
+    function cancelWorkbenchRegionDraft() {
+        wbDrawingPolyPoints = [];
+        wbIsDraggingRect = false;
+        wbDragStart = null;
+        const canvas = document.getElementById('wbRegionDrawCanvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+
+    function renderWorkbenchRegionsOverlay() {
+        const svg = document.getElementById('wbRegionsSvgOverlay');
+        const imgElem = document.getElementById('wbResultImg');
+        if (!svg) return;
+        svg.innerHTML = '';
+        if (!imgElem || !wbRegions || wbRegions.length === 0) return;
+
+        const natW = imgElem.naturalWidth || imgElem.clientWidth || 800;
+        const natH = imgElem.naturalHeight || imgElem.clientHeight || 600;
+        svg.setAttribute('viewBox', `0 0 ${natW} ${natH}`);
+
+        wbRegions.forEach((r, idx) => {
+            const isInc = (r.region_type === 'include');
+            const strokeColor = isInc ? '#10b981' : '#ef4444';
+            const fillColor = isInc ? 'rgba(16, 185, 129, 0.16)' : 'rgba(239, 68, 68, 0.20)';
+            const strokeWidth = Math.max(2, Math.round(natW / 500));
+            const dashArray = isInc ? 'none' : '8,4';
+
+            if (r.type === 'rect') {
+                const rectEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rectEl.setAttribute('x', r.x);
+                rectEl.setAttribute('y', r.y);
+                rectEl.setAttribute('width', r.w);
+                rectEl.setAttribute('height', r.h);
+                rectEl.setAttribute('rx', '4');
+                rectEl.setAttribute('fill', fillColor);
+                rectEl.setAttribute('stroke', strokeColor);
+                rectEl.setAttribute('stroke-width', strokeWidth);
+                rectEl.setAttribute('stroke-dasharray', dashArray);
+                svg.appendChild(rectEl);
+
+                const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                txt.setAttribute('x', r.x + 8);
+                txt.setAttribute('y', Math.max(22, r.y + 20));
+                txt.setAttribute('fill', strokeColor);
+                txt.setAttribute('font-size', String(Math.max(12, Math.round(natW / 65))));
+                txt.setAttribute('font-weight', '700');
+                txt.setAttribute('font-family', 'system-ui, sans-serif');
+                txt.textContent = isInc ? `+ INCLUDE REGION #${idx + 1}` : `- EXCLUDE REGION #${idx + 1}`;
+                svg.appendChild(txt);
+            } else if (r.type === 'polygon' && r.points && r.points.length > 0) {
+                const polyEl = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                const ptsStr = r.points.map(pt => `${pt[0]},${pt[1]}`).join(' ');
+                polyEl.setAttribute('points', ptsStr);
+                polyEl.setAttribute('fill', fillColor);
+                polyEl.setAttribute('stroke', strokeColor);
+                polyEl.setAttribute('stroke-width', strokeWidth);
+                polyEl.setAttribute('stroke-dasharray', dashArray);
+                svg.appendChild(polyEl);
+
+                const p0 = r.points[0];
+                const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                txt.setAttribute('x', p0[0] + 8);
+                txt.setAttribute('y', Math.max(22, p0[1] + 20));
+                txt.setAttribute('fill', strokeColor);
+                txt.setAttribute('font-size', String(Math.max(12, Math.round(natW / 65))));
+                txt.setAttribute('font-weight', '700');
+                txt.setAttribute('font-family', 'system-ui, sans-serif');
+                txt.textContent = isInc ? `+ INCLUDE REGION #${idx + 1}` : `- EXCLUDE REGION #${idx + 1}`;
+                svg.appendChild(txt);
+            }
+        });
+    }
+
+    function initRegionDrawingEvents() {
+        const canvas = document.getElementById('wbRegionDrawCanvas');
+        if (!canvas) return;
+
+        function getCanvasNaturalPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.clientX - rect.left;
+            const clientY = e.clientY - rect.top;
+            const scaleX = canvas.width / Math.max(1, rect.width);
+            const scaleY = canvas.height / Math.max(1, rect.height);
+            return {
+                x: Math.round(clientX * scaleX),
+                y: Math.round(clientY * scaleY),
+                clientX,
+                clientY
+            };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (wbCurrentTool === 'none') return;
+            const pos = getCanvasNaturalPos(e);
+
+            if (wbCurrentTool === 'include_rect' || wbCurrentTool === 'exclude_rect') {
+                wbIsDraggingRect = true;
+                wbDragStart = pos;
+            } else if (wbCurrentTool === 'include_poly' || wbCurrentTool === 'exclude_poly') {
+                if (wbDrawingPolyPoints.length >= 3) {
+                    const firstPt = wbDrawingPolyPoints[0];
+                    const dist = Math.hypot(firstPt[0] - pos.x, firstPt[1] - pos.y);
+                    const thresholdNat = (canvas.width / Math.max(1, canvas.clientWidth)) * 18;
+                    if (dist <= thresholdNat) {
+                        completePolygonRegion();
+                        return;
+                    }
+                }
+                wbDrawingPolyPoints.push([pos.x, pos.y]);
+                drawCurrentDraft();
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (wbCurrentTool === 'none') return;
+            const pos = getCanvasNaturalPos(e);
+
+            if (wbIsDraggingRect && wbDragStart) {
+                drawRectDraft(wbDragStart, pos);
+            } else if ((wbCurrentTool === 'include_poly' || wbCurrentTool === 'exclude_poly') && wbDrawingPolyPoints.length > 0) {
+                drawPolyDraft(pos);
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (wbCurrentTool === 'none') return;
+            if (wbIsDraggingRect && wbDragStart) {
+                const pos = getCanvasNaturalPos(e);
+                const rx = Math.min(wbDragStart.x, pos.x);
+                const ry = Math.min(wbDragStart.y, pos.y);
+                const rw = Math.abs(pos.x - wbDragStart.x);
+                const rh = Math.abs(pos.y - wbDragStart.y);
+
+                wbIsDraggingRect = false;
+                wbDragStart = null;
+
+                if (rw > 10 && rh > 10) {
+                    const rtype = wbCurrentTool.startsWith('exclude') ? 'exclude' : 'include';
+                    wbRegions.push({
+                        id: `reg_${Date.now()}_${wbRegions.length + 1}`,
+                        type: 'rect',
+                        region_type: rtype,
+                        x: rx,
+                        y: ry,
+                        w: rw,
+                        h: rh
+                    });
+                    setWorkbenchRegionTool('none');
+                    renderWorkbenchRegionsOverlay();
+                    updateRegionStatusBadge();
+                    if (wbRawImageUrl) {
+                        window.recertifyWorkbenchMarkers(true);
+                    }
+                } else {
+                    cancelWorkbenchRegionDraft();
+                }
+            }
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            if (wbCurrentTool === 'include_poly' || wbCurrentTool === 'exclude_poly') {
+                e.preventDefault();
+                e.stopPropagation();
+                if (wbDrawingPolyPoints.length >= 3) {
+                    completePolygonRegion();
+                }
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' || e.code === 'Escape') {
+                if (wbCurrentTool !== 'none' || wbDrawingPolyPoints.length > 0 || wbIsDraggingRect) {
+                    setWorkbenchRegionTool('none');
+                }
+            }
+        });
+
+        function completePolygonRegion() {
+            if (wbDrawingPolyPoints.length < 3) return;
+            const rtype = wbCurrentTool.startsWith('exclude') ? 'exclude' : 'include';
+            wbRegions.push({
+                id: `reg_${Date.now()}_${wbRegions.length + 1}`,
+                type: 'polygon',
+                region_type: rtype,
+                points: [...wbDrawingPolyPoints]
+            });
+            setWorkbenchRegionTool('none');
+            renderWorkbenchRegionsOverlay();
+            updateRegionStatusBadge();
+            if (wbRawImageUrl) {
+                window.recertifyWorkbenchMarkers(true);
+            }
+        }
+
+        function drawRectDraft(start, current) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const isInc = wbCurrentTool.startsWith('include');
+            const rx = Math.min(start.x, current.x);
+            const ry = Math.min(start.y, current.y);
+            const rw = Math.abs(current.x - start.x);
+            const rh = Math.abs(current.y - start.y);
+
+            ctx.fillStyle = isInc ? 'rgba(16, 185, 129, 0.20)' : 'rgba(239, 68, 68, 0.25)';
+            ctx.fillRect(rx, ry, rw, rh);
+            ctx.strokeStyle = isInc ? '#10b981' : '#ef4444';
+            ctx.lineWidth = Math.max(2, Math.round(canvas.width / 500));
+            if (!isInc) ctx.setLineDash([8, 4]);
+            else ctx.setLineDash([]);
+            ctx.strokeRect(rx, ry, rw, rh);
+        }
+
+        function drawPolyDraft(currPos) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (wbDrawingPolyPoints.length === 0) return;
+
+            const isInc = wbCurrentTool.startsWith('include');
+            ctx.strokeStyle = isInc ? '#10b981' : '#ef4444';
+            ctx.lineWidth = Math.max(2, Math.round(canvas.width / 500));
+            if (!isInc) ctx.setLineDash([8, 4]);
+            else ctx.setLineDash([]);
+
+            ctx.beginPath();
+            ctx.moveTo(wbDrawingPolyPoints[0][0], wbDrawingPolyPoints[0][1]);
+            for (let i = 1; i < wbDrawingPolyPoints.length; i++) {
+                ctx.lineTo(wbDrawingPolyPoints[i][0], wbDrawingPolyPoints[i][1]);
+            }
+            if (currPos) {
+                ctx.lineTo(currPos.x, currPos.y);
+            }
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+            wbDrawingPolyPoints.forEach((pt, idx) => {
+                ctx.fillStyle = (idx === 0) ? '#ffffff' : (isInc ? '#10b981' : '#ef4444');
+                ctx.beginPath();
+                ctx.arc(pt[0], pt[1], Math.max(5, Math.round(canvas.width / 200)), 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            });
+        }
+
+        function drawCurrentDraft() {
+            drawPolyDraft(null);
+        }
+    }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             initUnifiedDropZone();
             initWbDropZone();
+            initRegionDrawingEvents();
             window.loadVisionSkus();
         });
     } else {
         initUnifiedDropZone();
         initWbDropZone();
+        initRegionDrawingEvents();
         window.loadVisionSkus();
     }
 
 })();
+
+    // =========================================================================
+    // STAGE 6: Multi-View Operator Review & Association Auditing Workflow
+    // =========================================================================
+    window.currentMultiViewSession = null;
+
+    function renderOperatorReviewDrawer(session) {
+        const listEl = document.getElementById('wbOperatorReviewObjectsList');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        const objects = session.fused_objects || session.pieces || [];
+        const ambiguous = session.ambiguous_candidates || [];
+
+        if (objects.length === 0 && ambiguous.length === 0) {
+            listEl.innerHTML = '<div style="color:#64748b; font-size:0.7rem; font-style:italic; padding:4px 0;">No grouped objects available for review.</div>';
+            return;
+        }
+
+        // Render Fused Object Cards
+        objects.forEach(obj => {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:#1e293b; border:1px solid #334155; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'display:flex; align-items:center; gap:8px;';
+
+            if (obj.crop_url) {
+                const img = document.createElement('img');
+                img.src = obj.crop_url;
+                img.style.cssText = 'width:36px; height:36px; object-fit:cover; border-radius:4px; border:1px solid #475569;';
+                left.appendChild(img);
+            } else {
+                const iconBox = document.createElement('div');
+                iconBox.style.cssText = 'width:36px; height:36px; background:#0f172a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:0.9rem;';
+                iconBox.innerHTML = '<i class="fas fa-cube"></i>';
+                left.appendChild(iconBox);
+            }
+
+            const info = document.createElement('div');
+            const contributing = (obj.contributing_views || [obj.primary_view || 'front']).join(' + ').toUpperCase();
+            const statusColor = (obj.status === 'CONFIRMED' && !obj.is_uncertain) ? '#34d399' : '#fbbf24';
+            info.innerHTML = `
+                <div style="font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:5px;">
+                    <span>${obj.object_id || obj.detection_id}</span>
+                    <span style="font-size:0.6rem; color:${statusColor}; background:rgba(255,255,255,0.06); padding:1px 4px; border-radius:3px;">${obj.status || 'CONFIRMED'}</span>
+                </div>
+                <div style="color:#94a3b8; font-size:0.62rem;">Views: <span style="color:#38bdf8;">${contributing}</span> | Tier: ${obj.tier_index !== undefined ? obj.tier_index : 0}</div>
+            `;
+            left.appendChild(info);
+
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex; gap:4px;';
+
+            // Confirm Button
+            if (obj.status !== 'CONFIRMED' || obj.is_uncertain) {
+                const confirmBtn = document.createElement('button');
+                confirmBtn.type = 'button';
+                confirmBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                confirmBtn.textContent = 'Confirm';
+                confirmBtn.onclick = () => window.reviewWorkbenchSession('confirm_object', obj.object_id || obj.detection_id);
+                actions.appendChild(confirmBtn);
+            }
+
+            // Separate Observations Button (enabled when > 1 contributing view)
+            if ((obj.contributing_views && obj.contributing_views.length > 1) || (obj.observations && Object.keys(obj.observations).length > 1)) {
+                const sepBtn = document.createElement('button');
+                sepBtn.type = 'button';
+                sepBtn.style.cssText = 'background:#d97706; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                sepBtn.textContent = 'Separate';
+                sepBtn.title = 'Separate cross-view observations into distinct objects';
+                sepBtn.onclick = () => window.reviewWorkbenchSession('separate_object', obj.object_id || obj.detection_id);
+                actions.appendChild(sepBtn);
+            }
+
+            // Mark Uncertain Button
+            if (obj.status !== 'UNCERTAIN' && !obj.is_uncertain) {
+                const uncertBtn = document.createElement('button');
+                uncertBtn.type = 'button';
+                uncertBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                uncertBtn.textContent = 'Flag';
+                uncertBtn.title = 'Mark as uncertain candidate without counting';
+                uncertBtn.onclick = () => window.reviewWorkbenchSession('mark_uncertain', obj.object_id || obj.detection_id);
+                actions.appendChild(uncertBtn);
+            }
+
+            card.appendChild(left);
+            card.appendChild(actions);
+            listEl.appendChild(card);
+        });
+
+        // Render Ambiguous Candidates
+        ambiguous.forEach((amb, idx) => {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:#1e293b; border:1px dashed #ef4444; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'display:flex; align-items:center; gap:8px;';
+
+            const iconBox = document.createElement('div');
+            iconBox.style.cssText = 'width:36px; height:36px; background:#450a0a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#f87171; font-size:0.9rem;';
+            iconBox.innerHTML = '<i class="fas fa-question-circle"></i>';
+            left.appendChild(iconBox);
+
+            const info = document.createElement('div');
+            info.innerHTML = `
+                <div style="font-weight:700; color:#fca5a5;">Ambiguous Candidate #${idx+1}</div>
+                <div style="color:#94a3b8; font-size:0.62rem;">View: ${amb.view_label || 'secondary'} | Score: ${amb.best_score ? Math.round(amb.best_score*100)+'%' : 'N/A'}</div>
+            `;
+            left.appendChild(info);
+
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex; gap:4px;';
+
+            const confBtn = document.createElement('button');
+            confBtn.type = 'button';
+            confBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+            confBtn.textContent = 'Accept';
+            confBtn.title = 'Accept and confirm as distinct object';
+            confBtn.onclick = () => window.reviewWorkbenchSession('confirm_object', amb.candidate_obj_id);
+            actions.appendChild(confBtn);
+
+            card.appendChild(left);
+            card.appendChild(actions);
+            listEl.appendChild(card);
+        });
+    }
+
+    window.reviewWorkbenchSession = async function(action, objectId = null, secondaryView = null, notes = null) {
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+            console.warn('[ReviewWorkbench] No active multi-view session available for review.');
+            return;
+        }
+
+        const sessId = window.currentMultiViewSession.session_id;
+        try {
+            const resp = await fetch('/api/pallets/multiview-review', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sessId,
+                    action: action,
+                    object_id: objectId,
+                    secondary_view: secondaryView,
+                    notes: notes
+                })
+            });
+
+            const data = await resp.json();
+            if (data.success) {
+                window.currentMultiViewSession = data;
+                // Re-render UI with updated session state
+                renderWorkbenchResults(data);
+                if (typeof showToast === 'function') {
+                    showToast(`Review action '${action}' applied: primary count is now ${data.primary_count}.`, 'success');
+                }
+            } else {
+                console.error('[ReviewWorkbench] Error:', data.error);
+                if (typeof showToast === 'function') {
+                    showToast(`Review action failed: ${data.error}`, 'error');
+                }
+            }
+        } catch (err) {
+            console.error('[ReviewWorkbench] Network error:', err);
+            if (typeof showToast === 'function') {
+                showToast(`Review action network error: ${err.message}`, 'error');
+            }
+        }
+    };
+
+    window.recalculateWorkbenchMultiView = function() {
+        window.reviewWorkbenchSession('recalculate');
+    };

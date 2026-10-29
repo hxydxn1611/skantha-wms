@@ -252,6 +252,24 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_vision_zone_cams_cam ON vision_zone_cameras(camera_id);
 
         -- Warehouse Zone Camera Region of Interest (ROI) Boundaries
+        
+        -- Glass Measurement Profiles for Pallet Vision Workbench
+        CREATE TABLE IF NOT EXISTS glass_measurement_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            sku_id TEXT,
+            length REAL NOT NULL,
+            width REAL NOT NULL,
+            thickness REAL NOT NULL,
+            unit TEXT NOT NULL DEFAULT 'mm',
+            packaging_type TEXT DEFAULT 'A_FRAME_STILLAGE',
+            pieces_per_bundle INTEGER,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_glass_profiles_sku ON glass_measurement_profiles(sku_id);
+
         CREATE TABLE IF NOT EXISTS vision_zone_camera_rois (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             zone_id INTEGER NOT NULL,
@@ -3325,3 +3343,146 @@ def create_or_update_warehouse(
     conn.close()
     return rec or {}
 
+
+
+# =============================================================================
+# GLASS MEASUREMENT PROFILES (PALLET VISION WORKBENCH)
+# =============================================================================
+
+DEFAULT_GLASS_PROFILES = [
+    {
+        "id": "GLAS-PROF-FLT-2440",
+        "name": "Architectural Float Glass (2440x1830x6mm)",
+        "sku_id": "GLAS-FLT-01",
+        "length": 2440.0,
+        "width": 1830.0,
+        "thickness": 6.0,
+        "unit": "mm",
+        "packaging_type": "A_FRAME_STILLAGE",
+        "pieces_per_bundle": 25,
+        "notes": "Standard 6mm architectural clear float glass pack on A-frame stillage"
+    },
+    {
+        "id": "GLAS-PROF-TMP-3000",
+        "name": "Heavy Tempered Structural Panel (3000x2000x12mm)",
+        "sku_id": "GLAS-TMP-02",
+        "length": 3000.0,
+        "width": 2000.0,
+        "thickness": 12.0,
+        "unit": "mm",
+        "packaging_type": "WOODEN_CRATE",
+        "pieces_per_bundle": 10,
+        "notes": "12mm monolithic tempered glass in timber crate pack"
+    },
+    {
+        "id": "GLAS-PROF-LAM-2140",
+        "name": "Laminated Safety Glass (2140x1600x8.76mm)",
+        "sku_id": "GLAS-LAM-03",
+        "length": 2140.0,
+        "width": 1600.0,
+        "thickness": 8.76,
+        "unit": "mm",
+        "packaging_type": "END_CAP_CASE",
+        "pieces_per_bundle": 15,
+        "notes": "8.76mm acoustic PVB laminated glass in end-cap case"
+    }
+]
+
+def seed_default_glass_profiles():
+    """Seeds default standard glass measurement profiles if table is empty."""
+    conn = get_db()
+    with conn:
+        count = conn.execute("SELECT COUNT(*) FROM glass_measurement_profiles").fetchone()[0]
+        if count == 0:
+            for p in DEFAULT_GLASS_PROFILES:
+                conn.execute("""
+                    INSERT OR IGNORE INTO glass_measurement_profiles 
+                    (id, name, sku_id, length, width, thickness, unit, packaging_type, pieces_per_bundle, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    p["id"], p["name"], p.get("sku_id"), p["length"], p["width"],
+                    p["thickness"], p["unit"], p.get("packaging_type", "A_FRAME_STILLAGE"),
+                    p.get("pieces_per_bundle"), p.get("notes")
+                ))
+    conn.close()
+
+def get_glass_measurement_profiles() -> List[Dict[str, Any]]:
+    """Retrieves all saved glass measurement profiles."""
+    conn = get_db()
+    seed_default_glass_profiles()
+    rows = conn.execute("""
+        SELECT id, name, sku_id, length, width, thickness, unit, packaging_type,
+               pieces_per_bundle, notes, created_at, updated_at
+        FROM glass_measurement_profiles
+        ORDER BY updated_at DESC, name ASC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_glass_measurement_profile(profile_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves a single glass measurement profile by ID."""
+    if not profile_id:
+        return None
+    conn = get_db()
+    row = conn.execute("""
+        SELECT id, name, sku_id, length, width, thickness, unit, packaging_type,
+               pieces_per_bundle, notes, created_at, updated_at
+        FROM glass_measurement_profiles
+        WHERE id = ?
+    """, (str(profile_id).strip(),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def save_glass_measurement_profile(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Saves or updates a glass measurement profile."""
+    import uuid
+    pid = str(data.get("id") or "").strip()
+    if not pid:
+        pname = str(data.get("name") or "Glass Profile").strip()
+        slug = "".join(c if c.isalnum() else "_" for c in pname[:16]).upper()
+        pid = f"GLAS-PROF-{slug}-{uuid.uuid4().hex[:4].upper()}"
+
+    name = str(data.get("name") or pid).strip()
+    sku_id = str(data.get("sku_id") or "").strip() or None
+    length = float(data.get("length", 2440.0))
+    width = float(data.get("width", 1830.0))
+    thickness = float(data.get("thickness", 6.0))
+    unit = str(data.get("unit") or "mm").strip().lower()
+    if unit not in ("mm", "cm", "in", "ft"):
+        unit = "mm"
+    pkg = str(data.get("packaging_type") or "A_FRAME_STILLAGE").strip()
+    ppb = data.get("pieces_per_bundle")
+    ppb = int(ppb) if (ppb is not None and str(ppb).strip().isdigit() and int(ppb) > 0) else None
+    notes = str(data.get("notes") or "").strip() or None
+
+    conn = get_db()
+    with conn:
+        conn.execute("""
+            INSERT INTO glass_measurement_profiles
+            (id, name, sku_id, length, width, thickness, unit, packaging_type, pieces_per_bundle, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                sku_id = excluded.sku_id,
+                length = excluded.length,
+                width = excluded.width,
+                thickness = excluded.thickness,
+                unit = excluded.unit,
+                packaging_type = excluded.packaging_type,
+                pieces_per_bundle = excluded.pieces_per_bundle,
+                notes = excluded.notes,
+                updated_at = CURRENT_TIMESTAMP
+        """, (pid, name, sku_id, length, width, thickness, unit, pkg, ppb, notes))
+    conn.close()
+    return get_glass_measurement_profile(pid) or {}
+
+def delete_glass_measurement_profile(profile_id: str) -> bool:
+    """Deletes a glass measurement profile."""
+    if not profile_id:
+        return False
+    conn = get_db()
+    with conn:
+        res = conn.execute("DELETE FROM glass_measurement_profiles WHERE id = ?", (str(profile_id).strip(),))
+        deleted = (res.rowcount > 0)
+    conn.close()
+    return deleted

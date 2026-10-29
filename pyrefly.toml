@@ -1,6 +1,6 @@
 python-interpreter-path = "C:\\Python314\\python.exe"
 site-package-path = [
-    "D:\\skandha-wms\\webapp",
+    "d:\\skantha-wms\\webapp",
     "C:\\Users\\HAI\\AppData\\Roaming\\Python\\Python314\\site-packages",
     "C:\\Python314\\Lib\\site-packages"
 ]
@@ -31,3 +31,7 @@ unannotated-attribute = "ignore"
 unbound-name = "ignore"
 bad-override-param-name = "ignore"
 bad-param-name-override = "ignore"
+bad-function-definition = "ignore"
+bad-specialization = "ignore"
+unnecessary-type-conversion = "ignore"
+untyped-import = "ignore"

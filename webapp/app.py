@@ -13,6 +13,8 @@ from datetime import datetime
 from fpdf import FPDF
 import threading
 import re
+import json
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +180,7 @@ def api_company_preview_recognition():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def send_verification_email(recipient_email: str, otp_code: str, username: str = None) -> tuple:
+def send_verification_email(recipient_email: str, otp_code: str, username: str | None = None) -> tuple:
     """Dispatches a real 6-digit OTP verification email via SMTP to any requested user email."""
     try:
         import smtplib
@@ -1523,7 +1525,7 @@ def get_camera_preview_image(camera_id):
     cv2.rectangle(frame, (16, height - 38), (320, height - 12), (20, 25, 30), -1)
     cv2.putText(frame, "PREVIEW / TEST IMAGE (NO RTSP FEED)", (24, height - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (60, 160, 240), 1, cv2.LINE_AA)
 
-    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 # ----------------- AI Vision Object Detection Engine APIs -----------------
@@ -1707,7 +1709,7 @@ def api_detection_test():
     )
 
     import base64
-    _, buf = cv2.imencode('.jpg', annotated_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buf = cv2.imencode('.jpg', annotated_bgr, [cv2.IMWRITE_JPEG_QUALITY, 88])
     annotated_b64 = "data:image/jpeg;base64," + base64.b64encode(buf).decode('utf-8')
 
     result['annotated_image_url'] = annotated_b64
@@ -1742,7 +1744,7 @@ def api_detection_camera_single(camera_id):
         roi_zone_code=roi_zone_code
     )
     import base64
-    _, buf = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buf = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     result['annotated_image_url'] = "data:image/jpeg;base64," + base64.b64encode(buf).decode('utf-8')
 
     return jsonify(result)
@@ -1774,7 +1776,7 @@ def api_detection_camera_annotated_jpg(camera_id):
         roi_polygon=roi_polygon,
         roi_zone_code=roi_zone_code
     )
-    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 
@@ -1957,7 +1959,7 @@ def api_tracking_camera_annotated_jpg(camera_id):
         roi_polygon=roi_polygon,
         roi_zone_code=roi_zone_code
     )
-    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 
@@ -2154,7 +2156,7 @@ def api_identity_camera_annotated_jpg(camera_id):
         roi_polygon=roi_polygon,
         roi_zone_code=roi_zone_code
     )
-    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 
@@ -2333,7 +2335,7 @@ def api_validation_camera_annotated_jpg(camera_id):
         frame_bgr=frame,
         tracks=result.get('tracks', [])
     )
-    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 
@@ -2532,7 +2534,7 @@ def api_association_camera_annotated_jpg(camera_id):
         associations=list(session.associations.values()),
         tracks=result.get('tracks', [])
     )
-    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 
@@ -2733,7 +2735,7 @@ def api_worker_box_camera_annotated_jpg(camera_id):
         associations=list(session.associations.values()),
         tracks=result.get('tracks', [])
     )
-    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 
@@ -3109,7 +3111,7 @@ def api_material_association_camera_annotated_jpg(camera_id):
         associations=list(session.associations.values()),
         tracks=result.get('tracks', [])
     )
-    _, buffer = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buffer.tobytes(), mimetype='image/jpeg')
 
 
@@ -3471,7 +3473,7 @@ def update_gate_pass(gp_id):
         phone = data.get('driver_phone')
         if phone:
             try:
-                import requests
+                import requests  # type: ignore
                 resp = requests.post('https://textbelt.com/text', data={
                     'phone': phone, 
                     'message': f'Skandha WMS: Your Dock Assignment OTP is {otp}', 
@@ -5936,7 +5938,7 @@ def api_camera_snapshot(camera_id):
         frame, _ = get_camera_frame_for_detection(camera_id)
         if frame is None or frame.size == 0:
             return jsonify({"success": False, "error": f"Failed to acquire frame from camera '{camera_id}'"}), 404
-        ret, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        ret, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
         if not ret:
             return jsonify({"success": False, "error": "JPEG encoding failed"}), 500
         return Response(buf.tobytes(), mimetype='image/jpeg')
@@ -6123,7 +6125,8 @@ def api_count_pallet_pieces():
         # Support both form data and json payload
         data = request.get_json(silent=True) or {}
         sample_name = request.form.get('sample_name') or data.get('sample_name', '')
-        counting_mode = request.form.get('counting_mode') or data.get('counting_mode', 'auto')
+        raw_counting_mode = request.form.get('counting_mode') or data.get('counting_mode')
+        material_type = request.form.get('material_type') or data.get('material_type')
         sensitivity = float(request.form.get('sensitivity') or data.get('sensitivity', 0.5))
         target_clusters = request.form.get('clusters') or data.get('clusters')
         target_clusters = int(target_clusters) if target_clusters else None
@@ -6145,9 +6148,44 @@ def api_count_pallet_pieces():
             elif isinstance(roi_raw, dict):
                 roi = roi_raw
 
-        # Auto-detect boxes from sample name if mode is auto
-        if counting_mode == 'auto' and ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
-            counting_mode = 'boxes'
+        # Interactive Include/Exclude Regions support
+        regions = None
+        regions_raw = request.form.get('regions') or data.get('regions')
+        if regions_raw:
+            if isinstance(regions_raw, str):
+                import json as pyjson
+                try:
+                    regions = pyjson.loads(regions_raw)
+                except Exception:
+                    pass
+            elif isinstance(regions_raw, list):
+                regions = regions_raw
+
+        has_matrix_params = any(
+            request.form.get(k) or data.get(k)
+            for k in ('matrix_layers', 'layers', 'matrix_columns', 'columns', 'matrix_rows', 'matrix_depth', 'rows')
+        )
+
+        # Authoritative counting_mode resolution & explicit validation:
+        # Never silently route an explicit Individual Pieces request into carton counting.
+        if raw_counting_mode is not None and str(raw_counting_mode).strip() != '':
+            counting_mode = str(raw_counting_mode).strip()
+            if counting_mode.lower() == 'auto' and ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
+                counting_mode = 'boxes'
+        else:
+            if has_matrix_params or ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
+                counting_mode = 'boxes'
+            else:
+                counting_mode = 'individual_pieces'
+
+        try:
+            service._validate_and_normalize_counting_mode(counting_mode, material_type=material_type)
+        except ValueError as mode_err:
+            return jsonify({
+                "success": False,
+                "error": str(mode_err),
+                "error_code": "invalid_counting_mode"
+            }), 400
 
         # 1. Image file upload from multipart request (supporting all decodable formats)
         image_bgr, upload_err, upload_msg = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
@@ -6209,17 +6247,32 @@ def api_count_pallet_pieces():
             except Exception:
                 pass
 
+        # Parse glass_profile if provided
+        glass_profile = None
+        glass_prof_raw = request.form.get('glass_profile') or data.get('glass_profile')
+        if glass_prof_raw:
+            if isinstance(glass_prof_raw, str):
+                try:
+                    glass_profile = json.loads(glass_prof_raw)
+                except Exception:
+                    pass
+            elif isinstance(glass_prof_raw, dict):
+                glass_profile = glass_prof_raw
+
         result = service.count_individual_pieces(
             image_bgr,
             counting_mode=counting_mode,
+            material_type=material_type,
             roi=roi,
+            regions=regions,
             sensitivity=sensitivity,
             target_clusters=target_clusters,
             sku_id=sku_id,
             custom_matrix=custom_matrix,
             manual_units_per_bundle=manual_upb,
             manual_uom=manual_uom,
-            manual_bundle_name=manual_bundle_name
+            manual_bundle_name=manual_bundle_name,
+            glass_profile=glass_profile
         )
 
         result['source_type'] = source_type
@@ -6250,6 +6303,25 @@ def api_re_render_pallet_pieces():
         raw_image_url = data.get('raw_image_url', '')
         pieces = data.get('pieces', [])
         custom_matrix = data.get('matrix_dimensions') or data.get('custom_matrix')
+        counting_mode = data.get('counting_mode') or request.form.get('counting_mode')
+        material_type = data.get('material_type') or request.form.get('material_type')
+        regions = data.get('regions') or request.form.get('regions')
+        if isinstance(regions, str):
+            try:
+                import json as pyjson
+                regions = pyjson.loads(regions)
+            except Exception:
+                regions = None
+
+        if counting_mode is not None and str(counting_mode).strip():
+            try:
+                service._validate_and_normalize_counting_mode(counting_mode, material_type=material_type, custom_matrix=custom_matrix)
+            except ValueError as mode_err:
+                return jsonify({
+                    "success": False,
+                    "error": str(mode_err),
+                    "error_code": "invalid_counting_mode"
+                }), 400
 
         if not raw_image_url:
             return jsonify({"success": False, "error": "Missing raw_image_url"}), 400
@@ -6264,7 +6336,14 @@ def api_re_render_pallet_pieces():
         if raw_img is None:
             return jsonify({"success": False, "error": "Failed to decode raw image"}), 400
 
-        result = service.re_render_piece_annotations(raw_img, pieces=pieces, custom_matrix=custom_matrix)
+        result = service.re_render_piece_annotations(
+            raw_img,
+            pieces=pieces,
+            custom_matrix=custom_matrix,
+            counting_mode=counting_mode,
+            material_type=material_type,
+            regions=regions
+        )
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error re-rendering pieces")
@@ -6292,6 +6371,67 @@ def api_count_pallet_bundles():
         sku_id = request.form.get('sku_id') or request.values.get('sku_id') or data.get('sku_id')
         source_type = request.form.get('source_type') or data.get('source_type', 'upload')
         camera_id = request.form.get('camera_id') or data.get('camera_id') or 'cam_inbound_01'
+        raw_counting_mode = request.form.get('counting_mode') or data.get('counting_mode')
+        material_type = request.form.get('material_type') or data.get('material_type')
+        sensitivity = float(request.form.get('sensitivity') or data.get('sensitivity', 0.45))
+
+        if raw_counting_mode is not None and str(raw_counting_mode).strip() != '':
+            counting_mode = str(raw_counting_mode).strip()
+        else:
+            counting_mode = 'bundles'
+
+        try:
+            normalized_mode, resolved_strategy = service._validate_and_normalize_counting_mode(
+                counting_mode,
+                material_type=material_type
+            )
+        except ValueError as mode_err:
+            return jsonify({
+                "success": False,
+                "error": str(mode_err),
+                "error_code": "invalid_counting_mode"
+            }), 400
+
+        if resolved_strategy == 'individual_pieces':
+            return jsonify({
+                "success": False,
+                "error": f"Individual Pieces mode ('{counting_mode}') cannot be routed to the Bundles endpoint (/api/pallets/count-bundles).",
+                "error_code": "invalid_counting_mode"
+            }), 400
+
+        roi = data.get('roi')
+        if not roi and request.form.get('roi'):
+            try:
+                roi = json.loads(request.form.get('roi'))
+            except Exception:
+                roi = None
+
+        regions = None
+        regions_raw = request.form.get('regions') or data.get('regions')
+        if regions_raw:
+            if isinstance(regions_raw, str):
+                import json as pyjson
+                try:
+                    regions = pyjson.loads(regions_raw)
+                except Exception:
+                    pass
+            elif isinstance(regions_raw, list):
+                regions = regions_raw
+
+        custom_matrix = data.get('matrix_dimensions') or data.get('custom_matrix')
+        if not custom_matrix:
+            m_rows = request.form.get('matrix_rows') or data.get('matrix_rows')
+            m_cols = request.form.get('matrix_columns') or data.get('matrix_columns')
+            m_layers = request.form.get('matrix_layers') or data.get('matrix_layers')
+            if m_rows and m_cols and m_layers:
+                try:
+                    custom_matrix = {
+                        'rows': max(1, int(m_rows)),
+                        'columns': max(1, int(m_cols)),
+                        'layers': max(1, int(m_layers))
+                    }
+                except ValueError:
+                    pass
 
         img_a1, upload_err, upload_msg = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
         if img_a1 is not None:
@@ -6355,6 +6495,33 @@ def api_count_pallet_bundles():
             except Exception:
                 pass
 
+        # Parse glass_profile if provided or reconstruct from profile_id / fields
+        glass_profile = None
+        glass_prof_raw = request.form.get('glass_profile') or data.get('glass_profile')
+        if glass_prof_raw:
+            if isinstance(glass_prof_raw, str):
+                try:
+                    glass_profile = json.loads(glass_prof_raw)
+                except Exception:
+                    pass
+            elif isinstance(glass_prof_raw, dict):
+                glass_profile = glass_prof_raw
+
+        if not glass_profile:
+            prof_id = request.form.get('glass_profile_id') or data.get('glass_profile_id')
+            if prof_id:
+                glass_profile = db.get_glass_measurement_profile(prof_id)
+            if not glass_profile and (request.form.get('glass_length') or data.get('glass_length')):
+                glass_profile = {
+                    "length": float(request.form.get('glass_length') or data.get('glass_length', 2440)),
+                    "width": float(request.form.get('glass_width') or data.get('glass_width', 1830)),
+                    "thickness": float(request.form.get('glass_thickness') or data.get('glass_thickness', 6)),
+                    "unit": request.form.get('glass_unit') or data.get('glass_unit', 'mm'),
+                    "packaging_type": request.form.get('glass_packaging') or data.get('glass_packaging', 'A_FRAME_STILLAGE'),
+                    "pieces_per_bundle": request.form.get('glass_sheets_per_bundle') or data.get('glass_sheets_per_bundle'),
+                    "name": request.form.get('glass_profile_name') or data.get('glass_profile_name', 'Custom Glass Profile')
+                }
+
         result = service.count_bundles_multi_view(
             angle1_bgr=img_a1,
             angle2_bgr=img_a2,
@@ -6363,7 +6530,14 @@ def api_count_pallet_bundles():
             sku_id=sku_id,
             manual_units_per_bundle=manual_upb,
             manual_uom=manual_uom,
-            manual_bundle_name=manual_bundle_name
+            manual_bundle_name=manual_bundle_name,
+            material_type=material_type,
+            counting_mode=counting_mode,
+            roi=roi,
+            sensitivity=sensitivity,
+            custom_matrix=custom_matrix,
+            regions=regions,
+            glass_profile=glass_profile
         )
 
         result['source_type'] = source_type
@@ -6376,6 +6550,299 @@ def api_count_pallet_bundles():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error counting bundles multi-view")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+@app.route('/api/pallets/count-multiview', methods=['POST'])
+def api_count_pallet_multiview():
+    """
+    Stage 5: Dedicated Multi-View Fusion & Cross-View Deduplication Endpoint.
+    Combines multiple image views of the same physical counting target into one
+    authoritative consolidated result.
+    Supports multipart/form-data and application/json payloads.
+    Preserves all existing material-specific counting pipelines.
+    """
+    try:
+        from pallet_vision_counting_service import get_pallet_vision_counting_service
+        service = get_pallet_vision_counting_service()
+
+        data = request.get_json(silent=True) or {}
+        counting_mode = request.form.get('counting_mode') or data.get('counting_mode', 'bundles')
+        material_type = request.form.get('material_type') or data.get('material_type')
+        sku_id = request.form.get('sku_id') or data.get('sku_id')
+        sensitivity = float(request.form.get('sensitivity') or data.get('sensitivity', 0.5))
+        pallet_id = request.form.get('pallet_id') or data.get('pallet_id')
+
+        # Manual Units-per-bundle and UOM declarations
+        manual_upb = None
+        upb_raw = request.form.get('units_per_bundle') or data.get('units_per_bundle')
+        if upb_raw is not None and str(upb_raw).strip().isdigit():
+            manual_upb = max(1, int(upb_raw))
+
+        manual_uom = request.form.get('uom') or data.get('uom')
+        manual_bname = request.form.get('bundle_name') or data.get('bundle_name')
+
+        # Glass profile resolution
+        glass_prof = None
+        gp_raw = request.form.get('glass_profile') or data.get('glass_profile')
+        if gp_raw:
+            if isinstance(gp_raw, str):
+                try:
+                    glass_prof = json.loads(gp_raw)
+                except Exception:
+                    pass
+            elif isinstance(gp_raw, dict):
+                glass_prof = gp_raw
+
+        # Global regions fallback
+        global_regions = None
+        reg_raw = request.form.get('regions') or data.get('regions')
+        if reg_raw:
+            if isinstance(reg_raw, str):
+                try:
+                    global_regions = json.loads(reg_raw)
+                except Exception:
+                    pass
+            elif isinstance(reg_raw, list):
+                global_regions = reg_raw
+
+        views_list = []
+
+        # 1. Check for indexed multipart files: view_image_0, view_image_1... or image_0, image_1...
+        idx = 0
+        while True:
+            file_key = f'view_image_{idx}'
+            if file_key not in request.files:
+                file_key = f'image_{idx}'
+            if file_key not in request.files:
+                break
+
+            fs = request.files[file_key]
+            if fs is not None:
+                try:
+                    fs.seek(0)
+                    img_bytes = fs.read()
+                    img_bgr, err, msg = decode_image_bytes_to_bgr(img_bytes)
+                    if img_bgr is not None:
+                        label = request.form.get(f'view_label_{idx}') or request.form.get(f'label_{idx}') or (f'front' if idx == 0 else f'view_{idx+1}')
+                        is_ref = request.form.get(f'is_ref_{idx}', '').lower() in ('true', '1', 'yes') or (idx == 0)
+                        
+                        v_reg = None
+                        v_reg_raw = request.form.get(f'regions_{idx}')
+                        if v_reg_raw:
+                            try:
+                                v_reg = json.loads(v_reg_raw) if isinstance(v_reg_raw, str) else v_reg_raw
+                            except Exception:
+                                v_reg = None
+                        if v_reg is None and global_regions:
+                            v_reg = global_regions
+
+                        views_list.append({
+                            "view_label": label,
+                            "image_bgr": img_bgr,
+                            "is_reference": is_ref,
+                            "regions": v_reg
+                        })
+                except Exception as ex:
+                    logger.warning(f"Error reading view image file {file_key}: {ex}")
+            idx += 1
+
+        # 2. Check for getlist('images') or getlist('view_images')
+        if not views_list:
+            flist = request.files.getlist('images') or request.files.getlist('view_images')
+            labels_list = request.form.getlist('view_labels') or request.form.getlist('labels')
+            if flist:
+                for f_i, fs in enumerate(flist):
+                    if fs is not None:
+                        try:
+                            fs.seek(0)
+                            img_bytes = fs.read()
+                            img_bgr, _, _ = decode_image_bytes_to_bgr(img_bytes)
+                            if img_bgr is not None:
+                                label = labels_list[f_i] if f_i < len(labels_list) else (f'front' if f_i == 0 else f'view_{f_i+1}')
+                                views_list.append({
+                                    "view_label": label,
+                                    "image_bgr": img_bgr,
+                                    "is_reference": (f_i == 0),
+                                    "regions": global_regions
+                                })
+                        except Exception:
+                            pass
+
+        # 3. Check for angle1 + angle2 in request.files
+        if not views_list and 'angle1' in request.files:
+            img1, _, _ = _extract_uploaded_image_bgr(request.files, 'angle1')
+            if img1 is not None:
+                views_list.append({
+                    "view_label": "front",
+                    "image_bgr": img1,
+                    "is_reference": True,
+                    "regions": global_regions
+                })
+            if 'angle2' in request.files:
+                img2, _, _ = _extract_uploaded_image_bgr(request.files, 'angle2')
+                if img2 is not None:
+                    views_list.append({
+                        "view_label": "side",
+                        "image_bgr": img2,
+                        "is_reference": False,
+                        "regions": global_regions
+                    })
+
+        # 4. Check for JSON / base64 views payload
+        if not views_list and data.get('views'):
+            for j_i, jv in enumerate(data['views']):
+                b64_data = jv.get('image_data') or jv.get('data') or jv.get('image')
+                if b64_data:
+                    img_bgr, _, _ = _extract_base64_image_bgr(b64_data)
+                    if img_bgr is not None:
+                        label = jv.get('view_label') or jv.get('label') or ('front' if j_i == 0 else f'view_{j_i+1}')
+                        is_ref = bool(jv.get('is_reference') or (j_i == 0))
+                        views_list.append({
+                            "view_label": label,
+                            "image_bgr": img_bgr,
+                            "is_reference": is_ref,
+                            "regions": jv.get('regions') or global_regions
+                        })
+
+        # 5. Fallback: single image in request.files ('image' or 'file') or base64 ('image_data')
+        if not views_list:
+            single_img, _, _ = _extract_uploaded_image_bgr(request.files, 'image', 'file')
+            if single_img is None:
+                img_data = request.form.get('image_data') or data.get('image_data')
+                if img_data:
+                    single_img, _, _ = _extract_base64_image_bgr(img_data)
+            if single_img is not None:
+                views_list.append({
+                    "view_label": "front",
+                    "image_bgr": single_img,
+                    "is_reference": True,
+                    "regions": global_regions
+                })
+
+        if not views_list:
+            return jsonify({
+                "success": False,
+                "error": "No view images provided for multi-view counting. Please supply one or more image views.",
+                "error_code": "no_views_provided"
+            }), 400
+
+        # Execute Multi-View Fusion Orchestration Layer
+        fusion_result = service.fuse_multi_view_counting(
+            views=views_list,
+            counting_mode=counting_mode,
+            material_type=material_type,
+            sku_id=sku_id,
+            manual_units_per_bundle=manual_upb,
+            manual_uom=manual_uom,
+            manual_bundle_name=manual_bname,
+            glass_profile=glass_prof,
+            sensitivity=sensitivity,
+            target_id=pallet_id
+        )
+
+        if pallet_id:
+            fusion_result['pallet_id'] = pallet_id
+
+        return jsonify(fusion_result), 200
+
+    except Exception as e:
+        logger.exception("Error during multi-view fusion counting")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+
+
+
+@app.route('/api/pallets/multiview-review', methods=['POST'])
+def api_review_pallet_multiview():
+    """
+    Stage 6: Operator Review and Audit Endpoint for Multi-View Fusion Sessions.
+    Supports:
+      - confirm_object: confirms automated grouping or validates uncertain candidate
+      - separate_object: breaks incorrectly grouped cross-view observations into distinct objects
+      - mark_uncertain: flags ambiguous candidate for supervisor check without counting it
+      - recalculate: recalculates fused inventory count and updates session state
+    Isolates review state in active session without mutating detector models or SKU master.
+    """
+    try:
+        from pallet_vision_counting_service import get_pallet_vision_counting_service
+        service = get_pallet_vision_counting_service()
+
+        data = request.get_json(silent=True) or {}
+        session_id = request.form.get('session_id') or data.get('session_id')
+        action = request.form.get('action') or data.get('action')
+        object_id = request.form.get('object_id') or data.get('object_id')
+        secondary_view = request.form.get('secondary_view') or data.get('secondary_view')
+        notes = request.form.get('notes') or data.get('notes')
+
+        if not session_id:
+            return jsonify({
+                'success': False,
+                'error': "Missing required parameter 'session_id'.",
+                'error_code': 'missing_session_id'
+            }), 400
+
+        if not action:
+            return jsonify({
+                'success': False,
+                'error': "Missing required parameter 'action'. Supported actions: confirm_object, separate_object, mark_uncertain, recalculate.",
+                'error_code': 'missing_action'
+            }), 400
+
+        updated_session = service.review_multiview_session(
+            session_id=str(session_id),
+            action=str(action),
+            object_id=str(object_id) if object_id else None,
+            secondary_view=str(secondary_view) if secondary_view else None,
+            notes=str(notes) if notes else None
+        )
+
+        return jsonify(updated_session), 200
+
+    except KeyError as ke:
+        return jsonify({'success': False, 'error': str(ke), 'error_code': 'session_not_found'}), 404
+    except ValueError as ve:
+        return jsonify({'success': False, 'error': str(ve), 'error_code': 'invalid_review_action'}), 400
+    except Exception as e:
+        logger.exception('Error during multi-view review action')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/pallets/glass-profiles', methods=['GET'])
+def api_get_glass_profiles():
+    """Retrieves all configured glass measurement profiles."""
+    try:
+        profiles = db.get_glass_measurement_profiles()
+        return jsonify({"success": True, "profiles": profiles}), 200
+    except Exception as e:
+        logger.exception("Error fetching glass profiles")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/pallets/glass-profiles', methods=['POST'])
+def api_save_glass_profile():
+    """Saves or updates a glass measurement profile with length, width, thickness, unit, and packaging."""
+    try:
+        data = request.get_json(silent=True) or request.form.to_dict()
+        if not data:
+            return jsonify({"success": False, "error": "No profile data provided"}), 400
+        saved = db.save_glass_measurement_profile(data)
+        return jsonify({"success": True, "profile": saved}), 200
+    except Exception as e:
+        logger.exception("Error saving glass profile")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/pallets/glass-profiles/<profile_id>', methods=['DELETE'])
+def api_delete_glass_profile(profile_id):
+    """Deletes a configured glass measurement profile."""
+    try:
+        deleted = db.delete_glass_measurement_profile(profile_id)
+        return jsonify({"success": deleted}), 200
+    except Exception as e:
+        logger.exception("Error deleting glass profile")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

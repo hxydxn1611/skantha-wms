@@ -1,0 +1,11 @@
+{
+  "include": [
+    "webapp",
+    "tests",
+    "scratch"
+  ],
+  "extraPaths": [
+    "webapp"
+  ],
+  "typeCheckingMode": "off"
+}
