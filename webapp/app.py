@@ -181,7 +181,7 @@ def api_company_preview_recognition():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def send_verification_email(recipient_email: str, otp_code: str, username: Optional[str] = None) -> tuple:
+def send_verification_email(recipient_email: str, otp_code: str, username: str | None = None) -> tuple:
     """Dispatches a real 6-digit OTP verification email via SMTP to any requested user email."""
     try:
         import smtplib

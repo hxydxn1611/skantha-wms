@@ -168,6 +168,20 @@ class PalletVisionCountingService:
                 }
                 if mismatch_msg:
                     ret_dict["mismatch_warning"] = mismatch_msg
+                if is_conflicting and is_metallic_grey_t:
+                    return {
+                        "sku_id": "INFERRED-STEEL-PROFILE",
+                        "name": "Hollow Structural Steel Sections / Pipes",
+                        "category": "Structural Metals & Profiles",
+                        "uom": "PIPES" if not is_bundle_mode else "BUNDLES",
+                        "units_per_bundle": 10 if is_bundle_mode else 1,
+                        "bundle_name": "Steel Bundle",
+                        "target_bundles_per_pallet": 1,
+                        "image_url": None,
+                        "confidence": 0.65,
+                        "recognition_method": "MATERIAL_FAMILY_INFERRED",
+                        "mismatch_warning": mismatch_msg
+                    }
                 return ret_dict
 
         all_skus = []
@@ -936,13 +950,17 @@ class PalletVisionCountingService:
                         manual_uom=manual_uom, manual_bundle_name=manual_bundle_name
                     )
             else:
+                scene_is_glass = self._is_glass_sheet_scene(image_bgr, roi=roi)
                 is_glass = False
-                if material_type and any(g in str(material_type).lower() for g in ("glass", "sheet")):
+                if scene_is_glass:
                     is_glass = True
-                elif sku_anchor and any(g in str(sku_anchor.get("sku_category", "")).lower() for g in ("glass", "sheet")):
-                    is_glass = True
-                elif not sku_anchor:
-                    is_glass = self._is_glass_sheet_scene(image_bgr, roi=roi)
+                elif material_type and any(g in str(material_type).lower() for g in ("glass", "sheet")):
+                    # Only honor operator glass material_type if scene is not clearly metallic grey
+                    h_t, w_t = image_bgr.shape[:2]
+                    crop_m = image_bgr[int(h_t*0.2):int(h_t*0.8), int(w_t*0.2):int(w_t*0.8)]
+                    hsv_m = cv2.cvtColor(crop_m, cv2.COLOR_BGR2HSV)
+                    if not (float(np.mean(hsv_m[:, :, 1])) < 42 and 60 <= float(np.mean(hsv_m[:, :, 2])) <= 205):
+                        is_glass = True
 
                 if is_glass:
                     pieces = self._detect_individual_glass_sheets(
@@ -1989,8 +2007,8 @@ class PalletVisionCountingService:
                 pc_x2 = float(np.median([x["box"][2] for x in pc]))
                 pc_w = max(1.0, pc_x2 - pc_x1)
                 pc_cx = (pc_x1 + pc_x2) / 2.0
-                x_ov = max(0.0, min(float(sc["box"][2]), pc_x2) - max(float(sc["box"][0]), pc_x1))
-                if x_ov / min(float(sc["w"]), pc_w) >= 0.48 or abs(sc["cx"] - pc_cx) <= min(float(sc["w"]), pc_w) * 0.38:
+                x_ov = max(0.0, min(float(sc["box"][2]), float(pc_x2)) - max(float(sc["box"][0]), float(pc_x1)))
+                if x_ov / min(float(sc["w"]), float(pc_w)) >= 0.48 or abs(float(sc["cx"]) - float(pc_cx)) <= min(float(sc["w"]), float(pc_w)) * 0.38:
                     pc.append(sc)
                     placed_pc = True
                     break
@@ -2017,7 +2035,7 @@ class PalletVisionCountingService:
         pcols.sort(key=lambda c: c["cx"])
 
         if len(pcols) >= 4:
-            max_span_h = max(c["span_h"] for c in pcols)
+            max_span_h = max(float(c["span_h"]) for c in pcols)
             left_edge_span = pcols[0]["span_h"]
             right_edge_span = pcols[-1]["span_h"]
             pcols_med_w = float(np.median([c["w"] for c in pcols]))
@@ -2028,12 +2046,12 @@ class PalletVisionCountingService:
                 if 1 <= idx_c <= len(pcols) - 2
                 and (w_orig * 0.25) <= c["cx"] <= (w_orig * 0.75)
                 and c["w"] >= 1.38 * pcols_med_w
-                and c["span_h"] >= max_span_h - max(16.0, median_h * 0.15)
+                and float(c["span_h"]) >= max_span_h - max(16.0, float(median_h * 0.15))
                 and c["span_h"] > left_edge_span + 8.0
                 and c["span_h"] > right_edge_span + 8.0
             ]
             if wide_apex_cols:
-                best_wcol = max(wide_apex_cols, key=lambda c: c["span_h"] + c["w"])
+                best_wcol = max(wide_apex_cols, key=lambda c: float(c["span_h"]) + float(c["w"]))
                 x_apex = float(best_wcol["cx"])
             else:
                 # Case B: Two adjacent single-face columns meeting at the front-most vertical corner seam
@@ -2042,12 +2060,12 @@ class PalletVisionCountingService:
                     lc = pcols[k]
                     rc = pcols[k + 1]
                     seam_x = (lc["x2"] + rc["x1"]) / 2.0
-                    if abs(lc["x2"] - rc["x1"]) <= max(18.0, median_w * 0.24):
+                    if abs(float(lc["x2"]) - float(rc["x1"])) <= max(18.0, float(median_w * 0.24)):
                         if (w_orig * 0.25) <= seam_x <= (w_orig * 0.75):
-                            pair_span = min(lc["span_h"], rc["span_h"])
-                            if pair_span >= max_span_h - max(22.0, median_h * 0.22):
+                            pair_span = min(float(lc["span_h"]), float(rc["span_h"]))
+                            if pair_span >= max_span_h - max(22.0, float(median_h * 0.22)):
                                 if pair_span > left_edge_span + 6.0 and pair_span > right_edge_span + 6.0:
-                                    score = pair_span + 0.25 * (lc["bot_y2"] + rc["bot_y2"])
+                                    score = pair_span + 0.25 * (float(lc["bot_y2"]) + float(rc["bot_y2"]))
                                     if score > best_pair_score:
                                         best_pair_score = score
                                         x_apex = float(seam_x)
@@ -3561,6 +3579,9 @@ class PalletVisionCountingService:
         are placed on reflective panes. Distinguishes and counts resolvable sheet edges along
         the stack boundary, reporting transparent uncertainty for unresolvable compressed sheets.
         """
+        from scipy.signal import find_peaks
+        from scipy.ndimage import gaussian_filter1d
+
         full_h, full_w = img_bgr.shape[:2]
         if roi and isinstance(roi, dict):
             rx = max(0, min(full_w - 10, int(roi.get("x", 0))))
@@ -3575,100 +3596,142 @@ class PalletVisionCountingService:
 
         wh, ww = work_img.shape[:2]
         gray = cv2.cvtColor(work_img, cv2.COLOR_BGR2GRAY)
-
-        # 1. Broad planar surface suppression:
-        # Areas with low gradient magnitude over contiguous space are flat reflective faces
-        gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-        gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-        mag = np.hypot(gx, gy)
-        planar_mask = (mag < 25.0).astype(np.uint8) * 255
-        planar_mask = cv2.morphologyEx(planar_mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15)))
-
-        # 2. Localize glass stack envelope:
         hsv = cv2.cvtColor(work_img, cv2.COLOR_BGR2HSV)
+
+        # 1. Segment glass stillage
         green_mask = cv2.inRange(hsv, (35, 30, 20), (85, 255, 255))
         cnts, _ = cv2.findContours(green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
         main_cnt = max(cnts, key=cv2.contourArea) if cnts else None
-        stack_mask = np.zeros_like(gray)
         if main_cnt is not None and cv2.contourArea(main_cnt) > 2000:
-            cv2.drawContours(stack_mask, [main_cnt], -1, 255, -1)
-            rim_mask = cv2.subtract(stack_mask, cv2.erode(stack_mask, cv2.getStructuringElement(cv2.MORPH_RECT, (45, 45))))
+            bx, by, bw, bh = cv2.boundingRect(main_cnt)
         else:
-            rim_mask = cv2.Canny(gray, 40, 120)
+            bx, by, bw, bh = 0, 0, ww, wh
 
-        # Restrict edge search strictly to the physical perimeter / rim of the stack
-        edge_search_mask = cv2.bitwise_and(rim_mask, cv2.bitwise_not(planar_mask))
+        # 2. Check both horizontal (top rim) and vertical (right rim) thickness profiles
+        # Top rim: horizontal sheet edges stacked vertically
+        top_h = max(20, int(bh * 0.45))
+        top_roi = gray[by:by + top_h, bx + int(bw * 0.15):bx + int(bw * 0.85)]
+        sobel_y = np.abs(cv2.Sobel(top_roi, cv2.CV_32F, 0, 1, ksize=3))
+        v_prof = np.mean(sobel_y, axis=1)
+        v_prof_smooth = gaussian_filter1d(v_prof, sigma=2.0)
+        top_thresh = np.percentile(v_prof_smooth, 70) if len(v_prof_smooth) > 0 else 0.0
+        active_y = np.where(v_prof_smooth > top_thresh)[0] if len(v_prof_smooth) > 0 else np.array([])
 
-        edges = cv2.Canny(gray, 40, 120)
-        edges_in_rim = cv2.bitwise_and(edges, edges, mask=edge_search_mask)
-        lines = cv2.HoughLinesP(edges_in_rim, 1, np.pi / 180, threshold=40, minLineLength=30, maxLineGap=10)
+        # Right rim: vertical sheet edges stacked horizontally
+        right_w = max(20, int(bw * 0.25))
+        right_roi = gray[by + int(bh * 0.15):by + int(bh * 0.85), max(0, bx + bw - right_w):bx + bw]
+        sobel_x = np.abs(cv2.Sobel(right_roi, cv2.CV_32F, 1, 0, ksize=3))
+        h_prof = np.mean(sobel_x, axis=0)
+        h_prof_smooth = gaussian_filter1d(h_prof, sigma=2.0)
+        right_thresh = np.percentile(h_prof_smooth, 70) if len(h_prof_smooth) > 0 else 0.0
+        active_x = np.where(h_prof_smooth > right_thresh)[0] if len(h_prof_smooth) > 0 else np.array([])
+
+        # Determine dominant thickness orientation
+        top_prom = float(np.max(v_prof_smooth) - np.min(v_prof_smooth)) if len(v_prof_smooth) > 0 else 0.0
+        right_prom = float(np.max(h_prof_smooth) - np.min(h_prof_smooth)) if len(h_prof_smooth) > 0 else 0.0
 
         pieces = []
         idx = 1
-        if lines is not None:
-            sheet_cands = []
-            for l in lines:
-                x1, y1, x2, y2 = l[0] if (len(l.shape) > 1 and l.shape[0] == 1) else l
-                cx, cy = int((x1 + x2) / 2) + offset_x, int((y1 + y2) / 2) + offset_y
-                length = math.hypot(x2 - x1, y2 - y1)
-                bx1 = max(0, min(x1, x2) + offset_x)
-                by1 = max(0, min(y1, y2) + offset_y)
-                bx2 = min(full_w, max(x1, x2) + offset_x)
-                by2 = min(full_h, max(y1, y2) + offset_y)
-                sheet_cands.append({'x': cx, 'y': cy, 'length': length, 'bbox': [bx1, by1, bx2, by2]})
+        if top_prom >= right_prom and len(active_y) > 0:
+            # Horizontal sheet edges stacked along Y
+            band_y1 = by + max(0, int(np.min(active_y) - 8))
+            band_y2 = by + min(top_h, int(np.max(active_y) + 8))
+            band_crop = gray[band_y1:band_y2, bx + int(bw * 0.20):bx + int(bw * 0.80)]
+            if band_crop.shape[0] >= 10 and band_crop.shape[1] >= 10:
+                band_sobel = np.abs(cv2.Sobel(band_crop, cv2.CV_32F, 0, 1, ksize=3))
+                band_prof = gaussian_filter1d(np.mean(band_sobel, axis=1), sigma=1.2)
+                min_dist = max(3, int(4 + (1.0 - sensitivity) * 4))
+                peaks, _ = find_peaks(band_prof, height=10, distance=min_dist, prominence=3)
 
-            # Deduplicate parallel lines closer than physical sheet thickness resolution (~22 px)
-            dedup = []
-            for sc in sorted(sheet_cands, key=lambda s: s['length'], reverse=True):
-                if not any(math.hypot(d['x'] - sc['x'], d['y'] - sc['y']) < 22.0 for d in dedup):
-                    dedup.append(sc)
+                mid_x = bx + bw // 2 + offset_x
+                sheet_w = int(bw * 0.70)
+                for p in peaks:
+                    sheet_y = band_y1 + int(p) + offset_y
+                    bx1 = max(0, mid_x - sheet_w // 2)
+                    by1 = max(0, sheet_y - 4)
+                    bx2 = min(full_w, mid_x + sheet_w // 2)
+                    by2 = min(full_h, sheet_y + 4)
+                    pieces.append({
+                        'id': idx,
+                        'index': idx,
+                        'detection_id': f'GLASS-SHEET-{idx:03d}',
+                        'x': mid_x,
+                        'y': sheet_y,
+                        'w': sheet_w,
+                        'h': 8,
+                        'bbox': [bx1, by1, bx2, by2],
+                        'centroid': [mid_x, sheet_y],
+                        'norm_x': round(mid_x / float(max(1, full_w)), 4),
+                        'norm_y': round(sheet_y / float(max(1, full_h)), 4),
+                        'norm_w': round(sheet_w / float(max(1, full_w)), 4),
+                        'norm_h': round(8.0 / float(max(1, full_h)), 4),
+                        'confidence': 0.88,
+                        'is_direct_detection': True,
+                        'detection_status': 'CONFIRMED_SHEET_EDGE',
+                        'uncertainty_indicators': []
+                    })
+                    idx += 1
+        elif len(active_x) > 0:
+            # Vertical sheet edges stacked along X
+            band_x1 = bx + bw - right_w + max(0, int(np.min(active_x) - 8))
+            band_x2 = bx + bw - right_w + min(right_w, int(np.max(active_x) + 8))
+            band_crop = gray[by + int(bh * 0.20):by + int(bh * 0.80), band_x1:band_x2]
+            if band_crop.shape[0] >= 10 and band_crop.shape[1] >= 10:
+                band_sobel = np.abs(cv2.Sobel(band_crop, cv2.CV_32F, 1, 0, ksize=3))
+                band_prof = gaussian_filter1d(np.mean(band_sobel, axis=0), sigma=1.2)
+                min_dist = max(3, int(4 + (1.0 - sensitivity) * 4))
+                peaks, _ = find_peaks(band_prof, height=10, distance=min_dist, prominence=3)
 
-            for sc in dedup:
-                bw = max(12, sc['bbox'][2] - sc['bbox'][0])
-                bh = max(12, sc['bbox'][3] - sc['bbox'][1])
-                pieces.append({
-                    'id': idx,
-                    'index': idx,
-                    'detection_id': f'GLASS-EDGE-{idx:03d}',
-                    'x': sc['x'],
-                    'y': sc['y'],
-                    'w': bw,
-                    'h': bh,
-                    'bbox': sc['bbox'],
-                    'centroid': [sc['x'], sc['y']],
-                    'norm_x': round(sc['x'] / float(max(1, full_w)), 4),
-                    'norm_y': round(sc['y'] / float(max(1, full_h)), 4),
-                    'norm_w': round(bw / float(max(1, full_w)), 4),
-                    'norm_h': round(bh / float(max(1, full_h)), 4),
-                    'confidence': 0.82,
-                    'is_direct_detection': True,
-                    'detection_status': 'CONFIRMED_SHEET_EDGE',
-                    'uncertainty_indicators': []
-                })
-                idx += 1
+                mid_y = by + bh // 2 + offset_y
+                sheet_h = int(bh * 0.70)
+                for p in peaks:
+                    sheet_x = band_x1 + int(p) + offset_x
+                    bx1 = max(0, sheet_x - 4)
+                    by1 = max(0, mid_y - sheet_h // 2)
+                    bx2 = min(full_w, sheet_x + 4)
+                    by2 = min(full_h, mid_y + sheet_h // 2)
+                    pieces.append({
+                        'id': idx,
+                        'index': idx,
+                        'detection_id': f'GLASS-SHEET-{idx:03d}',
+                        'x': sheet_x,
+                        'y': mid_y,
+                        'w': 8,
+                        'h': sheet_h,
+                        'bbox': [bx1, by1, bx2, by2],
+                        'centroid': [sheet_x, mid_y],
+                        'norm_x': round(sheet_x / float(max(1, full_w)), 4),
+                        'norm_y': round(mid_y / float(max(1, full_h)), 4),
+                        'norm_w': round(8.0 / float(max(1, full_w)), 4),
+                        'norm_h': round(sheet_h / float(max(1, full_h)), 4),
+                        'confidence': 0.88,
+                        'is_direct_detection': True,
+                        'detection_status': 'CONFIRMED_SHEET_EDGE',
+                        'uncertainty_indicators': []
+                    })
+                    idx += 1
 
-        # If stack contains unresolvable dense body, explicitly report unresolvable stack portion as uncertain
-        center_x = int(main_cnt[:, 0, 0].mean()) + offset_x if main_cnt is not None else (full_w // 2)
-        center_y = int(main_cnt[:, 0, 1].mean()) + offset_y if main_cnt is not None else (full_h // 2)
+        # Report unresolvable compressed stack body transparently as uncertain
+        cx = bx + bw // 2 + offset_x
+        cy = by + bh // 2 + offset_y
         pieces.append({
             'id': idx,
             'index': idx,
             'detection_id': f'GLASS-UNCERTAIN-{idx:03d}',
-            'x': center_x,
-            'y': center_y,
-            'w': 50,
-            'h': 50,
-            'bbox': [max(0, center_x - 25), max(0, center_y - 25), min(full_w, center_x + 25), min(full_h, center_y + 25)],
-            'centroid': [center_x, center_y],
-            'norm_x': round(center_x / float(max(1, full_w)), 4),
-            'norm_y': round(center_y / float(max(1, full_h)), 4),
-            'norm_w': round(50.0 / float(max(1, full_w)), 4),
-            'norm_h': round(50.0 / float(max(1, full_h)), 4),
+            'x': cx,
+            'y': cy,
+            'w': 80,
+            'h': 80,
+            'bbox': [max(0, cx - 40), max(0, cy - 40), min(full_w, cx + 40), min(full_h, cy + 40)],
+            'centroid': [cx, cy],
+            'norm_x': round(cx / float(max(1, full_w)), 4),
+            'norm_y': round(cy / float(max(1, full_h)), 4),
+            'norm_w': round(80.0 / float(max(1, full_w)), 4),
+            'norm_h': round(80.0 / float(max(1, full_h)), 4),
             'confidence': 0.35,
             'is_direct_detection': False,
             'detection_status': 'UNCERTAIN_COMPRESSED_STACK',
-            'uncertainty_indicators': ['UNRESOLVED_DENSE_STACK', 'SPECULAR_REFLECTION_SUPPRESSED']
+            'uncertainty_indicators': ['COMPRESSED_UNRESOLVABLE_STACK_BODY']
         })
 
         return pieces
@@ -3882,10 +3945,24 @@ class PalletVisionCountingService:
                 for u in dedup_instances
             ]
 
-        # Spatial Lattice Neighbor Verification & Background Suppression
-        coords = np.array([[u["cx"], u["cy"]] for u in dedup_instances])
+        # Spatial Lattice Neighbor Verification & Dynamic Target Stack Envelope
+        coords = np.array([[u["cx"], u["cy"]] for u in dedup_instances], dtype=np.float32)
         dists = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
         np.fill_diagonal(dists, np.inf)
+
+        # 1. Median nearest-neighbor lattice spacing
+        nn_dists = np.min(dists, axis=1)
+        spacing = float(np.median(nn_dists)) if len(nn_dists) > 0 else (25.0 * scale)
+
+        # 2. Local cluster density within lattice radius R = 3.5 * spacing
+        R_dense = spacing * 3.5
+        local_counts = np.sum(dists <= R_dense, axis=1)
+        median_local = float(np.median(local_counts)) if len(local_counts) > 0 else 10.0
+
+        # Core stack points: robust cluster density defining the physical inventory stack
+        core_mask = local_counts >= max(6, int(median_local * 0.40))
+        core_pts = coords[core_mask]
+        hull = cv2.convexHull(core_pts) if len(core_pts) >= 6 else None
 
         final_pieces = []
         for i, u in enumerate(dedup_instances):
@@ -3894,13 +3971,12 @@ class PalletVisionCountingService:
             near_nbrs = np.sum(dists[i] <= interact_r)
             min_d = np.min(dists[i])
 
-            # Floor noise suppression
-            if u["cy"] > full_h * 0.88 and near_nbrs < 3:
-                continue
-
-            # Ceiling / roof rafter suppression (sparse isolated peaks in top 22% of image)
-            if u["cy"] < full_h * 0.22 and near_nbrs < 4:
-                continue
+            # Dynamic Target Stack Envelope containment:
+            # Reject candidates far outside the primary stack envelope (e.g. ceiling rafters, background shelving, floor)
+            if hull is not None:
+                dist_to_hull = cv2.pointPolygonTest(hull, (float(u["cx"]), float(u["cy"])), True)
+                if dist_to_hull < -1.5 * spacing:
+                    continue
 
             if near_nbrs >= 2 and min_d <= interact_r * 0.95:
                 final_pieces.append({
