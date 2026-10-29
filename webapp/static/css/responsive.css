@@ -472,29 +472,50 @@
         font-size: 16px !important;
     }
 
-    /* Streamlined Mobile Topbar */
+    /* Modern Mobile Topbar & Direct Controls */
     .dashboard-topbar {
         height: 56px !important;
         padding: 0 0.5rem !important;
         gap: 0.35rem !important;
         justify-content: space-between !important;
+        background: rgba(15, 23, 42, 0.95) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        z-index: 1000 !important;
     }
     .topbar-left {
+        display: flex !important;
+        align-items: center !important;
         gap: 0.35rem !important;
+        flex-shrink: 0 !important;
     }
     .mobile-nav-toggle-btn {
-        width: 38px !important;
-        height: 38px !important;
-        font-size: 1.1rem !important;
-        margin-right: 0.2rem !important;
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 1.05rem !important;
+        margin-right: 0.15rem !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    .topbar-warlog-brand {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
     }
     .topbar-warlog-logo {
-        height: 30px !important;
-        max-width: 36px !important;
+        height: 28px !important;
+        max-width: 32px !important;
     }
     .topbar-warlog-title {
-        font-size: 1.05rem !important;
-        letter-spacing: 1px !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 0.5px !important;
     }
     .topbar-warlog-subtitle {
         display: none !important;
@@ -503,24 +524,457 @@
         display: none !important; /* Conceal desktop spotlight search */
     }
     .topbar-right {
-        gap: 0.4rem !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 0.35rem !important;
+        flex-shrink: 0 !important;
     }
-    .topbar-skantha-brand {
-        display: none !important;
+    .topbar-mobile-search-btn {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 34px !important;
+        height: 34px !important;
+        border-radius: 8px !important;
+        background: rgba(56, 189, 248, 0.12) !important;
+        border: 1px solid rgba(56, 189, 248, 0.35) !important;
+        color: #38bdf8 !important;
+        font-size: 0.9rem !important;
+        cursor: pointer !important;
+        padding: 0 !important;
     }
-    .topbar-facility-selector {
+    .topbar-violations-btn {
         display: none !important;
     }
     .topbar-telemetry-badge {
-        padding: 4px 8px !important;
-        font-size: 0.68rem !important;
+        display: none !important; /* Hide to avoid topbar congestion on mobile */
+    }
+    .topbar-facility-selector-wrap {
+        display: inline-flex !important;
+        align-items: center !important;
         gap: 4px !important;
     }
-    .telemetry-label {
+    .topbar-facility-selector {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        max-width: 95px !important;
+        padding: 4px 7px !important;
+        font-size: 0.72rem !important;
+        background: rgba(30, 41, 59, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 7px !important;
+        color: #f8fafc !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    .topbar-facility-selector i {
+        color: #38bdf8 !important;
+        font-size: 0.72rem !important;
+    }
+    #activeFacilityNameDisplay {
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        font-size: 0.72rem !important;
+    }
+    .btn-add-facility-trigger {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 32px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        border-radius: 7px !important;
+        background: rgba(16, 185, 129, 0.18) !important;
+        border: 1px solid rgba(16, 185, 129, 0.45) !important;
+        color: #10b981 !important;
+        cursor: pointer !important;
+    }
+    .btn-add-facility-trigger span {
         display: none !important;
     }
-    .telemetry-val {
+    .btn-add-facility-trigger i {
+        font-size: 0.8rem !important;
+        margin: 0 !important;
+    }
+    .topbar-company-identity {
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+    }
+    .topbar-company-identity > div {
+        display: none !important; /* Conceal desktop username text to prevent overflow */
+    }
+    .btn-logout {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 34px !important;
+        height: 34px !important;
+        padding: 0 !important;
+        border-radius: 8px !important;
+        background: rgba(239, 68, 68, 0.18) !important;
+        border: 1px solid rgba(239, 68, 68, 0.45) !important;
+        color: #f87171 !important;
+        cursor: pointer !important;
+    }
+    .btn-logout span {
+        display: none !important;
+    }
+    .btn-logout i {
+        font-size: 0.95rem !important;
+        margin: 0 !important;
+    }
+
+    /* Mobile Quick Search Drawer */
+    #mobileSearchDrawer,
+    .mobile-search-drawer {
+        display: none;
+        position: fixed !important;
+        top: 56px !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        z-index: 1050 !important;
+        background: rgba(15, 23, 42, 0.98) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border-bottom: 1px solid rgba(56, 189, 248, 0.35) !important;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6) !important;
+        padding: 10px 12px !important;
+    }
+    #mobileSearchDrawer.active,
+    .mobile-search-drawer.active {
+        display: block !important;
+    }
+    .mobile-search-box-inner {
+        display: flex !important;
+        align-items: center !important;
+        background: rgba(30, 41, 59, 0.85) !important;
+        border: 1px solid rgba(56, 189, 248, 0.4) !important;
+        border-radius: 10px !important;
+        padding: 7px 12px !important;
+        gap: 8px !important;
+    }
+    .mobile-search-box-inner input {
+        flex: 1 !important;
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        color: #f8fafc !important;
+        font-size: 0.92rem !important;
+        width: 100% !important;
+    }
+    .btn-clear-mobile-search {
+        background: transparent !important;
+        border: none !important;
+        color: #94a3b8 !important;
+        font-size: 1.4rem !important;
+        cursor: pointer !important;
+        line-height: 1 !important;
+        padding: 0 4px !important;
+    }
+
+    /* Mobile Drawer Quick Profile Card */
+    .mobile-drawer-profile-card {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 10px !important;
+        background: rgba(15, 23, 42, 0.75) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        margin: 10px 12px 14px 12px !important;
+    }
+    .mobile-profile-info {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+    }
+    .mobile-profile-avatar {
+        width: 36px !important;
+        height: 36px !important;
+        border-radius: 8px !important;
+        background: rgba(56, 189, 248, 0.15) !important;
+        border: 1px solid rgba(56, 189, 248, 0.35) !important;
+        color: #38bdf8 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 1.1rem !important;
+        flex-shrink: 0 !important;
+    }
+    .mobile-profile-names {
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
+    }
+    .mobile-company-title {
+        font-size: 0.85rem !important;
+        font-weight: 700 !important;
+        color: #f8fafc !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .mobile-user-subtitle {
         font-size: 0.72rem !important;
+        color: #94a3b8 !important;
+    }
+    .mobile-drawer-facility-bar {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        background: rgba(30, 41, 59, 0.6) !important;
+        border-radius: 8px !important;
+        padding: 6px 10px !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+    .mobile-drawer-facility-pill {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        font-size: 0.75rem !important;
+        color: #38bdf8 !important;
+        font-weight: 600 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    .mobile-drawer-btn-add-facility {
+        background: rgba(16, 185, 129, 0.2) !important;
+        border: 1px solid rgba(16, 185, 129, 0.5) !important;
+        color: #10b981 !important;
+        border-radius: 6px !important;
+        padding: 4px 8px !important;
+        font-size: 0.72rem !important;
+        font-weight: 700 !important;
+        cursor: pointer !important;
+        white-space: nowrap !important;
+    }
+    .mobile-drawer-btn-logout {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
+        background: rgba(239, 68, 68, 0.15) !important;
+        border: 1px solid rgba(239, 68, 68, 0.35) !important;
+        color: #f87171 !important;
+        border-radius: 8px !important;
+        padding: 8px 12px !important;
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        cursor: pointer !important;
+        width: 100% !important;
+    }
+
+    /* DECONGESTED PALLETIZATION WORKBENCH & MOBILE CONTROLS */
+    #palletCountingWorkbench {
+        padding: 0.9rem 0.75rem !important;
+        border-radius: 10px !important;
+        margin-bottom: 1rem !important;
+    }
+    #palletCountingWorkbench > div:first-child {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+    }
+    #palletCountingWorkbench > div:first-child > div:last-child {
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    #palletCountingWorkbench > div:first-child > div:last-child button {
+        width: 100% !important;
+        padding: 6px 4px !important;
+        font-size: 0.72rem !important;
+        justify-content: center !important;
+        text-align: center !important;
+        white-space: nowrap !important;
+    }
+    /* Palletization Toolbar: Mode, Source, Material, Actions */
+    #palletCountingWorkbench > div:nth-of-type(3) {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+        padding: 10px 8px !important;
+    }
+    #palletCountingWorkbench > div:nth-of-type(3) > div:first-child {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        width: 100% !important;
+    }
+    /* Mode selector segmented bar */
+    #palletCountingWorkbench > div:nth-of-type(3) > div:first-child > div:first-child {
+        display: flex !important;
+        width: 100% !important;
+    }
+    #wbModePiecesBtn, #wbModeBundlesBtn {
+        flex: 1 !important;
+        justify-content: center !important;
+        text-align: center !important;
+        padding: 7px 6px !important;
+        font-size: 0.76rem !important;
+    }
+    /* Source selector segmented bar */
+    #palletCountingWorkbench > div:nth-of-type(3) > div:first-child > div:nth-of-type(3) {
+        display: flex !important;
+        width: 100% !important;
+    }
+    #wbSourceUploadBtn, #wbSourceCameraBtn {
+        flex: 1 !important;
+        justify-content: center !important;
+        text-align: center !important;
+        padding: 7px 6px !important;
+        font-size: 0.76rem !important;
+    }
+    #wbBundleMaterialSelectWrap {
+        width: 100% !important;
+        justify-content: space-between !important;
+    }
+    #wbBundleMaterialSelectWrap select {
+        flex: 1 !important;
+        max-width: none !important;
+    }
+    #wbCameraSelectWrap {
+        width: 100% !important;
+    }
+    #wbCameraSelectWrap select {
+        width: 100% !important;
+    }
+    /* Pallet Action Buttons Grid */
+    #palletCountingWorkbench > div:nth-of-type(3) > div:last-child {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    #wbBtnReplaceImage, #wbBtnRemoveImage, #wbBtnClearCount {
+        padding: 8px 6px !important;
+        font-size: 0.72rem !important;
+        justify-content: center !important;
+        text-align: center !important;
+        white-space: nowrap !important;
+    }
+    #btnRunWorkbenchCount {
+        grid-column: 1 / -1 !important;
+        padding: 10px 14px !important;
+        font-size: 0.88rem !important;
+        justify-content: center !important;
+        text-align: center !important;
+    }
+
+    /* Glass Measurement Profile Bar */
+    #wbGlassProfileBar {
+        padding: 8px !important;
+    }
+    #wbGlassProfileBar > div:first-child {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+    }
+    #wbGlassProfileBar > div:first-child > div:last-child {
+        width: 100% !important;
+        display: flex !important;
+        gap: 6px !important;
+    }
+    #wbGlassProfileSelect {
+        flex: 1 !important;
+        max-width: none !important;
+    }
+    #wbGlassProfileBar > div:last-child {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+        width: 100% !important;
+    }
+    #wbGlassProfileBar > div:last-child > div {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 4px !important;
+    }
+    #wbGlassProfileBar > div:last-child input,
+    #wbGlassProfileBar > div:last-child select {
+        width: 80px !important;
+        max-width: 80px !important;
+    }
+
+    /* Region controls bar */
+    #wbRegionControlsBar {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        gap: 6px !important;
+        padding: 6px 4px !important;
+        width: 100% !important;
+    }
+    #wbRegionControlsBar::-webkit-scrollbar {
+        display: none !important;
+    }
+    #wbRegionControlsBar > div {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 5px !important;
+        flex-shrink: 0 !important;
+    }
+    #wbRegionControlsBar button {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+    }
+
+    /* View Switcher Tabs */
+    #wbViewSwitcherTabs {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    #wbViewSwitcherTabs::-webkit-scrollbar {
+        display: none !important;
+    }
+    #wbViewSwitcherTabs button {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+    }
+
+    /* ALL SUB-TABS ACROSS APPLICATION: HORIZONTAL TOUCH RIBBONS */
+    .sub-tab-btn,
+    .vision-sub-btn,
+    .cam-sub-tab {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+        padding: 6px 14px !important;
+        font-size: 0.78rem !important;
+        border-radius: 20px !important;
+        transition: all 0.2s ease !important;
+    }
+    #master-hub-view .glass-panel > div:first-of-type > div:first-child,
+    .vision-navigation-container > div,
+    .cam-sub-tabs-bar {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        gap: 6px !important;
+        padding: 4px 2px 8px 2px !important;
+        width: 100% !important;
+    }
+    #master-hub-view .glass-panel > div:first-of-type > div:first-child::-webkit-scrollbar,
+    .vision-navigation-container > div::-webkit-scrollbar,
+    .cam-sub-tabs-bar::-webkit-scrollbar {
+        display: none !important;
     }
 
     /* Section Headers */

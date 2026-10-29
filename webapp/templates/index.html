@@ -1184,6 +1184,10 @@
         </div>
 
         <div class="topbar-right">
+            <!-- Mobile Quick Search Trigger -->
+            <button type="button" id="btnMobileSearchToggle" class="topbar-mobile-search-btn mobile-only" onclick="toggleMobileSearchDrawer()" title="Quick Search" aria-label="Search">
+                <i class="fas fa-search"></i>
+            </button>
             <button id="navViolationsBtn" class="topbar-violations-btn" onclick="toggleViolationsDrawer()" title="View Real-Time Human Error Violations" style="display:none;">
                 <i class="fas fa-triangle-exclamation"></i>
                 <span id="navViolationsCount">0</span> Violations
@@ -1218,6 +1222,15 @@
         </div>
     </header>
 
+    <!-- MOBILE QUICK SEARCH SLIDE-DOWN DRAWER -->
+    <div id="mobileSearchDrawer" class="mobile-search-drawer" style="display:none;">
+        <div class="mobile-search-box-inner">
+            <i class="fas fa-search mobile-search-icon" style="color:#38bdf8;"></i>
+            <input type="text" id="mobileQuickSearch" placeholder="Search plates, POs, SKUs, bays, consignments..." onkeydown="handleMobileSearchKey(event)" oninput="syncMobileSearch(this.value)">
+            <button type="button" class="btn-clear-mobile-search" onclick="toggleMobileSearchDrawer(false)" title="Close Search">&times;</button>
+        </div>
+    </div>
+
     <!-- MOBILE SIDEBAR BACKDROP -->
     <div id="mobileSidebarBackdrop" class="mobile-sidebar-backdrop" onclick="closeMobileSidebar()"></div>
 
@@ -1228,6 +1241,32 @@
                 <span style="font-weight: 700; font-size: 0.95rem; color: var(--primary-navy);"><i class="fas fa-layer-group" style="color:var(--accent); margin-right:6px;"></i> Modules</span>
                 <button type="button" onclick="closeMobileSidebar()" style="background:transparent; border:none; font-size:1.5rem; color:var(--text-muted); cursor:pointer; padding:4px 8px;" aria-label="Close Navigation">&times;</button>
             </div>
+
+            <!-- MOBILE DRAWER QUICK ACCESS CARD (USER, FACILITY, LOGOUT) -->
+            <div class="mobile-drawer-profile-card mobile-only">
+                <div class="mobile-profile-info">
+                    <div class="mobile-profile-avatar"><i class="fas fa-user-shield"></i></div>
+                    <div class="mobile-profile-names">
+                        <span class="mobile-company-title" id="mobileDrawerCompanyName">Skantha Industrial Solutions</span>
+                        <span class="mobile-user-subtitle" id="mobileDrawerUsername">Administrator</span>
+                    </div>
+                </div>
+                <div class="mobile-drawer-facility-row">
+                    <div class="mobile-drawer-facility-pill" onclick="openAddFacilityModal()" title="Active Facility">
+                        <i class="fas fa-location-dot"></i>
+                        <span id="mobileDrawerFacilityName">Main Facility</span>
+                    </div>
+                    <button type="button" class="btn-drawer-add-facility" onclick="openAddFacilityModal()" title="Add Location">
+                        <i class="fas fa-plus"></i> Add Facility
+                    </button>
+                </div>
+                <div class="mobile-drawer-logout-row">
+                    <button type="button" onclick="doLogout()" class="btn-drawer-logout">
+                        <i class="fas fa-arrow-right-from-bracket"></i> Sign Out
+                    </button>
+                </div>
+            </div>
+
             <div class="sidebar-nav-header">
                 <span class="sidebar-nav-title">WORKSPACE MODULES</span>
             </div>

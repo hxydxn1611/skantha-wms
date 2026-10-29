@@ -84,6 +84,8 @@
 
         if (activeWarehouse && activeNameSpan) {
             activeNameSpan.textContent = `${activeWarehouse.name} (${activeWarehouse.city || activeWarehouse.code})`;
+        const mobileDrawerFacility = document.getElementById('mobileDrawerFacilityName');
+        if (mobileDrawerFacility) mobileDrawerFacility.textContent = `${activeWarehouse.name} (${activeWarehouse.city || activeWarehouse.code})`;
         }
 
         if (selectEl) {

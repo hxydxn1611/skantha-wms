@@ -526,6 +526,7 @@
             if (sidebar) sidebar.classList.toggle('mobile-open');
             if (backdrop) backdrop.classList.toggle('active');
         }
+        window.toggleMobileSidebar = toggleMobileSidebar;
 
         function closeMobileSidebar() {
             const sidebar = document.getElementById('main-header');
@@ -533,6 +534,47 @@
             if (sidebar) sidebar.classList.remove('mobile-open');
             if (backdrop) backdrop.classList.remove('active');
         }
+        window.closeMobileSidebar = closeMobileSidebar;
+
+        // Mobile Search Drawer Handlers
+        function toggleMobileSearchDrawer(forceState) {
+            const drawer = document.getElementById('mobileSearchDrawer');
+            const searchInput = document.getElementById('mobileQuickSearch');
+            if (!drawer) return;
+            const shouldOpen = typeof forceState === 'boolean' ? forceState : !drawer.classList.contains('active');
+            if (shouldOpen) {
+                drawer.classList.add('active');
+                drawer.style.display = 'block';
+                if (searchInput) {
+                    setTimeout(() => { searchInput.focus(); searchInput.select(); }, 120);
+                }
+            } else {
+                drawer.classList.remove('active');
+                drawer.style.display = 'none';
+            }
+        }
+        window.toggleMobileSearchDrawer = toggleMobileSearchDrawer;
+
+        function closeMobileSearchDrawer() {
+            toggleMobileSearchDrawer(false);
+        }
+        window.closeMobileSearchDrawer = closeMobileSearchDrawer;
+
+        function syncMobileSearch(val) {
+            const mainSearch = document.getElementById('globalQuickSearch');
+            if (mainSearch) mainSearch.value = val;
+        }
+        window.syncMobileSearch = syncMobileSearch;
+
+        function handleMobileSearchKey(e) {
+            if (e.key === 'Enter') {
+                closeMobileSearchDrawer();
+                handleGlobalSearch(e);
+            } else if (e.key === 'Escape') {
+                closeMobileSearchDrawer();
+            }
+        }
+        window.handleMobileSearchKey = handleMobileSearchKey;
 
         // Tab Switching & Cross-Module Deep Navigation (Part 14)
         function switchTab(tabId) {
