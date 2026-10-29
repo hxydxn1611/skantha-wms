@@ -1216,8 +1216,8 @@ def _notify_camera_roi_refresh(cam_id):
     except Exception:
         pass
     try:
-        from vision_runtime_service import get_vision_runtime_service
-        svc = get_vision_runtime_service()
+        from vision_runtime_service import get_vision_runtime_manager
+        svc = get_vision_runtime_manager()
         sess = svc.get_session(cam_id)
         if sess and hasattr(sess, 'refresh_configuration'):
             sess.refresh_configuration()

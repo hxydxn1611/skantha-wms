@@ -8,7 +8,10 @@ from ultralytics import YOLO
 import easyocr
 from scipy.signal import find_peaks
 from scipy.cluster.hierarchy import linkage, fcluster
-from scipy.spatial import cKDTree
+try:
+    from scipy.spatial import KDTree as cKDTree
+except ImportError:
+    from scipy.spatial import cKDTree  # type: ignore
 from identity_service import get_identity_service
 from zone_engine import get_camera_tripwire, evaluate_tripwire_crossing
 
