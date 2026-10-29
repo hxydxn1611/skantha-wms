@@ -1225,9 +1225,16 @@
     <!-- MOBILE QUICK SEARCH SLIDE-DOWN DRAWER -->
     <div id="mobileSearchDrawer" class="mobile-search-drawer" style="display:none;">
         <div class="mobile-search-box-inner">
-            <i class="fas fa-search mobile-search-icon" style="color:#38bdf8;"></i>
+            <i class="fas fa-search mobile-search-icon" style="color:#38bdf8; font-size:0.95rem;"></i>
             <input type="text" id="mobileQuickSearch" placeholder="Search plates, POs, SKUs, bays, consignments..." onkeydown="handleMobileSearchKey(event)" oninput="syncMobileSearch(this.value)">
             <button type="button" class="btn-clear-mobile-search" onclick="toggleMobileSearchDrawer(false)" title="Close Search">&times;</button>
+        </div>
+        <div class="mobile-search-quick-tags">
+            <button type="button" class="mobile-search-tag" onclick="quickMobileSearchTag('gate-passes')"><i class="fas fa-truck"></i> Gate Passes</button>
+            <button type="button" class="mobile-search-tag" onclick="quickMobileSearchTag('palletization')"><i class="fas fa-pallet"></i> Pallets</button>
+            <button type="button" class="mobile-search-tag" onclick="quickMobileSearchTag('deliveries')"><i class="fas fa-file-invoice"></i> Deliveries</button>
+            <button type="button" class="mobile-search-tag" onclick="quickMobileSearchTag('cameras')"><i class="fas fa-video"></i> Cameras</button>
+            <button type="button" class="mobile-search-tag" onclick="quickMobileSearchTag('master-hub')"><i class="fas fa-cubes"></i> SKUs</button>
         </div>
     </div>
 

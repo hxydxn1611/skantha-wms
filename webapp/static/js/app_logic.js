@@ -575,6 +575,12 @@
             }
         }
         window.handleMobileSearchKey = handleMobileSearchKey;
+        function quickMobileSearchTag(tabId) {
+            closeMobileSearchDrawer();
+            switchTab(tabId);
+        }
+        window.quickMobileSearchTag = quickMobileSearchTag;
+
 
         // Tab Switching & Cross-Module Deep Navigation (Part 14)
         function switchTab(tabId) {
