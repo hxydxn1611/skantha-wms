@@ -2085,6 +2085,14 @@
         // Store active File object as single source of truth for counting
         wbSelectedFile = file;
 
+        // Reset target SKU selector if switching/uploading in pieces mode to prevent stale glass SKU lock
+        if (wbCountingMode === 'pieces') {
+            const wbSkuSel = document.getElementById('wbTargetSkuSelect');
+            if (wbSkuSel && wbSkuSel.value && wbSkuSel.value.startsWith('GLS-')) {
+                wbSkuSel.value = '';
+            }
+        }
+
         // Switch source to upload automatically
         wbSource = 'upload';
         const btnU = document.getElementById('wbSourceUploadBtn');

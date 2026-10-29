@@ -862,6 +862,19 @@ class PalletVisionCountingService:
 
         # Load SKU visual anchor if sku_id supplied
         sku_anchor = self.get_sku_visual_anchor(sku_id)
+        if sku_anchor:
+            # Prevent conflicting glass SKU from applying glass color mask to metallic steel sections
+            cy1_t, cy2_t = int(h * 0.15), int(h * 0.85)
+            cx1_t, cx2_t = int(w * 0.12), int(w * 0.88)
+            roi_crop_t = image_bgr[cy1_t:max(cy1_t + 10, cy2_t), cx1_t:max(cx1_t + 10, cx2_t)]
+            hsv_t = cv2.cvtColor(roi_crop_t, cv2.COLOR_BGR2HSV)
+            mean_s_t = float(np.mean(hsv_t[:, :, 1]))
+            mean_v_t = float(np.mean(hsv_t[:, :, 2]))
+            is_metallic_grey_t = (mean_s_t < 42 and 60 <= mean_v_t <= 205)
+            sku_text = f"{sku_anchor.get('sku_id','')} {sku_anchor.get('name','')} {sku_anchor.get('category','')}".lower()
+            if is_metallic_grey_t and any(g in sku_text for g in ("glass", "float", "dgu", "igu", "mirror", "pane")):
+                logger.info(f"Conflicting glass SKU '{sku_anchor.get('sku_id')}' overridden for metallic steel inventory scene.")
+                sku_anchor = None
 
         # Save raw image for interactive client overlay
         raw_filename = f"raw_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
@@ -3950,35 +3963,48 @@ class PalletVisionCountingService:
         dists = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
         np.fill_diagonal(dists, np.inf)
 
-        # 1. Median nearest-neighbor lattice spacing
+        # 1. Median nearest-neighbor lattice spacing and candidate geometry
         nn_dists = np.min(dists, axis=1)
         spacing = float(np.median(nn_dists)) if len(nn_dists) > 0 else (25.0 * scale)
 
-        # 2. Local cluster density within lattice radius R = 3.5 * spacing
-        R_dense = spacing * 3.5
-        local_counts = np.sum(dists <= R_dense, axis=1)
-        median_local = float(np.median(local_counts)) if len(local_counts) > 0 else 10.0
+        med_area = float(np.median([u["area"] for u in dedup_instances])) if dedup_instances else 100.0
+        med_dim = float(np.median([min(u["bw"], u["bh"]) for u in dedup_instances])) if dedup_instances else 10.0
 
-        # Core stack points: robust cluster density defining the physical inventory stack
-        core_mask = local_counts >= max(6, int(median_local * 0.40))
-        core_pts = coords[core_mask]
-        hull = cv2.convexHull(core_pts) if len(core_pts) >= 6 else None
+        # 2. Primary stack cluster identification via graph connectivity
+        from scipy.sparse.csgraph import connected_components
+        adj = (dists <= spacing * 1.95).astype(int)
+        n_comp, comp_labels = connected_components(adj)
+        comp_sizes = [np.sum(comp_labels == c) for c in range(n_comp)]
+        primary_c = int(np.argmax(comp_sizes))
+        primary_pts = coords[comp_labels == primary_c]
+        hull = cv2.convexHull(primary_pts) if len(primary_pts) >= 4 else None
+
+        # 3. Dynamic Target Stack Envelope derived from primary stack bounding limits
+        # Prevents fixed-height assumptions and adapts to any camera angle or zoom
+        stack_x_min = float(np.min(primary_pts[:, 0])) - spacing * 0.85
+        stack_x_max = float(np.max(primary_pts[:, 0])) + spacing * 0.85
+        stack_y_min = float(np.min(primary_pts[:, 1])) - spacing * 0.85
+        stack_y_max = float(np.max(primary_pts[:, 1])) + spacing * 0.85
 
         final_pieces = []
         for i, u in enumerate(dedup_instances):
-            local_dim = max(u["bw"], u["bh"])
-            interact_r = max(42.0 * scale, local_dim * 2.2)
-            near_nbrs = np.sum(dists[i] <= interact_r)
-            min_d = np.min(dists[i])
+            cx, cy = float(u["cx"]), float(u["cy"])
+            area = float(u["area"])
+            min_d = float(min(u["bw"], u["bh"]))
 
-            # Dynamic Target Stack Envelope containment:
-            # Reject candidates far outside the primary stack envelope (e.g. ceiling rafters, background shelving, floor)
-            if hull is not None:
-                dist_to_hull = cv2.pointPolygonTest(hull, (float(u["cx"]), float(u["cy"])), True)
-                if dist_to_hull < -1.5 * spacing:
-                    continue
+            # Reject candidates outside target stack dynamic envelope (ceiling rafters, far floor, side racks)
+            if not (stack_x_min <= cx <= stack_x_max and stack_y_min <= cy <= stack_y_max):
+                continue
 
-            if near_nbrs >= 2 and min_d <= interact_r * 0.95:
+            # Reject sub-scale noise specks
+            if area < med_area * 0.32 or min_d < med_dim * 0.38:
+                continue
+
+            dist_to_hull = cv2.pointPolygonTest(hull, (cx, cy), True) if hull is not None else 0.0
+            is_in_primary = (comp_labels[i] == primary_c)
+
+            # Candidate must be in primary stack cluster or immediately adjacent to stack hull
+            if is_in_primary or dist_to_hull >= -0.9 * spacing:
                 final_pieces.append({
                     "x": int(u["cx"]),
                     "y": int(u["cy"]),
@@ -3989,19 +4015,9 @@ class PalletVisionCountingService:
                     "detection_status": "ACCEPTED_CROSS_SECTION_INSTANCE",
                     "uncertainty_indicators": []
                 })
-            elif near_nbrs >= 1 and min_d <= interact_r * 1.25:
-                final_pieces.append({
-                    "x": int(u["cx"]),
-                    "y": int(u["cy"]),
-                    "w": u["bw"],
-                    "h": u["bh"],
-                    "bbox": u["bbox"],
-                    "confidence": round(u["confidence"] * 0.75, 2),
-                    "detection_status": "UNCERTAIN_BOUNDARY_INSTANCE",
-                    "uncertainty_indicators": ["BOUNDARY_PROFILE"]
-                })
 
         return final_pieces
+
 
     def _partition_pieces_into_clusters(
         self,
