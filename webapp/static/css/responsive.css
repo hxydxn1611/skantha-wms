@@ -275,7 +275,7 @@
         max-width: 100vw !important;
         height: 100% !important;
         min-height: 100vh !important;
-        display: flex !important;
+        display: flex;
         flex-direction: column !important;
         justify-content: flex-start !important;
         align-items: center !important;
@@ -286,6 +286,16 @@
         padding: 1.5rem 1rem 3rem 1rem !important;
         background: #060b18 url('/static/bg.jpg') no-repeat center top / cover !important;
         background-attachment: scroll !important;
+    }
+    #login-overlay.hidden,
+    #login-overlay[style*="display: none"],
+    #login-overlay[style*="display:none"],
+    #login-overlay[style*="display: none !important"] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        opacity: 0 !important;
+        z-index: -9999 !important;
     }
     .login-left {
         width: 100% !important;

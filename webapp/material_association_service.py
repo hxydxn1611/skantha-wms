@@ -322,7 +322,10 @@ class CameraMaterialAssociationSession:
         """Get normalized (cx, cy) center coordinate."""
         if "center_normalized" in track and track["center_normalized"]:
             cn = track["center_normalized"]
-            return float(cn[0]), float(cn[1])
+            if isinstance(cn, dict):
+                return float(cn.get("x", 0.5)), float(cn.get("y", 0.5))
+            if isinstance(cn, (list, tuple)) and len(cn) >= 2:
+                return float(cn[0]), float(cn[1])
 
         norm_bbox = track.get("bbox_normalized", {})
         if norm_bbox and "x1" in norm_bbox and "y2" in norm_bbox:

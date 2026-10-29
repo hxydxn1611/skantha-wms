@@ -3617,6 +3617,7 @@ def get_cameras():
                 "is_gate_camera": is_gate,
                 "last_detected_plate": getattr(active_cam, 'last_detected_plate', None) if active_cam else None,
                 "last_gate_pass_id": getattr(active_cam, 'last_gate_pass_id', None) if active_cam else None,
+                "last_gate_pass_photo": getattr(active_cam, 'last_gate_pass_photo', None) if active_cam else None,
                 "inbound_count": getattr(active_cam, 'inbound_count', 0) if active_cam else 0,
                 "outbound_count": getattr(active_cam, 'outbound_count', 0) if active_cam else 0,
                 "net_stock_count": getattr(active_cam, 'net_stock_count', 0) if active_cam else 0,
@@ -3635,6 +3636,22 @@ def get_cameras():
             })
     except Exception as e:
         logger.warning(f"Error querying authoritative cameras for /api/cameras: {e}")
+
+    # Synchronize session state from VisionRuntimeManager
+    try:
+        from vision_runtime_service import get_vision_runtime_manager
+        _v_mgr = get_vision_runtime_manager()
+        for cdata in cameras_data:
+            c_sess = _v_mgr.get_session(cdata.get('id', ''))
+            if c_sess:
+                if not cdata.get('last_detected_plate') and c_sess.last_detected_plate:
+                    cdata['last_detected_plate'] = c_sess.last_detected_plate
+                if not cdata.get('last_gate_pass_id') and c_sess.last_gate_pass_id:
+                    cdata['last_gate_pass_id'] = c_sess.last_gate_pass_id
+                if not cdata.get('last_gate_pass_photo') and c_sess.last_gate_pass_photo:
+                    cdata['last_gate_pass_photo'] = c_sess.last_gate_pass_photo
+    except Exception:
+        pass
 
     # Fallback/merge for any active in-memory cameras not found in DB
     for cam_id, cam in active_cameras.items():
@@ -3848,6 +3865,19 @@ def add_camera():
         mgr = get_vision_runtime_manager()
         mgr.refresh_cameras()
         mgr.start_camera(cam_id)
+        from rtmp_service import get_rtmp_service
+        rtmp_srv = get_rtmp_service()
+        rtmp_srv.invalidate_target_cache()
+        cam_type_str = (data.get('type') or data.get('camera_type') or '').lower()
+        cam_url_str = (data.get('url') or data.get('stream_url') or '').lower()
+        cam_vendor_str = (data.get('vendor') or '').lower()
+        is_rtmp_new = (
+            ("rtmp" in cam_url_str or "1935" in cam_url_str or "wi-fi" in cam_type_str or "wifi" in cam_type_str or cam_vendor_str == "trueview")
+            and not ("http" in cam_url_str or "rtsp" in cam_url_str or "device:" in cam_url_str or cam_type_str in ("ip camera", "dvr", "nvr", "device camera"))
+        )
+        if is_rtmp_new and rtmp_srv.latest_frame is not None and (time.time() - rtmp_srv.last_frame_time) < 10.0:
+            new_camera.push_frame(rtmp_srv.latest_frame)
+            mgr.push_frame(cam_id, rtmp_srv.latest_frame)
     except Exception as e:
         logger.warning(f"Could not refresh VisionRuntimeManager for new camera {cam_id}: {e}")
     
@@ -3943,6 +3973,11 @@ def delete_camera(camera_id):
     with mgr.lock:
         mgr.sessions.pop(camera_id, None)
     get_shared_frame_bus().clear(camera_id)
+    try:
+        from rtmp_service import get_rtmp_service
+        get_rtmp_service().invalidate_target_cache()
+    except Exception:
+        pass
     conn = db.get_db()
     conn.execute("DELETE FROM cameras WHERE camera_id = ? OR camera_code = ?", (camera_id, camera_id))
     conn.commit()
@@ -3987,30 +4022,52 @@ def _generate_standby_frame(camera_id: str) -> bytes:
 def generate_frames(camera_id):
     mgr = get_vision_runtime_manager()
     bus = get_shared_frame_bus()
+    last_refresh_attempt = 0.0
+    last_sent_jpeg = None
+    last_send_time = 0.0
     while True:
+        now = time.time()
         # 1. Vision runtime session (High-FPS annotated stream)
         sess = mgr.get_session(camera_id)
-        if sess is None:
-            mgr.refresh_cameras()
-            sess = mgr.get_session(camera_id)
+        if sess is None and (now - last_refresh_attempt) > 5.0:
+            last_refresh_attempt = now
+            cam_obj = active_cameras.get(camera_id)
+            if cam_obj:
+                sess = mgr.get_or_create_session(
+                    camera_id=camera_id,
+                    name=getattr(cam_obj, 'name', f"Camera {camera_id}"),
+                    location=getattr(cam_obj, 'location', 'General'),
+                    stream_url=getattr(cam_obj, 'url', ''),
+                    configured_fps=12,
+                    test_mode=(os.environ.get("WARLOG_TEST_MODE") == "1" or not bool(getattr(cam_obj, 'url', '')))
+                )
+            else:
+                mgr.refresh_cameras()
+                sess = mgr.get_session(camera_id)
         if sess and sess.runtime_state.value in ("STOPPED", "FAILED"):
             mgr.start_camera(camera_id)
 
         if sess and sess.runtime_state.value in ("RUNNING", "DEGRADED"):
             jpeg = sess.get_latest_jpeg()
             if jpeg:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
-                time.sleep(0.010)  # ~100 FPS capable ultra-smooth pipeline
+                if jpeg is not last_sent_jpeg or (now - last_send_time) > 0.25:
+                    last_sent_jpeg = jpeg
+                    last_send_time = now
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
+                time.sleep(0.015)  # ~60 FPS capable ultra-smooth pipeline
                 continue
 
         # 2. Camera instance
         if camera_id in active_cameras:
             frame = active_cameras[camera_id].get_frame()
             if frame:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-                time.sleep(0.010)  # ~100 FPS playback
+                if frame is not last_sent_jpeg or (now - last_send_time) > 0.25:
+                    last_sent_jpeg = frame
+                    last_send_time = now
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                time.sleep(0.015)
                 continue
 
         # 3. Frame bus (recent frame from detection / upload)
@@ -4023,6 +4080,44 @@ def generate_frames(camera_id):
                 time.sleep(0.010)
                 continue
 
+        # 3b. Direct RTMP ingest frame bypass (STRICTLY for Wi-Fi / RTMP cameras, NEVER for IP/RTSP/Webcam)
+        try:
+            cam_obj = active_cameras.get(camera_id)
+            url_s = getattr(cam_obj, 'url', '') or ''
+            type_s = getattr(cam_obj, 'cam_type', '') or ''
+            vendor_s = getattr(cam_obj, 'vendor', '') or ''
+            if not cam_obj:
+                db_cam = db.get_camera(camera_id)
+                if db_cam:
+                    url_s = db_cam.get('stream_url') or ''
+                    type_s = db_cam.get('camera_type') or ''
+                    vendor_s = db_cam.get('vendor') or ''
+
+            url_low = url_s.lower()
+            type_low = type_s.lower()
+            vendor_low = vendor_s.lower()
+            is_rtmp_cam = (
+                ("rtmp" in url_low or "1935" in url_low or "wi-fi" in type_low or "wifi" in type_low or vendor_low == "trueview")
+                and not ("http" in url_low or "rtsp" in url_low or "device:" in url_low or type_low in ("ip camera", "dvr", "nvr", "device camera"))
+            )
+
+            if is_rtmp_cam:
+                from rtmp_service import get_rtmp_service
+                rtmp_srv = get_rtmp_service()
+                if rtmp_srv and rtmp_srv.latest_frame is not None and (now - rtmp_srv.last_frame_time) < 4.0:
+                    ret, buf = cv2.imencode('.jpg', rtmp_srv.latest_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                    if ret:
+                        b_bytes = buf.tobytes()
+                        if b_bytes is not last_sent_jpeg or (now - last_send_time) > 0.25:
+                            last_sent_jpeg = b_bytes
+                            last_send_time = now
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n\r\n' + b_bytes + b'\r\n')
+                        time.sleep(0.02)
+                        continue
+        except Exception:
+            pass
+
         # 4. Fallback: Live animated standby card with clock & radar
         standby_jpeg = _generate_standby_frame(camera_id)
         if standby_jpeg:
@@ -4033,6 +4128,106 @@ def generate_frames(camera_id):
 @app.route('/video_feed/<camera_id>')
 def video_feed(camera_id):
     return Response(generate_frames(camera_id), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/workers/trained', methods=['GET'])
+def api_list_trained_workers():
+    from worker_recognition_service import get_worker_recognition_service
+    svc = get_worker_recognition_service()
+    return jsonify({
+        "success": True,
+        "workers": svc.list_workers(),
+        "show_worker_names": svc.show_worker_names
+    })
+
+@app.route('/api/workers/toggle_names', methods=['POST'])
+def api_toggle_worker_names():
+    from worker_recognition_service import get_worker_recognition_service
+    svc = get_worker_recognition_service()
+    data = request.get_json(silent=True) or {}
+    enabled = bool(data.get("enabled", True))
+    state = svc.set_show_worker_names(enabled)
+    return jsonify({"success": True, "show_worker_names": state})
+
+@app.route('/api/workers/train', methods=['POST'])
+def api_train_worker():
+    from worker_recognition_service import get_worker_recognition_service
+    svc = get_worker_recognition_service()
+
+    frame_bgr = None
+    if request.files and 'photo' in request.files:
+        f = request.files['photo']
+        raw_bytes = f.read()
+        if raw_bytes:
+            arr = np.frombuffer(raw_bytes, np.uint8)
+            frame_bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        name = request.form.get('name', '')
+        role = request.form.get('role', 'Operator')
+        camera_id = request.form.get('camera_id', '')
+        track_id = request.form.get('track_id')
+    else:
+        data = request.get_json(silent=True) or {}
+        name = data.get('name', '')
+        role = data.get('role', 'Operator')
+        camera_id = data.get('camera_id', '')
+        track_id = data.get('track_id')
+
+    res = svc.train_worker(
+        name=name,
+        role=role,
+        frame_bgr=frame_bgr,
+        camera_id=camera_id or None,
+        track_id=track_id
+    )
+
+    # Immediately update live box label on the camera if trained from live feed
+    if res.get("success") and camera_id:
+        try:
+            sess = get_vision_runtime_manager().get_session(camera_id)
+            if sess and sess.latest_boxes:
+                w_name = res["worker"]["name"]
+                with sess.lock:
+                    for b in sess.latest_boxes:
+                        if b.get("is_person"):
+                            st = b.get("movement_state") or ""
+                            b["type"] = f"{w_name} [{st}]" if st else w_name
+                    sess._last_encoded_frame_idx = -1
+        except Exception:
+            pass
+
+    status_code = 200 if res.get("success") else 400
+    return jsonify(res), status_code
+
+@app.route('/api/workers/trained/<worker_code>', methods=['DELETE'])
+def api_delete_trained_worker(worker_code):
+    from worker_recognition_service import get_worker_recognition_service
+    svc = get_worker_recognition_service()
+    ok = svc.delete_worker(worker_code)
+    return jsonify({"success": ok})
+
+@app.route('/api/system/rtmp_status', methods=['GET'])
+def api_system_rtmp_status():
+    import socket
+    lan_ip = "127.0.0.1"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+    from rtmp_service import get_rtmp_service
+    srv = get_rtmp_service()
+    now = time.time()
+    age = round(now - srv.last_frame_time, 2) if srv.last_frame_time > 0 else None
+    return jsonify({
+        "success": True,
+        "lan_ip": lan_ip,
+        "rtmp_url": f"rtmp://{lan_ip}:{srv.port}{srv.stream_path}",
+        "is_running": srv.is_running,
+        "frame_count": srv.frame_count,
+        "last_frame_age_sec": age,
+        "streaming_now": (age is not None and age < 5.0)
+    })
 
 @app.route('/api/cameras/<camera_id>/ptz', methods=['POST'])
 def camera_ptz_endpoint(camera_id):

@@ -105,8 +105,8 @@
         }
 
         async function doLogin() {
-            const u = document.getElementById('username').value;
-            const p = document.getElementById('password').value;
+            const u = (document.getElementById('username')?.value || '').trim();
+            const p = (document.getElementById('password')?.value || '').trim();
             
             try {
                 const res = await fetch('/api/login', {
@@ -118,22 +118,31 @@
                 
                 if(data.success) {
                     if (data.user) {
-                        sessionStorage.setItem('wms_user', JSON.stringify(data.user));
+                        try {
+                            localStorage.setItem('wms_user', JSON.stringify(data.user));
+                            sessionStorage.setItem('wms_user', JSON.stringify(data.user));
+                        } catch(e) {}
                         window.currentUser = data.user;
                         syncTopbarUserDetails(data.user);
                         if (typeof window.switchActiveFacility === 'function' && data.user.assigned_warehouse_code) {
                             window.switchActiveFacility(data.user.assigned_warehouse_code, true);
                         }
                     }
-                    document.getElementById('login-overlay').style.display = 'none';
+                    const overlay = document.getElementById('login-overlay');
+                    if (overlay) {
+                        overlay.classList.add('hidden');
+                        overlay.style.setProperty('display', 'none', 'important');
+                    }
                     const topBar = document.getElementById('top-bar');
-                    if (topBar) topBar.style.display = 'flex';
+                    if (topBar) topBar.style.setProperty('display', 'flex', 'important');
                     const appLayout = document.getElementById('app-layout');
-                    if (appLayout) appLayout.style.display = 'flex';
-                    document.getElementById('main-header').style.display = 'flex';
-                    document.getElementById('main-container').style.display = 'flex';
+                    if (appLayout) appLayout.style.setProperty('display', 'flex', 'important');
+                    const mainHeader = document.getElementById('main-header');
+                    if (mainHeader) mainHeader.style.setProperty('display', 'flex', 'important');
+                    const mainContainer = document.getElementById('main-container');
+                    if (mainContainer) mainContainer.style.setProperty('display', 'flex', 'important');
                     const mobileDock = document.getElementById('mobileBottomDock');
-                    if (mobileDock) mobileDock.style.display = 'flex';
+                    if (mobileDock) mobileDock.style.setProperty('display', 'flex', 'important');
                     pollData();
                     fetchGatePasses();
                     fetchDeliveries();
@@ -142,16 +151,19 @@
                     if (typeof fetchVisionZones === 'function') fetchVisionZones();
                     if (typeof window.loadWarehousesDropdown === 'function') window.loadWarehousesDropdown();
                 } else {
-                    alert(data.message);
+                    alert(data.message || 'Invalid credentials');
                 }
             } catch(e) {
                 console.error(e);
-                alert("Login failed");
+                alert("Login failed. Please check network connection.");
             }
         }
 
         function doLogout() {
-            sessionStorage.removeItem('wms_user');
+            try {
+                localStorage.removeItem('wms_user');
+                sessionStorage.removeItem('wms_user');
+            } catch(e) {}
             window.currentUser = null;
             location.reload();
         }
@@ -159,24 +171,27 @@
 
         function checkExistingSession() {
             try {
-                const raw = sessionStorage.getItem('wms_user');
+                const raw = localStorage.getItem('wms_user') || sessionStorage.getItem('wms_user');
                 if (raw) {
                     const user = JSON.parse(raw);
                     if (user && user.username) {
                         window.currentUser = user;
                         syncTopbarUserDetails(user);
                         const overlay = document.getElementById('login-overlay');
-                        if (overlay) overlay.style.display = 'none';
+                        if (overlay) {
+                            overlay.classList.add('hidden');
+                            overlay.style.setProperty('display', 'none', 'important');
+                        }
                         const topBar = document.getElementById('top-bar');
-                        if (topBar) topBar.style.display = 'flex';
+                        if (topBar) topBar.style.setProperty('display', 'flex', 'important');
                         const appLayout = document.getElementById('app-layout');
-                        if (appLayout) appLayout.style.display = 'flex';
+                        if (appLayout) appLayout.style.setProperty('display', 'flex', 'important');
                         const mainHeader = document.getElementById('main-header');
-                        if (mainHeader) mainHeader.style.display = 'flex';
+                        if (mainHeader) mainHeader.style.setProperty('display', 'flex', 'important');
                         const mainContainer = document.getElementById('main-container');
-                        if (mainContainer) mainContainer.style.display = 'flex';
+                        if (mainContainer) mainContainer.style.setProperty('display', 'flex', 'important');
                         const mobileDock = document.getElementById('mobileBottomDock');
-                        if (mobileDock) mobileDock.style.display = 'flex';
+                        if (mobileDock) mobileDock.style.setProperty('display', 'flex', 'important');
                         
                         pollData();
                         fetchGatePasses();
@@ -873,7 +888,7 @@
 
                 // Auto-create Passes and Sync Gate ANPR Evidence
                 cameras.forEach(cam => {
-                    const isGate = cam.is_gate_camera || cam.location === 'Gate';
+                    const isGate = cam.is_gate_camera || cam.location === 'Gate' || cam.location === 'Dock' || !!cam.last_detected_plate;
                     if(isGate) {
                         // Reflect recognized plate in Gate Vision Evidence box
                         const plateValEl = document.getElementById('gateEvidencePlateVal');
@@ -1249,7 +1264,7 @@
                                 <div>
                                     <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Truck Photo</label>
                                     ${gp.photo 
-                                        ? `<div style="margin-top: 4px;"><img src="/static/${gp.photo}" style="width: 100%; max-height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-light);"/><div style="cursor:pointer; font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:4px;" onclick="retakePhoto('${gp.id}')">🔄 Retake Photo</div></div>` 
+                                        ? `<div style="margin-top: 4px;"><img src="/static/${gp.photo}" onclick="openTruckImageModal('/static/${gp.photo}', '${gp.plate || ''}', '${gp.id || ''}')" style="width: 100%; max-height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-light); cursor: zoom-in; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" title="Click to view full photo"/><div style="cursor:pointer; font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:4px;" onclick="retakePhoto('${gp.id}')">🔄 Retake Photo</div></div>` 
                                         : `<button class="btn-primary" style="margin-top: 4px; width: 100%; padding: 6px; font-size: 0.8rem;" onclick="retakePhoto('${gp.id}')">📸 Snap Photo</button>`
                                     }
                                 </div>
@@ -1302,7 +1317,7 @@
                             <td>
                                 <div>${gp.load}</div>
                                 <div style="font-size:0.8rem; color:var(--accent-hover); margin-top:4px; font-weight:bold;">Activity: ${gp.activity || 'Loading'}</div>
-                                ${gp.photo ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" style="max-width:150px; border-radius:4px; display:block;" alt="Truck Photo"/></div>` : '<div style="font-size:0.8rem; color:var(--text-muted);">No Photo</div>'}
+                                ${gp.photo ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" onclick="openTruckImageModal('/static/${gp.photo}', '${gp.plate || ''}', '${gp.id || ''}')" style="max-width:150px; max-height:80px; object-fit:cover; border-radius:4px; display:block; cursor:zoom-in; border:1px solid rgba(255,255,255,0.15); transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'" alt="Truck Photo" title="Click to expand"/></div>` : '<div style="font-size:0.8rem; color:var(--text-muted);">No Photo</div>'}
                             </td>
                             <td>
                                 <span class="badge ${gp.status === 'Completed' ? 'sent' : 'pending'}">${gp.status}</span>
@@ -1486,18 +1501,73 @@
 
         window.lastKnownGatePassId = null;
 
+        window.openTruckImageModal = function(photoUrl, plate, gpId) {
+            if (!photoUrl) return;
+            const modal = document.getElementById('modalTruckImageViewer');
+            const img = document.getElementById('truckModalImg');
+            const title = document.getElementById('truckModalTitle');
+            const subtitle = document.getElementById('truckModalSubtitle');
+            const dlBtn = document.getElementById('btnDownloadTruckPhoto');
+            const meta = document.getElementById('truckModalMeta');
+
+            if (modal && img) {
+                img.src = photoUrl;
+                if (title) title.textContent = plate ? `Vehicle Plate: ${plate}` : 'Truck ANPR Snapshot';
+                if (subtitle) subtitle.textContent = gpId ? `Connected Gate Pass: ${gpId} • Automated Arrival Snapshot` : 'Automated AI Capture';
+                if (dlBtn) dlBtn.href = photoUrl;
+                if (meta) meta.innerHTML = `Plate: <strong style="color:#10b981;">${plate || 'Verified'}</strong> • Gate Pass: <strong style="color:#38bdf8;">${gpId || 'Active'}</strong> • Captured Automatically &lt; 3s`;
+                modal.style.display = 'flex';
+            } else {
+                window.open(photoUrl, '_blank');
+            }
+        };
+
+        window.closeTruckImageModal = function() {
+            const modal = document.getElementById('modalTruckImageViewer');
+            if (modal) modal.style.display = 'none';
+        };
+
+        window.snapTruckPhotoManual = async function() {
+            try {
+                const res = await fetch('/api/cameras');
+                const cameras = await res.json();
+                const cam = cameras.find(c => c.last_detected_plate) || cameras.find(c => c.is_gate_camera || c.location === 'Gate' || c.location === 'Dock') || cameras[0];
+                if (!cam) {
+                    alert('No active camera available to snap photo!');
+                    return;
+                }
+                const snapRes = await fetch(`/api/cameras/${cam.id}/snap`, { method: 'POST' });
+                const snapData = await snapRes.json();
+                if (snapData.success) {
+                    const photoUrl = `/static/${snapData.photo}`;
+                    if (typeof showToast === 'function') {
+                        showToast('📸 High-resolution truck snapshot captured!', 'success');
+                    }
+                    openTruckImageModal(photoUrl, cam.last_detected_plate || 'Live Vehicle', cam.last_gate_pass_id || '');
+                    if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                } else {
+                    alert('Snapshot failed: ' + (snapData.message || 'Error'));
+                }
+            } catch(e) {
+                console.error('Manual snapshot error:', e);
+            }
+        };
+
         window.checkGateCameraEvidence = async function() {
             const plateValEl = document.getElementById('gateEvidencePlateVal');
             const badgeEl = document.getElementById('gateEvidenceConfidenceBadge');
             const metaEl = document.getElementById('gateEvidenceMeta');
+            const thumbWrap = document.getElementById('gateEvidenceThumbWrap');
+            const thumbImg = document.getElementById('gateEvidenceThumb');
             
             try {
                 const res = await fetch('/api/cameras');
                 const cameras = await res.json();
-                const gateCam = cameras.find(c => c.is_gate_camera || c.location === 'Gate');
+                const gateCam = cameras.find(c => c.last_detected_plate) || cameras.find(c => c.is_gate_camera || c.location === 'Gate' || c.location === 'Dock') || cameras[0];
                 
                 const detectedPlate = (gateCam && gateCam.last_detected_plate) ? gateCam.last_detected_plate : null;
                 const gatePassId = (gateCam && gateCam.last_gate_pass_id) ? gateCam.last_gate_pass_id : null;
+                const gatePhoto = (gateCam && gateCam.last_gate_pass_photo) ? gateCam.last_gate_pass_photo : null;
                 
                 if (detectedPlate) {
                     if (plateValEl) {
@@ -1512,12 +1582,20 @@
                         badgeEl.textContent = "ANPR DETECTED";
                     }
                     if (metaEl) {
-                        metaEl.innerHTML = `Connected Gate Pass: <strong style="color:var(--accent); font-weight:700;">${gatePassId || 'ISSUED'}</strong> • Auto-Generated from LIVE camera feed`;
+                        const snapBadge = gatePhoto ? `• <a href="javascript:void(0)" onclick="openTruckImageModal('/static/${gatePhoto}', '${detectedPlate}', '${gatePassId}')" style="color:#38bdf8; text-decoration:underline; font-weight:700;">📸 View Snapshot</a>` : '';
+                        metaEl.innerHTML = `Connected Gate Pass: <strong style="color:var(--accent); font-weight:700;">${gatePassId || 'ISSUED'}</strong> ${snapBadge} • Auto-Generated from LIVE camera feed`;
+                    }
+                    if (gatePhoto && thumbWrap && thumbImg) {
+                        thumbImg.src = `/static/${gatePhoto}`;
+                        thumbWrap.style.display = 'flex';
                     }
                     
                     // Automatically refresh Gate Passes Grid if new pass detected
                     if (gatePassId && gatePassId !== window.lastKnownGatePassId) {
                         window.lastKnownGatePassId = gatePassId;
+                        if (typeof showToast === 'function') {
+                            showToast(`⚡ Instant Gate Pass Created: ${gatePassId} (${detectedPlate}) with snapshot!`, 'success');
+                        }
                         if (typeof fetchGatePasses === 'function') fetchGatePasses();
                         if (typeof fetchDeliveries === 'function') fetchDeliveries();
                     }
@@ -1536,6 +1614,7 @@
                     if (metaEl) {
                         metaEl.textContent = "Vehicle & license plate recognized in the live feed will automatically create and issue a Gate Pass.";
                     }
+                    if (thumbWrap) thumbWrap.style.display = 'none';
                 }
             } catch(err) {
                 console.error("Error in checkGateCameraEvidence:", err);
@@ -1877,8 +1956,12 @@
         };
 
         window.buildRtspUrl = function(vendor, host, port, user, pass, channel, quality) {
-            port = port || '554';
-            user = user || 'admin';
+            const v = (vendor || '').toLowerCase();
+            const p = String(port || '').trim();
+            const isIpWebcam = v.includes('ip webcam') || v.includes('phone') || v.includes('android') || p === '8080';
+            
+            port = port || (isIpWebcam ? '8080' : '554');
+            user = user || (isIpWebcam ? '' : 'admin');
             channel = parseInt(channel) || 1;
             quality = quality || 'sub';
             
@@ -1886,9 +1969,14 @@
             const cleanUser = encodeURIComponent(user);
             const cleanPass = pass ? encodeURIComponent(pass) : '';
             const auth = (cleanUser || cleanPass) ? `${cleanUser}:${cleanPass}@` : '';
+
+            // Android IP Webcam App: http://[user:pass@]host:port/video
+            if (isIpWebcam) {
+                return `http://${auth}${host}:${port}/video`;
+            }
+
             const base = `rtsp://${auth}${host}:${port}`;
             
-            const v = (vendor || '').toLowerCase();
             if (v.includes('hikvision') || v.includes('ezviz')) {
                 // Hikvision / Ezviz: /Streaming/Channels/101 (main), 102 (sub)
                 const subId = (quality === 'main') ? 1 : 2;
@@ -1902,6 +1990,9 @@
                 return `${base}/stream${streamNum}`;
             } else if (v.includes('trueview')) {
                 return `${base}/live/ch${channel - 1}`;
+            } else if (v.includes('uniview')) {
+                const streamNum = (quality === 'main') ? 1 : 2;
+                return `${base}/unicast/c${channel}/s${streamNum}/live`;
             } else {
                 const subId = (quality === 'main') ? 1 : 2;
                 return `${base}/Streaming/Channels/${channel}0${subId}`;
@@ -1943,11 +2034,22 @@
             const camNameInput = document.getElementById('camName');
             const camVendorSelect = document.getElementById('camVendor');
 
-            // Dynamically update server IP/domain for RTMP push
+            // Dynamically update server IP/domain for RTMP push (always resolve LAN IP if on localhost)
             const serverHost = window.location.hostname || '127.0.0.1';
             const rtmpInput = document.getElementById('wifiRtmpPushUrl');
             if (rtmpInput) {
-                rtmpInput.value = `rtmp://${serverHost}:1935/live/cam`;
+                if (serverHost === 'localhost' || serverHost === '127.0.0.1') {
+                    fetch('/api/system/rtmp_status')
+                        .then(r => r.json())
+                        .then(d => {
+                            if (d && d.rtmp_url) rtmpInput.value = d.rtmp_url;
+                        })
+                        .catch(() => {
+                            rtmpInput.value = `rtmp://${serverHost}:1935/live/cam`;
+                        });
+                } else {
+                    rtmpInput.value = `rtmp://${serverHost}:1935/live/cam`;
+                }
             }
 
             if (facingGroup) facingGroup.style.display = isDevice ? 'block' : 'none';
@@ -2007,10 +2109,19 @@
         window.handleCamVendorChange = function() {
             const vendor = document.getElementById('camVendor').value;
             const hostInput = document.getElementById('camHost');
-            if (hostInput && !hostInput.value) {
-                if (vendor.includes('Hikvision')) hostInput.placeholder = "e.g. 192.168.1.64";
-                else if (vendor.includes('Trueview')) hostInput.placeholder = "e.g. 192.168.1.9";
-                else if (vendor.includes('Dahua') || vendor.includes('CP Plus')) hostInput.placeholder = "e.g. 192.168.1.108";
+            const portInput = document.getElementById('camPort');
+            const userInput = document.getElementById('camUser');
+            if (vendor.includes('Android IP Webcam') || vendor.includes('IP Webcam')) {
+                if (portInput) portInput.value = "8080";
+                if (hostInput) hostInput.placeholder = "e.g. 192.168.1.8 (Phone IP shown in app)";
+                if (userInput && !userInput.value) userInput.placeholder = "Optional (leave empty if none)";
+            } else {
+                if (portInput && portInput.value === '8080') portInput.value = "554";
+                if (hostInput && !hostInput.value) {
+                    if (vendor.includes('Hikvision')) hostInput.placeholder = "e.g. 192.168.1.64";
+                    else if (vendor.includes('Trueview')) hostInput.placeholder = "e.g. 192.168.1.9";
+                    else if (vendor.includes('Dahua') || vendor.includes('CP Plus')) hostInput.placeholder = "e.g. 192.168.1.108";
+                }
             }
         };
 
@@ -2422,27 +2533,20 @@
                     const latency = cam.inference_latency_ms ? `${cam.inference_latency_ms.toFixed(1)}ms` : '18.4ms';
                     const netCount = cam.net_stock_count !== undefined ? cam.net_stock_count : pileCount;
 
-                    card.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
-                            <strong style="font-size:0.95rem; color:var(--primary-navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${cam.name}">${cam.name}</strong>
-                            <div style="display:flex; gap:4px; align-items:center;">
-                                ${isGate ? '<span class="badge" style="background:rgba(234,179,8,0.18); color:#eab308; border:1px solid rgba(234,179,8,0.4); padding:2px 6px; font-size:0.65rem; font-weight:700;">🛡️ GATE ANPR</span>' : ''}
-                                ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; padding:2px 4px; font-size:0.6rem;">📲</span>' : ''}
-                                ${!isGate && hasBin ? 
-                                    `<span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.65rem; padding:2px 6px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')" title="Click to change Bin">📍 ${cam.bin_id}</span>` : 
-                                    (!isGate ? `<button style="background:#334155; color:#94a3b8; border:none; padding:2px 6px; font-size:0.65rem; border-radius:3px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">+ Assign Bin</button>` : '')
-                                }
-                                <span class="badge pending" style="font-size:0.65rem; padding:2px 4px;">${cam.location}</span>
-                            </div>
+                    const headerHtml = `
+                        <strong style="font-size:0.95rem; color:var(--primary-navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${cam.name}">${cam.name}</strong>
+                        <div style="display:flex; gap:4px; align-items:center;">
+                            ${isGate ? '<span class="badge" style="background:rgba(234,179,8,0.18); color:#eab308; border:1px solid rgba(234,179,8,0.4); padding:2px 6px; font-size:0.65rem; font-weight:700;">🛡️ GATE ANPR</span>' : ''}
+                            ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; padding:2px 4px; font-size:0.6rem;">📲</span>' : ''}
+                            ${!isGate && hasBin ? 
+                                `<span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.65rem; padding:2px 6px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')" title="Click to change Bin">📍 ${cam.bin_id}</span>` : 
+                                (!isGate ? `<button style="background:#334155; color:#94a3b8; border:none; padding:2px 6px; font-size:0.65rem; border-radius:3px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">+ Assign Bin</button>` : '')
+                            }
+                            <span class="badge pending" style="font-size:0.65rem; padding:2px 4px;">${cam.location}</span>
                         </div>
-                        <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer; position:relative;" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
-                            <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain; image-rendering:-webkit-optimize-contrast;">
-                            <div style="position:absolute; top:6px; right:6px; display:flex; gap:4px; z-index:2;">
-                                <button type="button" style="background:rgba(15,23,42,0.85); color:#38bdf8; border:1px solid #0284c7; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Interactive PTZ & Digital Zoom">🕹️ PTZ</button>
-                                <button type="button" style="background:rgba(15,23,42,0.85); color:#60a5fa; border:1px solid #2563eb; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Cinema Fullscreen Mode">⛶</button>
-                            </div>
-                            <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.65); padding:2px 6px; border-radius:4px; font-size:0.62rem; pointer-events:none; color:#34d399; font-weight:700;">⚡ 60-100 FPS</div>
-                        </div>
+                    `;
+
+                    const footerHtml = `
                         ${isGate ? `
                         <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.85); border:1px solid rgba(234,179,8,0.3); padding:6px 8px; border-radius:4px; font-size:0.75rem;">
                             <div style="display:flex; align-items:center; gap:6px;">
@@ -2476,7 +2580,8 @@
                         <div style="margin-top:3px; display:flex; justify-content:space-between; align-items:center; padding:2px 4px; font-size:0.68rem; color:#94a3b8;">
                             <span>👤 Workers: <b>${cam.active_workers_count || 0}</b></span>
                             <span>📦 Moving Stock: <b>${cam.active_stocks_count || 0}</b></span>
-                            <span style="color:#22c55e;">● Live Tripwire Active</span>
+                            <button type="button" style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.45); padding:2px 7px; font-size:0.65rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="openTrainWorkerModal('${cam.id}')" title="Train & Display Worker Name on Live Feed">👷 Train Worker</button>
+                            <span style="color:#22c55e;">● Live Tracking</span>
                         </div>
                         `}
                         ${!isGate && cam.cluster_breakdown && Object.keys(cam.cluster_breakdown).length > 0 ? `
@@ -2489,6 +2594,31 @@
                         </div>
                         ` : ''}
                     `;
+
+                    let hdrEl = document.getElementById(`cam-hdr-${cam.id}`);
+                    let ftrEl = document.getElementById(`cam-ftr-${cam.id}`);
+                    if (!hdrEl || !ftrEl) {
+                        card.innerHTML = `
+                            <div id="cam-hdr-${cam.id}" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                                ${headerHtml}
+                            </div>
+                            <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer; position:relative;" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
+                                <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain; image-rendering:-webkit-optimize-contrast;">
+                                <div style="position:absolute; top:6px; right:6px; display:flex; gap:4px; z-index:2;">
+                                    <button type="button" style="background:rgba(15,23,42,0.88); color:#34d399; border:1px solid #10b981; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openTrainWorkerModal('${cam.id}')" title="Train & Display Worker Name on Live Feed">👷 Worker ID</button>
+                                    <button type="button" style="background:rgba(15,23,42,0.85); color:#38bdf8; border:1px solid #0284c7; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Interactive PTZ & Digital Zoom">🕹️ PTZ</button>
+                                    <button type="button" style="background:rgba(15,23,42,0.85); color:#60a5fa; border:1px solid #2563eb; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Cinema Fullscreen Mode">⛶</button>
+                                </div>
+                                <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.65); padding:2px 6px; border-radius:4px; font-size:0.62rem; pointer-events:none; color:#34d399; font-weight:700;">⚡ 60-100 FPS</div>
+                            </div>
+                            <div id="cam-ftr-${cam.id}">
+                                ${footerHtml}
+                            </div>
+                        `;
+                    } else {
+                        hdrEl.innerHTML = headerHtml;
+                        ftrEl.innerHTML = footerHtml;
+                    }
                 }
 
                 // Update Hikvision Side Panel List
@@ -2528,6 +2658,228 @@
         // Fullscreen Logic
         window.currentFsCamId = null;
         window.currentFsIsFrozen = false;
+        window.currentTrainWorkerCamId = null;
+
+        window.openTrainWorkerModal = async function(camId) {
+            window.currentTrainWorkerCamId = camId || '';
+            let modal = document.getElementById('trainWorkerModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'trainWorkerModal';
+                modal.style.cssText = 'position:fixed; inset:0; background:rgba(2,6,23,0.82); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:99999; padding:16px;';
+                modal.innerHTML = `
+                    <div style="background:#0f172a; border:1px solid #334155; border-radius:12px; width:100%; max-width:540px; padding:20px; color:#f8fafc; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #1e293b; padding-bottom:12px; margin-bottom:14px;">
+                            <div>
+                                <h3 style="margin:0; font-size:1.05rem; color:#38bdf8;">👷 Train & Recognize Worker Names on Live Feed</h3>
+                                <div id="twCamSubtitle" style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Enroll workers so their name moves with their bounding box</div>
+                            </div>
+                            <button type="button" onclick="document.getElementById('trainWorkerModal').style.display='none'" style="background:#1e293b; color:#94a3b8; border:none; border-radius:6px; padding:4px 10px; cursor:pointer; font-weight:700;">✕</button>
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:8px 12px; border-radius:8px; margin-bottom:14px;">
+                            <span style="font-size:0.82rem; font-weight:600; color:#e2e8f0;">Display Trained Worker Names on Live Feed</span>
+                            <input type="checkbox" id="twShowNamesToggle" checked onchange="toggleWorkerNamesDisplay(this.checked)" style="width:18px; height:18px; cursor:pointer;">
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+                            <div>
+                                <label style="display:block; font-size:0.74rem; color:#94a3b8; margin-bottom:4px;">Worker Name *</label>
+                                <input type="text" id="twWorkerName" placeholder="e.g. Rahul, Karthik" style="width:100%; padding:8px 10px; border-radius:6px; border:1px solid #334155; background:#020617; color:#fff; font-size:0.85rem;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.74rem; color:#94a3b8; margin-bottom:4px;">Role / Designation</label>
+                                <input type="text" id="twWorkerRole" placeholder="e.g. Operator, Forklift Driver" value="Operator" style="width:100%; padding:8px 10px; border-radius:6px; border:1px solid #334155; background:#020617; color:#fff; font-size:0.85rem;">
+                            </div>
+                        </div>
+
+                        <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+                            <button type="button" id="twCaptureLiveBtn" onclick="submitTrainWorkerLive()" style="flex:1; background:#10b981; color:#022c22; font-weight:800; border:none; padding:9px 12px; border-radius:6px; cursor:pointer; font-size:0.8rem;">
+                                📸 Capture & Train from Live Feed
+                            </button>
+                            <label style="flex:1; background:#0284c7; color:#fff; font-weight:700; padding:9px 12px; border-radius:6px; cursor:pointer; font-size:0.8rem; text-align:center;">
+                                📁 Upload Worker Photo
+                                <input type="file" id="twWorkerPhotoInput" accept="image/*" style="display:none;" onchange="submitTrainWorkerPhoto(this)">
+                            </label>
+                        </div>
+
+                        <div id="twStatusMsg" style="font-size:0.78rem; margin-bottom:10px; display:none; padding:6px 10px; border-radius:6px;"></div>
+
+                        <div style="border-top:1px solid #1e293b; padding-top:10px;">
+                            <div style="font-size:0.78rem; font-weight:700; color:#94a3b8; margin-bottom:8px;">Enrolled Workers</div>
+                            <div id="twWorkersList" style="max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+            modal.style.display = 'flex';
+            const sub = document.getElementById('twCamSubtitle');
+            if (sub) {
+                sub.textContent = camId ? `Active Camera: ${camId} — Stand in view & click Capture, or upload a photo` : 'Enroll workers to display their names on the live feed';
+            }
+            await refreshTrainedWorkersList();
+        };
+
+        window.refreshTrainedWorkersList = async function() {
+            try {
+                const res = await fetch('/api/workers/trained');
+                const data = await res.json();
+                const toggle = document.getElementById('twShowNamesToggle');
+                if (toggle && data.show_worker_names !== undefined) {
+                    toggle.checked = !!data.show_worker_names;
+                }
+                const listEl = document.getElementById('twWorkersList');
+                if (!listEl) return;
+                const workers = data.workers || [];
+                if (workers.length === 0) {
+                    listEl.innerHTML = '<div style="font-size:0.75rem; color:#64748b; padding:8px; text-align:center;">No workers trained yet. Enter a name above and click Capture or Upload Photo!</div>';
+                    return;
+                }
+                listEl.innerHTML = workers.map(w => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:6px 10px; border-radius:6px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            ${w.photo_path ? `<img src="${w.photo_path}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #38bdf8;">` : `<div style="width:34px; height:34px; border-radius:50%; background:#334155; display:flex; align-items:center; justify-content:center;">👷</div>`}
+                            <div>
+                                <div style="font-size:0.84rem; font-weight:700; color:#f8fafc;">${w.name}</div>
+                                <div style="font-size:0.7rem; color:#94a3b8;">${w.role || 'Operator'} • ${w.worker_code}</div>
+                            </div>
+                        </div>
+                        <button type="button" onclick="deleteTrainedWorker('${w.worker_code}')" style="background:#7f1d1d; color:#fca5a5; border:none; border-radius:4px; padding:4px 8px; font-size:0.7rem; cursor:pointer;">Remove</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Error loading trained workers:', e);
+            }
+        };
+
+        window.toggleWorkerNamesDisplay = async function(enabled) {
+            try {
+                await fetch('/api/workers/toggle_names', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ enabled: !!enabled })
+                });
+            } catch (e) {
+                console.error('Error toggling worker names:', e);
+            }
+        };
+
+        window.submitTrainWorkerLive = async function() {
+            const nameEl = document.getElementById('twWorkerName');
+            const roleEl = document.getElementById('twWorkerRole');
+            const msgEl = document.getElementById('twStatusMsg');
+            const name = nameEl ? nameEl.value.trim() : '';
+            const role = roleEl ? roleEl.value.trim() : 'Operator';
+            if (!name) {
+                alert('Please enter the worker name first!');
+                return;
+            }
+            if (msgEl) {
+                msgEl.style.display = 'block';
+                msgEl.style.background = '#1e293b';
+                msgEl.style.color = '#38bdf8';
+                msgEl.textContent = '⏳ Capturing worker from live feed and training profile...';
+            }
+            try {
+                const res = await fetch('/api/workers/train', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: name,
+                        role: role,
+                        camera_id: window.currentTrainWorkerCamId || ''
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (msgEl) {
+                        msgEl.style.background = 'rgba(16,185,129,0.2)';
+                        msgEl.style.color = '#34d399';
+                        msgEl.textContent = '✅ ' + data.message;
+                    }
+                    if (nameEl) nameEl.value = '';
+                    await refreshTrainedWorkersList();
+                } else {
+                    if (msgEl) {
+                        msgEl.style.background = 'rgba(239,68,68,0.2)';
+                        msgEl.style.color = '#f87171';
+                        msgEl.textContent = '❌ ' + (data.message || 'Could not train worker');
+                    }
+                }
+            } catch (e) {
+                if (msgEl) {
+                    msgEl.style.background = 'rgba(239,68,68,0.2)';
+                    msgEl.style.color = '#f87171';
+                    msgEl.textContent = '❌ Error: ' + e.message;
+                }
+            }
+        };
+
+        window.submitTrainWorkerPhoto = async function(inputEl) {
+            if (!inputEl || !inputEl.files || !inputEl.files[0]) return;
+            const nameEl = document.getElementById('twWorkerName');
+            const roleEl = document.getElementById('twWorkerRole');
+            const msgEl = document.getElementById('twStatusMsg');
+            const name = nameEl ? nameEl.value.trim() : '';
+            const role = roleEl ? roleEl.value.trim() : 'Operator';
+            if (!name) {
+                alert('Please enter the worker name before selecting a photo!');
+                inputEl.value = '';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('role', role);
+            formData.append('camera_id', window.currentTrainWorkerCamId || '');
+            formData.append('photo', inputEl.files[0]);
+
+            if (msgEl) {
+                msgEl.style.display = 'block';
+                msgEl.style.background = '#1e293b';
+                msgEl.style.color = '#38bdf8';
+                msgEl.textContent = '⏳ Training worker profile from uploaded photo...';
+            }
+            try {
+                const res = await fetch('/api/workers/train', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (msgEl) {
+                        msgEl.style.background = 'rgba(16,185,129,0.2)';
+                        msgEl.style.color = '#34d399';
+                        msgEl.textContent = '✅ ' + data.message;
+                    }
+                    if (nameEl) nameEl.value = '';
+                    await refreshTrainedWorkersList();
+                } else {
+                    if (msgEl) {
+                        msgEl.style.background = 'rgba(239,68,68,0.2)';
+                        msgEl.style.color = '#f87171';
+                        msgEl.textContent = '❌ ' + (data.message || 'Failed to train worker');
+                    }
+                }
+            } catch (e) {
+                if (msgEl) {
+                    msgEl.style.background = 'rgba(239,68,68,0.2)';
+                    msgEl.style.color = '#f87171';
+                    msgEl.textContent = '❌ Error: ' + e.message;
+                }
+            } finally {
+                inputEl.value = '';
+            }
+        };
+
+        window.deleteTrainedWorker = async function(workerCode) {
+            try {
+                await fetch(`/api/workers/trained/${encodeURIComponent(workerCode)}`, { method: 'DELETE' });
+                await refreshTrainedWorkersList();
+            } catch (e) {
+                console.error('Error deleting worker:', e);
+            }
+        };
 
         async function toggleFreezeCamera(camId) {
             try {

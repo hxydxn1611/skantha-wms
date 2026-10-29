@@ -2,8 +2,11 @@ import sqlite3
 import json
 import time
 import os
+import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
 
@@ -639,9 +642,16 @@ def init_db():
     conn.close()
 
 def get_user(username, password):
+    if not username or not password:
+        return None
+    u = str(username).strip()
+    p = str(password).strip()
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    cur.execute(
+        "SELECT * FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND password = ?",
+        (u, u, p)
+    )
     row = cur.fetchone()
     conn.close()
     return dict(row) if row else None

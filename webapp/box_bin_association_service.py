@@ -229,7 +229,10 @@ class CameraBoxBinAssociationSession:
         """Extract or compute normalized center (cx, cy) from track bounding box or explicit fields."""
         if "center_normalized" in track and track["center_normalized"]:
             cn = track["center_normalized"]
-            return float(cn[0]), float(cn[1])
+            if isinstance(cn, dict):
+                return float(cn.get("x", 0.5)), float(cn.get("y", 0.5))
+            if isinstance(cn, (list, tuple)) and len(cn) >= 2:
+                return float(cn[0]), float(cn[1])
 
         bbox_norm = track.get("bbox_normalized", {})
         if bbox_norm and "x1" in bbox_norm and "x2" in bbox_norm:

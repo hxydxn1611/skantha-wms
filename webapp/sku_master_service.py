@@ -13,7 +13,10 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-import db
+try:
+    import webapp.db as db
+except ImportError:
+    import db
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,8 @@ def generate_sku_excel_template() -> bytes:
     """
     wb = openpyxl.Workbook()
     ws = wb.active
+    if ws is None:
+        ws = wb.create_sheet()
     ws.title = "SKU_Master_Template"
 
     headers = [
@@ -107,7 +112,7 @@ def generate_sku_excel_template() -> bytes:
     # Auto-adjust column widths
     for col in ws.columns:
         max_len = 0
-        col_letter = get_column_letter(col[0].column)
+        col_letter = get_column_letter(col[0].column or 1)
         for cell in col:
             val_str = str(cell.value or '')
             if len(val_str) > max_len:
@@ -138,6 +143,13 @@ def parse_and_validate_sku_excel(file_bytes: bytes, duplicate_policy: str = "ski
     try:
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
         ws = wb.active
+        if ws is None:
+            return {
+                "success": False,
+                "message": "The uploaded workbook contains no active worksheet.",
+                "can_import": False,
+                "rows": []
+            }
     except Exception as e:
         return {
             "success": False,

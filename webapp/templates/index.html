@@ -1763,6 +1763,7 @@
                             <label>Vendor</label>
                             <select id="camVendor" onchange="handleCamVendorChange()">
                                 <option value="Built-in Device">Built-in / Native Device</option>
+                                <option value="Android IP Webcam">Android IP Webcam (Phone App :8080)</option>
                                 <option value="TP-Link / Tapo">TP-Link / Tapo</option>
                                 <option value="CP Plus">CP Plus</option>
                                 <option value="Hikvision">Hikvision</option>
@@ -1771,7 +1772,7 @@
                                 <option value="Imou">Imou</option>
                                 <option value="Trueview">Trueview</option>
                                 <option value="Tuya / Generic ONVIF">Tuya / Generic ONVIF</option>
-                                <option value="Other">Other</option>
+                                <option value="Other">Other (RTSP / HTTP)</option>
                             </select>
                         </div>
 
@@ -1930,9 +1931,16 @@
                                 <span id="gateEvidenceConfidenceBadge" class="badge" style="display:inline-block; font-size:0.72rem; background:#0284c7; color:#fff;">LIVE SCANNING</span>
                             </div>
                             <div id="gateEvidenceMeta" style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">Vehicle & license plate recognized in the live feed will automatically create and issue a Gate Pass.</div>
+                            <div id="gateEvidenceThumbWrap" style="display:none; align-items:center; gap:10px; margin-top:8px;">
+                                <img id="gateEvidenceThumb" src="" onclick="openTruckImageModal(this.src, document.getElementById('gateEvidencePlateVal').textContent, window.lastKnownGatePassId)" style="width:78px; height:50px; object-fit:cover; border-radius:6px; border:2px solid #10b981; cursor:zoom-in; box-shadow:0 2px 8px rgba(0,0,0,0.3); transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'" title="Click to view truck snapshot"/>
+                                <span style="font-size:0.75rem; color:#10b981; font-weight:700; cursor:pointer;" onclick="document.getElementById('gateEvidenceThumb').click();">📸 Click to View Full Truck Image</span>
+                            </div>
                         </div>
                     </div>
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" class="btn-primary" onclick="snapTruckPhotoManual()" style="font-size:0.82rem; padding:8px 14px; background:#10b981; border-color:#10b981; font-weight:600;" title="Instantly click and save an image of the truck">
+                            📸 Snap Photo of Truck
+                        </button>
                         <button type="button" class="btn-primary" onclick="simulateGateArrivalPrompt()" style="font-size:0.82rem; padding:8px 14px; background:#2563eb; border-color:#2563eb; font-weight:600;" title="Simulate vehicle arrival with plate at gate">
                             🚗 Simulate Vehicle Arrival
                         </button>
@@ -7664,9 +7672,9 @@ window.switchSubTab = switchSubTab;
             <i class="fas fa-chart-line mobile-nav-icon"></i>
             <span class="mobile-nav-label">Dashboard</span>
         </button>
-        <button type="button" class="mobile-nav-item" data-tab="palletization" onclick="mobileDockSwitchTab('palletization')">
-            <i class="fas fa-pallet mobile-nav-icon"></i>
-            <span class="mobile-nav-label">Pallets</span>
+        <button type="button" class="mobile-nav-item" data-tab="cameras" onclick="mobileDockSwitchTab('cameras')">
+            <i class="fas fa-video mobile-nav-icon"></i>
+            <span class="mobile-nav-label">Live Cam</span>
         </button>
         <button type="button" class="mobile-nav-item mobile-nav-center-action" onclick="openMobileCameraScanner('pallet')" aria-label="Quick Camera Scan">
             <div class="mobile-nav-center-btn">
@@ -7675,8 +7683,8 @@ window.switchSubTab = switchSubTab;
             <span class="mobile-nav-label">Scan AI</span>
         </button>
         <button type="button" class="mobile-nav-item" data-tab="gate-passes" onclick="mobileDockSwitchTab('gate-passes')">
-            <i class="fas fa-shield-halved mobile-nav-icon"></i>
-            <span class="mobile-nav-label">Gate Ops</span>
+            <i class="fas fa-car mobile-nav-icon"></i>
+            <span class="mobile-nav-label">Gate ANPR</span>
         </button>
         <button type="button" class="mobile-nav-item" onclick="toggleMobileSidebar()" aria-label="More Navigation Modules">
             <i class="fas fa-bars mobile-nav-icon"></i>
@@ -7834,6 +7842,32 @@ window.switchSubTab = switchSubTab;
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- TRUCK / ANPR EVIDENCE IMAGE VIEWER MODAL -->
+    <div id="modalTruckImageViewer" class="modal-overlay" style="display:none; position:fixed; inset:0; z-index:10001; background:rgba(10,15,30,0.92); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:16px;" onclick="if(event.target===this) closeTruckImageModal()">
+        <div style="background:#0f172a; border:1px solid rgba(56,189,248,0.3); border-radius:14px; max-width:900px; width:100%; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,0.8), 0 0 30px rgba(56,189,248,0.2);">
+            <div style="padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; background:#1e293b;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:1.3rem;">🚛</span>
+                    <div>
+                        <h3 id="truckModalTitle" style="margin:0; font-size:1.05rem; font-weight:700; color:#f8fafc;">Truck ANPR Snapshot</h3>
+                        <div id="truckModalSubtitle" style="font-size:0.75rem; color:#94a3b8;">Automated AI Gate Verification Capture</div>
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <a id="btnDownloadTruckPhoto" href="#" download="truck_snapshot.jpg" class="btn-primary" style="font-size:0.78rem; padding:6px 12px; text-decoration:none;">⬇ Download</a>
+                    <button type="button" onclick="closeTruckImageModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.3rem; cursor:pointer; padding:4px 8px; border-radius:6px; line-height:1;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">&times;</button>
+                </div>
+            </div>
+            <div style="padding:16px; display:flex; align-items:center; justify-content:center; background:#020617; overflow:auto; flex:1; max-height:calc(92vh - 120px);">
+                <img id="truckModalImg" src="" style="max-width:100%; max-height:72vh; border-radius:8px; object-fit:contain; border:1px solid rgba(255,255,255,0.1); box-shadow:0 10px 25px rgba(0,0,0,0.5);" alt="Truck Full View"/>
+            </div>
+            <div style="padding:10px 18px; background:#1e293b; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:#94a3b8;">
+                <div id="truckModalMeta">Auto-captured within 3 seconds of arrival</div>
+                <button type="button" class="btn-secondary" onclick="closeTruckImageModal()" style="padding:4px 12px; font-size:0.78rem;">Close</button>
+            </div>
         </div>
     </div>
 

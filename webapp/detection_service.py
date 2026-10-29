@@ -12,6 +12,7 @@ Strict Scope: Detection ONLY. No tracking IDs, Re-ID, OCR, or event engine.
 import os
 import time
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Union
 import numpy as np
@@ -96,6 +97,18 @@ DEFAULT_CLASS_MAPPING = {
     "pallet jack": "FORKLIFT",
     "motorcycle": "FORKLIFT",
     "rod": "ROD",
+    "pipe": "BUNDLE",
+    "wooden plank": "TIMBER_PLANK_BUNDLE",
+    "container": "BOX",
+    "bottle": "BOX",
+    "bag": "BOX",
+    "tote": "BIN",
+    "finished goods carton": "BOX",
+    "material / tube bundle": "BUNDLE",
+    "storage pallet": "PALLET",
+    "parts tote": "BIN",
+    "plant personnel": "WORKER",
+    "transport trailer": "TRUCK",
     "part": "PART",
     "component": "COMPONENT",
     "fastener": "FASTENER",
@@ -202,7 +215,7 @@ class ObjectDetectionEngine:
     Maintains clean separation from HTTP routes and data persistence.
     """
 
-    def __init__(self, model_name: Optional[str] = None, device: str = "auto", conf_threshold: float = 0.25):
+    def __init__(self, model_name: Optional[str] = None, device: str = "auto", conf_threshold: float = 0.15):
         self.requested_model_name = model_name or CONFIGURED_MODEL_PREFERENCE
         self.model_name = self.requested_model_name
         self.device_preference = device
@@ -213,6 +226,7 @@ class ObjectDetectionEngine:
         self.is_loaded = False
         self.last_load_error = None
         self.resolved_model_path = None
+        self._inference_lock = threading.RLock()
 
         self._select_device()
         self._load_model()
@@ -271,8 +285,11 @@ class ObjectDetectionEngine:
             # If using YOLO-World, set zero-shot custom classes
             if 'world' in self.model_name.lower():
                 custom_classes = [
-                    "bundle", "pallet", "metal frame", "box", "carton", "crate", 
-                    "package", "steel bar bundle", "truck", "forklift", "person", "license plate"
+                    "person", "worker", "forklift", "truck", "car",
+                    "bundle", "pallet", "metal frame", "box", "carton", "crate",
+                    "package", "steel bar bundle", "glass sheet", "wooden plank",
+                    "timber", "plywood", "pipe", "container", "bottle", "bag",
+                    "book", "bin", "tote", "license plate"
                 ]
                 try:
                     self.model.set_classes(custom_classes)
@@ -287,6 +304,30 @@ class ObjectDetectionEngine:
             self.last_load_error = str(e)
             logger.error(f"Failed to load YOLO model '{self.requested_model_name}': {e}")
             return False
+
+    def update_zero_shot_classes(self, custom_names: List[str], vision_classes: Optional[List[ Any]] = None) -> bool:
+        """Thread-safely updates YOLO-World zero-shot classes and registers their class_code mappings."""
+        with self._inference_lock:
+            if vision_classes:
+                for vc in vision_classes:
+                    if isinstance(vc, (list, tuple)) and len(vc) >= 2:
+                        code_str = str(vc[0]).strip().upper()
+                        label_str = str(vc[1]).strip().lower()
+                        self.class_mapping[label_str] = code_str
+                        FALLBACK_CLASS_NAMES[code_str] = str(vc[1]).strip()
+            if self.model is not None and 'world' in str(self.model_name).lower():
+                core_prompts = [
+                    "person", "worker", "forklift", "truck", "car",
+                    "bundle", "pallet", "box", "carton", "crate", "package",
+                    "glass sheet", "wooden plank", "timber", "plywood", "pipe",
+                    "container", "bottle", "bag", "book", "bin", "tote", "license plate"
+                ]
+                merged = list(dict.fromkeys(core_prompts + [str(n).strip().lower() for n in custom_names if n]))
+                if hasattr(self.model, "predictor"):
+                    self.model.predictor = None
+                self.model.set_classes(merged)
+                return True
+        return False
 
     def reload(self, model_name: Optional[str] = None, device: Optional[str] = None, conf_threshold: Optional[float] = None) -> Tuple[bool, Optional[str]]:
         """
@@ -340,7 +381,11 @@ class ObjectDetectionEngine:
         """
         try:
             import db
-            skus = db.get_all_skus() or []
+            now = time.time()
+            if not hasattr(self, "_cached_skus") or (now - getattr(self, "_cached_skus_time", 0.0)) > 3.0:
+                self._cached_skus = db.get_all_skus() or []
+                self._cached_skus_time = now
+            skus = self._cached_skus
             if not skus:
                 return None
 
@@ -353,11 +398,13 @@ class ObjectDetectionEngine:
             best_score = -1.0
             code_l = str(mapped_code or "").lower()
 
-            try:
-                from pallet_service import SkuVisualSignatureMatcher
-                matcher = SkuVisualSignatureMatcher()
-            except Exception:
-                matcher = None
+            if not hasattr(self, "_shared_sku_matcher"):
+                try:
+                    from pallet_service import SkuVisualSignatureMatcher
+                    self._shared_sku_matcher = SkuVisualSignatureMatcher()
+                except Exception:
+                    self._shared_sku_matcher = None
+            matcher = self._shared_sku_matcher
 
             for s in skus:
                 sid = s.get("sku_id", "")
@@ -447,16 +494,18 @@ class ObjectDetectionEngine:
             for mc in master_classes:
                 active_class_names[mc.get('code')] = mc.get('name', mc.get('code'))
 
-        # 3. Execute Inference
+        # 3. Execute Inference (thread-safe lock prevents collision with dynamic set_classes)
         t_pre = time.perf_counter()
+        infer_imgsz = 480 if self.active_device == "cpu" else 640
         try:
-            # Ultralytics inference
-            results = self.model(
-                source=frame_bgr,
-                conf=threshold,
-                device=self.active_device,
-                verbose=False
-            )
+            with self._inference_lock:
+                results = self.model(
+                    source=frame_bgr,
+                    conf=threshold,
+                    imgsz=infer_imgsz,
+                    device=self.active_device,
+                    verbose=False
+                )
         except Exception as inf_err:
             logger.error(f"Inference execution failed on {self.active_device}: {inf_err}")
             # Try CPU fallback if CUDA failed
@@ -515,6 +564,19 @@ class ObjectDetectionEngine:
                         if getattr(self, "model_name", "") == "best.pt":
                             # Auto-adopt custom trained class names from fine-tuned weights
                             mapped_code = raw_class_name.upper().replace(' ', '_')
+                        elif 'world' in str(getattr(self, "model_name", "")).lower():
+                            if any(k in raw_class_name for k in ("person", "worker", "personnel", "operator", "inspector")):
+                                mapped_code = "WORKER"
+                            elif any(k in raw_class_name for k in ("forklift", "reach", "jack", "clamp")):
+                                mapped_code = "FORKLIFT"
+                            elif any(k in raw_class_name for k in ("truck", "trailer", "van", "tanker")):
+                                mapped_code = "TRUCK"
+                            elif any(k in raw_class_name for k in ("pallet", "stillage", "cradle")):
+                                mapped_code = "PALLET"
+                            elif any(k in raw_class_name for k in ("bundle", "stack", "roll", "bale", "plank", "sheet", "pipe")):
+                                mapped_code = "BUNDLE"
+                            else:
+                                mapped_code = "BOX"
                         else:
                             # Drop non-warehouse classes (e.g. chair, couch, cell phone, remote, toilet, animal, etc.)
                             # This strictly prevents recognizing random background objects as warehouse items.

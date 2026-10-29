@@ -34,3 +34,8 @@ webapp/static/invoices/Pallet_Label_*.pdf
 scratch/
 *.jpeg
 webapp/static/test_scenes/
+*.exe
+*.pth
+webapp/easyocr_models/
+webapp/static/snapshots/
+webapp/static/invoices/*.pdf

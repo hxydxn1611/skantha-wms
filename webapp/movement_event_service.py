@@ -356,7 +356,12 @@ class CameraMovementEventSession:
                 cn = [(float(bn[0]) + float(bn[2])) / 2.0, (float(bn[1]) + float(bn[3])) / 2.0]
 
         if cn:
-            center_dict = {"x": float(cn[0]), "y": float(cn[1])}
+            if isinstance(cn, dict):
+                center_dict = {"x": float(cn.get("x", 0.5)), "y": float(cn.get("y", 0.5))}
+            elif isinstance(cn, (list, tuple)) and len(cn) >= 2:
+                center_dict = {"x": float(cn[0]), "y": float(cn[1])}
+            else:
+                center_dict = {"x": 0.5, "y": 0.5}
             for cz in effective_zones:
                 # Runtime ROIs (db.get_camera_rois) carry 'coordinates'; synthetic zones carry 'polygon'
                 poly = cz.get("polygon") or cz.get("coordinates")

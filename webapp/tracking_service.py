@@ -22,25 +22,28 @@ import logging
 from collections import deque
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 
 # Import detection engine and utilities from Part 5
-from detection_service import (
+from detection_service import (  # type: ignore[import-not-found]
     get_detection_engine,
     is_point_in_polygon,
     FALLBACK_CLASS_NAMES
 )
 
+BYTETracker: Any = None
+TrackState: Any = None
 try:
-    from ultralytics.trackers.byte_tracker import BYTETracker
-    from ultralytics.trackers.basetrack import TrackState
+    from ultralytics.trackers.byte_tracker import BYTETracker as _BYTETracker  # type: ignore[import-not-found]
+    from ultralytics.trackers.basetrack import TrackState as _TrackState  # type: ignore[import-not-found]
+    BYTETracker = _BYTETracker
+    TrackState = _TrackState
     BYTETRACKER_AVAILABLE = True
 except ImportError:
     BYTETRACKER_AVAILABLE = False
-    TrackState = None
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +111,9 @@ class CameraTrackingSession:
     def __init__(
         self,
         camera_id: str,
-        track_high_thresh: float = 0.25,
-        track_low_thresh: float = 0.10,
-        new_track_thresh: float = 0.25,
+        track_high_thresh: float = 0.14,
+        track_low_thresh: float = 0.05,
+        new_track_thresh: float = 0.14,
         track_buffer: int = 60,
         match_thresh: float = 0.80,
         smoothing_alpha: float = 0.70
@@ -133,10 +136,10 @@ class CameraTrackingSession:
         )
 
         # ByteTrack instance
-        if BYTETRACKER_AVAILABLE:
+        self.tracker: Optional[Any] = None
+        if BYTETRACKER_AVAILABLE and BYTETracker is not None:
             self.tracker = BYTETracker(self.args)
         else:
-            self.tracker = None
             logger.error("BYTETracker from ultralytics is unavailable.")
 
         # Local Track ID mapping (ensures Camera-specific ID isolation & clean resets)
@@ -144,7 +147,7 @@ class CameraTrackingSession:
         self._next_local_id: int = 1
 
         # In-memory trajectory centers (max 25 recent points per track)
-        self.trajectories: Dict[int, deque] = {}
+        self.trajectories: Dict[int, deque[Dict[str, Any]]] = {}
 
         # Smoothed bounding boxes across frames to eliminate jitter (EMA filter)
         self.smoothed_bboxes: Dict[int, List[float]] = {}
@@ -176,7 +179,7 @@ class CameraTrackingSession:
         self.track_metadata.clear()
         self.track_last_seen.clear()
         self.latest_tracks.clear()
-        if BYTETRACKER_AVAILABLE:
+        if BYTETRACKER_AVAILABLE and BYTETracker is not None:
             self.tracker = BYTETracker(self.args)
 
     def update(
@@ -197,10 +200,10 @@ class CameraTrackingSession:
             return []
 
         # 1. Prepare SimpleDetections payload from Part 5 detection objects
-        xywh_list = []
-        conf_list = []
-        cls_list = []
-        det_centers = []
+        xywh_list: List[List[float]] = []
+        conf_list: List[float] = []
+        cls_list: List[float] = []
+        det_centers: List[Tuple[float, float, Dict[str, Any]]] = []
 
         for d in detections:
             bbox = d.get('bbox', {})
@@ -356,7 +359,7 @@ class CameraTrackingSession:
                 movement_state = "STATIONARY"
 
             # Check spatial ROI containment (Part 4 / Section 13)
-            roi_info = {
+            roi_info: Dict[str, Any] = {
                 "configured": False,
                 "inside": False,
                 "zone_code": roi_zone_code or None
@@ -368,7 +371,7 @@ class CameraTrackingSession:
                     roi_polygon
                 )
 
-            track_record = {
+            track_record: Dict[str, Any] = {
                 "track_id": local_id,
                 "class_code": cls_code,
                 "class_name": cls_name,
@@ -458,7 +461,7 @@ class MultiObjectTrackingService:
 
     def get_sessions_status(self) -> List[Dict[str, Any]]:
         """Return operational status summary across all camera sessions."""
-        status_list = []
+        status_list: List[Dict[str, Any]] = []
         for cam_id, sess in self.sessions.items():
             status_list.append({
                 "camera_id": cam_id,
@@ -587,7 +590,7 @@ class MultiObjectTrackingService:
         )
 
         _, buf = cv2.imencode('.jpg', annotated_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
-        annotated_b64 = "data:image/jpeg;base64," + base64.b64encode(buf).decode('utf-8')
+        annotated_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode('utf-8')
 
         return {
             "success": True,
@@ -621,13 +624,13 @@ class MultiObjectTrackingService:
         base_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", "warehouse_carrier.jpg")
         if os.path.exists(base_path):
             base = cv2.imread(base_path)
-            h, w = base.shape[:2]
-            # Smooth subtle horizontal shift across frames without border distortion
-            dx = int(round(np.sin(step_index * 0.45) * 6))
-            dy = int(round(np.cos(step_index * 0.45) * 2))
-            shifted = np.roll(base, dx, axis=1)
-            shifted = np.roll(shifted, dy, axis=0)
-            return shifted
+            if base is not None:
+                # Smooth subtle horizontal shift across frames without border distortion
+                dx = int(round(np.sin(step_index * 0.45) * 6))
+                dy = int(round(np.cos(step_index * 0.45) * 2))
+                shifted = np.roll(base, dx, axis=1)
+                shifted = np.roll(shifted, dy, axis=0)
+                return shifted
 
         # Fallback to synthetic warehouse dock
         return self.detection_engine.create_synthetic_warehouse_frame()
@@ -644,7 +647,7 @@ class MultiObjectTrackingService:
         Execute a multi-frame sequential run to demonstrate persistent tracking across time.
         """
         session = self.get_session(camera_id)
-        step_results = []
+        step_results: List[Dict[str, Any]] = []
         final_annotated_url = ""
 
         for step in range(num_frames):
@@ -713,19 +716,19 @@ class MultiObjectTrackingService:
             cv2.polylines(annotated, [pts], True, (60, 220, 60), 2, cv2.LINE_AA)
 
             if roi_zone_code:
-                rx, ry = pts[0][0], pts[0][1]
+                rx, ry = int(pts[0][0]), int(pts[0][1])
                 cv2.putText(annotated, f"ROI: {roi_zone_code}", (rx + 6, ry - 6),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, (60, 220, 60), 1, cv2.LINE_AA)
 
         # 2. Draw Trajectory Motion Trails for Active Tracks
         for track in tracks:
-            tid = track["track_id"]
-            history = session.trajectories.get(tid, [])
-            cls_code = track.get("class_code", "OBJ")
+            tid = int(track["track_id"])
+            history = session.trajectories.get(tid)
+            cls_code = str(track.get("class_code", "OBJ"))
             color = class_colors.get(cls_code, (0, 255, 255))
 
-            if len(history) >= 2:
-                pts_list = [(p["px"], p["py"]) for p in history]
+            if history and len(history) >= 2:
+                pts_list: List[Tuple[int, int]] = [(int(p["px"]), int(p["py"])) for p in history]
                 for i in range(1, len(pts_list)):
                     thickness = max(1, int(1 + (i / len(pts_list)) * 2))
                     cv2.line(annotated, pts_list[i - 1], pts_list[i], color, thickness, cv2.LINE_AA)

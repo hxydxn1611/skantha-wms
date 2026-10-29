@@ -58,6 +58,7 @@ class SmartCamera:
         self.is_gate_camera = (loc_str == 'gate' or 'gate' in name_str or 'gate' in cid_str or 'anpr' in name_str)
         self.last_detected_plate = None
         self.last_gate_pass_id = None
+        self.last_gate_pass_photo = None
         self.last_gate_pass_time = 0
         self.last_plate_prob = 0.0
         self.anpr_in_flight = False
@@ -198,7 +199,16 @@ class SmartCamera:
             cap_source = int(cap_source.strip())
             is_usb = True
         elif isinstance(cap_source, str) and (cap_source.startswith("rtsp://") or cap_source.startswith("http://")):
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;2000000"
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;1500000|stimeout;1500000|rtsp_transport;tcp|max_delay;500000|buffer_size;102400"
+            if ":8080" in cap_source:
+                if cap_source.startswith("rtsp://"):
+                    cap_source = cap_source.replace("rtsp://", "http://", 1)
+                    if "/Streaming/Channels" in cap_source or "/cam/realmonitor" in cap_source or cap_source.endswith(":8080") or cap_source.endswith(":8080/"):
+                        proto, rest = cap_source.split("://", 1)
+                        host_port = rest.split("/")[0]
+                        cap_source = f"{proto}://{host_port}/video"
+                elif cap_source.startswith(("http://", "https://")) and (cap_source.endswith(":8080") or cap_source.endswith(":8080/")):
+                    cap_source = cap_source.rstrip("/") + "/video"
             
         if is_usb and os.name == 'nt':
             # Try configured index first, fallback to 0 or 1
@@ -331,35 +341,48 @@ class SmartCamera:
                     except Exception:
                         ocr_res = []
 
+                    from vision_runtime_service import parse_and_validate_indian_plate
                     clean_tokens = []
                     for (_, text, prob) in ocr_res:
                         clean_text = "".join(c for c in text if c.isalnum()).upper()
                         if len(clean_text) >= 2 and prob > 0.15:
                             clean_tokens.append(clean_text)
 
-                        # Match strict Indian license plate regex on token
-                        m = re.search(r'[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{3,4}', clean_text)
-                        if m and prob > 0.20:
-                            if prob > best_prob:
-                                best_plate = m.group(0)
-                                best_prob = float(prob)
-                        elif 4 <= len(clean_text) <= 12 and prob > 0.35:
-                            has_num = any(c.isdigit() for c in clean_text)
-                            has_alpha = any(c.isalpha() for c in clean_text)
-                            if has_num and has_alpha and prob > best_prob:
-                                best_plate = clean_text
-                                best_prob = float(prob)
+                        val = parse_and_validate_indian_plate(clean_text)
+                        if val and prob > best_prob:
+                            best_plate = val
+                            best_prob = float(prob)
 
-                    # Multi-line token recombination (e.g. ['MH', '12', 'PQ', '9988'] -> 'MH12PQ9988')
+                    # Multi-line token recombination (e.g. ['DL', '01', 'AB', '1234'] -> 'DL-01-AB-1234')
                     if not best_plate and clean_tokens:
                         combined = "".join(clean_tokens)
-                        m = re.search(r'[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{3,4}', combined)
-                        if m:
-                            best_plate = m.group(0)
+                        val = parse_and_validate_indian_plate(combined)
+                        if val:
+                            best_plate = val
                             best_prob = 0.85
-                        elif 5 <= len(combined) <= 12 and any(c.isdigit() for c in combined) and any(c.isalpha() for c in combined):
-                            best_plate = combined
-                            best_prob = 0.75
+
+                    # High-precision binary Otsu thresholding fallback for high glare / low-light plates
+                    if not best_plate:
+                        try:
+                            _, otsu = cv2.threshold(filtered, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                            otsu_res = SmartCamera.ocr_reader.readtext(otsu)
+                            otsu_tokens = []
+                            for (_, text, prob) in otsu_res:
+                                clean_t = "".join(c for c in text if c.isalnum()).upper()
+                                if len(clean_t) >= 2 and prob > 0.15:
+                                    otsu_tokens.append(clean_t)
+                                val = parse_and_validate_indian_plate(clean_t)
+                                if val:
+                                    best_plate = val
+                                    best_prob = float(prob)
+                                    break
+                            if not best_plate and otsu_tokens:
+                                val = parse_and_validate_indian_plate("".join(otsu_tokens))
+                                if val:
+                                    best_plate = val
+                                    best_prob = 0.80
+                        except Exception:
+                            pass
 
             # Standardize Indian format with hyphens (e.g. MH12PQ9988 -> MH-12-PQ-9988)
             if best_plate != "":
@@ -620,6 +643,7 @@ class SmartCamera:
                     self.track_motion_vectors = state.get("track_motion_vectors", {})
                     self.last_detected_plate = state.get("last_detected_plate")
                     self.last_gate_pass_id = state.get("last_gate_pass_id")
+                    self.last_gate_pass_photo = state.get("last_gate_pass_photo")
                     self.events = state.get("events", [])
                     self.inference_latency_ms = state.get("inference_latency_ms", 0.0)
                     self.fps = state.get("fps", 0.0)
@@ -636,22 +660,52 @@ class SmartCamera:
             if self.is_frozen and self.frozen_jpeg is not None:
                 return self.frozen_jpeg
 
-        # 1. Authoritative canonical VisionRuntimeSession annotated frame
+        # 1. Authoritative canonical VisionRuntimeSession live annotated frame
         try:
             from vision_runtime_service import get_vision_runtime_manager
             sess = get_vision_runtime_manager().get_session(self.camera_id)
-            if sess and sess.latest_annotated_jpeg:
-                return sess.latest_annotated_jpeg
+            if sess:
+                live_jpeg = sess.get_latest_jpeg()
+                if live_jpeg:
+                    return live_jpeg
+                if sess.latest_annotated_jpeg:
+                    return sess.latest_annotated_jpeg
         except Exception:
             pass
 
-        # 2. Fallback local rendering with synchronized state
+        # 2. Shared Frame Bus check
+        try:
+            from vision_runtime_service import get_shared_frame_bus
+            bus_frame = get_shared_frame_bus().get_latest_frame(self.camera_id, copy=False, max_age_seconds=4.0)
+            if bus_frame is not None:
+                with self.lock:
+                    self.raw_frame = bus_frame
+        except Exception:
+            pass
+
+        # 3. Direct RTMP ingest check (STRICTLY for Wi-Fi Camera pushing to port 1935, NEVER for IP/RTSP/Webcam)
+        url_low = (self.url or "").lower()
+        ctype_low = (self.cam_type or "").lower()
+        vendor_low = (self.vendor or "").lower()
+        is_rtmp_cam = (
+            ("rtmp" in url_low or "1935" in url_low or "wi-fi" in ctype_low or "wifi" in ctype_low or vendor_low == "trueview")
+            and not ("http" in url_low or "rtsp" in url_low or "device:" in url_low or ctype_low in ("ip camera", "dvr", "nvr", "device camera"))
+        )
+
+        if is_rtmp_cam and self.raw_frame is None:
+            try:
+                from rtmp_service import get_rtmp_service
+                rtmp_srv = get_rtmp_service()
+                if rtmp_srv and rtmp_srv.latest_frame is not None and (time.time() - rtmp_srv.last_frame_time) < 4.0:
+                    with self.lock:
+                        self.raw_frame = rtmp_srv.latest_frame
+            except Exception:
+                pass
+
+        # 4. Fallback local rendering with synchronized state
         with self.lock:
             if self.raw_frame is None:
-                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(placeholder, "Awaiting Camera Feed...", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
-                ret, buf = cv2.imencode('.jpg', placeholder)
-                return buf.tobytes() if ret else None
+                return None
             display_frame = self.raw_frame.copy()
             boxes_to_draw = copy.deepcopy(self.latest_boxes)
             trajectories = copy.deepcopy(self.track_trajectories)
@@ -708,37 +762,13 @@ class SmartCamera:
             elif dir_mode == 'OUTBOUND_ONLY':
                 cv2.putText(display_frame, f"[{z_label}] <<< OUT (-1)", (max(10, mid_x - 80), min(display_frame.shape[0] - 10, mid_y + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 140, 255), 1)
 
-        # Draw Live Motion Trails (Trajectories)
-        for tid, points in trajectories.items():
-            if len(points) >= 2:
-                vec = motion_vectors.get(tid, (0, 0))
-                speed = (vec[0]**2 + vec[1]**2)**0.5
-                trail_color = (0, 255, 128) if speed > 1.5 else (0, 180, 255)
-                for p_idx in range(1, len(points)):
-                    p1 = points[p_idx - 1]
-                    p2 = points[p_idx]
-                    thickness = max(1, int(p_idx / 4))
-                    cv2.line(display_frame, p1, p2, trail_color, thickness)
-
-        # Draw Detected Objects (Workers in Cyan, Stocks in Emerald Green)
+        # Draw Detected Objects (Clean bounding boxes without arrows)
         for box in boxes_to_draw:
             x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
             is_person = box.get('is_person', False)
-            color = (255, 200, 0) if is_person else (0, 255, 128) # Cyan for person, Emerald for stock
-
+            color = (255, 200, 0) if is_person else (0, 255, 128)
             cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(display_frame, box['type'], (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-            # Centroid point & motion vector arrow
-            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
-            cv2.circle(display_frame, (cx, cy), 3, (255, 255, 255), -1)
-
-            tid = box.get('track_id')
-            if tid in motion_vectors:
-                mv_x, mv_y = motion_vectors[tid]
-                if abs(mv_x) > 1 or abs(mv_y) > 1:
-                    arrow_end = (cx + int(mv_x * 2.5), cy + int(mv_y * 2.5))
-                    cv2.arrowedLine(display_frame, (cx, cy), arrow_end, color, 2, tipLength=0.35)
 
         # Draw Floating Flash Indicators for Additions & Subtractions
         for fc in flash_counters:

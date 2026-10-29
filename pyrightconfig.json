@@ -1,11 +1,16 @@
 {
   "include": [
     "webapp",
+    "ml_pipeline",
     "tests",
-    "scratch"
+    "scratch",
+    "*.py"
   ],
   "extraPaths": [
-    "webapp"
+    "webapp",
+    "ml_pipeline"
   ],
-  "typeCheckingMode": "off"
+  "typeCheckingMode": "off",
+  "reportMissingImports": "warning",
+  "pythonVersion": "3.12"
 }

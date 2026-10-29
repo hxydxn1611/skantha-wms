@@ -1087,7 +1087,10 @@ def apply_industry_blueprint(
             engine = get_detection_engine()
             if engine and getattr(engine, 'model', None) and 'world' in getattr(engine, 'model_name', '').lower():
                 custom_names = [c[1].lower() for c in bp["vision_classes"]]
-                engine.model.set_classes(custom_names)
+                if hasattr(engine, 'update_zero_shot_classes'):
+                    engine.update_zero_shot_classes(custom_names, bp["vision_classes"])
+                else:
+                    engine.model.set_classes(custom_names)
                 logger.info(f"Updated YOLO-World zero-shot classes for '{bp['name']}': {custom_names}")
         except Exception as det_err:
             logger.warning(f"Could not dynamic-update YOLO-World classes: {det_err}")

@@ -159,11 +159,11 @@ class OCRAdapter:
         if self._reader is None and self.is_available and easyocr is not None:
             try:
                 logger.info(f"Initializing EasyOCR reader (GPU={self.use_gpu})...")
-                self._reader = easyocr.Reader(['en'], gpu=self.use_gpu, verbose=False)
+                self._reader = easyocr.Reader(['en'], gpu=self.use_gpu, download_enabled=False, verbose=False)
             except Exception as e:
                 logger.error(f"Failed to initialize EasyOCR on GPU={self.use_gpu}: {e}. Retrying CPU...")
                 try:
-                    self._reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+                    self._reader = easyocr.Reader(['en'], gpu=False, download_enabled=False, verbose=False)
                 except Exception as e2:
                     logger.error(f"EasyOCR CPU initialization failed: {e2}")
                     self.is_available = False
