@@ -6124,14 +6124,14 @@ class PalletVisionCountingService:
         hsv2 = feat2.get("mean_hsv", [0, 0, 128])
 
         # Circular hue difference (0..180 degrees in OpenCV HSV)
-        dh = min(abs(hsv1[0] - hsv2[0]), 180.0 - abs(hsv1[0] - hsv2[0])) / 90.0
-        ds = abs(hsv1[1] - hsv2[1]) / 255.0
-        dv = abs(hsv1[2] - hsv2[2]) / 255.0
+        dh = min(float(abs(hsv1[0] - hsv2[0])), float(180.0 - abs(hsv1[0] - hsv2[0]))) / 90.0
+        ds = float(abs(hsv1[1] - hsv2[1])) / 255.0
+        dv = float(abs(hsv1[2] - hsv2[2])) / 255.0
         color_dist = 0.50 * dh + 0.30 * ds + 0.20 * dv
         color_sim = max(0.0, 1.0 - color_dist)
 
-        std1 = feat1.get("std_intensity", 15.0)
-        std2 = feat2.get("std_intensity", 15.0)
+        std1 = float(feat1.get("std_intensity", 15.0))
+        std2 = float(feat2.get("std_intensity", 15.0))
         std_diff = abs(std1 - std2) / max(1.0, std1 + std2)
         texture_sim = max(0.0, 1.0 - std_diff)
 
@@ -7057,7 +7057,7 @@ class PalletVisionCountingService:
                         }
                     })
 
-                session["duplicate_observations_removed"] = max(0, session.get("duplicate_observations_removed", 0) - len(separated_views))
+                session["duplicate_observations_removed"] = max(0, int(session.get("duplicate_observations_removed", 0)) - len(separated_views))
                 corrections.append({
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "action": "separate_object",
