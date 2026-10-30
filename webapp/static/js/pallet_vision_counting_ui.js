@@ -2472,7 +2472,22 @@
 
                 const warnElem = document.getElementById('wbFusionAmbiguityWarning');
                 if (warnElem) {
-                    warnElem.style.display = (data.fusion_status === 'ambiguous' || (data.uncertain_count && data.uncertain_count > 0)) ? 'block' : 'none';
+                    if (data.operator_guidance) {
+                        warnElem.style.display = 'block';
+                        const isPartial = (data.fusion_status === 'partial' || (data.uncertain_count && data.uncertain_count > 0));
+                        warnElem.style.background = isPartial ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)';
+                        warnElem.style.border = isPartial ? '1px solid rgba(245,158,11,0.4)' : '1px solid rgba(16,185,129,0.4)';
+                        warnElem.style.color = isPartial ? '#fbbf24' : '#34d399';
+                        warnElem.innerHTML = `<i class="fas ${isPartial ? 'fa-triangle-exclamation' : 'fa-circle-check'}" style="margin-right:6px;"></i> <b>OPERATOR GUIDANCE:</b> ${data.operator_guidance}`;
+                    } else if (data.fusion_status === 'ambiguous' || (data.uncertain_count && data.uncertain_count > 0)) {
+                        warnElem.style.display = 'block';
+                        warnElem.style.background = 'rgba(239,68,68,0.15)';
+                        warnElem.style.border = '1px solid rgba(239,68,68,0.4)';
+                        warnElem.style.color = '#fca5a5';
+                        warnElem.innerHTML = `<i class="fas fa-triangle-exclamation" style="margin-right:4px;"></i> Ambiguous cross-view observations detected. Review candidate matches in the drawer below.`;
+                    } else {
+                        warnElem.style.display = 'none';
+                    }
                 }
 
                 // Render Stage 6 Operator Review Drawer Items
