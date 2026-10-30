@@ -147,10 +147,12 @@ class PalletVisionCountingService:
                 sku_text = f"{anchor.get('sku_id','')} {anchor.get('name','')} {anchor.get('category','')}".lower()
                 is_conflicting = False
                 mismatch_msg = None
-                if is_metallic_grey_t and any(g in sku_text for g in ("glass", "float", "dgu", "igu", "mirror", "pane")):
+                is_glass_sku = any(g in sku_text for g in ("glass", "float", "dgu", "igu", "mirror", "pane", "gls")) or str(anchor.get("sku_id", "")).upper().startswith("GLS")
+                is_metal_sku = any(m in sku_text for m in ("steel", "pipe", "metal", "tube", "wood", "timber", "stl", "pip")) or str(anchor.get("sku_id", "")).upper().startswith(("STL", "PIP"))
+                if is_metallic_grey_t and is_glass_sku:
                     is_conflicting = True
                     mismatch_msg = f"Visual evidence indicates metallic steel profiles, but selected SKU '{anchor['sku_id']}' is a glass product."
-                elif is_cyan_glass_t and any(m in sku_text for m in ("steel", "pipe", "metal", "tube", "wood", "timber")):
+                elif is_cyan_glass_t and is_metal_sku:
                     is_conflicting = True
                     mismatch_msg = f"Visual evidence indicates glass sheets, but selected SKU '{anchor['sku_id']}' is a metal/wood product."
 
@@ -383,10 +385,15 @@ class PalletVisionCountingService:
                 )
 
         res_dict["recognized_sku"] = rec_sku
+        res_dict["selected_sku"] = explicit_sku_id
         res_dict["sku_id"] = rec_sku["sku_id"]
         res_dict["sku_name"] = rec_sku["name"]
         res_dict["sku_category"] = rec_sku["category"]
         res_dict["sku_image_url"] = rec_sku.get("image_url")
+        if rec_sku.get("mismatch_warning"):
+            res_dict["mismatch_warning"] = rec_sku["mismatch_warning"]
+        if "inferred_material" not in res_dict:
+            res_dict["inferred_material"] = "glass_sheets" if (res_dict.get("material_type") == "glass_sheets") else "steel_profiles"
         res_dict["uom"] = uom
         res_dict["units_per_bundle"] = upb
         res_dict["bundle_name"] = bname
@@ -872,7 +879,8 @@ class PalletVisionCountingService:
             mean_v_t = float(np.mean(hsv_t[:, :, 2]))
             is_metallic_grey_t = (mean_s_t < 42 and 60 <= mean_v_t <= 205)
             sku_text = f"{sku_anchor.get('sku_id','')} {sku_anchor.get('name','')} {sku_anchor.get('category','')}".lower()
-            if is_metallic_grey_t and any(g in sku_text for g in ("glass", "float", "dgu", "igu", "mirror", "pane")):
+            is_glass_anchor = any(g in sku_text for g in ("glass", "float", "dgu", "igu", "mirror", "pane", "gls")) or str(sku_anchor.get("sku_id", "")).upper().startswith("GLS")
+            if is_metallic_grey_t and is_glass_anchor:
                 logger.info(f"Conflicting glass SKU '{sku_anchor.get('sku_id')}' overridden for metallic steel inventory scene.")
                 sku_anchor = None
 
@@ -1190,10 +1198,30 @@ class PalletVisionCountingService:
                 "color_bgr": cl["color_bgr"]
             })
 
-        formula_desc = f"{total_count} Directly Localized Cross-Section Instances"
+        is_glass_mode = (is_glass if 'is_glass' in locals() else False) or (material_type == "glass_sheets")
+        if is_glass_mode:
+            formula_desc = f"{total_count} Directly Resolved Rim Sheet Edges (Compressed Stack Body Flagged Uncertain)"
+            counting_method = "DIRECT_GLASS_SHEET_EDGE_DETECTION"
+            is_estimate_val = True
+            verif_status = "PARTIAL_VISUAL_DETECTION_WITH_COMPRESSED_STACK"
+            conf_note = (
+                f"Directly resolved {total_count} visible physical sheet boundary edges along the top stillage rim. "
+                "The dense interior stack body is compressed face-to-face and cannot be resolved into individual sheets "
+                "from a single perspective view (flagged as UNCERTAIN; use Glass Bundle mode or multi-view depth profiling for total count)."
+            )
+        else:
+            formula_desc = f"{total_count} Directly Localized Cross-Section Instances"
+            counting_method = "DIRECT_CROSS_SECTION_DETECTION"
+            is_estimate_val = False
+            verif_status = "DIRECT_VISUAL_DETECTION" if uncertain_count == 0 else "DIRECT_VISUAL_WITH_UNCERTAINTY"
+            conf_note = (
+                f"Directly localized {total_count} confirmed cross-sections"
+                + (f" ({excluded_count} excluded by regions, {uncertain_count} boundary candidates)" if valid_regions else ".")
+            )
+
         if valid_regions:
             formula_desc += f" (Regions Active: {total_count} Included, {excluded_count} Excluded)"
-        if uncertain_count > 0:
+        if uncertain_count > 0 and not is_glass_mode:
             formula_desc += f" • {uncertain_count} Boundary Cases Flagged"
 
         quantity_breakdown = {
@@ -1207,15 +1235,19 @@ class PalletVisionCountingService:
             "formula": formula_desc,
             "total_units": total_count,
             "final_reviewed_quantity": total_count,
-            "counting_method": "DIRECT_CROSS_SECTION_DETECTION",
+            "counting_method": counting_method,
             "tare_excluded": True,
             "tare_packaging": {
                 "pallet_base_count": 1 if tare_pallet_detected else 0,
                 "notes": "Physical pallet base and dunnage excluded from inventory count"
             },
-            "model_limitations": "Dense touching or highly reflective profile/tube cross-sections may experience partial boundary merging or glare occlusion.",
-            "is_estimate": False,
-            "verification_status": "DIRECT_VISUAL_DETECTION" if uncertain_count == 0 else "DIRECT_VISUAL_WITH_UNCERTAINTY"
+            "model_limitations": (
+                "Dense touching or highly reflective profile/tube cross-sections may experience partial boundary merging or glare occlusion."
+                if not is_glass_mode
+                else "Face-to-face compressed glass sheets cannot be resolved into single sheets from a single perspective view; thickness measurement requires bundle profile or multi-view."
+            ),
+            "is_estimate": is_estimate_val,
+            "verification_status": verif_status
         }
 
         res_dict = {
@@ -1223,7 +1255,7 @@ class PalletVisionCountingService:
             "mode": "INDIVIDUAL_PIECES",
             "counting_mode": normalized_mode,
             "counting_strategy": "INDIVIDUAL_PIECE_COUNTING",
-            "material_type": "glass_sheets" if (is_glass if 'is_glass' in locals() else False) else "individual_pieces",
+            "material_type": "glass_sheets" if is_glass_mode else "individual_pieces",
             "matrix_3d": None,
             "total_pieces": total_count,
             "visible_pieces": total_count,
@@ -1242,10 +1274,7 @@ class PalletVisionCountingService:
             "annotated_image_url": rel_url,
             "raw_image_url": raw_url,
             "quantity_breakdown": quantity_breakdown,
-            "confidence_note": (
-                f"Directly localized {total_count} confirmed cross-sections"
-                + (f" ({excluded_count} excluded by regions, {uncertain_count} boundary candidates)" if valid_regions else ".")
-            ),
+            "confidence_note": conf_note,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         if sku_anchor:
@@ -3257,6 +3286,11 @@ class PalletVisionCountingService:
         found_by_color = {}
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
+        scale_area = float((w * h) / (1024.0 * 782.0))
+        min_a = max(10, int(12 * scale_area))
+        max_a = int(600 * scale_area)
+        dup_dist = max(5, int(6 * np.sqrt(scale_area)))
+
         for cl_name, lower_c, upper_c, bgr, chex in color_ranges:
             found_by_color[cl_name] = []
             m = cv2.inRange(hsv, np.array(lower_c, dtype=np.uint8), np.array(upper_c, dtype=np.uint8)) & mask_search
@@ -3265,16 +3299,16 @@ class PalletVisionCountingService:
 
             for c in cnts:
                 area = cv2.contourArea(c)
-                if 12 < area < 450:
+                if min_a < area < max_a:
                     peri = cv2.arcLength(c, True)
                     circ = (4 * np.pi * area) / (peri * peri) if peri > 0 else 0
-                    if circ >= 0.55:
+                    if circ >= 0.50:
                         M = cv2.moments(c)
                         if M['m00'] > 0:
                             cx = int(M['m10'] / M['m00'])
                             cy = int(M['m01'] / M['m00'])
                             # Avoid duplicates
-                            if not any(abs(p["x"] - cx) < 6 and abs(p["y"] - cy) < 6 for p in found_by_color[cl_name]):
+                            if not any(abs(p["x"] - cx) < dup_dist and abs(p["y"] - cy) < dup_dist for p in found_by_color[cl_name]):
                                 found_by_color[cl_name].append({
                                     "x": cx,
                                     "y": cy,
@@ -3623,12 +3657,15 @@ class PalletVisionCountingService:
         # 2. Check both horizontal (top rim) and vertical (right rim) thickness profiles
         # Top rim: horizontal sheet edges stacked vertically
         top_h = max(20, int(bh * 0.45))
-        top_roi = gray[by:by + top_h, bx + int(bw * 0.15):bx + int(bw * 0.85)]
+        top_roi = gray[by:by + top_h, bx + int(bw * 0.20):bx + int(bw * 0.80)]
         sobel_y = np.abs(cv2.Sobel(top_roi, cv2.CV_32F, 0, 1, ksize=3))
         v_prof = np.mean(sobel_y, axis=1)
         v_prof_smooth = gaussian_filter1d(v_prof, sigma=2.0)
-        top_thresh = np.percentile(v_prof_smooth, 70) if len(v_prof_smooth) > 0 else 0.0
-        active_y = np.where(v_prof_smooth > top_thresh)[0] if len(v_prof_smooth) > 0 else np.array([])
+        max_v = float(np.max(v_prof_smooth)) if len(v_prof_smooth) > 0 else 0.0
+        max_y_rel = int(np.argmax(v_prof_smooth)) if len(v_prof_smooth) > 0 else 0
+        rim_y_indices = np.where(v_prof_smooth > max_v * 0.28)[0] if max_v > 20.0 else np.array([])
+        # Restrict strictly to the contiguous rim band around the gradient burst (eliminates background rafters)
+        active_rim = [y for y in rim_y_indices if abs(y - max_y_rel) < int(bh * 0.12)]
 
         # Right rim: vertical sheet edges stacked horizontally
         right_w = max(20, int(bw * 0.25))
@@ -3645,16 +3682,16 @@ class PalletVisionCountingService:
 
         pieces = []
         idx = 1
-        if top_prom >= right_prom and len(active_y) > 0:
-            # Horizontal sheet edges stacked along Y
-            band_y1 = by + max(0, int(np.min(active_y) - 8))
-            band_y2 = by + min(top_h, int(np.max(active_y) + 8))
+        if top_prom >= right_prom and len(active_rim) > 0:
+            # Horizontal sheet edges stacked along Y within verified rim band
+            band_y1 = by + max(0, int(np.min(active_rim) - 6))
+            band_y2 = by + min(top_h, int(np.max(active_rim) + 6))
             band_crop = gray[band_y1:band_y2, bx + int(bw * 0.20):bx + int(bw * 0.80)]
             if band_crop.shape[0] >= 10 and band_crop.shape[1] >= 10:
                 band_sobel = np.abs(cv2.Sobel(band_crop, cv2.CV_32F, 0, 1, ksize=3))
-                band_prof = gaussian_filter1d(np.mean(band_sobel, axis=1), sigma=1.2)
-                min_dist = max(3, int(4 + (1.0 - sensitivity) * 4))
-                peaks, _ = find_peaks(band_prof, height=10, distance=min_dist, prominence=3)
+                band_prof = gaussian_filter1d(np.mean(band_sobel, axis=1), sigma=1.0)
+                min_dist = max(4, int(5 + (1.0 - sensitivity) * 3))
+                peaks, _ = find_peaks(band_prof, height=max_v * 0.22, distance=min_dist, prominence=4)
 
                 mid_x = bx + bw // 2 + offset_x
                 sheet_w = int(bw * 0.70)
@@ -3678,7 +3715,7 @@ class PalletVisionCountingService:
                         'norm_y': round(sheet_y / float(max(1, full_h)), 4),
                         'norm_w': round(sheet_w / float(max(1, full_w)), 4),
                         'norm_h': round(8.0 / float(max(1, full_h)), 4),
-                        'confidence': 0.88,
+                        'confidence': 0.92,
                         'is_direct_detection': True,
                         'detection_status': 'CONFIRMED_SHEET_EDGE',
                         'uncertainty_indicators': []
@@ -3906,7 +3943,7 @@ class PalletVisionCountingService:
             aspect = max(bw, bh) / (min(bw, bh) + 1e-5)
             solidity = area / float(bw * bh + 1e-5)
 
-            if min_area <= area <= max_area and aspect <= 3.2 and solidity >= 0.50:
+            if min_area <= area <= max_area and aspect <= 3.2 and solidity >= 0.49:
                 bx1 = max(0, int(cx - bw // 2)) + offset_x
                 by1 = max(0, int(cy - bh // 2)) + offset_y
                 bx2 = min(full_w, int(cx + bw // 2)) + offset_x
@@ -3984,7 +4021,9 @@ class PalletVisionCountingService:
         stack_x_min = float(np.min(primary_pts[:, 0])) - spacing * 0.85
         stack_x_max = float(np.max(primary_pts[:, 0])) + spacing * 0.85
         stack_y_min = float(np.min(primary_pts[:, 1])) - spacing * 0.85
-        stack_y_max = float(np.max(primary_pts[:, 1])) + spacing * 0.85
+        # Enforce bottom pallet boundary: reject floor/pallet runner artifacts below the primary stack
+        stack_bottom_limit = float(np.percentile(primary_pts[:, 1], 96)) + spacing * 0.85
+        stack_y_max = min(float(np.max(primary_pts[:, 1])) + spacing * 0.85, stack_bottom_limit)
 
         final_pieces = []
         for i, u in enumerate(dedup_instances):
@@ -3996,8 +4035,12 @@ class PalletVisionCountingService:
             if not (stack_x_min <= cx <= stack_x_max and stack_y_min <= cy <= stack_y_max):
                 continue
 
+            # Reject floor runner artifacts below bottom of pipe stack
+            if cy > stack_bottom_limit:
+                continue
+
             # Reject sub-scale noise specks
-            if area < med_area * 0.32 or min_d < med_dim * 0.38:
+            if area < med_area * 0.28 or min_d < med_dim * 0.35:
                 continue
 
             dist_to_hull = cv2.pointPolygonTest(hull, (cx, cy), True) if hull is not None else 0.0

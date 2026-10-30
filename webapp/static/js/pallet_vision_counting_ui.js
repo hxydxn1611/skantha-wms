@@ -2572,11 +2572,17 @@
             const scat = recSku.category || data.sku_category || 'General';
             const confPct = Math.round((recSku.confidence || 0.98) * 100);
             const recMethod = recSku.recognition_method || '';
+            const mismatchWarn = recSku.mismatch_warning || data.mismatch_warning;
             let matchTag = `<span style="color:#a7f3d0; font-size:0.74rem;">[${scat} &bull; ${confPct}% Precision Match]</span>`;
-            if (recMethod === 'MATERIAL_FAMILY_INFERRED') {
+            if (mismatchWarn) {
+                matchTag = `<span style="color:#ef4444; font-size:0.75rem; font-weight:600;"><i class="fas fa-exclamation-triangle"></i> [Warning: ${mismatchWarn}]</span>`;
+                // Reset mismatched SKU selection in dropdown so subsequent counts don't re-lock onto wrong material
+                const wbSkuSel = document.getElementById('wbTargetSkuSelect');
+                if (wbSkuSel && wbSkuSel.value && wbSkuSel.value !== sid) {
+                    wbSkuSel.value = '';
+                }
+            } else if (recMethod === 'MATERIAL_FAMILY_INFERRED') {
                 matchTag = `<span style="color:#f59e0b; font-size:0.74rem;">[Material Inferred &bull; Catalog SKU Not Mapped]</span>`;
-            } else if (recSku.mismatch_warning) {
-                matchTag = `<span style="color:#ef4444; font-size:0.74rem;">[Warning: ${recSku.mismatch_warning}]</span>`;
             }
             recTextEl.innerHTML = `Recognized Product: <b style="color:#38bdf8; font-family:monospace;">${sid}</b> &mdash; <span style="color:#fff;">${sname}</span> ${matchTag}`;
         }
