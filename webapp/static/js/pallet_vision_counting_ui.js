@@ -1878,7 +1878,7 @@
 
             const labelSel = document.createElement('select');
             labelSel.style.cssText = 'background:#1e293b; color:#38bdf8; border:1px solid #475569; border-radius:3px; font-size:0.68rem; padding:1px 4px; font-weight:700;';
-            const labels = ['front', 'rear', 'left', 'right', 'top', 'side', 'perspective'];
+            const labels = ['front', 'side', 'top', 'angled', 'left', 'right', 'rear', 'perspective'];
             labels.forEach(lbl => {
                 const opt = document.createElement('option');
                 opt.value = lbl;
@@ -1987,10 +1987,10 @@
     };
 
     window.handleWorkbenchAddViewUpload = function(fileInput) {
-        if (fileInput && fileInput.files && fileInput.files[0]) {
-            const file = fileInput.files[0];
+        if (fileInput && fileInput.files && fileInput.files.length > 0) {
+            const files = Array.from(fileInput.files);
             fileInput.value = '';
-            window.addWorkbenchView(file);
+            files.forEach(f => window.addWorkbenchView(f));
         }
     };
 
@@ -2039,8 +2039,13 @@
         let file = null;
         if (inputOrFile instanceof File || inputOrFile instanceof Blob) {
             file = inputOrFile;
-        } else if (inputOrFile && inputOrFile.files && inputOrFile.files[0]) {
-            file = inputOrFile.files[0];
+        } else if (inputOrFile && inputOrFile.files && inputOrFile.files.length > 0) {
+            const fList = Array.from(inputOrFile.files);
+            file = fList[0];
+            if (fList.length > 1) {
+                // Stage additional files as multi-view angles
+                fList.slice(1).forEach(af => window.addWorkbenchView(af));
+            }
         }
         if (!file) return;
 
@@ -2362,12 +2367,66 @@
     };
 
     function renderWorkbenchResults(data) {
+        // Interactive Additional-Views Requested Banner
+        const viewsNeeded = data.views_needed || [];
+        const vBanner = document.getElementById('wbViewsNeededBanner');
+        if (vBanner) {
+            if (viewsNeeded.length > 0) {
+                vBanner.style.display = 'block';
+                const vListUpper = viewsNeeded.map(v => v.toUpperCase()).join(', ');
+                vBanner.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-camera-rotate" style="font-size:1.1rem; color:#f59e0b;"></i>
+                            <div>
+                                <span style="font-weight:700; color:#fbbf24;">Additional View Requested: ${vListUpper}</span>
+                                <div style="font-size:0.7rem; color:#cbd5e1;">${data.operator_guidance || 'Capture an additional camera perspective to resolve dense or uncertain boundaries.'}</div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" onclick="document.getElementById('wbAddViewFileInput').click()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:0.7rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+                                <i class="fas fa-plus"></i> + Add ${viewsNeeded[0].toUpperCase()} Photo
+                            </button>
+                            <button type="button" onclick="captureWorkbenchCameraAsView()" style="background:#10b981; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:0.7rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+                                <i class="fas fa-video"></i> + Capture View
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                vBanner.style.display = 'none';
+            }
+        }
+
+        // Toggle Approve and Transfer buttons based on review_status & inventory_transfer_status
+        const approveBtn = document.getElementById('wbApproveCountBtn');
+        const transBtn = document.getElementById('wbTransferInventoryBtn');
+        if (approveBtn && transBtn) {
+            const rSt = (data.review_status || '').toUpperCase();
+            if (rSt === 'APPROVED') {
+                approveBtn.style.display = 'none';
+                transBtn.style.display = 'inline-flex';
+                if (data.inventory_transfer_status === 'TRANSFERRED') {
+                    transBtn.disabled = true;
+                    transBtn.style.opacity = '0.6';
+                    transBtn.innerHTML = '<i class="fas fa-check-double" style="margin-right:3px;"></i> Transferred to WMS';
+                } else {
+                    transBtn.disabled = false;
+                    transBtn.style.opacity = '1.0';
+                    transBtn.innerHTML = '<i class="fas fa-dolly" style="margin-right:3px;"></i> Transfer to WMS';
+                }
+            } else {
+                approveBtn.style.display = 'inline-flex';
+                transBtn.style.display = 'none';
+            }
+        }
+
         // STAGE 5: Render Multi-View Cross-View Fusion Traceability if present
         const traceCard = document.getElementById('wbMultiViewTraceabilityCard');
         const switcherBar = document.getElementById('wbViewSwitcherBar');
         const switcherTabs = document.getElementById('wbViewSwitcherTabs');
 
-        if (data.fusion_status) {
+        if (data.fusion_status || data.session_id) {
             if (traceCard) {
                 traceCard.style.display = 'block';
 
@@ -3777,6 +3836,17 @@
                 actions.appendChild(uncertBtn);
             }
 
+            // Reject Button (False Positive Removal)
+            if (obj.status !== 'REJECTED') {
+                const rejBtn = document.createElement('button');
+                rejBtn.type = 'button';
+                rejBtn.style.cssText = 'background:#b91c1c; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                rejBtn.textContent = 'Reject';
+                rejBtn.title = 'Reject false positive candidate';
+                rejBtn.onclick = () => window.reviewWorkbenchSession('reject_object', obj.object_id || obj.detection_id);
+                actions.appendChild(rejBtn);
+            }
+
             card.appendChild(left);
             card.appendChild(actions);
             listEl.appendChild(card);
@@ -3810,8 +3880,16 @@
             confBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
             confBtn.textContent = 'Accept';
             confBtn.title = 'Accept and confirm as distinct object';
-            confBtn.onclick = () => window.reviewWorkbenchSession('confirm_object', amb.candidate_obj_id);
+            confBtn.onclick = () => window.reviewWorkbenchSession('confirm_ambiguous', amb.candidate_obj_id);
             actions.appendChild(confBtn);
+
+            const disBtn = document.createElement('button');
+            disBtn.type = 'button';
+            disBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+            disBtn.textContent = 'Dismiss';
+            disBtn.title = 'Dismiss ambiguous candidate';
+            disBtn.onclick = () => window.reviewWorkbenchSession('reject_ambiguous', amb.candidate_obj_id);
+            actions.appendChild(disBtn);
 
             card.appendChild(left);
             card.appendChild(actions);
@@ -3863,4 +3941,99 @@
 
     window.recalculateWorkbenchMultiView = function() {
         window.reviewWorkbenchSession('recalculate');
+    };
+
+    window.approveWorkbenchSession = async function() {
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+            if (typeof showToast === 'function') showToast('No active counting session to approve.', 'warning');
+            return;
+        }
+        await window.reviewWorkbenchSession('approve_session', null, null, 'Operator formally approved count');
+        if (typeof showToast === 'function') {
+            showToast('Counting session APPROVED! You can now transfer this result directly to WMS Inventory.', 'success');
+        }
+    };
+
+    window.openTransferInventoryModal = function() {
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+            if (typeof showToast === 'function') showToast('No active counting session.', 'warning');
+            return;
+        }
+        const sess = window.currentMultiViewSession;
+        const total = sess.primary_count || sess.confirmed_count || sess.total_pieces || sess.total_bundles || 0;
+        const uom = sess.uom || 'EA';
+        const sku = sess.sku_id || sess.selected_sku || 'GEN-STK-001';
+
+        const targetType = prompt(`Transfer approved count (${total} ${uom} of ${sku}) to WMS.\n\nEnter destination target type ('bin' or 'pallet'):`, 'bin');
+        if (!targetType) return;
+
+        let binId = null;
+        let palletId = null;
+        if (targetType.toLowerCase() === 'pallet') {
+            palletId = prompt('Enter destination Pallet ID:', 'PAL-001');
+            if (!palletId) return;
+        } else {
+            binId = prompt('Enter destination Bin ID:', 'BIN-A-01');
+            if (!binId) return;
+        }
+
+        const notes = prompt('Audit notes (optional):', 'Approved via AI Vision Counting Workbench');
+        window.transferWorkbenchInventory(targetType.toLowerCase(), binId, palletId, notes);
+    };
+
+    window.transferWorkbenchInventory = async function(targetType = 'bin', binId = null, palletId = null, notes = null) {
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+            if (typeof showToast === 'function') showToast('No active counting session to transfer.', 'warning');
+            return;
+        }
+        const sess = window.currentMultiViewSession;
+        const rSt = (sess.review_status || '').toUpperCase();
+        if (rSt !== 'APPROVED') {
+            if (typeof showToast === 'function') {
+                showToast('Session must be APPROVED by operator before transferring to inventory. Click "Approve Count" first.', 'warning');
+            } else {
+                alert('Session must be APPROVED by operator before transferring to inventory.');
+            }
+            return;
+        }
+
+        try {
+            const resp = await fetch('/api/pallets/transfer-inventory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sess.session_id,
+                    target_type: targetType,
+                    bin_id: binId,
+                    pallet_id: palletId,
+                    operator_id: 'OP-VISION',
+                    notes: notes || 'Transferred from AI Vision Pallet Workbench'
+                })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                sess.inventory_transfer_status = 'TRANSFERRED';
+                sess.receipt = data.receipt;
+                const transBtn = document.getElementById('wbTransferInventoryBtn');
+                if (transBtn) {
+                    transBtn.disabled = true;
+                    transBtn.style.opacity = '0.6';
+                    transBtn.innerHTML = '<i class="fas fa-check-double"></i> Transferred to WMS';
+                }
+                if (typeof showToast === 'function') {
+                    showToast(`WMS Inventory Updated: ${data.message}`, 'success');
+                } else {
+                    alert(`Success: ${data.message}`);
+                }
+            } else {
+                if (typeof showToast === 'function') {
+                    showToast(`Inventory transfer failed: ${data.error}`, 'error');
+                } else {
+                    alert(`Transfer failed: ${data.error}`);
+                }
+            }
+        } catch (e) {
+            console.error('[TransferInventory] Error:', e);
+            if (typeof showToast === 'function') showToast(`Transfer error: ${e.message}`, 'error');
+        }
     };

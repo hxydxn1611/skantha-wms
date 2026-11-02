@@ -76,7 +76,10 @@ class PalletVisionCountingService:
                 except Exception:
                     pass
 
-            from pallet_service import SkuVisualSignatureMatcher
+            try:
+                from pallet_service import SkuVisualSignatureMatcher
+            except ImportError:
+                from webapp.pallet_service import SkuVisualSignatureMatcher
             matcher = SkuVisualSignatureMatcher()
             sig = matcher.get_signature_for_sku(sku_key)
 
@@ -109,6 +112,188 @@ class PalletVisionCountingService:
         except Exception as e:
             logger.warning(f"Failed to load visual anchor for SKU '{sku_id}': {e}")
             return None
+
+    def resolve_counting_strategy(
+        self,
+        image_bgr: Optional[np.ndarray] = None,
+        counting_mode: str = "auto",
+        material_type: Optional[str] = None,
+        sku_id: Optional[str] = None,
+        custom_matrix: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Authoritative strategy-resolution flow combining:
+        1. Selected material type & user-selected counting mode.
+        2. Selected SKU master-data attributes & visual anchor.
+        3. Visual evidence from image (color, edge density, void geometry).
+        4. Bidirectional mismatch detection preventing silent routing into incompatible detectors.
+        """
+        raw_mode = str(counting_mode or "auto").strip().lower()
+        raw_mat = str(material_type or "").strip().lower() if material_type else ""
+        norm_sku_id = str(sku_id).strip() if sku_id and sku_id not in ("", "AUTO", "MULTI_ALL") else None
+
+        sku_anchor = self.get_sku_visual_anchor(norm_sku_id) if norm_sku_id else None
+        sku_text = f"{sku_anchor.get('sku_id','')} {sku_anchor.get('name','')} {sku_anchor.get('category','')}".lower() if sku_anchor else (norm_sku_id.lower() if norm_sku_id else "")
+        sku_is_glass = any(g in sku_text for g in ("glass", "float", "dgu", "igu", "mirror", "pane", "gls")) or (norm_sku_id and norm_sku_id.upper().startswith("GLS"))
+        sku_is_steel = any(s in sku_text for s in ("steel", "pipe", "tube", "profile", "metal", "stl", "pip")) or (norm_sku_id and norm_sku_id.upper().startswith(("STL", "PIP")))
+        sku_is_timber = any(t in sku_text for t in ("wood", "timber", "plank", "plywood", "lumber", "tmb", "wd")) or (norm_sku_id and norm_sku_id.upper().startswith(("TMB", "WD")))
+        sku_is_carton = any(c in sku_text for c in ("carton", "box", "package", "pack", "ctn")) or (norm_sku_id and norm_sku_id.upper().startswith(("CTN", "BOX")))
+
+        # Visual evidence extraction
+        vis_sig = {
+            "is_metallic_grey": False,
+            "is_cyan_glass": False,
+            "is_wood_timber": False,
+            "is_corrugated_carton": False,
+            "dominant_hue": None,
+            "saturation": None,
+            "value": None
+        }
+
+        has_image = (image_bgr is not None and isinstance(image_bgr, np.ndarray) and image_bgr.size > 0)
+        if has_image:
+            ih, iw = image_bgr.shape[:2]
+            cy1, cy2 = int(ih * 0.15), int(ih * 0.85)
+            cx1, cx2 = int(iw * 0.15), int(iw * 0.85)
+            roi_crop = image_bgr[cy1:max(cy1 + 10, cy2), cx1:max(cx1 + 10, cx2)]
+            hsv = cv2.cvtColor(roi_crop, cv2.COLOR_BGR2HSV)
+            mean_h = float(np.mean(hsv[:, :, 0]))
+            mean_s = float(np.mean(hsv[:, :, 1]))
+            mean_v = float(np.mean(hsv[:, :, 2]))
+
+            vis_sig["dominant_hue"] = round(mean_h, 1)
+            vis_sig["saturation"] = round(mean_s, 1)
+            vis_sig["value"] = round(mean_v, 1)
+
+            vis_sig["is_metallic_grey"] = (mean_s < 45 and 55 <= mean_v <= 215)
+            vis_sig["is_cyan_glass"] = (72 <= mean_h <= 118 and mean_v >= 80 and mean_s >= 20)
+            vis_sig["is_wood_timber"] = (10 <= mean_h <= 30 and mean_s >= 40 and 60 <= mean_v <= 220)
+            vis_sig["is_corrugated_carton"] = (12 <= mean_h <= 34 and 25 <= mean_s <= 145 and 80 <= mean_v <= 220)
+
+        # Mismatch detection
+        is_mismatch = False
+        mismatch_warning = None
+        inferred_material = raw_mat or "bundles"
+
+        if has_image:
+            if vis_sig["is_metallic_grey"]:
+                inferred_material = "steel_profiles" if raw_mode in self.INDIVIDUAL_PIECE_MODES else "metal_bundles"
+                if sku_is_glass or "glass" in raw_mat:
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates metallic steel profiles, but selected SKU/material is glass. Routing adjusted to {inferred_material} counting."
+                elif sku_is_timber or "timber" in raw_mat:
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates metallic steel profiles, but selected SKU/material is timber. Routing adjusted to {inferred_material} counting."
+                elif sku_is_carton or "carton" in raw_mat or "box" in raw_mat:
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates metallic steel profiles, but selected SKU/material is carton/box. Routing adjusted to {inferred_material} counting."
+
+            elif vis_sig["is_cyan_glass"]:
+                inferred_material = "glass_sheets" if raw_mode in self.INDIVIDUAL_PIECE_MODES else "glass_bundles"
+                if sku_is_steel or any(m in raw_mat for m in ("metal", "steel", "pipe")):
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates translucent glass panes, but selected SKU/material is metal/steel. Routing adjusted to {inferred_material} counting."
+                elif sku_is_timber or "timber" in raw_mat:
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates translucent glass panes, but selected SKU/material is timber. Routing adjusted to {inferred_material} counting."
+
+            elif vis_sig["is_wood_timber"]:
+                inferred_material = "timber_bundles"
+                if sku_is_steel or any(m in raw_mat for m in ("metal", "steel", "pipe")):
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates timber/wood bundles, but selected SKU/material is metal/steel. Routing adjusted to timber_bundles counting."
+                elif sku_is_glass or "glass" in raw_mat:
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates timber/wood bundles, but selected SKU/material is glass. Routing adjusted to timber_bundles counting."
+
+            elif vis_sig["is_corrugated_carton"]:
+                inferred_material = "carton_boxes"
+                if sku_is_steel or any(m in raw_mat for m in ("metal", "steel", "pipe")):
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates corrugated cartons, but selected SKU/material is metal/steel. Routing adjusted to carton_boxes counting."
+                elif sku_is_glass or "glass" in raw_mat:
+                    is_mismatch = True
+                    mismatch_warning = f"Visual evidence indicates corrugated cartons, but selected SKU/material is glass. Routing adjusted to carton_boxes counting."
+        else:
+            if sku_is_glass or "glass" in raw_mat:
+                inferred_material = "glass_sheets" if raw_mode in self.INDIVIDUAL_PIECE_MODES else "glass_bundles"
+            elif sku_is_steel or any(m in raw_mat for m in ("metal", "steel", "pipe")):
+                inferred_material = "steel_profiles" if raw_mode in self.INDIVIDUAL_PIECE_MODES else "metal_bundles"
+            elif sku_is_timber or "timber" in raw_mat:
+                inferred_material = "timber_bundles"
+            elif sku_is_carton or "carton" in raw_mat or "box" in raw_mat or custom_matrix:
+                inferred_material = "carton_boxes"
+            elif raw_mode in self.INDIVIDUAL_PIECE_MODES:
+                inferred_material = "individual_pieces"
+            else:
+                inferred_material = "bundles"
+
+        # Resolve counting strategy
+        if raw_mode in self.INDIVIDUAL_PIECE_MODES:
+            if "glass" in inferred_material:
+                resolved_strategy = "glass_sheets"
+            elif "steel" in inferred_material or "metal" in inferred_material:
+                resolved_strategy = "steel_profiles"
+            else:
+                resolved_strategy = "individual_pieces"
+        elif raw_mode in self.CARTON_BOX_MODES or "carton" in inferred_material or custom_matrix:
+            resolved_strategy = "carton_boxes"
+        elif raw_mode in self.BUNDLE_MODES:
+            if "timber" in inferred_material:
+                resolved_strategy = "timber_bundles"
+            elif "glass" in inferred_material:
+                resolved_strategy = "glass_bundles"
+            elif "steel" in inferred_material or "metal" in inferred_material:
+                resolved_strategy = "metal_bundles"
+            else:
+                resolved_strategy = "bundles"
+        else:  # auto
+            if "glass" in inferred_material:
+                resolved_strategy = "glass_sheets" if (sku_anchor and sku_anchor.get("units_per_bundle", 1) == 1) else "glass_bundles"
+            elif "steel" in inferred_material or "metal" in inferred_material:
+                resolved_strategy = "steel_profiles" if (sku_anchor and sku_anchor.get("units_per_bundle", 1) == 1) else "metal_bundles"
+            elif "timber" in inferred_material:
+                resolved_strategy = "timber_bundles"
+            elif "carton" in inferred_material:
+                resolved_strategy = "carton_boxes"
+            else:
+                resolved_strategy = "bundles"
+
+        # Target pipeline
+        if resolved_strategy in ("steel_profiles", "glass_sheets", "individual_pieces"):
+            target_pipeline = "count_individual_pieces"
+            recommended_mode = "individual_pieces"
+        elif resolved_strategy == "metal_bundles":
+            target_pipeline = "count_metal_bundles"
+            recommended_mode = "bundles"
+        elif resolved_strategy == "glass_bundles":
+            target_pipeline = "count_glass_bundles"
+            recommended_mode = "bundles"
+        elif resolved_strategy == "timber_bundles":
+            target_pipeline = "count_pallet_bundles"
+            recommended_mode = "bundles"
+        elif resolved_strategy == "carton_boxes":
+            target_pipeline = "count_carton_boxes"
+            recommended_mode = "boxes"
+        else:
+            target_pipeline = "count_bundles_multi_view"
+            recommended_mode = "bundles"
+
+        return {
+            "success": True,
+            "resolved_strategy": resolved_strategy,
+            "material_type": inferred_material,
+            "inferred_material": inferred_material,
+            "selected_sku": norm_sku_id,
+            "selected_material": material_type,
+            "selected_counting_mode": raw_mode,
+            "recommended_counting_mode": recommended_mode,
+            "is_mismatch": is_mismatch,
+            "mismatch_warning": mismatch_warning,
+            "visual_signature": vis_sig,
+            "target_pipeline": target_pipeline,
+            "confidence": 0.96 if not is_mismatch else 0.65
+        }
 
     def recognize_product_from_skus(
         self,
@@ -226,7 +411,10 @@ class PalletVisionCountingService:
         is_metallic_grey = (mean_s < 42 and 60 <= mean_v <= 205)
 
         try:
-            from pallet_service import SkuVisualSignatureMatcher
+            try:
+                from pallet_service import SkuVisualSignatureMatcher
+            except ImportError:
+                from webapp.pallet_service import SkuVisualSignatureMatcher
             matcher = SkuVisualSignatureMatcher()
         except Exception:
             matcher = None
@@ -491,6 +679,33 @@ class PalletVisionCountingService:
                         cv2.imwrite(full_p, ann_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
             except Exception as e:
                 logger.debug(f"Could not stamp SKU HUD onto annotated image: {e}")
+
+        # Ensure session tracking and indexing for operator review & inventory integration
+        sess_id = res_dict.get("session_id")
+        if not sess_id:
+            sess_id = f"SES-COUNT-{uuid.uuid4().hex[:10].upper()}"
+            res_dict["session_id"] = sess_id
+
+        if not hasattr(self, "_active_multiview_sessions"):
+            self._active_multiview_sessions = {}
+
+        # Standardize fused_objects list so single-view results participate in Stage 6 Operator Review
+        if "fused_objects" not in res_dict or not res_dict["fused_objects"]:
+            fused_objs = []
+            pieces_source = res_dict.get("pieces") or res_dict.get("bundles") or []
+            for idx, p in enumerate(pieces_source):
+                p_copy = dict(p)
+                oid = p_copy.get("object_id") or p_copy.get("detection_id") or f"OBJ-{idx+1:03d}"
+                p_copy["object_id"] = oid
+                p_copy["detection_id"] = oid
+                p_copy.setdefault("status", "CONFIRMED" if not p_copy.get("is_uncertain") else "UNCERTAIN")
+                p_copy.setdefault("review_state", "AUTO_PROPOSED")
+                p_copy.setdefault("contributing_views", res_dict.get("views_submitted", ["front"]))
+                fused_objs.append(p_copy)
+            res_dict["fused_objects"] = fused_objs
+
+        # Save active session for Operator Review and inventory workflow
+        self._active_multiview_sessions[sess_id] = res_dict
 
         return res_dict
 
@@ -1628,7 +1843,10 @@ class PalletVisionCountingService:
         vis = img_bgr.copy()
 
         try:
-            from pallet_service import SkuVisualSignatureMatcher
+            try:
+                from pallet_service import SkuVisualSignatureMatcher
+            except ImportError:
+                from webapp.pallet_service import SkuVisualSignatureMatcher
             matcher = SkuVisualSignatureMatcher()
         except Exception:
             matcher = None
@@ -7978,12 +8196,96 @@ class PalletVisionCountingService:
                 "notes": notes or "Operator marked object as uncertain / unresolved candidate"
             })
 
-        # Recalculate confirmed and uncertain quantities
-        confirmed_count = len([o for o in fused_objects if not o.get("is_uncertain") and o.get("status") == "CONFIRMED"])
-        uncertain_count = len([o for o in fused_objects if o.get("is_uncertain") or o.get("status") == "UNCERTAIN"]) + len(session.get("ambiguous_candidates", []))
-        primary_count = confirmed_count
+        elif action == "reject_object":
+            target = next((o for o in fused_objects if (o.get("object_id") == object_id or o.get("detection_id") == object_id)), None)
+            if not target:
+                raise ValueError(f"Object '{object_id}' not found in active session.")
+            target["is_uncertain"] = False
+            target["status"] = "REJECTED"
+            target["review_state"] = "OPERATOR_REJECTED"
+            corrections.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "action": "reject_object",
+                "object_id": object_id,
+                "notes": notes or "Operator rejected false candidate detection"
+            })
 
-        session["review_status"] = "OPERATOR_REVIEWED"
+        elif action in ("confirm_ambiguous", "accept_ambiguous"):
+            ambs = session.get("ambiguous_candidates", [])
+            target_amb = next((a for a in ambs if (a.get("candidate_obj_id") == object_id or a.get("object_id") == object_id)), None)
+            if target_amb:
+                ambs.remove(target_amb)
+                new_id = target_amb.get("candidate_obj_id") or f"OBJ-CONF-{len(fused_objects)+1:03d}"
+                fused_objects.append({
+                    "object_id": new_id,
+                    "detection_id": new_id,
+                    "primary_view": target_amb.get("view_label", "secondary"),
+                    "contributing_views": [target_amb.get("view_label", "secondary")],
+                    "norm_x": target_amb.get("norm_x", 0.5),
+                    "norm_y": target_amb.get("norm_y", 0.5),
+                    "norm_w": target_amb.get("norm_w", 0.1),
+                    "norm_h": target_amb.get("norm_h", 0.1),
+                    "confidence": target_amb.get("confidence", 0.85),
+                    "status": "CONFIRMED",
+                    "is_uncertain": False,
+                    "review_state": "OPERATOR_CONFIRMED_AMBIGUOUS"
+                })
+                corrections.append({
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "action": "confirm_ambiguous",
+                    "object_id": object_id,
+                    "notes": notes or "Operator accepted and confirmed ambiguous candidate"
+                })
+            else:
+                target = next((o for o in fused_objects if (o.get("object_id") == object_id or o.get("detection_id") == object_id)), None)
+                if target:
+                    target["is_uncertain"] = False
+                    target["status"] = "CONFIRMED"
+                    target["review_state"] = "OPERATOR_CONFIRMED"
+
+        elif action in ("reject_ambiguous", "dismiss_ambiguous"):
+            ambs = session.get("ambiguous_candidates", [])
+            target_amb = next((a for a in ambs if (a.get("candidate_obj_id") == object_id or a.get("object_id") == object_id)), None)
+            if target_amb:
+                ambs.remove(target_amb)
+            corrections.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "action": "reject_ambiguous",
+                "object_id": object_id,
+                "notes": notes or "Operator dismissed ambiguous candidate"
+            })
+
+        elif action == "approve_session":
+            session["review_status"] = "APPROVED"
+            session["approved_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            session["is_approved"] = True
+            corrections.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "action": "approve_session",
+                "notes": notes or "Operator verified and formally approved counting session"
+            })
+
+        elif action == "recalculate":
+            corrections.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "action": "recalculate",
+                "notes": notes or "Operator initiated recount / re-evaluation"
+            })
+
+        # Recalculate confirmed and uncertain quantities
+        if fused_objects:
+            confirmed_count = len([o for o in fused_objects if not o.get("is_uncertain") and o.get("status") == "CONFIRMED"])
+            uncertain_count = len([o for o in fused_objects if o.get("is_uncertain") or o.get("status") == "UNCERTAIN"]) + len(session.get("ambiguous_candidates", []))
+            primary_count = confirmed_count
+        else:
+            confirmed_count = int(session.get("confirmed_count") if session.get("confirmed_count") is not None else session.get("primary_count", 0))
+            uncertain_count = int(session.get("uncertain_count", 0))
+            primary_count = confirmed_count
+
+        if action == "approve_session":
+            session["review_status"] = "APPROVED"
+        elif session.get("review_status") != "APPROVED":
+            session["review_status"] = "OPERATOR_REVIEWED"
         session["primary_count"] = primary_count
         session["confirmed_count"] = confirmed_count
         session["uncertain_count"] = uncertain_count
@@ -8082,6 +8384,13 @@ _pallet_vision_service = None
 
 def get_pallet_vision_counting_service() -> PalletVisionCountingService:
     global _pallet_vision_service
+    import sys
     if _pallet_vision_service is None:
+        for mod_name in ('pallet_vision_counting_service', 'webapp.pallet_vision_counting_service'):
+            if mod_name in sys.modules and sys.modules[mod_name] is not sys.modules[__name__]:
+                other = getattr(sys.modules[mod_name], '_pallet_vision_service', None)
+                if other is not None:
+                    _pallet_vision_service = other
+                    return _pallet_vision_service
         _pallet_vision_service = PalletVisionCountingService()
     return _pallet_vision_service

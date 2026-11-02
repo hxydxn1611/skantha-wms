@@ -7006,6 +7006,136 @@ def api_review_pallet_multiview():
         logger.exception('Error during multi-view review action')
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/pallets/resolve-strategy', methods=['POST'])
+def api_resolve_counting_strategy():
+    """
+    Authoritative Strategy Resolution Endpoint:
+    Determines the optimal counting pipeline by fusing:
+    1. User counting mode & material selection.
+    2. Target SKU master-data & visual template anchor.
+    3. Visual evidence from image (color, edge density, void geometry).
+    Identifies mismatches (e.g. steel profile image with glass SKU) and recommends the correct pipeline.
+    """
+    try:
+        from pallet_vision_counting_service import get_pallet_vision_counting_service
+        service = get_pallet_vision_counting_service()
+
+        data = request.get_json(silent=True) or {}
+        counting_mode = request.form.get('counting_mode') or data.get('counting_mode') or 'auto'
+        material_type = request.form.get('material_type') or data.get('material_type')
+        sku_id = request.form.get('sku_id') or data.get('sku_id')
+
+        # Image extraction (upload / angle / base64 / camera)
+        image_bgr, upload_err, upload_msg = _extract_uploaded_image_bgr(request.files, 'image', 'angle1', 'file')
+        if image_bgr is None:
+            img_data = request.form.get('image_data') or data.get('image_data') or request.values.get('image_data')
+            if img_data:
+                image_bgr, _, _ = _extract_base64_image_bgr(img_data)
+
+        camera_id = request.form.get('camera_id') or data.get('camera_id')
+        if image_bgr is None and camera_id:
+            image_bgr, _ = get_camera_frame_for_detection(camera_id)
+
+        resolution = service.resolve_counting_strategy(
+            image_bgr=image_bgr,
+            counting_mode=counting_mode,
+            material_type=material_type,
+            sku_id=sku_id
+        )
+        return jsonify(resolution), 200
+    except Exception as e:
+        logger.exception("Error resolving counting strategy")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/pallets/transfer-inventory', methods=['POST'])
+def api_transfer_vision_inventory():
+    """
+    WMS Inventory Workflow Integration Endpoint:
+    Transfers an approved counting result into authoritative warehouse inventory.
+    Enforces:
+    - Session must exist in active session registry.
+    - Counting result must be explicitly APPROVED by operator.
+    - Duplicate transfers from the same session are strictly blocked (409 Conflict).
+    - Updates bin inventory and/or pallet records atomically.
+    - Records complete audit provenance into vision_counting_submissions ledger.
+    """
+    try:
+        from pallet_vision_counting_service import get_pallet_vision_counting_service
+        service = get_pallet_vision_counting_service()
+
+        data = request.get_json(silent=True) or {}
+        session_id = request.form.get('session_id') or data.get('session_id')
+        target_type = request.form.get('target_type') or data.get('target_type') or 'bin'
+        bin_id = request.form.get('bin_id') or data.get('bin_id')
+        pallet_id = request.form.get('pallet_id') or data.get('pallet_id')
+        operator_id = request.form.get('operator_id') or data.get('operator_id') or 'OP-VISION'
+        notes = request.form.get('notes') or data.get('notes')
+
+        if not session_id:
+            return jsonify({
+                "success": False,
+                "error": "Missing required parameter 'session_id'.",
+                "error_code": "missing_session_id"
+            }), 400
+
+        session_id_str = str(session_id).strip()
+
+        # Check if already transferred
+        existing_sub = db.get_vision_counting_submission(session_id_str)
+        if existing_sub:
+            return jsonify({
+                "success": False,
+                "error": f"Counting session '{session_id_str}' has already been transferred to inventory on {existing_sub.get('submitted_at')}.",
+                "error_code": "duplicate_transfer",
+                "submission": existing_sub
+            }), 409
+
+        # Retrieve active session
+        active_sessions = getattr(service, "_active_multiview_sessions", {})
+        session = active_sessions.get(session_id_str)
+        if not session:
+            return jsonify({
+                "success": False,
+                "error": f"Counting session '{session_id_str}' not found or expired. Please re-run count.",
+                "error_code": "session_not_found"
+            }), 404
+
+        rev_status = str(session.get("review_status", "")).upper()
+        if rev_status not in ("APPROVED", "CONFIRMED", "OPERATOR_REVIEWED"):
+            return jsonify({
+                "success": False,
+                "error": f"Counting session '{session_id_str}' has review status '{rev_status}'. Operator must review and approve the count before transferring to inventory.",
+                "error_code": "unapproved_session"
+            }), 400
+
+        receipt = db.record_vision_counting_submission(
+            session_data=session,
+            target_type=target_type,
+            bin_id=bin_id,
+            pallet_id=pallet_id,
+            operator_id=operator_id,
+            notes=notes
+        )
+
+        session["inventory_transfer_status"] = "TRANSFERRED"
+        session["transferred_at"] = receipt.get("submitted_at")
+        session["receipt"] = receipt
+
+        return jsonify({
+            "success": True,
+            "message": f"Successfully transferred approved count ({receipt.get('total_pieces')} {receipt.get('uom')}) to {target_type.upper()} {bin_id or pallet_id or ''}.",
+            "receipt": receipt,
+            "session_id": session_id_str
+        }), 200
+
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve), "error_code": "validation_error"}), 400
+    except Exception as e:
+        logger.exception("Error transferring vision count to inventory")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/pallets/glass-profiles', methods=['GET'])
 def api_get_glass_profiles():
     """Retrieves all configured glass measurement profiles."""

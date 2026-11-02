@@ -6209,7 +6209,7 @@ window.switchSubTab = switchSubTab;
                                     </span>
                                 </div>
                                 <div style="display:flex; align-items:center; gap:6px;">
-                                    <input type="file" id="wbAddViewFileInput" accept="image/*,.jpg,.jpeg,.png,.webp,.avif,.bmp,.dib,.tiff,.tif" style="display:none;" onchange="handleWorkbenchAddViewUpload(this)">
+                                    <input type="file" id="wbAddViewFileInput" accept="image/*,.jpg,.jpeg,.png,.webp,.avif,.bmp,.dib,.tiff,.tif" multiple style="display:none;" onchange="handleWorkbenchAddViewUpload(this)">
                                     <button type="button" onclick="document.getElementById('wbAddViewFileInput').click()" style="background:#0284c7; color:#fff; border:none; border-radius:5px; padding:4px 10px; font-size:0.72rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Add another photo view (Front, Rear, Left, Right, Top)">
                                         <i class="fas fa-plus"></i> + Add View Photo
                                     </button>
@@ -6232,7 +6232,7 @@ window.switchSubTab = switchSubTab;
                         <!-- Upload Drop Zone (Visible when Source = Upload) -->
                         <div id="wbDropZone" style="background:#1e293b; border-radius:10px; border:2px dashed #0284c7; padding:20px; text-align:center; cursor:pointer; position:relative; min-height:160px; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:all 0.2s;">
                             <!-- Full-overlay native file input: enables immediate OS file dialog on click anywhere and handles drag-and-drop natively -->
-                            <input type="file" id="wbFileInput" accept="image/*,.jpg,.jpeg,.png,.webp,.avif,.bmp,.dib,.tiff,.tif,.gif" style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:25;" onclick="this.value='';" onchange="previewWorkbenchUpload(this)" title="Click or drop pallet photo here">
+                            <input type="file" id="wbFileInput" accept="image/*,.jpg,.jpeg,.png,.webp,.avif,.bmp,.dib,.tiff,.tif,.gif" multiple style="position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; z-index:25;" onclick="this.value='';" onchange="previewWorkbenchUpload(this)" title="Click or drop pallet photo here">
                             <div id="wbPlaceholder">
                                 <div style="width:44px; height:44px; border-radius:50%; background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.3); display:inline-flex; align-items:center; justify-content:center; color:#38bdf8; font-size:1.2rem; margin-bottom:6px;">
                                     <i class="fas fa-camera" id="wbPlaceholderIcon"></i>
@@ -6271,6 +6271,9 @@ window.switchSubTab = switchSubTab;
                             <div style="font-size:0.72rem; color:#94a3b8;">Automated Geometry Recognition &bull; Tare Pallet Base Excluded &bull; Non-destructive</div>
                         </div>
 
+                        <!-- Additional View Request Interactive Banner -->
+                        <div id="wbViewsNeededBanner" style="display:none; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color:#f8fafc;">
+                        </div>
                         <!-- Interactive Annotated Image Stage -->
                         <div id="wbInteractiveStageCard" style="display:none; background:#020617; border-radius:8px; border:1px solid #334155; padding:12px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
@@ -6476,9 +6479,17 @@ window.switchSubTab = switchSubTab;
                                     <span style="color:#f8fafc; font-size:0.7rem; font-weight:700; text-transform:uppercase;">
                                         <i class="fas fa-clipboard-check" style="color:#38bdf8; margin-right:4px;"></i> Operator Review Drawer
                                     </span>
-                                    <button type="button" id="wbRecalculateBtn" onclick="recalculateWorkbenchMultiView()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:0.66rem; font-weight:700; cursor:pointer;" title="Recalculate consolidated count with current review state">
-                                        <i class="fas fa-calculator" style="margin-right:3px;"></i> Recalculate Count
-                                    </button>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <button type="button" id="wbRecalculateBtn" onclick="recalculateWorkbenchMultiView()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:0.66rem; font-weight:700; cursor:pointer;" title="Recalculate consolidated count with current review state">
+                                            <i class="fas fa-calculator" style="margin-right:3px;"></i> Recalculate
+                                        </button>
+                                        <button type="button" id="wbApproveCountBtn" onclick="approveWorkbenchSession()" style="background:#10b981; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:0.66rem; font-weight:700; cursor:pointer;" title="Formally approve count for WMS inventory transfer">
+                                            <i class="fas fa-check-circle" style="margin-right:3px;"></i> Approve Count
+                                        </button>
+                                        <button type="button" id="wbTransferInventoryBtn" onclick="openTransferInventoryModal()" style="display:none; background:#8b5cf6; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:0.66rem; font-weight:700; cursor:pointer;" title="Transfer approved inventory count directly to WMS Bins/Pallets">
+                                            <i class="fas fa-dolly" style="margin-right:3px;"></i> Transfer to WMS
+                                        </button>
+                                    </div>
                                 </div>
                                 <div id="wbOperatorReviewObjectsList" style="display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto; padding-right:2px;">
                                     <!-- Populated dynamically by pallet_vision_counting_ui.js -->

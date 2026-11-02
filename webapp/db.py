@@ -485,6 +485,38 @@ def init_db():
         except sqlite3.OperationalError:
             pass
         
+        # Vision counting submissions ledger (prevents duplicate inventory application & tracks audit provenance)
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS vision_counting_submissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT UNIQUE NOT NULL,
+                    target_id TEXT,
+                    sku_id TEXT NOT NULL,
+                    material_type TEXT NOT NULL,
+                    inferred_material TEXT,
+                    counting_mode TEXT NOT NULL,
+                    confirmed_count INTEGER NOT NULL,
+                    uncertain_count INTEGER DEFAULT 0,
+                    physical_bundles_count INTEGER DEFAULT 0,
+                    units_per_bundle INTEGER DEFAULT 1,
+                    total_pieces INTEGER NOT NULL,
+                    uom TEXT DEFAULT 'EA',
+                    bin_id TEXT,
+                    pallet_id TEXT,
+                    operator_id TEXT,
+                    review_status TEXT NOT NULL,
+                    source_images TEXT,
+                    audit_image_url TEXT,
+                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    sync_status TEXT DEFAULT 'APPLIED'
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_vision_sub_sess ON vision_counting_submissions(session_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_vision_sub_sku ON vision_counting_submissions(sku_id)")
+        except sqlite3.OperationalError:
+            pass
+
         conn.execute("INSERT OR IGNORE INTO users (username, password, company_name, assigned_warehouse_code, role) VALUES ('admin', 'admin', 'Skantha Industrial Solutions', 'WH-MAIN', 'Admin')")
 
         # Seed initial object classes for AI Vision & Tracking Master if empty
@@ -3496,3 +3528,123 @@ def delete_glass_measurement_profile(profile_id: str) -> bool:
         deleted = (res.rowcount > 0)
     conn.close()
     return deleted
+
+
+def get_vision_counting_submission(session_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves an existing vision counting submission by session_id."""
+    if not session_id:
+        return None
+    conn = get_db()
+    row = conn.execute("SELECT * FROM vision_counting_submissions WHERE session_id = ?", (str(session_id).strip(),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def record_vision_counting_submission(
+    session_data: Dict[str, Any],
+    target_type: str = "bin",
+    bin_id: Optional[str] = None,
+    pallet_id: Optional[str] = None,
+    operator_id: Optional[str] = None,
+    notes: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Transfers an approved counting result into the relevant WMS inventory process.
+    - Requires review_status to be 'APPROVED'.
+    - Prevents duplicate inventory submissions from the same approved session.
+    - Updates authoritative inventory/pallet records.
+    - Records complete audit provenance into vision_counting_submissions.
+    """
+    sess_id = str(session_data.get("session_id", "")).strip()
+    if not sess_id:
+        raise ValueError("Cannot transfer inventory without a valid session_id.")
+
+    existing = get_vision_counting_submission(sess_id)
+    if existing:
+        raise ValueError(f"Counting session '{sess_id}' has already been transferred to inventory on {existing.get('submitted_at')}.")
+
+    rev_st = str(session_data.get("review_status", "")).upper()
+    if rev_st not in ("APPROVED", "CONFIRMED", "OPERATOR_REVIEWED"):
+        raise ValueError(f"Counting session '{sess_id}' has review status '{rev_st}'. Only approved counting results can be submitted to inventory.")
+
+    sku_id = str(session_data.get("sku_id") or session_data.get("selected_sku") or "GEN-STK-001").strip()
+    material_type = str(session_data.get("material_type", "bundles"))
+    inferred_mat = str(session_data.get("inferred_material", material_type))
+    counting_mode = str(session_data.get("counting_mode", "bundles"))
+    confirmed_count = int(session_data.get("confirmed_count") if session_data.get("confirmed_count") is not None else session_data.get("primary_count", 0))
+    uncertain_count = int(session_data.get("uncertain_count") or 0)
+    physical_bundles = int(session_data.get("physical_bundles_count") if session_data.get("physical_bundles_count") is not None else session_data.get("total_bundles", confirmed_count))
+    units_per_bundle = max(1, int(session_data.get("units_per_bundle") or 1))
+    total_pieces = int(session_data.get("total_pieces") if session_data.get("total_pieces") is not None else (physical_bundles * units_per_bundle if counting_mode == "bundles" else confirmed_count))
+    uom = str(session_data.get("uom", "EA")).upper()
+
+    # Source images list
+    src_images = []
+    if session_data.get("views_summary"):
+        src_images = [v.get("raw_image_url") or v.get("annotated_image_url") for v in session_data["views_summary"] if v]
+    elif session_data.get("raw_image_url"):
+        src_images = [session_data["raw_image_url"]]
+    audit_img = str(session_data.get("audit_image_url") or session_data.get("annotated_image_url") or "")
+
+    conn = get_db()
+    with conn:
+        # 1. Update WMS Inventory or Pallet Record
+        if target_type == "pallet" or pallet_id:
+            p_id = str(pallet_id or session_data.get("target_id") or "PAL-001").strip()
+            conn.execute("""
+                UPDATE pallets
+                SET counted_bundles = ?, total_units = ?, status = 'COUNTED', updated_at = CURRENT_TIMESTAMP
+                WHERE pallet_id = ?
+            """, (physical_bundles, total_pieces, p_id))
+            target_applied = {"type": "pallet", "pallet_id": p_id, "bundles": physical_bundles, "total_units": total_pieces}
+        else:
+            b_id = str(bin_id or "BIN-A").strip()
+            sync_bin_inventory(b_id, total_pieces, sku_id=sku_id, vendor="AI Vision Approved Count")
+            target_applied = {"type": "bin", "bin_id": b_id, "sku_id": sku_id, "quantity": total_pieces}
+
+        # 2. Insert into vision_counting_submissions
+        conn.execute("""
+            INSERT INTO vision_counting_submissions (
+                session_id, target_id, sku_id, material_type, inferred_material,
+                counting_mode, confirmed_count, uncertain_count, physical_bundles_count,
+                units_per_bundle, total_pieces, uom, bin_id, pallet_id, operator_id,
+                review_status, source_images, audit_image_url, sync_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED')
+        """, (
+            sess_id,
+            session_data.get("target_id"),
+            sku_id,
+            material_type,
+            inferred_mat,
+            counting_mode,
+            confirmed_count,
+            uncertain_count,
+            physical_bundles,
+            units_per_bundle,
+            total_pieces,
+            uom,
+            bin_id,
+            pallet_id,
+            operator_id or "OPERATOR-DEFAULT",
+            "APPROVED",
+            json.dumps(src_images),
+            audit_img
+        ))
+    conn.close()
+
+    return {
+        "success": True,
+        "session_id": sess_id,
+        "sku_id": sku_id,
+        "material_type": material_type,
+        "inferred_material": inferred_mat,
+        "confirmed_count": confirmed_count,
+        "physical_bundles_count": physical_bundles,
+        "units_per_bundle": units_per_bundle,
+        "total_pieces": total_pieces,
+        "uom": uom,
+        "target": target_applied,
+        "review_status": "APPROVED",
+        "sync_status": "APPLIED",
+        "notes": notes
+    }
