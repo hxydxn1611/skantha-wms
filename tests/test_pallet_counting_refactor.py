@@ -36,6 +36,7 @@ class TestPalletCountingRefactor(unittest.TestCase):
         cls.flask_app = flask_app_module.app
         cls.flask_app.config['TESTING'] = True
         cls.client = cls.flask_app.test_client()
+        cls.client.post('/api/login', json={'username': 'admin', 'password': 'admin'})
 
         # Create a synthetic 800x800 test pallet image (Simulated test fixture)
         cls.synthetic_img = np.ones((800, 800, 3), dtype=np.uint8) * 40

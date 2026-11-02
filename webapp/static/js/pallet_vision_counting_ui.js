@@ -1995,12 +1995,22 @@
         window.clearWorkbenchCount();
     };
 
-    window.handleWorkbenchAddViewUpload = function(fileInput) {
-        if (fileInput && fileInput.files && fileInput.files.length > 0) {
-            const files = Array.from(fileInput.files);
-            fileInput.value = '';
-            files.forEach(f => window.addWorkbenchView(f));
+    window.handleWorkbenchAddViewUpload = function(inputOrFiles) {
+        if (!inputOrFiles) return;
+        let files = [];
+        if (inputOrFiles instanceof File || inputOrFiles instanceof Blob) {
+            files = [inputOrFiles];
+        } else if (inputOrFiles.files) {
+            files = Array.from(inputOrFiles.files);
+            try { inputOrFiles.value = ''; } catch(e) {}
+        } else if (inputOrFiles.length !== undefined) {
+            files = Array.from(inputOrFiles);
         }
+        files.forEach(f => {
+            if (f && f.size > 0) {
+                window.addWorkbenchView(f);
+            }
+        });
     };
 
     window.captureWorkbenchCameraAsView = function() {
@@ -2045,139 +2055,179 @@
 
     
     window.previewWorkbenchUpload = function(inputOrFile) {
-        if (!inputOrFile) return;
+        try {
+            if (!inputOrFile) return;
 
-        let fList = [];
-        if (inputOrFile instanceof File || inputOrFile instanceof Blob) {
-            fList = [inputOrFile];
-        } else if (inputOrFile.files && inputOrFile.files.length > 0) {
-            fList = Array.from(inputOrFile.files);
-        } else if (inputOrFile.length !== undefined && inputOrFile.length > 0) {
-            fList = Array.from(inputOrFile);
-        }
-
-        if (!fList || fList.length === 0) return;
-
-        const file = fList[0];
-
-        // Stage remaining files as multi-view camera angles if multiple selected
-        if (fList.length > 1) {
-            fList.slice(1).forEach(af => {
-                if (typeof window.addWorkbenchView === 'function') {
-                    window.addWorkbenchView(af);
-                }
-            });
-        }
-
-        // Prevent duplicate trigger within 200ms on identical file object
-        const now = Date.now();
-        if (file === lastWbUploadFile && (now - lastWbUploadTime) < 200) {
-            return;
-        }
-        lastWbUploadFile = file;
-        lastWbUploadTime = now;
-
-        // Reset fileInput value safely so selecting same file again triggers onchange
-        const fi = document.getElementById('wbFileInput');
-        if (fi) {
-            try { fi.value = ''; } catch(ex) {}
-        }
-
-        // Validate image file: allow common formats
-        const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.bmp', '.dib', '.tiff', '.tif', '.gif', '.jfif', '.pjpeg', '.pjp', '.heic', '.heif', '.raw', '.pbm', '.pgm', '.ppm'];
-        const nonImageExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.zip', '.tar', '.gz', '.7z', '.exe', '.dll', '.mp4', '.avi', '.mov', '.mp3', '.json', '.xml', '.html'];
-        const nameLower = (file.name || '').toLowerCase();
-        const hasValidExt = validExtensions.some(ext => nameLower.endsWith(ext));
-        const hasNonImageExt = nonImageExtensions.some(ext => nameLower.endsWith(ext));
-        const isImageMime = file.type && file.type.startsWith('image/');
-
-        if (hasNonImageExt) {
-            const err = `Unsupported document format (${file.name || 'file'}). Please upload an image file (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).`;
-            if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
-            return;
-        }
-
-        // Purge any previous results/3D state silently (wbCountRequestId is incremented here)
-        window.clearWorkbenchCount(true);
-
-        // Store active File object as single source of truth for counting
-        wbSelectedFile = file;
-
-        // Reset target SKU selector if switching/uploading in pieces mode to prevent stale glass SKU lock
-        if (wbCountingMode === 'pieces') {
-            const wbSkuSel = document.getElementById('wbTargetSkuSelect');
-            if (wbSkuSel && wbSkuSel.value && wbSkuSel.value.startsWith('GLS-')) {
-                wbSkuSel.value = '';
+            let fList = [];
+            if (inputOrFile instanceof File || inputOrFile instanceof Blob) {
+                fList = [inputOrFile];
+            } else if (inputOrFile.files && inputOrFile.files.length > 0) {
+                fList = Array.from(inputOrFile.files);
+            } else if (inputOrFile.length !== undefined && inputOrFile.length > 0) {
+                fList = Array.from(inputOrFile);
             }
-        }
 
-        // Switch source to upload automatically
-        wbSource = 'upload';
-        const btnU = document.getElementById('wbSourceUploadBtn');
-        const btnC = document.getElementById('wbSourceCameraBtn');
-        const camWrap = document.getElementById('wbCameraSelectWrap');
-        const dropZone = document.getElementById('wbDropZone');
-        const cameraViewWrap = document.getElementById('wbCameraViewWrap');
+            if (!fList || fList.length === 0) return;
 
-        if (btnU) { btnU.style.background = '#10b981'; btnU.style.color = '#fff'; }
-        if (btnC) { btnC.style.background = 'transparent'; btnC.style.color = '#94a3b8'; }
-        if (camWrap) camWrap.style.display = 'none';
-        if (dropZone) dropZone.style.display = 'flex';
-        if (cameraViewWrap) cameraViewWrap.style.display = 'none';
+            const file = fList[0];
+            if (!file) return;
 
-        // Update selected file badge
-        const fnSpan = document.getElementById('wbSelectedFileName');
-        const fiWrap = document.getElementById('wbSelectedFileInfo');
-        const fileName = file.name || 'pallet_image.jpg';
-        const fileSizeKb = file.size ? (file.size / 1024).toFixed(1) : '0';
-        if (fnSpan) fnSpan.textContent = `${fileName} (${fileSizeKb} KB)`;
-        if (fiWrap) fiWrap.style.display = 'block';
+            // Check for empty 0-byte file
+            if (file.size === 0) {
+                const err = `The selected file (${file.name || 'file'}) is empty (0 bytes). Please upload a valid image file.`;
+                if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
+                return;
+            }
 
-        const capturedReqId = wbCountRequestId;
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            if (capturedReqId !== wbCountRequestId) return; // Discard if superseded
-            const previewImg = document.getElementById('wbPreviewImg');
-            const placeholder = document.getElementById('wbPlaceholder');
-            if (previewImg) {
-                // Graceful fallback if browser cannot render format natively (e.g. TIFF)
-                previewImg.onerror = function() {
-                    console.info('[Workbench] Browser cannot natively preview raw image format; server will process and provide visual verification.');
-                    previewImg.style.display = 'none';
-                    if (placeholder) {
-                        placeholder.style.display = 'block';
-                        const sub = document.getElementById('wbPlaceholderSubtitle');
-                        if (sub) sub.textContent = `${fileName} loaded. High-precision server decoding in progress...`;
+            // Check file size (50MB maximum limit)
+            const MAX_SIZE = 50 * 1024 * 1024;
+            if (file.size > MAX_SIZE) {
+                const err = `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 50MB limit. Please upload a smaller image file.`;
+                if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
+                return;
+            }
+
+            // Stage remaining files as multi-view camera angles if multiple selected
+            if (fList.length > 1) {
+                fList.slice(1).forEach(af => {
+                    if (typeof window.addWorkbenchView === 'function') {
+                        window.addWorkbenchView(af);
+                    }
+                });
+            }
+
+            // Prevent duplicate trigger within 200ms on identical file object
+            const now = Date.now();
+            if (file === lastWbUploadFile && (now - lastWbUploadTime) < 200) {
+                return;
+            }
+            lastWbUploadFile = file;
+            lastWbUploadTime = now;
+
+            // Validate image file: allow common formats
+            const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.bmp', '.dib', '.tiff', '.tif', '.gif', '.jfif', '.pjpeg', '.pjp', '.heic', '.heif', '.raw', '.pbm', '.pgm', '.ppm'];
+            const nonImageExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.zip', '.tar', '.gz', '.7z', '.exe', '.dll', '.mp4', '.avi', '.mov', '.mp3', '.json', '.xml', '.html'];
+            const nameLower = (file.name || '').toLowerCase();
+            const hasValidExt = validExtensions.some(ext => nameLower.endsWith(ext));
+            const hasNonImageExt = nonImageExtensions.some(ext => nameLower.endsWith(ext));
+            const isImageMime = file.type && file.type.startsWith('image/');
+
+            if (hasNonImageExt || (!hasValidExt && !isImageMime && file.name && file.name.includes('.'))) {
+                const err = `Unsupported document format (${file.name || 'file'}). Please upload an image file (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).`;
+                if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
+                return;
+            }
+
+            // Purge any previous results/3D state silently (wbCountRequestId is incremented here)
+            window.clearWorkbenchCount(true);
+
+            // Store active File object as single source of truth for counting
+            wbSelectedFile = file;
+
+            // Reset target SKU selector if switching/uploading in pieces mode to prevent stale glass SKU lock
+            if (wbMode === 'pieces') {
+                const wbSkuSel = document.getElementById('wbTargetSkuSelect');
+                if (wbSkuSel && wbSkuSel.value && wbSkuSel.value.startsWith('GLS-')) {
+                    wbSkuSel.value = '';
+                }
+            }
+
+            // Switch source to upload automatically
+            wbSource = 'upload';
+            const btnU = document.getElementById('wbSourceUploadBtn');
+            const btnC = document.getElementById('wbSourceCameraBtn');
+            const camWrap = document.getElementById('wbCameraSelectWrap');
+            const dropZone = document.getElementById('wbDropZone');
+            const cameraViewWrap = document.getElementById('wbCameraViewWrap');
+
+            if (btnU) { btnU.style.background = '#10b981'; btnU.style.color = '#fff'; }
+            if (btnC) { btnC.style.background = 'transparent'; btnC.style.color = '#94a3b8'; }
+            if (camWrap) camWrap.style.display = 'none';
+            if (dropZone) dropZone.style.display = 'flex';
+            if (cameraViewWrap) cameraViewWrap.style.display = 'none';
+
+            // Update selected file badge
+            const fnSpan = document.getElementById('wbSelectedFileName');
+            const fiWrap = document.getElementById('wbSelectedFileInfo');
+            const fileName = file.name || 'pallet_image.jpg';
+            const sizeFormatted = file.size >= (1024 * 1024) 
+                ? (file.size / (1024 * 1024)).toFixed(2) + ' MB'
+                : (file.size / 1024).toFixed(1) + ' KB';
+            if (fnSpan) fnSpan.textContent = `${fileName} (${sizeFormatted})`;
+            if (fiWrap) fiWrap.style.display = 'block';
+
+            const capturedReqId = wbCountRequestId;
+            const reader = new FileReader();
+            reader.onerror = function(err) {
+                console.error('[Workbench] FileReader error:', err);
+                const msg = 'Failed to read image file. The file may be corrupt or inaccessible.';
+                if (typeof showToast === 'function') showToast(msg, 'error'); else alert(msg);
+            };
+            reader.onload = function(e) {
+                if (capturedReqId !== wbCountRequestId) return; // Discard if superseded
+
+                // Safely reset file input value now that reading has successfully completed
+                const fi = document.getElementById('wbFileInput');
+                if (fi) {
+                    try { fi.value = ''; } catch(ex) {}
+                }
+
+                const previewImg = document.getElementById('wbPreviewImg');
+                const placeholder = document.getElementById('wbPlaceholder');
+
+                // Extract image dimensions for metadata display
+                const imgDim = new Image();
+                imgDim.onload = function() {
+                    if (fnSpan) {
+                        fnSpan.textContent = `${fileName} (${imgDim.naturalWidth}×${imgDim.naturalHeight}px, ${sizeFormatted})`;
                     }
                 };
-                previewImg.onload = function() {
-                    previewImg.style.display = 'block';
-                    if (placeholder) placeholder.style.display = 'none';
-                };
-                previewImg.src = e.target.result;
-            }
-            // Sync into wbMultiViews as reference view
-            if (!wbMultiViews || wbMultiViews.length === 0) {
-                wbMultiViews = [{
-                    id: 'view_ref',
-                    label: 'front',
-                    isRef: true,
-                    file: file,
-                    dataUrl: e.target.result,
-                    regions: wbRegions || []
-                }];
-            } else {
-                wbMultiViews[0].file = file;
-                wbMultiViews[0].dataUrl = e.target.result;
-            }
-            if (typeof window.renderWorkbenchMultiViewStrip === 'function') {
-                window.renderWorkbenchMultiViewStrip();
-            }
+                imgDim.src = e.target.result;
 
-            // Trigger automated counting execution immediately for the current file
-            window.executeWorkbenchCount();
-        };
-        reader.readAsDataURL(file);
+                if (previewImg) {
+                    // Graceful fallback if browser cannot render format natively (e.g. TIFF)
+                    previewImg.onerror = function() {
+                        console.info('[Workbench] Browser cannot natively preview raw image format; server will process and provide visual verification.');
+                        previewImg.style.display = 'none';
+                        if (placeholder) {
+                            placeholder.style.display = 'block';
+                            const sub = document.getElementById('wbPlaceholderSubtitle');
+                            if (sub) sub.textContent = `${fileName} loaded. High-precision server decoding in progress...`;
+                        }
+                    };
+                    previewImg.onload = function() {
+                        previewImg.style.display = 'block';
+                        if (placeholder) placeholder.style.display = 'none';
+                    };
+                    previewImg.src = e.target.result;
+                }
+                // Sync into wbMultiViews as reference view
+                if (!wbMultiViews || wbMultiViews.length === 0) {
+                    wbMultiViews = [{
+                        id: 'view_ref',
+                        label: 'front',
+                        isRef: true,
+                        file: file,
+                        dataUrl: e.target.result,
+                        regions: wbRegions || []
+                    }];
+                } else {
+                    wbMultiViews[0].file = file;
+                    wbMultiViews[0].dataUrl = e.target.result;
+                }
+                if (typeof window.renderWorkbenchMultiViewStrip === 'function') {
+                    window.renderWorkbenchMultiViewStrip();
+                }
+
+                // Trigger automated counting execution immediately for the current file
+                window.executeWorkbenchCount();
+            };
+            reader.readAsDataURL(file);
+        } catch(ex) {
+            console.error('[Workbench] previewWorkbenchUpload error:', ex);
+            const msg = 'Failed to load image: ' + (ex.message || 'unknown error');
+            if (typeof showToast === 'function') showToast(msg, 'error'); else alert(msg);
+        }
     };
 
     window.executeWorkbenchCount = async function() {
@@ -2322,6 +2372,18 @@
                 method: 'POST',
                 body: formData
             });
+
+            if (res.status === 401) {
+                if (typeof showToast === 'function') {
+                    showToast('Session expired. Redirecting to login...', 'error');
+                }
+                try {
+                    localStorage.removeItem('wms_user');
+                    sessionStorage.removeItem('wms_user');
+                } catch(e) {}
+                setTimeout(() => { window.location.href = '/login?expired=1'; }, 1000);
+                return;
+            }
 
             // Discard stale response if a newer request or reset occurred
             if (thisRequestId !== wbCountRequestId) {
@@ -4097,3 +4159,25 @@
             if (typeof showToast === 'function') showToast(`Transfer error: ${e.message}`, 'error');
         }
     };
+
+
+// Global clipboard paste listener for Palletization workbench
+window.addEventListener('paste', function(e) {
+    const tabPallet = document.getElementById('tab-palletization');
+    if (!tabPallet || tabPallet.style.display === 'none') return;
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+        if (items[i].type && items[i].type.startsWith('image/')) {
+            const blob = items[i].getAsFile();
+            if (blob) {
+                e.preventDefault();
+                if (typeof showToast === 'function') {
+                    showToast('Image pasted from clipboard.', 'info');
+                }
+                window.previewWorkbenchUpload(blob);
+                break;
+            }
+        }
+    }
+});

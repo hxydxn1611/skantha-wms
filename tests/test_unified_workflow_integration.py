@@ -21,6 +21,7 @@ class TestUnifiedWorkflowIntegration(unittest.TestCase):
         db.init_db()
         cls.service = get_pallet_vision_counting_service()
         cls.client = app.test_client()
+        cls.client.post('/api/login', json={'username': 'admin', 'password': 'admin'})
 
     def test_01_strategy_resolution_mismatch_detection(self):
         """Test strategy resolution accurately detects visual mismatches between image and selected SKU/material."""

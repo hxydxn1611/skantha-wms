@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, request, jsonify, send_file, session
+from flask import Flask, render_template, Response, request, jsonify, send_file, session, redirect, url_for, make_response
 from typing import Optional, Union, Tuple, Dict, Any, List
 from werkzeug.utils import secure_filename
 from ai_engine import SmartCamera
@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from fpdf import FPDF
 import threading
 import re
@@ -23,6 +23,11 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'skantha-wms-secret-key-2026')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=24)
+)
 
 # SKU Image Upload Directory
 SKU_IMAGE_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'sku_images')
@@ -89,9 +94,61 @@ except Exception as e:
     logger.warning(f"Failed to start RTMP service: {e}")
 
 
+@app.before_request
+def enforce_authentication_and_session():
+    path = request.path
+    # Allow public assets and public authentication/registration endpoints
+    if (
+        path.startswith('/static/')
+        or path == '/favicon.ico'
+        or path == '/login'
+        or path == '/logout'
+        or path == '/api/login'
+        or path == '/api/logout'
+        or path == '/api/register'
+        or path.startswith('/api/auth/')
+        or path == '/api/company/preview_recognition'
+    ):
+        return None
+
+    user = session.get('user')
+    if not user or not isinstance(user, dict) or not user.get('username'):
+        if path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized. Please log in to continue.',
+                'error_code': 'unauthenticated'
+            }), 401
+        dest = request.full_path if request.query_string else request.path
+        return redirect(url_for('login_page', next=dest))
+
+    return None
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    if 'user' not in session or not isinstance(session['user'], dict) or not session['user'].get('username'):
+        return redirect(url_for('login_page', next=request.path))
+    return render_template('index.html', current_user=session['user'])
+
+@app.route('/login', methods=['GET'])
+def login_page():
+    if session.get('user') and isinstance(session['user'], dict) and session['user'].get('username'):
+        return redirect('/')
+    return render_template('login.html')
+
+@app.route('/logout', methods=['GET', 'POST'])
+def logout():
+    session.clear()
+    resp = make_response(redirect('/login'))
+    resp.delete_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'))
+    return resp
+
+@app.route('/api/logout', methods=['POST', 'GET'])
+def api_logout():
+    session.clear()
+    resp = make_response(jsonify({'success': True, 'message': 'Logged out successfully'}))
+    resp.delete_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'))
+    return resp
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
@@ -139,6 +196,7 @@ def api_login():
             "role": user.get("role", "Admin"),
             "active_warehouse": switched
         }
+        session.permanent = True
         session['user'] = user_clean
         return jsonify({
             'success': True,

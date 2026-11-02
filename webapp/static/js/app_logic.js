@@ -159,48 +159,60 @@
             }
         }
 
-        function doLogout() {
+        async function doLogout() {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+            } catch(e) {}
             try {
                 localStorage.removeItem('wms_user');
                 sessionStorage.removeItem('wms_user');
             } catch(e) {}
             window.currentUser = null;
-            location.reload();
+            window.location.href = '/login';
         }
         window.doLogout = doLogout;
 
         function checkExistingSession() {
             try {
-                const raw = localStorage.getItem('wms_user') || sessionStorage.getItem('wms_user');
-                if (raw) {
-                    const user = JSON.parse(raw);
-                    if (user && user.username) {
-                        window.currentUser = user;
-                        syncTopbarUserDetails(user);
-                        const overlay = document.getElementById('login-overlay');
-                        if (overlay) {
-                            overlay.classList.add('hidden');
-                            overlay.style.setProperty('display', 'none', 'important');
-                        }
-                        const topBar = document.getElementById('top-bar');
-                        if (topBar) topBar.style.setProperty('display', 'flex', 'important');
-                        const appLayout = document.getElementById('app-layout');
-                        if (appLayout) appLayout.style.setProperty('display', 'flex', 'important');
-                        const mainHeader = document.getElementById('main-header');
-                        if (mainHeader) mainHeader.style.setProperty('display', 'flex', 'important');
-                        const mainContainer = document.getElementById('main-container');
-                        if (mainContainer) mainContainer.style.setProperty('display', 'flex', 'important');
-                        const mobileDock = document.getElementById('mobileBottomDock');
-                        if (mobileDock) mobileDock.style.setProperty('display', 'flex', 'important');
-                        
-                        pollData();
-                        fetchGatePasses();
-                        fetchDeliveries();
-                        if (typeof fetchObjectClasses === 'function') fetchObjectClasses();
-                        if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
-                        if (typeof fetchVisionZones === 'function') fetchVisionZones();
-                        if (typeof window.loadWarehousesDropdown === 'function') window.loadWarehousesDropdown();
+                let user = window.currentUser;
+                if (!user || !user.username) {
+                    const raw = localStorage.getItem('wms_user') || sessionStorage.getItem('wms_user');
+                    if (raw) {
+                        try { user = JSON.parse(raw); } catch(ex) {}
                     }
+                }
+                if (user && user.username) {
+                    window.currentUser = user;
+                    try {
+                        localStorage.setItem('wms_user', JSON.stringify(user));
+                    } catch(e) {}
+                    syncTopbarUserDetails(user);
+                    const overlay = document.getElementById('login-overlay');
+                    if (overlay) {
+                        overlay.classList.add('hidden');
+                        overlay.style.setProperty('display', 'none', 'important');
+                    }
+                    const topBar = document.getElementById('top-bar');
+                    if (topBar) topBar.style.setProperty('display', 'flex', 'important');
+                    const appLayout = document.getElementById('app-layout');
+                    if (appLayout) appLayout.style.setProperty('display', 'flex', 'important');
+                    const mainHeader = document.getElementById('main-header');
+                    if (mainHeader) mainHeader.style.setProperty('display', 'flex', 'important');
+                    const mainContainer = document.getElementById('main-container');
+                    if (mainContainer) mainContainer.style.setProperty('display', 'flex', 'important');
+                    const mobileDock = document.getElementById('mobileBottomDock');
+                    if (mobileDock) mobileDock.style.setProperty('display', 'flex', 'important');
+                    
+                    pollData();
+                    fetchGatePasses();
+                    fetchDeliveries();
+                    if (typeof fetchObjectClasses === 'function') fetchObjectClasses();
+                    if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
+                    if (typeof fetchVisionZones === 'function') fetchVisionZones();
+                    if (typeof window.loadWarehousesDropdown === 'function') window.loadWarehousesDropdown();
+                } else {
+                    // Server session requires authentication; redirect to /login
+                    window.location.href = '/login';
                 }
             } catch(e) {
                 console.debug('Session restore error', e);
@@ -208,6 +220,32 @@
         }
         window.checkExistingSession = checkExistingSession;
         document.addEventListener('DOMContentLoaded', checkExistingSession);
+
+        // Global Fetch Interceptor to catch 401 Unauthorized API responses
+        (function installAuthInterceptor() {
+            if (window._authInterceptorInstalled) return;
+            window._authInterceptorInstalled = true;
+            const originalFetch = window.fetch;
+            window.fetch = async function(...args) {
+                const response = await originalFetch.apply(this, args);
+                if (response.status === 401) {
+                    const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+                    if (!url.includes('/api/login') && !url.includes('/api/auth/')) {
+                        try {
+                            localStorage.removeItem('wms_user');
+                            sessionStorage.removeItem('wms_user');
+                        } catch(e) {}
+                        if (typeof showToast === 'function') {
+                            showToast('Session expired. Redirecting to login...', 'error');
+                        }
+                        setTimeout(() => {
+                            window.location.href = '/login?expired=1';
+                        }, 500);
+                    }
+                }
+                return response;
+            };
+        })();
 
         let regRecognitionTimeout = null;
         let regOtpCountdownTimer = null;
