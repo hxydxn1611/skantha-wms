@@ -1692,6 +1692,15 @@
         if (feedLabel) feedLabel.textContent = `CAM: ${camId}`;
     };
 
+    
+    window.triggerWorkbenchFileInput = function(e) {
+        if (e && e.target && e.target.id === 'wbFileInput') return;
+        const fi = document.getElementById('wbFileInput');
+        if (fi) {
+            fi.click();
+        }
+    };
+
     window.replaceWorkbenchImage = function() {
         window.setWorkbenchSource('upload');
         lastWbUploadFile = null;
@@ -2036,51 +2045,55 @@
 
     
     window.previewWorkbenchUpload = function(inputOrFile) {
-        let file = null;
-        if (inputOrFile instanceof File || inputOrFile instanceof Blob) {
-            file = inputOrFile;
-        } else if (inputOrFile && inputOrFile.files && inputOrFile.files.length > 0) {
-            const fList = Array.from(inputOrFile.files);
-            file = fList[0];
-            if (fList.length > 1) {
-                // Stage additional files as multi-view angles
-                fList.slice(1).forEach(af => window.addWorkbenchView(af));
-            }
-        }
-        if (!file) return;
+        if (!inputOrFile) return;
 
-        // Prevent duplicate trigger within 250ms on identical file
+        let fList = [];
+        if (inputOrFile instanceof File || inputOrFile instanceof Blob) {
+            fList = [inputOrFile];
+        } else if (inputOrFile.files && inputOrFile.files.length > 0) {
+            fList = Array.from(inputOrFile.files);
+        } else if (inputOrFile.length !== undefined && inputOrFile.length > 0) {
+            fList = Array.from(inputOrFile);
+        }
+
+        if (!fList || fList.length === 0) return;
+
+        const file = fList[0];
+
+        // Stage remaining files as multi-view camera angles if multiple selected
+        if (fList.length > 1) {
+            fList.slice(1).forEach(af => {
+                if (typeof window.addWorkbenchView === 'function') {
+                    window.addWorkbenchView(af);
+                }
+            });
+        }
+
+        // Prevent duplicate trigger within 200ms on identical file object
         const now = Date.now();
-        if (file === lastWbUploadFile && (now - lastWbUploadTime) < 250) {
+        if (file === lastWbUploadFile && (now - lastWbUploadTime) < 200) {
             return;
         }
         lastWbUploadFile = file;
         lastWbUploadTime = now;
 
-        // Validate image file: allow common formats (AVIF, WebP, PNG, JPEG, BMP, TIFF, GIF, etc.)
-        const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.bmp', '.dib', '.tiff', '.tif', '.gif', '.pbm', '.pgm', '.ppm', '.sr', '.ras', '.jp2'];
+        // Reset fileInput value safely so selecting same file again triggers onchange
+        const fi = document.getElementById('wbFileInput');
+        if (fi) {
+            try { fi.value = ''; } catch(ex) {}
+        }
+
+        // Validate image file: allow common formats
+        const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.bmp', '.dib', '.tiff', '.tif', '.gif', '.jfif', '.pjpeg', '.pjp', '.heic', '.heif', '.raw', '.pbm', '.pgm', '.ppm'];
         const nonImageExtensions = ['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.zip', '.tar', '.gz', '.7z', '.exe', '.dll', '.mp4', '.avi', '.mov', '.mp3', '.json', '.xml', '.html'];
         const nameLower = (file.name || '').toLowerCase();
         const hasValidExt = validExtensions.some(ext => nameLower.endsWith(ext));
         const hasNonImageExt = nonImageExtensions.some(ext => nameLower.endsWith(ext));
         const isImageMime = file.type && file.type.startsWith('image/');
 
-        // Explicitly reject known non-image document formats
         if (hasNonImageExt) {
             const err = `Unsupported document format (${file.name || 'file'}). Please upload an image file (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).`;
             if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
-            const fi = document.getElementById('wbFileInput');
-            if (fi) fi.value = '';
-            return;
-        }
-
-        // Allow if valid image MIME, recognized image extension, or generic/empty type without forbidden extension
-        const isAcceptableImage = isImageMime || hasValidExt || (!file.type || file.type === 'application/octet-stream');
-        if (!isAcceptableImage) {
-            const err = 'Unsupported file type. Please upload a valid warehouse photo (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).';
-            if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
-            const fi = document.getElementById('wbFileInput');
-            if (fi) fi.value = '';
             return;
         }
 
@@ -3380,35 +3393,82 @@
 
     function initWbDropZone() {
         const dropZone = document.getElementById('wbDropZone');
-        const fileInput = document.getElementById('wbFileInput');
-        if (!dropZone || !fileInput) return;
+        if (!dropZone) return;
 
         ['dragenter', 'dragover'].forEach(eventName => {
             dropZone.addEventListener(eventName, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                if (e.dataTransfer) {
+                    e.dataTransfer.dropEffect = 'copy';
+                }
                 dropZone.style.borderColor = '#38bdf8';
-                dropZone.style.background = 'rgba(2, 132, 199, 0.15)';
+                dropZone.style.background = 'rgba(2, 132, 199, 0.22)';
+                dropZone.style.boxShadow = '0 0 15px rgba(56, 189, 248, 0.35)';
             }, false);
         });
 
-        ['dragleave', 'drop'].forEach(eventName => {
+        ['dragleave', 'dragend'].forEach(eventName => {
             dropZone.addEventListener(eventName, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 dropZone.style.borderColor = '#0284c7';
                 dropZone.style.background = '#1e293b';
+                dropZone.style.boxShadow = 'none';
             }, false);
         });
 
         dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.borderColor = '#0284c7';
+            dropZone.style.background = '#1e293b';
+            dropZone.style.boxShadow = 'none';
+
             const dt = e.dataTransfer;
             const files = dt && dt.files;
             if (files && files.length > 0) {
-                try { fileInput.files = files; } catch(ex) {}
-                window.previewWorkbenchUpload(files[0]);
+                window.previewWorkbenchUpload(files);
             }
         }, false);
+
+        // Also support dropping onto Multi-View Session Tray
+        const mvCard = document.getElementById('wbMultiViewSessionCard');
+        if (mvCard) {
+            ['dragenter', 'dragover'].forEach(eventName => {
+                mvCard.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                    mvCard.style.borderColor = '#38bdf8';
+                }, false);
+            });
+            ['dragleave', 'dragend'].forEach(eventName => {
+                mvCard.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    mvCard.style.borderColor = '#334155';
+                }, false);
+            });
+            mvCard.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                mvCard.style.borderColor = '#334155';
+                const files = e.dataTransfer && e.dataTransfer.files;
+                if (files && files.length > 0) {
+                    window.handleWorkbenchAddViewUpload(files);
+                }
+            }, false);
+        }
+
+        // Prevent window from navigating away if dropped outside
+        ['dragover', 'drop'].forEach(eventName => {
+            window.addEventListener(eventName, (e) => {
+                if (!e.target.closest('#wbDropZone') && !e.target.closest('#wbMultiViewSessionCard')) {
+                    e.preventDefault();
+                }
+            }, false);
+        });
     }
 
     // =========================================================================
