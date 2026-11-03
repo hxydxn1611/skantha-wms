@@ -13,7 +13,7 @@
         body {
             margin: 0;
             padding: 0;
-            background: #080e20;
+            background: #080e20 url("{{ url_for('static', filename='bg.jpg') }}") no-repeat center center / cover fixed !important;
             font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
             color: #f8fafc;
             min-height: 100vh;
@@ -28,7 +28,7 @@
             width: 100vw !important;
             min-height: 100vh !important;
             z-index: 10 !important;
-            background: #080e20 !important;
+            background: #080e20 url("{{ url_for('static', filename='bg.jpg') }}") no-repeat center center / cover !important;
             opacity: 1 !important;
             visibility: visible !important;
         }
@@ -738,3 +738,4 @@
     </script>
 </body>
 </html>
+

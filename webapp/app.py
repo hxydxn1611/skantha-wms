@@ -17,9 +17,30 @@ import re
 import json
 import copy
 
+import math
+from flask.json.provider import DefaultJSONProvider
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from json_serializer import to_json_safe
+
 logger = logging.getLogger(__name__)
 
+class SafeNumpyJSONProvider(DefaultJSONProvider):
+    def default(self, o):
+        if isinstance(o, (int, np.integer)):
+            return int(o)
+        if isinstance(o, (float, np.floating)):
+            v = float(o)
+            return 0.0 if (math.isnan(v) or math.isinf(v)) else v
+        if isinstance(o, (bool, np.bool_)):
+            return bool(o)
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        return super().default(o)
+
 app = Flask(__name__)
+app.json_provider_class = SafeNumpyJSONProvider
+app.json = SafeNumpyJSONProvider(app)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'skantha-wms-secret-key-2026')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
@@ -6426,8 +6447,10 @@ def api_count_pallet_pieces():
             counting_mode = str(raw_counting_mode).strip()
             if counting_mode.lower() == 'auto' and ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
                 counting_mode = 'boxes'
+            elif material_type and any(c in str(material_type).lower() for c in ('carton', 'box')):
+                counting_mode = 'boxes'
         else:
-            if has_matrix_params or ('box' in sample_name.lower() or 'carton' in sample_name.lower()):
+            if has_matrix_params or ('box' in sample_name.lower() or 'carton' in sample_name.lower()) or (material_type and any(c in str(material_type).lower() for c in ('carton', 'box'))):
                 counting_mode = 'boxes'
             else:
                 counting_mode = 'individual_pieces'
@@ -7046,12 +7069,19 @@ def api_review_pallet_multiview():
                 'error_code': 'missing_action'
             }), 400
 
+        layer = request.form.get('layer') if request.form.get('layer') is not None else data.get('layer')
+        norm_x = request.form.get('norm_x') if request.form.get('norm_x') is not None else data.get('norm_x')
+        norm_y = request.form.get('norm_y') if request.form.get('norm_y') is not None else data.get('norm_y')
+
         updated_session = service.review_multiview_session(
             session_id=str(session_id),
             action=str(action),
             object_id=str(object_id) if object_id else None,
             secondary_view=str(secondary_view) if secondary_view else None,
-            notes=str(notes) if notes else None
+            notes=str(notes) if notes else None,
+            layer=int(layer) if layer is not None else None,
+            norm_x=float(norm_x) if norm_x is not None else None,
+            norm_y=float(norm_y) if norm_y is not None else None
         )
 
         return jsonify(updated_session), 200
