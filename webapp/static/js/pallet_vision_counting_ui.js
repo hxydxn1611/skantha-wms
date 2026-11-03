@@ -265,43 +265,33 @@
 
 
     window.onWorkbenchBundleMultiplierChange = function() {
-
-        const upb = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
-
+        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
+        const upb = isPieces ? 1 : Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
         const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
-
-        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
-
+        const bname = isPieces ? 'Piece' : ((document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle');
         const pill = document.getElementById('wbRealizedUnitsPill');
-
         const totalBadge = document.getElementById('wbTotalBadge');
 
-
-
         let baseCount = 0;
-
         if (wbLatestResult) {
-
             const qb = wbLatestResult.quantity_breakdown || {};
-
             baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0));
-
         }
-
         const totalIndividual = baseCount * upb;
-
         if (pill) {
-
-            pill.innerHTML = `${baseCount} ${bname}${baseCount === 1 ? '' : 's'} &times; ${upb} ${uom} = <span style="color:#fff; text-decoration:underline;">${totalIndividual} ${uom}</span>`;
-
+            if (isPieces) {
+                pill.innerHTML = `${baseCount} Pieces (${uom}) &times; 1 = <span style="color:#fff; text-decoration:underline;">${baseCount} ${uom}</span>`;
+            } else {
+                pill.innerHTML = `${baseCount} ${bname}${baseCount === 1 ? '' : 's'} &times; ${upb} ${uom} = <span style="color:#fff; text-decoration:underline;">${totalIndividual} ${uom}</span>`;
+            }
         }
-
         if (totalBadge && wbLatestResult) {
-
-            totalBadge.textContent = upb > 1 ? `${baseCount} ${bname.toUpperCase()}S (${totalIndividual} ${uom})` : `${totalIndividual} ${uom}`;
-
+            if (isPieces) {
+                totalBadge.textContent = `${baseCount} PIECES`;
+            } else {
+                totalBadge.textContent = upb > 1 ? `${baseCount} ${bname.toUpperCase()}S (${totalIndividual} ${uom})` : `${totalIndividual} ${uom}`;
+            }
         }
-
     };
 
 
@@ -5442,12 +5432,12 @@
 
 
 
-        const activeUpb = Math.max(1, parseInt(upbInputEl?.value || data.units_per_bundle || recSku.units_per_bundle || '1', 10));
-
-        const activeUom = (uomSelectEl?.value || data.uom || recSku.uom || 'EA').toUpperCase();
-
-        const activeBname = (bnameInputEl?.value || data.bundle_name || recSku.bundle_name || 'Bundle').trim() || 'Bundle';
-
+        const isMetalBundle = (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING');
+        const isGlassBundle = (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING');
+        const isPiecesMode = !isMetalBundle && !isGlassBundle && (data.mode === 'INDIVIDUAL_PIECES' || data.counting_mode === 'individual_pieces' || wbMode === 'pieces');
+        const activeUpb = isPiecesMode ? 1 : Math.max(1, parseInt(upbInputEl?.value || data.units_per_bundle || recSku.units_per_bundle || '1', 10));
+        const activeUom = isPiecesMode ? (data.uom || recSku.uom || 'PCS').toUpperCase() : (uomSelectEl?.value || data.uom || recSku.uom || 'EA').toUpperCase();
+        const activeBname = isPiecesMode ? 'Piece' : ((bnameInputEl?.value || data.bundle_name || recSku.bundle_name || 'Bundle').trim() || 'Bundle');
         const realizedTotal = total * activeUpb;
 
 
@@ -5495,61 +5485,37 @@
         }
 
         const pillEl = document.getElementById('wbRealizedUnitsPill');
-
         if (pillEl) {
-
-            pillEl.innerHTML = `${total} ${activeBname}${total === 1 ? '' : 's'} &times; ${activeUpb} ${activeUom} = <span style="color:#fff; text-decoration:underline;">${realizedTotal} ${activeUom}</span>`;
-
+            if (isPiecesMode) {
+                pillEl.innerHTML = `${total} Pieces (${activeUom}) &times; 1 = <span style="color:#fff; text-decoration:underline;">${total} ${activeUom}</span>`;
+            } else {
+                pillEl.innerHTML = `${total} ${activeBname}${total === 1 ? '' : 's'} &times; ${activeUpb} ${activeUom} = <span style="color:#fff; text-decoration:underline;">${realizedTotal} ${activeUom}</span>`;
+            }
         }
 
-
-
         const totalBadge = document.getElementById('wbTotalBadge');
-
         if (totalBadge) {
-
-            if (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING') {
-
+            if (isPiecesMode) {
+                totalBadge.textContent = `${total} PIECES`;
+            } else if (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING') {
                 const bCount = data.physical_bundles_count !== undefined ? data.physical_bundles_count : total;
-
                 totalBadge.textContent = activeUpb > 1
-
                     ? `${bCount} METAL BUNDLE${bCount === 1 ? '' : 'S'} (${realizedTotal} ${activeUom})`
-
                     : `${bCount} METAL BUNDLE${bCount === 1 ? '' : 'S'}`;
-
             } else if (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING') {
-
                 const bCount = data.physical_bundles_count !== undefined ? data.physical_bundles_count : total;
-
                 const prof = data.glass_profile || {};
-
                 const dimStr = prof.length && prof.width ? ` [${prof.length}×${prof.width} ${prof.unit || 'mm'}]` : '';
-
                 totalBadge.textContent = activeUpb > 1
-
                     ? `${bCount} GLASS BUNDLE${bCount === 1 ? '' : 'S'}${dimStr} (${realizedTotal} ${activeUom})`
-
                     : `${bCount} GLASS BUNDLE${bCount === 1 ? '' : 'S'}${dimStr}`;
-
             } else if (wbMode === 'bundles' || data.mode === 'BUNDLE_STACK') {
-
                 totalBadge.textContent = activeUpb > 1
-
                     ? `${total} ${activeBname.toUpperCase()}S (${realizedTotal} ${activeUom})`
-
                     : `${total} ${activeBname.toUpperCase()}S`;
-
             } else {
-
-                totalBadge.textContent = activeUpb > 1
-
-                    ? `${total} ${activeBname.toUpperCase()}S (${realizedTotal} ${activeUom})`
-
-                    : `${realizedTotal} ${activeUom}`;
-
+                totalBadge.textContent = `${total} PIECES`;
             }
-
         }
 
 
@@ -5773,12 +5739,6 @@
 
 
         // Update 4-stat labels for pieces mode or dedicated metal bundles
-
-        const isMetalBundle = (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING');
-
-        const isGlassBundle = (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING');
-
-        const isPiecesMode = !isMetalBundle && !isGlassBundle && (data.mode === 'INDIVIDUAL_PIECES' || data.counting_mode === 'individual_pieces' || wbMode === 'pieces');
 
         const lblStatVis = document.getElementById('wbLabelStatVisible');
 
@@ -7422,30 +7382,32 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-        if (wbMode === 'bundles' || uPerB > 1) {
-
+        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
+        if (isPieces) {
+            if (palletPcsElem) palletPcsElem.textContent = baseCount;
+            if (palletBundlesElem) palletBundlesElem.textContent = 0;
+            if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
+            if (typeof showToast === 'function') {
+                showToast(`Verified count (${baseCount} Pieces) applied to active pallet build session.`, 'success');
+            } else {
+                alert(`Verified count applied to active pallet session: ${baseCount} Pieces`);
+            }
+        } else if (wbMode === 'bundles' || uPerB > 1) {
             if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
-
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-
+            if (typeof showToast === 'function') {
+                showToast(`Verified count (${baseCount} ${bname}s × ${uPerB} ${uom} = ${totalIndividualUnits} ${uom}) applied to active pallet build session.`, 'success');
+            } else {
+                alert(`Verified count applied to active pallet session: ${totalIndividualUnits} ${uom}`);
+            }
         } else {
-
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-
-            if (palletBundlesElem) palletBundlesElem.textContent = Math.max(1, Math.round(totalIndividualUnits / uPerB));
-
-        }
-
-
-
-        if (typeof showToast === 'function') {
-
-            showToast(`Verified count (${baseCount} ${bname}s × ${uPerB} ${uom} = ${totalIndividualUnits} ${uom}) applied to active pallet build session.`, 'success');
-
-        } else {
-
-            alert(`Verified count applied to active pallet session: ${totalIndividualUnits} ${uom}`);
-
+            if (palletBundlesElem) palletBundlesElem.textContent = 0;
+            if (typeof showToast === 'function') {
+                showToast(`Verified count (${baseCount} Units) applied to active pallet build session.`, 'success');
+            } else {
+                alert(`Verified count applied to active pallet session: ${totalIndividualUnits} ${uom}`);
+            }
         }
 
     };

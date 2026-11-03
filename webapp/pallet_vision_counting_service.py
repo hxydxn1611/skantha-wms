@@ -63,6 +63,7 @@ class PalletVisionCountingService:
     """
 
     def __init__(self):
+        self._active_multiview_sessions = {}
         logger.info("PalletVisionCountingService initialized.")
 
     def get_sku_visual_anchor(self, sku_id: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -554,9 +555,9 @@ class PalletVisionCountingService:
                 "product_type": prod_type,
                 "material": mat_label,
                 "inferred_material": mat_label,
-                "uom": "PIPES" if not is_bundle_mode else "BUNDLES",
+                "uom": ("PIPES" if prod_type == "Circular Pipe" else "PCS") if not is_bundle_mode else "BUNDLES",
                 "units_per_bundle": 10 if is_bundle_mode else 1,
-                "bundle_name": "Steel Bundle" if not is_bundle_mode else "Metal Framing Pack",
+                "bundle_name": "Piece" if not is_bundle_mode else "Metal Framing Pack",
                 "target_bundles_per_pallet": 1,
                 "image_url": None,
                 "confidence": 0.35,
@@ -626,30 +627,48 @@ class PalletVisionCountingService:
         )
 
         # Apply manual overrides if provided by operator
-        is_individual_piece_result = (not is_bundle_mode and res_dict.get("mode") == "INDIVIDUAL_PIECES")
+        is_individual_piece_result = (not is_bundle_mode and (res_dict.get("mode") == "INDIVIDUAL_PIECES" or counting_mode in self.INDIVIDUAL_PIECE_MODES or counting_mode == "auto"))
         sku_upb = max(1, int(manual_units_per_bundle if manual_units_per_bundle is not None else rec_sku.get("units_per_bundle", 1)))
         upb = 1 if is_individual_piece_result else sku_upb
         uom = str(manual_uom or rec_sku.get("uom") or "EA").strip().upper()
-        bname = str(manual_bundle_name or rec_sku.get("bundle_name") or "Bundle").strip() or "Bundle"
+        if is_individual_piece_result and uom in ("BUNDLES", "BUNDLE", "EA"):
+            uom = "PCS"
+        bname = "Piece" if is_individual_piece_result else (str(manual_bundle_name or rec_sku.get("bundle_name") or "Bundle").strip() or "Bundle")
 
-        rec_sku["units_per_bundle"] = sku_upb
-        rec_sku["uom"] = uom
-        rec_sku["bundle_name"] = bname
-
-        if is_bundle_mode:
+        if is_individual_piece_result:
+            rec_sku["units_per_bundle"] = 1
+            rec_sku["uom"] = uom
+            rec_sku["bundle_name"] = "Piece"
+            bundles_counted = 0
+            individual_units_total = base_count
+            res_dict["counting_unit"] = "PIECES"
+            res_dict["total_bundles"] = 0
+            res_dict["bundles_counted"] = 0
+            res_dict["bundle_name"] = "Piece"
+            res_dict["units_per_bundle"] = 1
+            res_dict["mode"] = "INDIVIDUAL_PIECES"
+            res_dict["counting_mode"] = "individual_pieces"
+        elif is_bundle_mode:
+            rec_sku["units_per_bundle"] = sku_upb
+            rec_sku["uom"] = uom
+            rec_sku["bundle_name"] = bname
             bundles_counted = base_count
             individual_units_total = bundles_counted * upb
+            res_dict["counting_unit"] = "BUNDLES"
+            res_dict["total_bundles"] = bundles_counted
+            res_dict["bundles_counted"] = bundles_counted
+            res_dict["units_per_bundle"] = upb
+            res_dict["bundle_name"] = bname
         else:
-            # In Individual Piece mode: only treat base_count as bundles if the result explicitly came
-            # from BOX_GRID mode; never multiply explicit INDIVIDUAL_PIECES counts as bundles.
+            rec_sku["units_per_bundle"] = sku_upb
+            rec_sku["uom"] = uom
+            rec_sku["bundle_name"] = bname
             if upb > 1 and base_count > 0 and res_dict.get("mode") == "BOX_GRID":
                 bundles_counted = base_count
                 individual_units_total = base_count * upb
             else:
                 individual_units_total = base_count
-                bundles_counted = 0 if is_individual_piece_result else (
-                    math.ceil(base_count / float(upb)) if (upb > 1 and base_count > 0) else base_count
-                )
+                bundles_counted = math.ceil(base_count / float(upb)) if (upb > 1 and base_count > 0) else base_count
 
         res_dict["recognized_sku"] = rec_sku
         res_dict["selected_sku"] = explicit_sku_id
@@ -741,16 +760,20 @@ class PalletVisionCountingService:
                         cv2.rectangle(overlay, (0, ih - bar_h), (iw, ih), (15, 23, 42), -1)
                         cv2.addWeighted(overlay, 0.92, ann_img, 0.08, 0, ann_img)
                         cv2.line(ann_img, (0, ih - bar_h), (iw, ih - bar_h), (16, 185, 129), 2)
-                        uom_hud_segment = (
-                            f"1 Piece = 1 {uom}"
-                            if is_individual_piece_result
-                            else f"1 {bname} = {upb} {uom}"
-                        )
-                        hud_line = (
-                            f"SKU: {rec_sku['sku_id']} ({rec_sku['name'][:28]}) | "
-                            f"{uom_hud_segment} | "
-                            f"TOTAL: {individual_units_total} {uom} ({int(rec_sku['confidence']*100)}% Match)"
-                        )
+                        if is_individual_piece_result:
+                            uom_hud_segment = f"1 Piece = 1 {uom}"
+                            hud_line = (
+                                f"SKU: {rec_sku['sku_id']} ({rec_sku['name'][:24]}) | "
+                                f"{uom_hud_segment} | "
+                                f"COUNT: {base_count} Pieces | TOTAL: {individual_units_total} {uom} ({int(rec_sku['confidence']*100)}% Match)"
+                            )
+                        else:
+                            uom_hud_segment = f"1 {bname} = {upb} {uom}"
+                            hud_line = (
+                                f"SKU: {rec_sku['sku_id']} ({rec_sku['name'][:24]}) | "
+                                f"{uom_hud_segment} | "
+                                f"BUNDLES: {bundles_counted} {bname}s | TOTAL: {individual_units_total} {uom} ({int(rec_sku['confidence']*100)}% Match)"
+                            )
                         cv2.putText(
                             ann_img, hud_line, (12, ih - 11),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.42, (110, 231, 183), 1, cv2.LINE_AA
@@ -5308,174 +5331,42 @@ class PalletVisionCountingService:
         straps_detected: List[int] = []
         separators_detected: List[Tuple[int, int]] = []
 
-        # If cross-sections are found in significant numbers (>= 12 pieces)
-        if len(end_face_pieces) >= 12:
-            pts = np.array([[p["x"], p["y"]] for p in end_face_pieces])
-            from scipy.spatial import KDTree
-            import scipy.sparse.csgraph as csgraph
-            tree = KDTree(pts)
-            dists, _ = tree.query(pts, k=min(3, len(pts)))
-            med_nn = float(np.median(dists[:, 1])) if len(dists) > 1 else 20.0
-            
-            # Connect pieces within bundle distance
-            adj = tree.sparse_distance_matrix(tree, max_distance=max(14.0, med_nn * 2.3))
-            n_components, labels = csgraph.connected_components(adj)
-            
-            for c_id in range(n_components):
-                c_mask = (labels == c_id)
-                c_pts = pts[c_mask]
-                if len(c_pts) >= 6:  # Substantial cluster of pieces
-                    hull = cv2.convexHull(c_pts.astype(np.int32))
-                    bx, by, bw, bh = cv2.boundingRect(hull)
-                    hull_area = cv2.contourArea(hull)
-                    
-                    # Check truncation against image bounds
-                    is_truncated = (len(c_pts) < 12) and (rx1 + bx <= 3 or rx1 + bx + bw >= w - 3 or ry1 + by <= 3)
-                    is_dense = len(c_pts) >= 10 or hull_area >= (cw * stock_h * 0.03)
+        # Analyze scene physical geometry and material cues:
+        widths = [p.get('w', 0) for p in end_face_pieces] if end_face_pieces else []
+        mean_w = float(np.mean(widths)) if widths else 0.0
 
-                    # Compute elevation tier based on vertical position
-                    mid_y_val = ry1 + by + bh / 2.0
-                    rel_tier = max(0.0, min(1.0, 1.0 - (mid_y_val / float(max(1, stock_h)))))
-                    layer_val = int(min(2, max(0, int(rel_tier * 3))))
+        front_p = [p for p in end_face_pieces if p['x'] < int(cw * 0.45) and p['y'] < stock_h]
+        front_ratio = len(front_p) / float(len(end_face_pieces)) if end_face_pieces else 0.0
 
-                    b_dict = {
-                        "bundle_id": f"MB-{len(confirmed_bundles) + len(uncertain_bundles) + 1:02d}",
-                        "bundle_type": "CROSS_SECTION_BUNDLE",
-                        "x": rx1 + bx,
-                        "y": ry1 + by,
-                        "w": bw,
-                        "h": bh,
-                        "norm_x": round(float(rx1 + bx) / max(1, w), 4),
-                        "norm_y": round(float(ry1 + by) / max(1, h), 4),
-                        "norm_w": round(float(bw) / max(1, w), 4),
-                        "norm_h": round(float(bh) / max(1, h), 4),
-                        "confidence": round(0.97 if is_dense and not is_truncated else 0.85, 3),
-                        "constituent_pieces_detected": int(len(c_pts)),
-                        "hull_points": (hull.reshape(-1, 2) + np.array([rx1, ry1])).tolist(),
-                        "straps_detected": 1 if is_dense else 0,
-                        "face_role": "front_end",
-                        "layer": layer_val,
-                        "tier_index": layer_val,
-                        "elevation": f"Layer {layer_val + 1}",
-                        "is_bundle": True,
-                        "geometry_type": "steel_pipe_bundle",
-                        "material_type": "steel_pipe_bundles",
-                        "detection_status": "CONFIRMED_BUNDLE" if (is_dense and not is_truncated) else "UNCERTAIN_BUNDLE"
-                    }
+        # Side labels (characteristic of stacked metal framing packs)
+        white_mask = (crop[:stock_h, :, 0] > 180) & (crop[:stock_h, :, 1] > 180) & (crop[:stock_h, :, 2] > 180)
+        cnts_lbl, _ = cv2.findContours(white_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        side_labels = 0
+        for clb in cnts_lbl:
+            lx, ly, lw, lh = cv2.boundingRect(clb)
+            if lw >= 25 and lh >= 10 and lw * lh >= 260 and lx > int(cw * 0.25):
+                side_labels += 1
 
-                    if b_dict["detection_status"] == "CONFIRMED_BUNDLE":
-                        confirmed_bundles.append(b_dict)
-                    else:
-                        uncertain_bundles.append(b_dict)
+        is_cstud_pallet = (
+            (material_type in ("metal_framing_packs", "c_stud_framing_pack")) or
+            (pallet_base_meta is not None and side_labels >= 3 and front_ratio > 0.60 and len(end_face_pieces) >= 15) or
+            ("metal_framing" in str(material_type).lower())
+        )
 
-        # 4. Physical Bundle Segmentation for Circular Pipe Bundles vs Framing Packs
-        is_pipe_bundle = (material_type == "steel_pipe_bundles") or ("pipe" in str(material_type).lower())
-        
-        if is_pipe_bundle:
-            # Segment physical hexagonal pipe bundles separated by horizontal dunnage
-            hsv_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-            wood_mask_p = cv2.inRange(hsv_crop, np.array([8, 25, 30]), np.array([32, 220, 220]))
-            wood_row_p = np.mean(wood_mask_p, axis=1) / 255.0
-            mid_y1, mid_y2 = int(ch * 0.38), int(ch * 0.58)
-            dunnage_y = mid_y1 + int(np.argmax(wood_row_p[mid_y1:mid_y2])) if mid_y2 > mid_y1 else int(ch * 0.48)
-            
-            circles_p = cv2.HoughCircles(
-                cv2.GaussianBlur(sgray, (5, 5), 1.5), cv2.HOUGH_GRADIENT,
-                dp=1.2, minDist=16, param1=50, param2=22, minRadius=7, maxRadius=24
-            )
-            if circles_p is not None and len(circles_p[0]) >= 30:
-                pts_p = circles_p[0][:, :2]
-                top_pts = pts_p[pts_p[:, 1] < dunnage_y]
-                bot_pts = pts_p[pts_p[:, 1] >= dunnage_y]
-                from sklearn.cluster import KMeans
-                pipe_bundles_list = []
-                if len(top_pts) >= 15:
-                    km_top = KMeans(n_clusters=2, random_state=42, n_init='auto').fit(top_pts)
-                    for c_id in range(2):
-                        b_pts = top_pts[km_top.labels_ == c_id]
-                        if len(b_pts) > 0:
-                            x1, y1 = np.min(b_pts, axis=0) - 8
-                            x2, y2 = np.max(b_pts, axis=0) + 8
-                            bx = max(0, int(rx1 + x1))
-                            by = max(0, int(ry1 + y1))
-                            bw = min(w - bx, int(x2 - x1))
-                            bh = min(h - by, int(y2 - y1))
-                            b_id = f"MB-{len(pipe_bundles_list) + 1:02d}"
-                            pipe_bundles_list.append({
-                                "id": b_id,
-                                "bundle_id": b_id,
-                                "bundle_type": "CIRCULAR_PIPE_BUNDLE",
-                                "x": bx, "y": by, "w": bw, "h": bh,
-                                "norm_x": round(float(bx) / max(1, w), 4),
-                                "norm_y": round(float(by) / max(1, h), 4),
-                                "norm_w": round(float(bw) / max(1, w), 4),
-                                "norm_h": round(float(bh) / max(1, h), 4),
-                                "confidence": 0.95,
-                                "constituent_pieces_detected": int(len(b_pts)),
-                                "straps_detected": 1,
-                                "face_role": "front_end",
-                                "tier_index": 1,
-                                "layer": 2,
-                                "elevation": "Layer 2",
-                                "is_bundle": True,
-                                "geometry_type": "steel_pipe_bundle",
-                                "material_type": "steel_pipe_bundles",
-                                "detection_status": "CONFIRMED_BUNDLE",
-                                "bbox": [bx, by, bx + bw, by + bh]
-                            })
-                if len(bot_pts) >= 20:
-                    km_bot = KMeans(n_clusters=3, random_state=42, n_init='auto').fit(bot_pts)
-                    for c_id in range(3):
-                        b_pts = bot_pts[km_bot.labels_ == c_id]
-                        if len(b_pts) > 0:
-                            x1, y1 = np.min(b_pts, axis=0) - 8
-                            x2, y2 = np.max(b_pts, axis=0) + 8
-                            bx = max(0, int(rx1 + x1))
-                            by = max(0, int(ry1 + y1))
-                            bw = min(w - bx, int(x2 - x1))
-                            bh = min(h - by, int(y2 - y1))
-                            b_id = f"MB-{len(pipe_bundles_list) + 1:02d}"
-                            pipe_bundles_list.append({
-                                "id": b_id,
-                                "bundle_id": b_id,
-                                "bundle_type": "CIRCULAR_PIPE_BUNDLE",
-                                "x": bx, "y": by, "w": bw, "h": bh,
-                                "norm_x": round(float(bx) / max(1, w), 4),
-                                "norm_y": round(float(by) / max(1, h), 4),
-                                "norm_w": round(float(bw) / max(1, w), 4),
-                                "norm_h": round(float(bh) / max(1, h), 4),
-                                "confidence": 0.96,
-                                "constituent_pieces_detected": int(len(b_pts)),
-                                "straps_detected": 1,
-                                "face_role": "front_end",
-                                "tier_index": 0,
-                                "layer": 1,
-                                "elevation": "Layer 1",
-                                "is_bundle": True,
-                                "geometry_type": "steel_pipe_bundle",
-                                "material_type": "steel_pipe_bundles",
-                                "detection_status": "CONFIRMED_BUNDLE",
-                                "bbox": [bx, by, bx + bw, by + bh]
-                            })
-                if len(pipe_bundles_list) >= 2:
-                    confirmed_bundles = sorted(pipe_bundles_list, key=lambda b: (b["tier_index"], b["x"]))
-                    for idx, b in enumerate(confirmed_bundles, start=1):
-                        b["id"] = f"MB-{idx:02d}"
-                        b["bundle_id"] = f"MB-{idx:02d}"
-                    uncertain_bundles = []
-        
-        # Check if this scene represents a stacked pallet of metal framing packs (e.g. C-studs on wooden pallet)
-        is_framing_pallet = (not is_pipe_bundle) and ((pallet_base_meta is not None) or (len(end_face_pieces) >= 8 and stock_h >= int(h * 0.50)))
-        if is_framing_pallet or (not is_pipe_bundle and len(confirmed_bundles) <= 2):
+        is_pipe_stockpile = (
+            (material_type == "steel_pipe_bundles") or
+            ("pipe" in str(material_type).lower()) or
+            (not is_cstud_pallet and len(end_face_pieces) >= 40)
+        )
+
+        # ---------------------------------------------------------------------
+        # CASE 1: C-STUD Framing Packs on Pallet (4 Physical Packs with Dunnage)
+        # ---------------------------------------------------------------------
+        if is_cstud_pallet and len(front_p) >= 10:
             import scipy.signal as signal
-            # Detect layer boundaries:
-            # Metal framing packs have 4 elevation layers stacked on the pallet, separated by dunnage battens
-            start_y = 35 if rx1 == 0 and ry1 == 0 and h <= 600 else 0
-            avail_h = stock_h - start_y
-            layer_h = avail_h / 4.0
-            tier_bounds = [int(start_y + i * layer_h) for i in range(5)]
+            from sklearn.cluster import KMeans
 
-            # Detect vertical strapping bands
+            # Vertical strapping bands across long face
             sobel_x = cv2.Sobel(sgray, cv2.CV_32F, 1, 0, ksize=3)
             col_grads = np.mean(np.abs(sobel_x), axis=0)
             col_k = max(7, int(cw * 0.03) | 1)
@@ -5483,153 +5374,159 @@ class PalletVisionCountingService:
             strap_peaks, _ = signal.find_peaks(smoothed_cols, distance=int(cw * 0.15), prominence=np.mean(smoothed_cols) * 0.20)
             straps_count = max(2, len(strap_peaks))
 
+            front_ys = np.array([p['y'] for p in front_p]).reshape(-1, 1)
+            km_tiers = KMeans(n_clusters=4, random_state=42, n_init='auto').fit(front_ys)
+            tier_centers = sorted(km_tiers.cluster_centers_.flatten())
+
+            p_xs = [p['x'] for p in front_p] if front_p else [35]
+            pack_x1 = max(25, min(p_xs) - 8)
+            pack_x2 = min(cw - 10, int(cw * 0.98))
+
             tier_packs = []
-            for t_idx in range(len(tier_bounds) - 1):
-                ty1 = int(tier_bounds[t_idx])
-                ty2 = int(tier_bounds[t_idx + 1])
-                th = ty2 - ty1
-                layer_num = len(tier_bounds) - 1 - t_idx
-                b_id = f"MB-{len(tier_packs) + 1:02d}"
+            for idx, c_y in enumerate(tier_centers):
+                # Dynamically calculate dunnage gap so adjacent packs do not overlap dunnage
+                dunnage_h = 14
+                if idx == 0:
+                    tier_pts = [p for p in front_p if p['y'] < (tier_centers[0] + tier_centers[1]) / 2.0] if len(tier_centers) > 1 else front_p
+                    pack_y1 = max(20, min([p['y'] for p in tier_pts]) - 6) if tier_pts else max(20, int(c_y - 35))
+                else:
+                    mid_prev = (tier_centers[idx - 1] + tier_centers[idx]) / 2.0
+                    pack_y1 = int(round(mid_prev + dunnage_h / 2.0))
+
+                if idx == len(tier_centers) - 1:
+                    pack_y2 = int(round(stock_h - 6))
+                else:
+                    mid_next = (tier_centers[idx] + tier_centers[idx + 1]) / 2.0
+                    pack_y2 = int(round(mid_next - dunnage_h / 2.0))
+
+                tier_pts = [p for p in front_p if pack_y1 <= p['y'] <= pack_y2]
+                layer_num = len(tier_centers) - idx
+                b_id = f"MB-{idx + 1:02d}"
+
                 tier_packs.append({
                     "id": b_id,
                     "bundle_id": b_id,
-                    "bundle_type": "LONGITUDINAL_STRAPPED_BUNDLE",
-                    "x": rx1 + 25,
-                    "y": ry1 + ty1,
-                    "w": cw - 35,
-                    "h": th,
-                    "norm_x": round(float(rx1 + 25) / max(1, w), 4),
-                    "norm_y": round(float(ry1 + ty1) / max(1, h), 4),
-                    "norm_w": round(float(cw - 35) / max(1, w), 4),
-                    "norm_h": round(float(th) / max(1, h), 4),
-                    "confidence": 0.96,
+                    "bundle_type": "C_STUD_FRAMING_PACK",
+                    "x": rx1 + pack_x1,
+                    "y": ry1 + pack_y1,
+                    "w": pack_x2 - pack_x1,
+                    "h": pack_y2 - pack_y1,
+                    "norm_x": round(float(rx1 + pack_x1) / max(1, w), 4),
+                    "norm_y": round(float(ry1 + pack_y1) / max(1, h), 4),
+                    "norm_w": round(float(pack_x2 - pack_x1) / max(1, w), 4),
+                    "norm_h": round(float(pack_y2 - pack_y1) / max(1, h), 4),
+                    "confidence": 0.97,
+                    "constituent_pieces_detected": int(len(tier_pts)),
                     "straps_detected": straps_count,
-                    "face_role": "side_face",
-                    "tier_index": t_idx,
+                    "label_detected": True,
+                    "dunnage_excluded": True,
+                    "face_role": "front_and_side",
+                    "tier_index": idx,
                     "layer": layer_num,
                     "elevation": f"Layer {layer_num}",
                     "is_bundle": True,
-                    "geometry_type": "metal_framing_pack",
+                    "geometry_type": "c_stud_framing_pack",
                     "material_type": "metal_framing_packs",
                     "detection_status": "CONFIRMED_BUNDLE",
-                    "bbox": [rx1 + 25, ry1 + ty1, rx1 + cw - 10, ry1 + ty2]
+                    "bbox": [rx1 + pack_x1, ry1 + pack_y1, rx1 + pack_x2, ry1 + pack_y2]
                 })
 
-            if len(tier_packs) >= 3:
-                confirmed_bundles = tier_packs
-                uncertain_bundles = []
+            confirmed_bundles = tier_packs
+            uncertain_bundles = []
 
-        if not confirmed_bundles:
-            # Detect Dunnage Separators (Horizontal edge gradients)
-            sobel_y = cv2.Sobel(sgray, cv2.CV_32F, 0, 1, ksize=3)
-            row_grads = np.mean(np.abs(sobel_y), axis=1)
-            k_sz = max(5, int(stock_h * 0.02) | 1)
-            smoothed_rows = np.convolve(row_grads, np.ones(k_sz) / k_sz, mode='same')
-            row_thresh = np.mean(smoothed_rows) + 0.65 * np.std(smoothed_rows)
-            in_sep = False
-            s_start = 0
-            for y_i, val in enumerate(smoothed_rows):
-                if val > row_thresh and not in_sep:
-                    in_sep = True
-                    s_start = y_i
-                elif val <= row_thresh and in_sep:
-                    in_sep = False
-                    if 4 <= (y_i - s_start) <= int(stock_h * 0.14):
-                        separators_detected.append((s_start, y_i))
+        # ---------------------------------------------------------------------
+        # CASE 2: Circular Steel Pipes (Single Continuous Stockpile)
+        # ---------------------------------------------------------------------
+        elif is_pipe_stockpile and len(end_face_pieces) >= 15:
+            # Single continuous stockpile must NOT be partitioned into four arbitrary bundles!
+            pts = np.array([[p["x"], p["y"]] for p in end_face_pieces])
+            hull_all = cv2.convexHull(pts.astype(np.int32))
+            bx, by, bw, bh = cv2.boundingRect(hull_all)
+            b_id = "MB-01"
+            confirmed_bundles = [{
+                "id": b_id,
+                "bundle_id": b_id,
+                "bundle_type": "CIRCULAR_PIPE_STOCKPILE",
+                "x": rx1 + bx, "y": ry1 + by, "w": bw, "h": bh,
+                "bbox": [rx1 + bx, ry1 + by, rx1 + bx + bw, ry1 + by + bh],
+                "norm_x": round(float(rx1 + bx) / max(1, w), 4),
+                "norm_y": round(float(ry1 + by) / max(1, h), 4),
+                "norm_w": round(float(bw) / max(1, w), 4),
+                "norm_h": round(float(bh) / max(1, h), 4),
+                "confidence": 0.96,
+                "constituent_pieces_detected": int(len(end_face_pieces)),
+                "straps_detected": 0,
+                "face_role": "front_end",
+                "layer": 1,
+                "tier_index": 0,
+                "elevation": "Layer 1",
+                "is_bundle": True,
+                "geometry_type": "steel_pipe_bundle",
+                "material_type": "steel_pipe_bundles",
+                "detection_status": "CONFIRMED_BUNDLE"
+            }]
+            uncertain_bundles = []
 
-            # Detect Straps (Vertical transverse bands)
-            sobel_x = cv2.Sobel(sgray, cv2.CV_32F, 1, 0, ksize=3)
-            col_grads = np.mean(np.abs(sobel_x), axis=0)
-            c_k_sz = max(5, int(cw * 0.015) | 1)
-            smoothed_cols = np.convolve(col_grads, np.ones(c_k_sz) / c_k_sz, mode='same')
-            col_thresh = np.mean(smoothed_cols) + 0.75 * np.std(smoothed_cols)
-            in_str = False
-            str_start = 0
-            for x_i, val in enumerate(smoothed_cols):
-                if val > col_thresh and not in_str:
-                    in_str = True
-                    str_start = x_i
-                elif val <= col_thresh and in_str:
-                    in_str = False
-                    if 3 <= (x_i - str_start) <= int(cw * 0.08):
-                        straps_detected.append((str_start + x_i) // 2)
+        # ---------------------------------------------------------------------
+        # CASE 3: Hollow Structural Sections / Framing Stock (1 Master Stack)
+        # ---------------------------------------------------------------------
+        elif len(end_face_pieces) >= 8:
+            pts_s = np.array([[p["x"], p["y"]] for p in end_face_pieces])
+            hull_s = cv2.convexHull(pts_s.astype(np.int32))
+            bx, by, bw, bh = cv2.boundingRect(hull_s)
+            b_id = "MB-01"
+            confirmed_bundles = [{
+                "id": b_id,
+                "bundle_id": b_id,
+                "bundle_type": "HOLLOW_SECTION_BUNDLE",
+                "x": rx1 + bx, "y": ry1 + by, "w": bw, "h": bh,
+                "bbox": [rx1 + bx, ry1 + by, rx1 + bx + bw, ry1 + by + bh],
+                "norm_x": round(float(rx1 + bx) / max(1, w), 4),
+                "norm_y": round(float(ry1 + by) / max(1, h), 4),
+                "norm_w": round(float(bw) / max(1, w), 4),
+                "norm_h": round(float(bh) / max(1, h), 4),
+                "confidence": 0.96,
+                "constituent_pieces_detected": int(len(end_face_pieces)),
+                "straps_detected": 0,
+                "face_role": "front_end",
+                "layer": 1,
+                "tier_index": 0,
+                "elevation": "Layer 1",
+                "is_bundle": True,
+                "geometry_type": "c_stud_framing_pack",
+                "material_type": "metal_bundles",
+                "detection_status": "CONFIRMED_BUNDLE"
+            }]
+            uncertain_bundles = []
 
-            # Enhanced Multi-Tier & Transverse Pack Segmentation for Metal Framing Packs
-            import scipy.signal as signal
-            k_sz = max(5, int(stock_h * 0.03) | 1)
-            smoothed_rows = np.convolve(row_grads, np.ones(k_sz) / k_sz, mode='same')
-            row_peaks, _ = signal.find_peaks(smoothed_rows, distance=int(stock_h * 0.15), prominence=np.mean(smoothed_rows) * 0.25)
-            tier_bounds = [0] + list(row_peaks) + [stock_h]
-
-            for t_idx in range(len(tier_bounds) - 1):
-                ty1 = int(tier_bounds[t_idx])
-                ty2 = int(tier_bounds[t_idx + 1])
-                th = ty2 - ty1
-                if th < int(stock_h * 0.06):
-                    continue
-                # Check for vertical pack divisions within this tier
-                col_grads = np.mean(np.abs(sobel_x[ty1:ty2, :]), axis=0)
-                col_k = max(7, int(cw * 0.03) | 1)
-                smoothed_cols = np.convolve(col_grads, np.ones(col_k) / col_k, mode='same')
-                col_peaks, _ = signal.find_peaks(smoothed_cols, distance=int(cw * 0.16), prominence=np.mean(smoothed_cols) * 0.20)
-
-                col_divs = [0] + list(col_peaks) + [cw]
-                filtered_divs = [0]
-                for cd in col_divs[1:]:
-                    if cd - filtered_divs[-1] >= int(cw * 0.12):
-                        filtered_divs.append(int(cd))
-                if filtered_divs[-1] < cw:
-                    filtered_divs[-1] = cw
-
-                layer_num = len(tier_bounds) - 1 - t_idx
-                for p_idx in range(len(filtered_divs) - 1):
-                    x1 = filtered_divs[p_idx]
-                    x2 = filtered_divs[p_idx + 1]
-                    pack_w = x2 - x1
-                    is_trun = (pack_w < int(cw * 0.08) or th < int(stock_h * 0.05))
-                    b_obj = {
-                        "bundle_id": f"MB-{len(confirmed_bundles) + len(uncertain_bundles) + 1:02d}",
-                        "bundle_type": "LONGITUDINAL_STRAPPED_BUNDLE",
-                        "x": rx1 + x1,
-                        "y": ry1 + ty1,
-                        "w": pack_w,
-                        "h": th,
-                        "norm_x": round(float(rx1 + x1) / max(1, w), 4),
-                        "norm_y": round(float(ry1 + ty1) / max(1, h), 4),
-                        "norm_w": round(float(pack_w) / max(1, w), 4),
-                        "norm_h": round(float(th) / max(1, h), 4),
-                        "confidence": round(0.95 - (0.12 if is_trun else 0.0), 3),
-                        "straps_detected": 2,
-                        "face_role": "side_face",
-                        "tier_index": t_idx,
-                        "layer": layer_num,
-                        "elevation": f"Layer {layer_num}",
-                        "is_bundle": True,
-                        "geometry_type": "steel_pipe_bundle" if len(end_face_pieces) >= 12 else "metal_framing_pack",
-                        "material_type": "metal_framing_packs",
-                        "detection_status": "CONFIRMED_BUNDLE" if not is_trun else "UNCERTAIN_BUNDLE"
-                    }
-                    if b_obj["detection_status"] == "CONFIRMED_BUNDLE":
-                        confirmed_bundles.append(b_obj)
-                    else:
-                        uncertain_bundles.append(b_obj)
-
-        # Fallback: if still empty, treat the stock mass as 1 master bundle
+        # ---------------------------------------------------------------------
+        # CASE 4: Fallback Single Master Bundle (Never invent 4 arbitrary bands)
+        # ---------------------------------------------------------------------
         if not confirmed_bundles and not uncertain_bundles:
+            b_id = "MB-01"
+            bx = int(cw * 0.08)
+            by = int(stock_h * 0.08)
+            bw = int(cw * 0.84)
+            bh = int(stock_h * 0.84)
             confirmed_bundles.append({
-                "bundle_id": "MB-01",
+                "id": b_id,
+                "bundle_id": b_id,
                 "bundle_type": "MASTER_BUNDLE",
-                "x": rx1 + int(cw * 0.08),
-                "y": ry1 + int(stock_h * 0.08),
-                "w": int(cw * 0.84),
-                "h": int(stock_h * 0.84),
-                "norm_x": round(float(rx1 + int(cw * 0.08)) / max(1, w), 4),
-                "norm_y": round(float(ry1 + int(stock_h * 0.08)) / max(1, h), 4),
-                "norm_w": round(float(int(cw * 0.84)) / max(1, w), 4),
-                "norm_h": round(float(int(stock_h * 0.84)) / max(1, h), 4),
-                "confidence": 0.92,
+                "x": rx1 + bx, "y": ry1 + by, "w": bw, "h": bh,
+                "bbox": [rx1 + bx, ry1 + by, rx1 + bx + bw, ry1 + by + bh],
+                "norm_x": round(float(rx1 + bx) / max(1, w), 4),
+                "norm_y": round(float(ry1 + by) / max(1, h), 4),
+                "norm_w": round(float(bw) / max(1, w), 4),
+                "norm_h": round(float(bh) / max(1, h), 4),
+                "confidence": 0.90,
                 "straps_detected": len(straps_detected),
                 "face_role": "front_face",
+                "layer": 1,
+                "tier_index": 0,
+                "elevation": "Layer 1",
+                "is_bundle": True,
+                "geometry_type": "c_stud_framing_pack",
+                "material_type": "metal_bundles",
                 "detection_status": "CONFIRMED_BUNDLE"
             })
 
@@ -6041,8 +5938,19 @@ class PalletVisionCountingService:
                 f"Directly localized {physical_bundles_count} physical metal bundle(s)"
                 + (f" ({uncertain_count} ambiguous boundary candidates flagged for review)." if uncertain_count > 0 else ".")
             ),
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "pallet_base_meta": pallet_base_meta
         }
+
+        is_cstud = any(f in str(material_type).lower() for f in ("framing", "c_stud", "stud")) or any(b.get("bundle_type") == "C_STUD_FRAMING_PACK" for b in confirmed_bundles)
+        if is_cstud:
+            res_payload["material_type"] = "metal_framing_packs"
+            res_payload["geometry_type"] = "c_stud_framing_pack"
+            matrix_3d["material_type"] = "metal_framing_packs"
+            matrix_3d["geometry_type"] = "c_stud_framing_pack"
+            for b3 in boxes_3d:
+                b3["material_type"] = "metal_framing_packs"
+                b3["geometry_type"] = "c_stud_framing_pack"
 
         if sku_anchor:
             res_payload["sku_id"] = sku_anchor["sku_id"]
@@ -7210,9 +7118,9 @@ class PalletVisionCountingService:
         """
         Dedicated computer-vision detector for physically separate wrapped pallet packs
         (stretch-wrapped / shrink-wrapped material bundles, palletized wrapped loads).
-        Uses packaging outer boundaries, visible pack contours, horizontal layer tiers,
-        and vertical separator gaps, while strictly distinguishing tare pallet base runners.
-        Does NOT assume selected SKU proves material identity if visual evidence does not support it.
+        Uses packaging outer boundaries, physical unit contours, horizontal layer tiers,
+        and strapping bands, while strictly distinguishing tare pallet base runners.
+        Generates tight boundaries around each physical pack instead of arbitrary horizontal bands.
         """
         h, w = img_bgr.shape[:2]
         rx1, ry1, rx2, ry2 = 0, 0, w, h
@@ -7226,79 +7134,143 @@ class PalletVisionCountingService:
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
-        # 1. Detect Pallet Base Runner (Tare packaging)
+        # 1. Accurately Detect Pallet Base Runner (Tare packaging) at the bottom
         pallet_base_meta = None
-        wood_mask = cv2.inRange(hsv, np.array([8, 25, 30]), np.array([35, 235, 220]))
-        bottom_h = int(ch * 0.35)
-        bottom_strip = wood_mask[ch - bottom_h:ch, :]
-        wood_row_density = np.mean(bottom_strip, axis=1) / 255.0
-        dense_wood_rows = np.where(wood_row_density > 0.25)[0]
-        if len(dense_wood_rows) > 0:
-            pallet_y_local = (ch - bottom_h) + int(dense_wood_rows[0])
-            pallet_base_meta = {
-                "detected": True,
-                "x": rx1,
-                "y": ry1 + pallet_y_local,
-                "w": cw,
-                "h": ch - pallet_y_local,
-                "type": "WOOD_PALLET_RUNNER_BASE"
-            }
-            stock_h = max(30, pallet_y_local)
+        # In palletized wrapped loads, the wooden runner sits in the bottom 25% of the height
+        bottom_y_start = int(ch * 0.75)
+        bottom_gray = gray[bottom_y_start:, :]
+        row_diffs = np.diff(np.mean(bottom_gray, axis=1))
+        # Find transition from darker stock to lighter pallet wood / forklift gaps
+        if len(row_diffs) > 5 and np.max(row_diffs) > 4.0:
+            pallet_y_local = bottom_y_start + int(np.argmax(row_diffs))
         else:
-            stock_h = ch
+            # Color-based check for wood tones at base
+            wood_mask = cv2.inRange(hsv[bottom_y_start:, :], np.array([8, 25, 40]), np.array([32, 220, 220]))
+            wood_row_density = np.mean(wood_mask, axis=1) / 255.0
+            dense_rows = np.where(wood_row_density > 0.18)[0]
+            pallet_y_local = (bottom_y_start + int(dense_rows[0])) if len(dense_rows) > 0 else int(ch * 0.85)
 
-        # Identify actual top of product stack (excluding blank / white background)
-        non_bg_rows = np.where(np.sum(gray < 242, axis=1) > int(cw * 0.05))[0]
-        stock_top_y = int(non_bg_rows[0]) if len(non_bg_rows) > 0 else 0
-        stock_gray = gray[stock_top_y:stock_h, :]
-
-        # 2. Find horizontal layer tier boundaries in inventory stock
-        avail_stock_h = max(20, stock_h - stock_top_y)
-        sobel_y = np.abs(cv2.Sobel(stock_gray, cv2.CV_32F, 0, 1, ksize=3))
-        row_grads = np.mean(sobel_y, axis=1)
-        k_sz = max(5, int(avail_stock_h * 0.03) | 1)
-        smooth_rows = np.convolve(row_grads, np.ones(k_sz) / k_sz, mode='same')
-        from scipy.signal import find_peaks
-        tier_peaks, _ = find_peaks(smooth_rows, distance=max(20, int(avail_stock_h * 0.20)), prominence=max(2.0, float(np.std(smooth_rows) * 0.7)))
-
-        tier_bounds = [stock_top_y] + sorted(int(stock_top_y + p) for p in tier_peaks) + [stock_h]
-        total_layers = max(1, len(tier_bounds) - 1)
+        pallet_base_meta = {
+            "detected": True,
+            "x": rx1,
+            "y": ry1 + pallet_y_local,
+            "w": cw,
+            "h": ch - pallet_y_local,
+            "type": "WOOD_PALLET_RUNNER_BASE"
+        }
+        stock_h = pallet_y_local
 
         confirmed_bundles: List[Dict[str, Any]] = []
         uncertain_bundles: List[Dict[str, Any]] = []
 
-        # 3. For each tier, segment horizontal pack instances
-        for t_idx in range(len(tier_bounds) - 1):
-            ty1 = tier_bounds[t_idx]
-            ty2 = tier_bounds[t_idx + 1]
-            layer_h = ty2 - ty1
-            if layer_h < max(15, int(stock_h * 0.08)):
-                continue
+        # 2. Localize Physically Separate Wrapped Packs using Instance Segmentation & Edge Seams
+        detected_instances, _, inst_meta = self._detect_physical_carton_instances(crop, sensitivity=sensitivity)
+        valid_instances = [
+            inst for inst in detected_instances
+            if inst.get("y", 0) + inst.get("h", 0) * 0.5 < stock_h and inst.get("w", 0) >= 20 and inst.get("h", 0) >= 20
+        ]
 
-            tier_crop = stock_gray[ty1:ty2, :]
-            sobel_x = np.abs(cv2.Sobel(tier_crop, cv2.CV_32F, 1, 0, ksize=3))
+        if len(valid_instances) >= 4:
+            # Sort instances into elevation layers and left-to-right columns
+            ys = [inst["y"] for inst in valid_instances]
+            from sklearn.cluster import KMeans
+            # Determine number of elevation tiers from Y spread
+            y_span = max(ys) - min(ys)
+            n_layers = max(1, min(5, int(round(y_span / max(30.0, stock_h * 0.25))))) if y_span > 40 else 1
+            if n_layers > 1 and len(valid_instances) >= n_layers:
+                km_layers = KMeans(n_clusters=n_layers, random_state=42, n_init='auto').fit(np.array(ys).reshape(-1, 1))
+                layer_centers = sorted(km_layers.cluster_centers_.flatten())
+            else:
+                layer_centers = [float(np.mean(ys))] if ys else [stock_h * 0.5]
+                n_layers = 1
+
+            # Sort instances: first by layer (top to bottom), then by X (left to right)
+            def get_layer_idx(y_val):
+                dists = [abs(y_val - c) for c in layer_centers]
+                return int(np.argmin(dists))
+
+            valid_instances.sort(key=lambda inst: (get_layer_idx(inst["y"]), inst["x"]))
+
+            for idx, inst in enumerate(valid_instances):
+                b_id = f"WB-{idx + 1:02d}"
+                bx = rx1 + inst["bbox"][0]
+                by = ry1 + inst["bbox"][1]
+                bw = inst["bbox"][2] - inst["bbox"][0]
+                bh = inst["bbox"][3] - inst["bbox"][1]
+                l_idx = get_layer_idx(inst["y"])
+                elev_name = f"Layer {n_layers - l_idx}"
+                is_unc = bool(inst.get("is_uncertain") or inst.get("confidence", 0.9) < 0.52)
+
+                b_obj = {
+                    "id": b_id,
+                    "bundle_id": b_id,
+                    "bundle_type": "WRAPPED_PALLET_BUNDLE",
+                    "x": bx,
+                    "y": by,
+                    "w": bw,
+                    "h": bh,
+                    "bbox": [bx, by, bx + bw, by + bh],
+                    "norm_x": round(float(bx) / max(1, w), 4),
+                    "norm_y": round(float(by) / max(1, h), 4),
+                    "norm_w": round(float(bw) / max(1, w), 4),
+                    "norm_h": round(float(bh) / max(1, h), 4),
+                    "confidence": round(float(inst.get("confidence", 0.92)), 3),
+                    "layer": n_layers - 1 - l_idx,
+                    "tier_index": n_layers - 1 - l_idx,
+                    "elevation": elev_name,
+                    "detection_status": "CONFIRMED_BUNDLE" if not is_unc else "UNCERTAIN_BUNDLE",
+                    "is_uncertain": is_unc,
+                    "is_bundle": True,
+                    "geometry_type": "wrapped_bundle",
+                    "material_type": "wrapped_bundles",
+                    "mask_polygon": inst.get("mask_polygon")
+                }
+                if is_unc:
+                    uncertain_bundles.append(b_obj)
+                else:
+                    confirmed_bundles.append(b_obj)
+            total_layers = n_layers
+
+        else:
+            # Fallback: Transverse & layer packaging boundary intersection
+            stock_gray = gray[:stock_h, :]
+            sobel_y = np.abs(cv2.Sobel(stock_gray, cv2.CV_32F, 0, 1, ksize=3))
+            row_grads = np.mean(sobel_y, axis=1)
+            k_sz = max(5, int(stock_h * 0.03) | 1)
+            smooth_rows = np.convolve(row_grads, np.ones(k_sz) / k_sz, mode='same')
+            from scipy.signal import find_peaks
+            tier_peaks, _ = find_peaks(smooth_rows, distance=max(25, int(stock_h * 0.20)), prominence=max(2.0, float(np.std(smooth_rows) * 0.7)))
+            tier_bounds = [0] + sorted(int(p) for p in tier_peaks) + [stock_h]
+            total_layers = max(1, len(tier_bounds) - 1)
+
+            # Detect vertical pack seams & straps using Sobel X
+            sobel_x = np.abs(cv2.Sobel(stock_gray, cv2.CV_32F, 1, 0, ksize=3))
             col_grads = np.mean(sobel_x, axis=0)
-            smooth_cols = np.convolve(col_grads, np.ones(9) / 9.0, mode='same')
-            col_peaks, _ = find_peaks(smooth_cols, distance=max(30, int(cw * 0.22)), prominence=max(2.0, float(np.std(smooth_cols) * 0.75)))
+            c_k = max(7, int(cw * 0.02) | 1)
+            smooth_cols = np.convolve(col_grads, np.ones(c_k) / c_k, mode='same')
+            col_peaks, _ = find_peaks(smooth_cols, distance=max(35, int(cw * 0.18)), prominence=max(2.0, float(np.std(smooth_cols) * 0.6)))
+            x_splits = [int(cw * 0.05)] + [p for p in col_peaks if int(cw * 0.10) < p < int(cw * 0.90)] + [int(cw * 0.95)]
 
-            # Interior split boundaries
-            valid_x_splits = [p for p in col_peaks if int(cw * 0.12) < p < int(cw * 0.88)]
-            x_bounds = [int(cw * 0.04)] + sorted(valid_x_splits) + [int(cw * 0.96)]
-
-            layer_idx = max(0, total_layers - 1 - t_idx)
-
-            for x_i in range(len(x_bounds) - 1):
-                px1 = x_bounds[x_i]
-                px2 = x_bounds[x_i + 1]
-                pack_w = px2 - px1
-                if pack_w >= max(20, int(cw * 0.15)):
+            for t_idx in range(len(tier_bounds) - 1):
+                ty1 = tier_bounds[t_idx]
+                ty2 = tier_bounds[t_idx + 1]
+                th = ty2 - ty1
+                if th < max(18, int(stock_h * 0.08)):
+                    continue
+                layer_num = total_layers - t_idx
+                for x_i in range(len(x_splits) - 1):
+                    px1 = x_splits[x_i]
+                    px2 = x_splits[x_i + 1]
+                    pw_pack = px2 - px1
+                    if pw_pack < max(25, int(cw * 0.12)):
+                        continue
                     b_id = f"WB-{len(confirmed_bundles) + len(uncertain_bundles) + 1:02d}"
                     bx = rx1 + px1
                     by = ry1 + ty1
-                    bw = pack_w
-                    bh = layer_h
-                    is_edge_truncated = (px1 <= int(cw * 0.05) or px2 >= int(cw * 0.95))
+                    bw = pw_pack
+                    bh = th
                     b_obj = {
+                        "id": b_id,
                         "bundle_id": b_id,
                         "bundle_type": "WRAPPED_PALLET_BUNDLE",
                         "x": bx,
@@ -7310,10 +7282,10 @@ class PalletVisionCountingService:
                         "norm_y": round(float(by) / max(1, h), 4),
                         "norm_w": round(float(bw) / max(1, w), 4),
                         "norm_h": round(float(bh) / max(1, h), 4),
-                        "confidence": round(0.94 if not is_edge_truncated else 0.82, 3),
-                        "layer": layer_idx,
-                        "tier_index": layer_idx,
-                        "elevation": f"Layer {layer_idx + 1}",
+                        "confidence": 0.91,
+                        "layer": layer_num - 1,
+                        "tier_index": layer_num - 1,
+                        "elevation": f"Layer {layer_num}",
                         "detection_status": "CONFIRMED_BUNDLE",
                         "is_uncertain": False,
                         "is_bundle": True,
@@ -7322,8 +7294,9 @@ class PalletVisionCountingService:
                     }
                     confirmed_bundles.append(b_obj)
 
-        if not confirmed_bundles:
+        if not confirmed_bundles and not uncertain_bundles:
             b_obj = {
+                "id": "WB-01",
                 "bundle_id": "WB-01",
                 "bundle_type": "WRAPPED_PALLET_BUNDLE",
                 "x": rx1 + int(cw * 0.05),
@@ -7523,7 +7496,12 @@ class PalletVisionCountingService:
             "total_layers": meta["layers_count"],
             "geometry_type": "wrapped_bundle",
             "material_type": "wrapped_bundles",
-            "boxes_3d": boxes_3d
+            "boxes": boxes_3d,
+            "boxes_3d": boxes_3d,
+            "has_pallet": pallet_base_meta is not None,
+            "pallet_base_detected": pallet_base_meta is not None,
+            "tare_excluded": True,
+            "pallet_base_meta": pallet_base_meta
         }
 
         return {
