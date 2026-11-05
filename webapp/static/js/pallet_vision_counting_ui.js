@@ -5435,10 +5435,11 @@
         const isMetalBundle = (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING');
         const isGlassBundle = (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING');
         const isPiecesMode = !isMetalBundle && !isGlassBundle && (data.mode === 'INDIVIDUAL_PIECES' || data.counting_mode === 'individual_pieces' || wbMode === 'pieces');
-        const activeUpb = isPiecesMode ? 1 : Math.max(1, parseInt(upbInputEl?.value || data.units_per_bundle || recSku.units_per_bundle || '1', 10));
+        const hasVerifiedUpb = isPiecesMode ? true : Boolean(upbInputEl?.value ? parseInt(upbInputEl.value, 10) > 0 : (data.units_per_bundle && data.units_per_bundle > 1));
+        const activeUpb = isPiecesMode ? 1 : (hasVerifiedUpb ? Math.max(1, parseInt(upbInputEl?.value || data.units_per_bundle || recSku.units_per_bundle || '1', 10)) : null);
         const activeUom = isPiecesMode ? (data.uom || recSku.uom || 'PCS').toUpperCase() : (uomSelectEl?.value || data.uom || recSku.uom || 'EA').toUpperCase();
         const activeBname = isPiecesMode ? 'Piece' : ((bnameInputEl?.value || data.bundle_name || recSku.bundle_name || 'Bundle').trim() || 'Bundle');
-        const realizedTotal = total * activeUpb;
+        const realizedTotal = (hasVerifiedUpb && activeUpb !== null) ? (total * activeUpb) : null;
 
 
 
@@ -5488,8 +5489,10 @@
         if (pillEl) {
             if (isPiecesMode) {
                 pillEl.innerHTML = `${total} Pieces (${activeUom}) &times; 1 = <span style="color:#fff; text-decoration:underline;">${total} ${activeUom}</span>`;
-            } else {
+            } else if (hasVerifiedUpb && realizedTotal !== null) {
                 pillEl.innerHTML = `${total} ${activeBname}${total === 1 ? '' : 's'} &times; ${activeUpb} ${activeUom} = <span style="color:#fff; text-decoration:underline;">${realizedTotal} ${activeUom}</span>`;
+            } else {
+                pillEl.innerHTML = `${total} ${activeBname}${total === 1 ? '' : 's'} &bull; Pieces per bundle: <span style="color:#fbbf24; font-weight:600;">Unverified</span>`;
             }
         }
 
@@ -5499,20 +5502,20 @@
                 totalBadge.textContent = `${total} PIECES`;
             } else if (data.mode === 'METAL_BUNDLES' || data.counting_strategy === 'DEDICATED_METAL_BUNDLE_COUNTING') {
                 const bCount = data.physical_bundles_count !== undefined ? data.physical_bundles_count : total;
-                totalBadge.textContent = activeUpb > 1
+                totalBadge.textContent = (hasVerifiedUpb && realizedTotal !== null)
                     ? `${bCount} METAL BUNDLE${bCount === 1 ? '' : 'S'} (${realizedTotal} ${activeUom})`
-                    : `${bCount} METAL BUNDLE${bCount === 1 ? '' : 'S'}`;
+                    : `${bCount} METAL BUNDLE${bCount === 1 ? '' : 'S'} (Pieces Unverified)`;
             } else if (data.mode === 'GLASS_BUNDLES' || data.counting_strategy === 'MEASUREMENT_AWARE_GLASS_BUNDLE_COUNTING') {
                 const bCount = data.physical_bundles_count !== undefined ? data.physical_bundles_count : total;
                 const prof = data.glass_profile || {};
                 const dimStr = prof.length && prof.width ? ` [${prof.length}×${prof.width} ${prof.unit || 'mm'}]` : '';
-                totalBadge.textContent = activeUpb > 1
+                totalBadge.textContent = (hasVerifiedUpb && realizedTotal !== null)
                     ? `${bCount} GLASS BUNDLE${bCount === 1 ? '' : 'S'}${dimStr} (${realizedTotal} ${activeUom})`
-                    : `${bCount} GLASS BUNDLE${bCount === 1 ? '' : 'S'}${dimStr}`;
+                    : `${bCount} GLASS BUNDLE${bCount === 1 ? '' : 'S'}${dimStr} (Pieces Unverified)`;
             } else if (wbMode === 'bundles' || data.mode === 'BUNDLE_STACK') {
-                totalBadge.textContent = activeUpb > 1
+                totalBadge.textContent = (hasVerifiedUpb && realizedTotal !== null)
                     ? `${total} ${activeBname.toUpperCase()}S (${realizedTotal} ${activeUom})`
-                    : `${total} ${activeBname.toUpperCase()}S`;
+                    : `${total} ${activeBname.toUpperCase()}${total === 1 ? '' : 'S'} (Pieces Unverified)`;
             } else {
                 totalBadge.textContent = `${total} PIECES`;
             }

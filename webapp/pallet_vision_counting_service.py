@@ -652,6 +652,7 @@ class PalletVisionCountingService:
         if is_individual_piece_result and uom in ("BUNDLES", "BUNDLE", "EA"):
             uom = "PCS"
         bname = "Piece" if is_individual_piece_result else (str(manual_bundle_name or rec_sku.get("bundle_name") or "Bundle").strip() or "Bundle")
+        verified_upb: Optional[int] = None
 
         if is_individual_piece_result:
             rec_sku["units_per_bundle"] = 1
@@ -668,7 +669,7 @@ class PalletVisionCountingService:
             res_dict["counting_mode"] = "individual_pieces"
         elif is_bundle_mode:
             is_inferred = rec_sku.get("recognition_method") == "MATERIAL_INFERRED_NO_CATALOG_MATCH"
-            verified_upb = manual_units_per_bundle if (manual_units_per_bundle is not None and manual_units_per_bundle > 0) else (sku_upb if not is_inferred and sku_upb > 1 else None)
+            verified_upb = manual_units_per_bundle if (manual_units_per_bundle is not None and manual_units_per_bundle > 0) else (sku_upb if not is_inferred and sku_upb is not None and sku_upb > 1 else None)
             rec_sku["units_per_bundle"] = verified_upb
             rec_sku["uom"] = uom
             rec_sku["bundle_name"] = bname
@@ -683,8 +684,9 @@ class PalletVisionCountingService:
                 res_dict["total_pieces"] = individual_units_total
                 res_dict["calculated_total_pieces"] = individual_units_total
             else:
-                individual_units_total = res_dict.get("calculated_total_pieces")
-                res_dict["total_pieces"] = individual_units_total
+                individual_units_total = None
+                res_dict["total_pieces"] = None
+                res_dict["calculated_total_pieces"] = None
         else:
             rec_sku["units_per_bundle"] = sku_upb
             rec_sku["uom"] = uom
@@ -741,11 +743,15 @@ class PalletVisionCountingService:
         res_dict.setdefault("review_status", "CONFIRMED" if not is_est else "PARTIAL")
 
         res_dict["uom"] = uom
-        res_dict["units_per_bundle"] = upb
+        res_dict["units_per_bundle"] = verified_upb if is_bundle_mode else upb
         res_dict["bundle_name"] = bname
         res_dict["bundles_counted"] = bundles_counted
         res_dict["individual_units_total"] = individual_units_total
-        res_dict["realized_uom_label"] = f"{individual_units_total} {uom}"
+        res_dict["realized_uom_label"] = (
+            f"{individual_units_total} {uom}"
+            if individual_units_total is not None
+            else f"{bundles_counted} {bname}{'s' if bundles_counted != 1 else ''} (Pieces unverified)"
+        )
 
         qb = res_dict.get("quantity_breakdown")
         if isinstance(qb, dict):
@@ -753,10 +759,13 @@ class PalletVisionCountingService:
             qb["sku_name"] = rec_sku["name"]
             qb["sku_category"] = rec_sku["category"]
             qb["uom"] = uom
-            qb["units_per_bundle"] = upb
+            qb["units_per_bundle"] = verified_upb if is_bundle_mode else upb
             qb["bundle_name"] = bname
             qb["bundles_counted"] = bundles_counted
             qb["individual_units_total"] = individual_units_total
+            qb["total_pieces"] = individual_units_total
+            qb["calculated_total_pieces"] = individual_units_total
+            qb["total_bundles"] = bundles_counted if is_bundle_mode else 0
             qb["confirmed_count"] = confirmed_c
             qb["uncertain_count"] = uncertain_c
             qb["is_estimate"] = is_est
@@ -766,12 +775,12 @@ class PalletVisionCountingService:
             qb["counting_method"] = res_dict["counting_method"]
             if is_individual_piece_result:
                 qb["bundle_conversion_formula"] = f"{individual_units_total} {uom} (1 {uom} per piece)"
-            elif upb is not None and upb > 1 and individual_units_total is not None:
-                qb["bundle_conversion_formula"] = f"{bundles_counted} {bname}(s) × {upb} {uom}/{bname} = {individual_units_total} {uom}"
+            elif verified_upb is not None and verified_upb > 1 and individual_units_total is not None:
+                qb["bundle_conversion_formula"] = f"{bundles_counted} {bname}(s) × {verified_upb} {uom}/{bname} = {individual_units_total} {uom}"
             elif individual_units_total is not None:
                 qb["bundle_conversion_formula"] = f"{individual_units_total} {uom} (1 {uom} per unit)"
             else:
-                qb["bundle_conversion_formula"] = f"{bundles_counted} {bname}(s) (Pieces per bundle unverified)"
+                qb["bundle_conversion_formula"] = f"{bundles_counted} {bname}(s) (Pieces per bundle: Unverified)"
 
         # Stamp Recognized SKU & Bundle/UOM badge onto the saved annotated image
         ann_url = res_dict.get("annotated_image_url")
@@ -796,16 +805,16 @@ class PalletVisionCountingService:
                                 f"COUNT: {base_count} Pieces | TOTAL: {individual_units_total} {uom} ({int(rec_sku['confidence']*100)}% Match)"
                             )
                         else:
-                            if upb is not None and individual_units_total is not None:
-                                uom_hud_segment = f"1 {bname} = {upb} {uom}"
+                            if verified_upb is not None and individual_units_total is not None:
+                                uom_hud_segment = f"1 {bname} = {verified_upb} {uom}"
                                 total_seg = f" | TOTAL: {individual_units_total} {uom}"
                             else:
-                                uom_hud_segment = f"Pieces/Bundle Unverified"
+                                uom_hud_segment = f"Pieces/Bundle: Unverified"
                                 total_seg = ""
                             hud_line = (
                                 f"SKU: {rec_sku['sku_id']} ({rec_sku['name'][:24]}) | "
                                 f"{uom_hud_segment} | "
-                                f"BUNDLES: {bundles_counted} {bname}s{total_seg} ({int(rec_sku['confidence']*100)}% Match)"
+                                f"BUNDLES: {bundles_counted} {bname}{'s' if bundles_counted != 1 else ''}{total_seg} ({int(rec_sku['confidence']*100)}% Match)"
                             )
                         cv2.putText(
                             ann_img, hud_line, (12, ih - 11),
@@ -852,8 +861,8 @@ class PalletVisionCountingService:
             base_count_val = len(confirmed_list) if confirmed_list else (
                 int(res_dict.get("confirmed_count") or res_dict.get("total_pieces") or res_dict.get("total_bundles") or 0)
             )
-        has_verified_upb = bool(upb is not None and upb > 1 and is_bundle_mode and res_dict.get("mode") != "BOX_GRID")
-        final_prop_qty = (base_count_val * upb) if has_verified_upb else base_count_val
+        has_verified_upb = bool(verified_upb is not None and verified_upb > 1 and is_bundle_mode and res_dict.get("mode") != "BOX_GRID")
+        final_prop_qty = (base_count_val * verified_upb) if has_verified_upb else base_count_val
 
         res_dict["directly_detected_objects"] = fused_list
         res_dict["directly_detected_count"] = len(fused_list)
@@ -870,7 +879,10 @@ class PalletVisionCountingService:
         res_dict["proposed_count"] = final_prop_qty
         if is_bundle_mode:
             res_dict["total_bundles"] = base_count_val
-            res_dict["total_pieces"] = (base_count_val * upb) if (upb is not None and upb > 1) else None
+            res_dict["total_pieces"] = (base_count_val * verified_upb) if has_verified_upb else None
+            res_dict["units_per_bundle"] = verified_upb
+            res_dict["individual_units_total"] = res_dict["total_pieces"]
+            res_dict["calculated_total_pieces"] = res_dict["total_pieces"]
         else:
             res_dict["total_pieces"] = final_prop_qty
         res_dict["physical_object_type"] = res_dict.get("product_type") or res_dict.get("geometry_type") or "physical_unit"
@@ -885,6 +897,11 @@ class PalletVisionCountingService:
         res_dict["review_status"] = res_dict["operator_approval_status"]
 
         if isinstance(qb, dict):
+            qb["total_bundles"] = bundles_counted if is_bundle_mode else 0
+            qb["total_pieces"] = res_dict["total_pieces"]
+            qb["calculated_total_pieces"] = res_dict["total_pieces"]
+            qb["individual_units_total"] = res_dict["total_pieces"]
+            qb["units_per_bundle"] = verified_upb if is_bundle_mode else upb
             qb["total_units"] = final_prop_qty
             qb["final_proposed_quantity"] = final_prop_qty
             qb["proposed_count"] = final_prop_qty
@@ -6039,6 +6056,8 @@ class PalletVisionCountingService:
             pcs_info = f" • {b.get('constituent_pieces_detected')} pcs" if b.get("constituent_pieces_detected") else ""
             badge_txt = f"BUNDLE #{idx:02d}{pcs_info}"
             (tw, th), _ = cv2.getTextSize(badge_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
+            if badge_x < 285 and badge_y < 130:
+                badge_x = 285
             cv2.rectangle(vis, (badge_x, badge_y - th - 8), (badge_x + tw + 10, badge_y), (15, 23, 42), -1)
             cv2.rectangle(vis, (badge_x, badge_y - th - 8), (badge_x + tw + 10, badge_y), color, 1)
             cv2.putText(vis, badge_txt, (badge_x + 5, badge_y - 5),
@@ -6047,11 +6066,9 @@ class PalletVisionCountingService:
         # 4. Summary Legend Card on Top-Left
         card_x, card_y = 14, 14
         card_w = 265
-        card_h = 80
+        card_h = 100
         if sku_name:
             card_h += 20
-        if pieces_per_bundle:
-            card_h += 22
         if len(uncertain_bundles) > 0:
             card_h += 20
 
@@ -6078,6 +6095,10 @@ class PalletVisionCountingService:
             cv2.putText(vis, f"Multiplier: {pieces_per_bundle} EA/bdl = {tot_calc} EA", (card_x + 14, curr_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.36, (52, 211, 153), 1, cv2.LINE_AA)
             curr_y += 22
+        else:
+            cv2.putText(vis, "Pieces per Bundle: Unverified", (card_x + 14, curr_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.36, (148, 163, 184), 1, cv2.LINE_AA)
+            curr_y += 20
         if len(uncertain_bundles) > 0:
             cv2.putText(vis, f"Uncertain Candidates: {len(uncertain_bundles)}", (card_x + 14, curr_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 165, 255), 1, cv2.LINE_AA)
@@ -6263,7 +6284,7 @@ class PalletVisionCountingService:
             "calculated_total_pieces": calculated_total_pieces,
             "total_bundles": physical_bundles_count,
             "visible_bundles": physical_bundles_count,
-            "total_pieces": calculated_total_pieces if calculated_total_pieces is not None else physical_bundles_count,
+            "total_pieces": calculated_total_pieces,
             "primary_count": physical_bundles_count,
             "bundles": confirmed_bundles,
             "uncertain_bundles": uncertain_bundles,
@@ -6901,8 +6922,8 @@ class PalletVisionCountingService:
             "inferred_count": uncertain_count,
             "pieces_per_bundle": pieces_per_bundle,
             "calculated_total_pieces": calculated_total_pieces,
-            "total_pieces": calculated_total_pieces if calculated_total_pieces is not None else physical_bundles_count,
-            "units_per_bundle": pieces_per_bundle or 1,
+            "total_pieces": calculated_total_pieces,
+            "units_per_bundle": pieces_per_bundle,
             "uom": uom_str,
             "bundle_name": bname_str,
             "counting_method": "MEASUREMENT_AWARE_GLASS_BUNDLE_DETECTION",
@@ -6930,7 +6951,7 @@ class PalletVisionCountingService:
             "calculated_total_pieces": calculated_total_pieces,
             "total_bundles": physical_bundles_count,
             "visible_bundles": physical_bundles_count,
-            "total_pieces": calculated_total_pieces if calculated_total_pieces is not None else physical_bundles_count,
+            "total_pieces": calculated_total_pieces,
             "primary_count": physical_bundles_count,
             "glass_profile": prof,
             "bundles": confirmed_bundles,
