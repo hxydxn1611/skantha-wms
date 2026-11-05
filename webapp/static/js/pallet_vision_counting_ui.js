@@ -5732,6 +5732,8 @@
 
                 renderWbBadgesOverlay();
 
+                renderWbBundleShapesOverlay(data);
+
             };
 
         }
@@ -7739,6 +7741,122 @@ function initWb3DPalletViewer(matrixData) {
     }
 
 
+
+    function renderWbBundleShapesOverlay(data) {
+        const svg = document.getElementById('wbRegionsSvgOverlay');
+        const imgElem = document.getElementById('wbResultImg');
+        if (!svg || !imgElem) return;
+
+        let shapesGroup = document.getElementById('wbBundleShapesGroup');
+        if (!shapesGroup) {
+            shapesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            shapesGroup.id = 'wbBundleShapesGroup';
+            svg.appendChild(shapesGroup);
+        }
+        shapesGroup.innerHTML = '';
+
+        const bundles = (data && (data.bundles || data.detected_instances)) || [];
+        if (!bundles || bundles.length === 0) return;
+
+        const natW = imgElem.naturalWidth || imgElem.clientWidth || 800;
+        const natH = imgElem.naturalHeight || imgElem.clientHeight || 600;
+        svg.setAttribute('viewBox', `0 0 ${natW} ${natH}`);
+
+        // 1. Tare Pallet Base & Intermediate Separators
+        if (data.pallet_base_meta) {
+            const pmeta = data.pallet_base_meta;
+            if (pmeta.x !== undefined && pmeta.y !== undefined) {
+                const tareBaseEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                tareBaseEl.setAttribute('x', pmeta.x);
+                tareBaseEl.setAttribute('y', pmeta.y);
+                tareBaseEl.setAttribute('width', pmeta.w || natW);
+                tareBaseEl.setAttribute('height', pmeta.h || 40);
+                tareBaseEl.setAttribute('fill', 'rgba(100, 116, 139, 0.20)');
+                tareBaseEl.setAttribute('stroke', '#64748b');
+                tareBaseEl.setAttribute('stroke-width', '1.5');
+                tareBaseEl.setAttribute('stroke-dasharray', '4,4');
+                shapesGroup.appendChild(tareBaseEl);
+            }
+            if (pmeta.intermediate_separators && Array.isArray(pmeta.intermediate_separators)) {
+                pmeta.intermediate_separators.forEach(sep => {
+                    const sepEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    sepEl.setAttribute('x', sep.x);
+                    sepEl.setAttribute('y', sep.y);
+                    sepEl.setAttribute('width', sep.w);
+                    sepEl.setAttribute('height', sep.h);
+                    sepEl.setAttribute('fill', 'rgba(100, 116, 139, 0.25)');
+                    sepEl.setAttribute('stroke', '#94a3b8');
+                    sepEl.setAttribute('stroke-width', '1.5');
+                    sepEl.setAttribute('stroke-dasharray', '4,4');
+                    shapesGroup.appendChild(sepEl);
+                });
+            }
+        }
+
+        // 2. Shape-Aware Bundle Outlines
+        bundles.forEach((b, idx) => {
+            const stype = (b.shape_type || '').toLowerCase();
+            const strokeColor = '#0284c7';
+            const fillColor = 'rgba(2, 132, 199, 0.12)';
+            const strokeWidth = 2.5;
+
+            // A. Circular / Elliptical Bundle Outline
+            if (stype === 'circle' && b.circle_center && b.circle_radius) {
+                const circEl = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circEl.setAttribute('cx', b.circle_center[0]);
+                circEl.setAttribute('cy', b.circle_center[1]);
+                circEl.setAttribute('r', b.circle_radius);
+                circEl.setAttribute('fill', fillColor);
+                circEl.setAttribute('stroke', strokeColor);
+                circEl.setAttribute('stroke-width', strokeWidth);
+                shapesGroup.appendChild(circEl);
+
+                // Individual constituent pipe openings
+                if (b.constituent_pipe_openings && Array.isArray(b.constituent_pipe_openings)) {
+                    b.constituent_pipe_openings.forEach(op => {
+                        const opEl = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        opEl.setAttribute('cx', op.x);
+                        opEl.setAttribute('cy', op.y);
+                        opEl.setAttribute('r', Math.max(2, op.radius || 4));
+                        opEl.setAttribute('fill', 'rgba(0, 220, 255, 0.50)');
+                        opEl.setAttribute('stroke', '#00e5ff');
+                        opEl.setAttribute('stroke-width', '1');
+                        shapesGroup.appendChild(opEl);
+                    });
+                }
+            } else if (b.ellipse && b.ellipse.center && b.ellipse.axes) {
+                const el = b.ellipse;
+                const elEl = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+                elEl.setAttribute('cx', el.center[0]);
+                elEl.setAttribute('cy', el.center[1]);
+                elEl.setAttribute('rx', el.axes[0] / 2);
+                elEl.setAttribute('ry', el.axes[1] / 2);
+                if (el.angle) {
+                    elEl.setAttribute('transform', `rotate(${el.angle} ${el.center[0]} ${el.center[1]})`);
+                }
+                elEl.setAttribute('fill', fillColor);
+                elEl.setAttribute('stroke', strokeColor);
+                elEl.setAttribute('stroke-width', strokeWidth);
+                shapesGroup.appendChild(elEl);
+            } else if ((stype === 'polygon' || b.polygon_contour) && b.polygon_contour && b.polygon_contour.length > 0) {
+                const polyEl = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                const ptsStr = b.polygon_contour.map(pt => `${pt[0]},${pt[1]}`).join(' ');
+                polyEl.setAttribute('points', ptsStr);
+                polyEl.setAttribute('fill', fillColor);
+                polyEl.setAttribute('stroke', strokeColor);
+                polyEl.setAttribute('stroke-width', strokeWidth);
+                shapesGroup.appendChild(polyEl);
+            } else if (b.mask_polygon && b.mask_polygon.length > 0) {
+                const polyEl = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                const ptsStr = b.mask_polygon.map(pt => `${pt[0]},${pt[1]}`).join(' ');
+                polyEl.setAttribute('points', ptsStr);
+                polyEl.setAttribute('fill', 'rgba(16, 185, 129, 0.12)');
+                polyEl.setAttribute('stroke', '#10b981');
+                polyEl.setAttribute('stroke-width', strokeWidth);
+                shapesGroup.appendChild(polyEl);
+            }
+        });
+    }
 
     function renderWorkbenchRegionsOverlay() {
 

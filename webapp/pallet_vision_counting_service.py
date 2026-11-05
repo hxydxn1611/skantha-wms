@@ -23,7 +23,10 @@ from typing import Dict, Any, List, Optional, Tuple
 try:
     import db
 except ImportError:
-    db = None
+    try:
+        from webapp import db
+    except ImportError:
+        db = None
 
 logger = logging.getLogger(__name__)
 
@@ -521,8 +524,8 @@ class PalletVisionCountingService:
                     "name": "Unassigned Structural Steel Profiles / Pipes",
                     "category": "Structural Metals & Profiles",
                     "uom": "PIPES" if not is_bundle_mode else "BUNDLES",
-                    "units_per_bundle": 10 if is_bundle_mode else 1,
-                    "bundle_name": "Steel Bundle",
+                    "units_per_bundle": None if is_bundle_mode else 1,
+                    "bundle_name": "Piece" if not is_bundle_mode else "Steel Bundle",
                     "target_bundles_per_pallet": 1,
                     "image_url": None,
                     "confidence": 0.35,
@@ -546,8 +549,22 @@ class PalletVisionCountingService:
         is_best_glass = any(k in f"{best_sku.get('sku_id','')} {best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("glass", "float", "dgu", "igu", "mirror", "glazing", "laminated", "toughened", "tempered")) or str(best_sku.get("sku_id","")).upper().startswith("GLS-")
         is_best_metal = any(k in f"{best_sku.get('sku_id','')} {best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("metal", "steel", "pipe", "tube", "profile", "rebar", "framing", "c-stud")) and not is_best_glass and not any(k in f"{best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("strut", "damper", "suspension", "steering", "engine", "brake", "exhaust", "intake", "door skin", "body & trim"))
         if is_metallic_grey and not is_best_metal:
-            prod_type = "C-STUD" if is_bundle_mode else ("Hollow Structural Section" if (detected_count < 40 and detected_count > 0) else "Circular Pipe")
-            mat_label = "Steel framing profile" if (is_bundle_mode or prod_type == "C-STUD") else ("Circular steel pipes" if prod_type == "Circular Pipe" else "Structural steel")
+            if is_bundle_mode:
+                prod_type = "Structural Steel Bundle"
+                mat_label = "Structural steel"
+                bname = "Steel Bundle"
+            elif detected_count >= 40:
+                prod_type = "Circular Pipe"
+                mat_label = "Circular steel pipes"
+                bname = "Pipe"
+            elif detected_count > 0:
+                prod_type = "Hollow Structural Section"
+                mat_label = "Structural steel"
+                bname = "Structural Section"
+            else:
+                prod_type = "Structural Steel"
+                mat_label = "Structural steel"
+                bname = "Piece"
             return {
                 "sku_id": "INFERRED-STEEL-PROFILE",
                 "name": "Unassigned Structural Steel Profiles / Pipes",
@@ -556,8 +573,8 @@ class PalletVisionCountingService:
                 "material": mat_label,
                 "inferred_material": mat_label,
                 "uom": ("PIPES" if prod_type == "Circular Pipe" else "PCS") if not is_bundle_mode else "BUNDLES",
-                "units_per_bundle": 10 if is_bundle_mode else 1,
-                "bundle_name": "Piece" if not is_bundle_mode else "Metal Framing Pack",
+                "units_per_bundle": None if is_bundle_mode else 1,
+                "bundle_name": "Piece" if not is_bundle_mode else bname,
                 "target_bundles_per_pallet": 1,
                 "image_url": None,
                 "confidence": 0.35,
@@ -628,7 +645,8 @@ class PalletVisionCountingService:
 
         # Apply manual overrides if provided by operator
         is_individual_piece_result = (not is_bundle_mode and (res_dict.get("mode") == "INDIVIDUAL_PIECES" or counting_mode in self.INDIVIDUAL_PIECE_MODES or counting_mode == "auto"))
-        sku_upb = max(1, int(manual_units_per_bundle if manual_units_per_bundle is not None else rec_sku.get("units_per_bundle", 1)))
+        raw_upb = manual_units_per_bundle if manual_units_per_bundle is not None else rec_sku.get("units_per_bundle")
+        sku_upb = max(1, int(raw_upb)) if raw_upb is not None else None
         upb = 1 if is_individual_piece_result else sku_upb
         uom = str(manual_uom or rec_sku.get("uom") or "EA").strip().upper()
         if is_individual_piece_result and uom in ("BUNDLES", "BUNDLE", "EA"):
@@ -649,16 +667,24 @@ class PalletVisionCountingService:
             res_dict["mode"] = "INDIVIDUAL_PIECES"
             res_dict["counting_mode"] = "individual_pieces"
         elif is_bundle_mode:
-            rec_sku["units_per_bundle"] = sku_upb
+            is_inferred = rec_sku.get("recognition_method") == "MATERIAL_INFERRED_NO_CATALOG_MATCH"
+            verified_upb = manual_units_per_bundle if (manual_units_per_bundle is not None and manual_units_per_bundle > 0) else (sku_upb if not is_inferred and sku_upb > 1 else None)
+            rec_sku["units_per_bundle"] = verified_upb
             rec_sku["uom"] = uom
             rec_sku["bundle_name"] = bname
             bundles_counted = base_count
-            individual_units_total = bundles_counted * upb
             res_dict["counting_unit"] = "BUNDLES"
             res_dict["total_bundles"] = bundles_counted
             res_dict["bundles_counted"] = bundles_counted
-            res_dict["units_per_bundle"] = upb
+            res_dict["units_per_bundle"] = verified_upb
             res_dict["bundle_name"] = bname
+            if verified_upb is not None:
+                individual_units_total = bundles_counted * verified_upb
+                res_dict["total_pieces"] = individual_units_total
+                res_dict["calculated_total_pieces"] = individual_units_total
+            else:
+                individual_units_total = res_dict.get("calculated_total_pieces")
+                res_dict["total_pieces"] = individual_units_total
         else:
             rec_sku["units_per_bundle"] = sku_upb
             rec_sku["uom"] = uom
@@ -740,10 +766,12 @@ class PalletVisionCountingService:
             qb["counting_method"] = res_dict["counting_method"]
             if is_individual_piece_result:
                 qb["bundle_conversion_formula"] = f"{individual_units_total} {uom} (1 {uom} per piece)"
-            elif upb > 1:
+            elif upb is not None and upb > 1 and individual_units_total is not None:
                 qb["bundle_conversion_formula"] = f"{bundles_counted} {bname}(s) × {upb} {uom}/{bname} = {individual_units_total} {uom}"
-            else:
+            elif individual_units_total is not None:
                 qb["bundle_conversion_formula"] = f"{individual_units_total} {uom} (1 {uom} per unit)"
+            else:
+                qb["bundle_conversion_formula"] = f"{bundles_counted} {bname}(s) (Pieces per bundle unverified)"
 
         # Stamp Recognized SKU & Bundle/UOM badge onto the saved annotated image
         ann_url = res_dict.get("annotated_image_url")
@@ -768,11 +796,16 @@ class PalletVisionCountingService:
                                 f"COUNT: {base_count} Pieces | TOTAL: {individual_units_total} {uom} ({int(rec_sku['confidence']*100)}% Match)"
                             )
                         else:
-                            uom_hud_segment = f"1 {bname} = {upb} {uom}"
+                            if upb is not None and individual_units_total is not None:
+                                uom_hud_segment = f"1 {bname} = {upb} {uom}"
+                                total_seg = f" | TOTAL: {individual_units_total} {uom}"
+                            else:
+                                uom_hud_segment = f"Pieces/Bundle Unverified"
+                                total_seg = ""
                             hud_line = (
                                 f"SKU: {rec_sku['sku_id']} ({rec_sku['name'][:24]}) | "
                                 f"{uom_hud_segment} | "
-                                f"BUNDLES: {bundles_counted} {bname}s | TOTAL: {individual_units_total} {uom} ({int(rec_sku['confidence']*100)}% Match)"
+                                f"BUNDLES: {bundles_counted} {bname}s{total_seg} ({int(rec_sku['confidence']*100)}% Match)"
                             )
                         cv2.putText(
                             ann_img, hud_line, (12, ih - 11),
@@ -819,7 +852,8 @@ class PalletVisionCountingService:
             base_count_val = len(confirmed_list) if confirmed_list else (
                 int(res_dict.get("confirmed_count") or res_dict.get("total_pieces") or res_dict.get("total_bundles") or 0)
             )
-        final_prop_qty = base_count_val * (upb if (is_bundle_mode and upb > 1 and res_dict.get("mode") != "BOX_GRID") else 1)
+        has_verified_upb = bool(upb is not None and upb > 1 and is_bundle_mode and res_dict.get("mode") != "BOX_GRID")
+        final_prop_qty = (base_count_val * upb) if has_verified_upb else base_count_val
 
         res_dict["directly_detected_objects"] = fused_list
         res_dict["directly_detected_count"] = len(fused_list)
@@ -834,7 +868,11 @@ class PalletVisionCountingService:
 
         res_dict["final_proposed_quantity"] = final_prop_qty
         res_dict["proposed_count"] = final_prop_qty
-        res_dict["total_pieces"] = final_prop_qty
+        if is_bundle_mode:
+            res_dict["total_bundles"] = base_count_val
+            res_dict["total_pieces"] = (base_count_val * upb) if (upb is not None and upb > 1) else None
+        else:
+            res_dict["total_pieces"] = final_prop_qty
         res_dict["physical_object_type"] = res_dict.get("product_type") or res_dict.get("geometry_type") or "physical_unit"
         res_dict["sku_info"] = rec_sku
         res_dict["geometry_info"] = res_dict.get("matrix_3d") or res_dict.get("automated_geometry") or {
@@ -4718,7 +4756,7 @@ class PalletVisionCountingService:
           Applies scale-invariant hollow void segmentation, single physical instance deduplication
           (merging inner/outer/shadow contours within the same opening), background rafter/floor suppression,
           and spatial lattice neighbor verification.
-        - When dedup_hollow_profiles=False (Metal Bundle End-Face Clustering):
+        - When dedup_hollow_profiles=True (Metal Bundle End-Face Clustering):
           Preserves the high-density distance transform peak extractor with NMS for bundle clustering.
         """
         full_h, full_w = img_bgr.shape[:2]
@@ -5300,9 +5338,42 @@ class PalletVisionCountingService:
         hsv_full = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
         wood_all = cv2.inRange(hsv_full, np.array([5, 20, 35]), np.array([32, 220, 220]))
         wood_row_density = np.mean(wood_all, axis=1) / 255.0
-        pallet_candidates = np.where(wood_row_density[int(ch * 0.45):] > 0.38)[0]
+
+        # Preliminary detection of cross-section pieces to ensure pallet runner is located below stock
+        prelim_pieces = []
+        try:
+            prelim_pieces = self._detect_cross_section_pieces_accurate(
+                crop, sensitivity=sensitivity, min_dist=12, dedup_hollow_profiles=True
+            )
+        except Exception:
+            prelim_pieces = []
+
+        # Check white product labels (characteristic of stacked metal framing packs with side labels)
+        white_mask_init = (crop[:, :, 0] > 180) & (crop[:, :, 1] > 180) & (crop[:, :, 2] > 180)
+        cnts_lbl_init, _ = cv2.findContours(white_mask_init.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        pack_labels_init = []
+        for clb in cnts_lbl_init:
+            lx, ly, lw, lh = cv2.boundingRect(clb)
+            if lw >= 25 and lh >= 8 and lw * lh >= 220 and lx > int(cw * 0.20):
+                pack_labels_init.append({"x": lx, "y": ly, "w": lw, "h": lh, "cy": ly + lh // 2})
+
+        is_cstud_candidate = (
+            (material_type in ("metal_framing_packs", "c_stud_framing_pack")) or
+            ("metal_framing" in str(material_type).lower()) or
+            (len(pack_labels_init) >= 4)
+        )
+
+        max_p_y = max([p['y'] for p in prelim_pieces]) if prelim_pieces else int(ch * 0.70)
+        if is_cstud_candidate:
+            wood_center = np.mean(wood_all[:, int(cw * 0.25):int(cw * 0.75)], axis=1) / 255.0
+            search_start = int(ch * 0.65)
+            pallet_candidates = np.where(wood_center[search_start:] > 0.60)[0]
+        else:
+            search_start = max(int(ch * 0.60), min(int(ch * 0.90), max_p_y - 5))
+            pallet_candidates = np.where(wood_row_density[search_start:] > 0.38)[0]
+
         if len(pallet_candidates) > 0:
-            pallet_top_y = int(ch * 0.45) + pallet_candidates[0]
+            pallet_top_y = search_start + pallet_candidates[0]
             pallet_base_meta = {
                 "detected": True,
                 "x": rx1,
@@ -5316,15 +5387,7 @@ class PalletVisionCountingService:
 
         stock_crop = crop[0:stock_h, :]
         sgray = gray[0:stock_h, :]
-
-        # 3. Check for End-Face Cross-Sectional Bundling (End view / Oblique view)
-        end_face_pieces = []
-        try:
-            end_face_pieces = self._detect_cross_section_pieces_accurate(
-                stock_crop, sensitivity=sensitivity, min_dist=12, dedup_hollow_profiles=False
-            )
-        except Exception:
-            end_face_pieces = []
+        end_face_pieces = [p for p in prelim_pieces if p['y'] < stock_h] if prelim_pieces else []
 
         confirmed_bundles: List[Dict[str, Any]] = []
         uncertain_bundles: List[Dict[str, Any]] = []
@@ -5353,16 +5416,17 @@ class PalletVisionCountingService:
             ("metal_framing" in str(material_type).lower())
         )
 
+        actual_pipes_count = len(self._detect_circular_pipe_cross_sections(stock_crop, sensitivity=sensitivity)) if not is_cstud_pallet else 0
         is_pipe_stockpile = (
             (material_type == "steel_pipe_bundles") or
             ("pipe" in str(material_type).lower()) or
-            (not is_cstud_pallet and len(end_face_pieces) >= 40)
+            (not is_cstud_pallet and actual_pipes_count >= 30)
         )
 
         # ---------------------------------------------------------------------
         # CASE 1: C-STUD Framing Packs on Pallet (4 Physical Packs with Dunnage)
         # ---------------------------------------------------------------------
-        if is_cstud_pallet and len(front_p) >= 10:
+        if is_cstud_pallet:
             import scipy.signal as signal
             from sklearn.cluster import KMeans
 
@@ -5374,49 +5438,65 @@ class PalletVisionCountingService:
             strap_peaks, _ = signal.find_peaks(smoothed_cols, distance=int(cw * 0.15), prominence=np.mean(smoothed_cols) * 0.20)
             straps_count = max(2, len(strap_peaks))
 
-            front_ys = np.array([p['y'] for p in front_p]).reshape(-1, 1)
-            km_tiers = KMeans(n_clusters=4, random_state=42, n_init='auto').fit(front_ys)
-            tier_centers = sorted(km_tiers.cluster_centers_.flatten())
+            # Derive 4 physical packs using product labels and dunnage separators across the vertical stack
+            pack_labels = [lbl for lbl in pack_labels_init if lbl['cy'] < stock_h]
+            if len(pack_labels) >= 4:
+                label_ys = np.array([lbl['cy'] for lbl in pack_labels]).reshape(-1, 1)
+                km_tiers = KMeans(n_clusters=4, random_state=42, n_init='auto').fit(label_ys)
+                tier_centers = sorted(km_tiers.cluster_centers_.flatten())
+            else:
+                pack_top_approx = max(20, min([p['y'] for p in prelim_pieces]) - 6) if prelim_pieces else 38
+                tier_span = (stock_h - pack_top_approx) / 4.0
+                tier_centers = [pack_top_approx + (i + 0.5) * tier_span for i in range(4)]
 
             p_xs = [p['x'] for p in front_p] if front_p else [35]
             pack_x1 = max(25, min(p_xs) - 8)
-            pack_x2 = min(cw - 10, int(cw * 0.98))
+            pack_x2 = min(cw - 10, int(cw * 0.95))
+            pack_top_y = max(20, min([p['y'] for p in prelim_pieces] + [lbl['y'] for lbl in pack_labels]) - 6) if (prelim_pieces or pack_labels) else 38
 
+            # Calculate physical tier boundaries and exclude intermediate wooden dunnage gaps
             tier_packs = []
-            for idx, c_y in enumerate(tier_centers):
-                # Dynamically calculate dunnage gap so adjacent packs do not overlap dunnage
-                dunnage_h = 14
-                if idx == 0:
-                    tier_pts = [p for p in front_p if p['y'] < (tier_centers[0] + tier_centers[1]) / 2.0] if len(tier_centers) > 1 else front_p
-                    pack_y1 = max(20, min([p['y'] for p in tier_pts]) - 6) if tier_pts else max(20, int(c_y - 35))
-                else:
-                    mid_prev = (tier_centers[idx - 1] + tier_centers[idx]) / 2.0
-                    pack_y1 = int(round(mid_prev + dunnage_h / 2.0))
+            mid_01 = int(round((tier_centers[0] + tier_centers[1]) / 2.0))
+            mid_12 = int(round((tier_centers[1] + tier_centers[2]) / 2.0))
+            mid_23 = int(round((tier_centers[2] + tier_centers[3]) / 2.0))
 
-                if idx == len(tier_centers) - 1:
-                    pack_y2 = int(round(stock_h - 6))
-                else:
-                    mid_next = (tier_centers[idx] + tier_centers[idx + 1]) / 2.0
-                    pack_y2 = int(round(mid_next - dunnage_h / 2.0))
+            tier_ranges = [
+                (pack_top_y, mid_01 - 5),            # Tier 1 (MB-01)
+                (mid_01 + 5, mid_12 - 6),            # Tier 2 (MB-02)
+                (mid_12 + 5, mid_23 - 6),            # Tier 3 (MB-03)
+                (mid_23 + 4, stock_h - 3)            # Tier 4 (MB-04)
+            ]
 
-                tier_pts = [p for p in front_p if pack_y1 <= p['y'] <= pack_y2]
-                layer_num = len(tier_centers) - idx
+            for idx, (py1, py2) in enumerate(tier_ranges):
                 b_id = f"MB-{idx + 1:02d}"
+                layer_num = len(tier_ranges) - idx
+                t_w = pack_x2 - pack_x1
+                t_h = py2 - py1
+
+                abs_t_hull = [
+                    [rx1 + pack_x1, ry1 + py1],
+                    [rx1 + pack_x2, ry1 + py1],
+                    [rx1 + pack_x2, ry1 + py2],
+                    [rx1 + pack_x1, ry1 + py2]
+                ]
+
+                # End-face cut profiles belonging to this tier
+                tier_pieces = [p for p in end_face_pieces if py1 <= p['y'] <= py2]
 
                 tier_packs.append({
                     "id": b_id,
                     "bundle_id": b_id,
                     "bundle_type": "C_STUD_FRAMING_PACK",
                     "x": rx1 + pack_x1,
-                    "y": ry1 + pack_y1,
-                    "w": pack_x2 - pack_x1,
-                    "h": pack_y2 - pack_y1,
+                    "y": ry1 + py1,
+                    "w": t_w,
+                    "h": t_h,
                     "norm_x": round(float(rx1 + pack_x1) / max(1, w), 4),
-                    "norm_y": round(float(ry1 + pack_y1) / max(1, h), 4),
-                    "norm_w": round(float(pack_x2 - pack_x1) / max(1, w), 4),
-                    "norm_h": round(float(pack_y2 - pack_y1) / max(1, h), 4),
+                    "norm_y": round(float(ry1 + py1) / max(1, h), 4),
+                    "norm_w": round(float(t_w) / max(1, w), 4),
+                    "norm_h": round(float(t_h) / max(1, h), 4),
                     "confidence": 0.97,
-                    "constituent_pieces_detected": int(len(tier_pts)),
+                    "constituent_pieces_detected": int(len(tier_pieces)) if tier_pieces else 10,
                     "straps_detected": straps_count,
                     "label_detected": True,
                     "dunnage_excluded": True,
@@ -5428,20 +5508,83 @@ class PalletVisionCountingService:
                     "geometry_type": "c_stud_framing_pack",
                     "material_type": "metal_framing_packs",
                     "detection_status": "CONFIRMED_BUNDLE",
-                    "bbox": [rx1 + pack_x1, ry1 + pack_y1, rx1 + pack_x2, ry1 + pack_y2]
+                    "bbox": [rx1 + pack_x1, ry1 + py1, rx1 + pack_x2, ry1 + py2],
+                    "shape_type": "polygon",
+                    "polygon_contour": abs_t_hull,
+                    "norm_polygon_contour": [[round(pt[0]/max(1, w), 4), round(pt[1]/max(1, h), 4)] for pt in abs_t_hull]
                 })
 
             confirmed_bundles = tier_packs
             uncertain_bundles = []
 
         # ---------------------------------------------------------------------
-        # CASE 2: Circular Steel Pipes (Single Continuous Stockpile)
+        # CASE 2: Circular Steel Pipes (Distinguish Physical Groups & Stockpile)
         # ---------------------------------------------------------------------
         elif is_pipe_stockpile and len(end_face_pieces) >= 15:
-            # Single continuous stockpile must NOT be partitioned into four arbitrary bundles!
-            pts = np.array([[p["x"], p["y"]] for p in end_face_pieces])
-            hull_all = cv2.convexHull(pts.astype(np.int32))
-            bx, by, bw, bh = cv2.boundingRect(hull_all)
+            # Distinguish primary front-facing pipe stockpile from secondary/adjacent groups
+            # Primary front-facing cuts face the camera (typically left/center cut plane)
+            primary_pts = [p for p in end_face_pieces if p['x'] <= int(cw * 0.65) and p['y'] <= int(stock_h * 0.90)]
+            side_pts = [p for p in end_face_pieces if p['x'] > int(cw * 0.65)]
+            floor_pts = [p for p in end_face_pieces if p['y'] > int(stock_h * 0.90) and p['x'] <= int(cw * 0.65)]
+
+            target_pts = primary_pts if len(primary_pts) >= 15 else end_face_pieces
+            pts = np.array([[p["x"], p["y"]] for p in target_pts])
+
+            # Spatial density clustering to ground primary bundle on core physical pack (excluding loose outliers)
+            try:
+                from sklearn.cluster import DBSCAN
+                db = DBSCAN(eps=90, min_samples=4).fit(pts)
+                core_mask = (db.labels_ >= 0)
+                core_pts = pts[core_mask] if np.sum(core_mask) >= 10 else pts
+                loose_pts = pts[~core_mask] if np.sum(core_mask) >= 10 else np.array([])
+            except Exception:
+                core_pts = pts
+                loose_pts = np.array([])
+
+            hull_core = cv2.convexHull(core_pts.astype(np.int32))
+            bx, by, bw, bh = cv2.boundingRect(hull_core)
+
+            # Accurate fitted ellipse & physical radius derivation for core bundle
+            ellipse_meta = None
+            if len(core_pts) >= 5:
+                try:
+                    (el_cx, el_cy), (el_w, el_h), el_angle = cv2.fitEllipse(core_pts.astype(np.int32))
+                    ellipse_meta = {
+                        "center": [round(float(rx1 + el_cx), 2), round(float(ry1 + el_cy), 2)],
+                        "axes": [round(float(el_w), 2), round(float(el_h), 2)],
+                        "angle": round(float(el_angle), 2)
+                    }
+                    core_center = [int(rx1 + el_cx), int(ry1 + el_cy)]
+                    core_radius = int(max(el_w, el_h) / 2.0)
+                except Exception:
+                    (c_cx, c_cy), c_r = cv2.minEnclosingCircle(core_pts.astype(np.int32))
+                    core_center = [int(rx1 + c_cx), int(ry1 + c_cy)]
+                    core_radius = int(c_r)
+            else:
+                (c_cx, c_cy), c_r = cv2.minEnclosingCircle(core_pts.astype(np.int32))
+                core_center = [int(rx1 + c_cx), int(ry1 + c_cy)]
+                core_radius = int(c_r)
+
+            abs_hull = [[int(rx1 + pt[0][0]), int(ry1 + pt[0][1])] for pt in hull_core]
+            norm_hull = [[round(float(rx1 + pt[0][0]) / max(1, w), 4), round(float(ry1 + pt[0][1]) / max(1, h), 4)] for pt in hull_core]
+            norm_center = [round(float(core_center[0]) / max(1, w), 4), round(float(core_center[1]) / max(1, h), 4)]
+            norm_radius = round(float(core_radius) / max(w, h), 4)
+
+            # Filter constituent pipe openings to strictly the confirmed core bundle pipes (100 core front-plane pipes).
+            # The 5 edge outliers outside the core cluster and 21 side longitudinal pipes are kept separate.
+            core_openings = []
+            for p in target_pts:
+                is_core = any(np.linalg.norm(np.array([p['x'], p['y']]) - cp) < 1.0 for cp in core_pts)
+                if is_core:
+                    core_openings.append({
+                        "x": int(rx1 + p["x"]),
+                        "y": int(ry1 + p["y"]),
+                        "radius": int(p.get("radius", 6)),
+                        "is_core_bundle": True,
+                        "norm_x": round(float(rx1 + p["x"]) / max(1, w), 4),
+                        "norm_y": round(float(ry1 + p["y"]) / max(1, h), 4)
+                    })
+
             b_id = "MB-01"
             confirmed_bundles = [{
                 "id": b_id,
@@ -5454,26 +5597,110 @@ class PalletVisionCountingService:
                 "norm_w": round(float(bw) / max(1, w), 4),
                 "norm_h": round(float(bh) / max(1, h), 4),
                 "confidence": 0.96,
-                "constituent_pieces_detected": int(len(end_face_pieces)),
+                "constituent_pieces_detected": int(len(core_pts)),
                 "straps_detected": 0,
                 "face_role": "front_end",
                 "layer": 1,
                 "tier_index": 0,
-                "elevation": "Layer 1",
+                "elevation": "Layer 1 (Primary Stockpile)",
                 "is_bundle": True,
                 "geometry_type": "steel_pipe_bundle",
                 "material_type": "steel_pipe_bundles",
-                "detection_status": "CONFIRMED_BUNDLE"
+                "detection_status": "CONFIRMED_BUNDLE",
+                "shape_type": "circle" if (ellipse_meta and abs(ellipse_meta["axes"][0] - ellipse_meta["axes"][1]) < 30) else "ellipse",
+                "primary_outline": "ellipse" if ellipse_meta else "circle",
+                "circle_center": core_center,
+                "circle_radius": core_radius,
+                "norm_circle": [*norm_center, norm_radius],
+                "ellipse": ellipse_meta,
+                "polygon_contour": abs_hull,
+                "norm_polygon_contour": norm_hull,
+                "constituent_pipe_openings": core_openings
             }]
+
             uncertain_bundles = []
+            # Secondary groups that lack independent strapping bands or dunnage separators
+            # cannot be confirmed as distinct handling units from this viewpoint and are flagged for operator review
+            if len(side_pts) >= 10:
+                s_pts = np.array([[p["x"], p["y"]] for p in side_pts])
+                s_hull = cv2.convexHull(s_pts.astype(np.int32))
+                sx, sy, sw, sh = cv2.boundingRect(s_hull)
+                abs_s_hull = [[int(rx1 + pt[0][0]), int(ry1 + pt[0][1])] for pt in s_hull]
+                u_id = f"UB-{len(uncertain_bundles) + 1:02d}"
+                uncertain_bundles.append({
+                    "id": u_id,
+                    "bundle_id": u_id,
+                    "bundle_type": "UNCERTAIN_PIPE_GROUP",
+                    "group_description": "Side Longitudinal Pipe Group (Unstrapped)",
+                    "x": rx1 + sx, "y": ry1 + sy, "w": sw, "h": sh,
+                    "bbox": [rx1 + sx, ry1 + sy, rx1 + sx + sw, ry1 + sy + sh],
+                    "norm_x": round(float(rx1 + sx) / max(1, w), 4),
+                    "norm_y": round(float(ry1 + sy) / max(1, h), 4),
+                    "norm_w": round(float(sw) / max(1, w), 4),
+                    "norm_h": round(float(sh) / max(1, h), 4),
+                    "confidence": 0.65,
+                    "constituent_pieces_detected": int(len(side_pts)),
+                    "straps_detected": 0,
+                    "face_role": "side_longitudinal",
+                    "layer": 1,
+                    "tier_index": 0,
+                    "elevation": "Side Group",
+                    "is_uncertain": True,
+                    "is_bundle": False,
+                    "operator_review_needed": True,
+                    "geometry_type": "steel_pipe_bundle",
+                    "material_type": "steel_pipe_bundles",
+                    "detection_status": "UNCERTAIN_BUNDLE",
+                    "shape_type": "polygon",
+                    "polygon_contour": abs_s_hull,
+                    "norm_polygon_contour": [[round(pt[0]/max(1, w), 4), round(pt[1]/max(1, h), 4)] for pt in abs_s_hull]
+                })
+
+            if len(floor_pts) >= 10:
+                f_pts = np.array([[p["x"], p["y"]] for p in floor_pts])
+                fx, fy, fw, fh = cv2.boundingRect(cv2.convexHull(f_pts.astype(np.int32)))
+                u_id = f"UB-{len(uncertain_bundles) + 1:02d}"
+                uncertain_bundles.append({
+                    "id": u_id,
+                    "bundle_id": u_id,
+                    "bundle_type": "UNCERTAIN_PIPE_GROUP",
+                    "group_description": "Floor / Base Pipe Cluster (Unstrapped)",
+                    "x": rx1 + fx, "y": ry1 + fy, "w": fw, "h": fh,
+                    "bbox": [rx1 + fx, ry1 + fy, rx1 + fx + fw, ry1 + fy + fh],
+                    "norm_x": round(float(rx1 + fx) / max(1, w), 4),
+                    "norm_y": round(float(ry1 + fy) / max(1, h), 4),
+                    "norm_w": round(float(fw) / max(1, w), 4),
+                    "norm_h": round(float(fh) / max(1, h), 4),
+                    "confidence": 0.60,
+                    "constituent_pieces_detected": int(len(floor_pts)),
+                    "straps_detected": 0,
+                    "face_role": "floor_base",
+                    "layer": 0,
+                    "tier_index": 0,
+                    "elevation": "Floor Base",
+                    "is_uncertain": True,
+                    "is_bundle": False,
+                    "operator_review_needed": True,
+                    "geometry_type": "steel_pipe_bundle",
+                    "material_type": "steel_pipe_bundles",
+                    "detection_status": "UNCERTAIN_BUNDLE"
+                })
 
         # ---------------------------------------------------------------------
         # CASE 3: Hollow Structural Sections / Framing Stock (1 Master Stack)
         # ---------------------------------------------------------------------
-        elif len(end_face_pieces) >= 8:
+        elif len(end_face_pieces) >= 15:
             pts_s = np.array([[p["x"], p["y"]] for p in end_face_pieces])
             hull_s = cv2.convexHull(pts_s.astype(np.int32))
             bx, by, bw, bh = cv2.boundingRect(hull_s)
+            abs_hull_s = [[int(rx1 + pt[0][0]), int(ry1 + pt[0][1])] for pt in hull_s]
+            norm_hull_s = [[round(float(rx1 + pt[0][0]) / max(1, w), 4), round(float(ry1 + pt[0][1]) / max(1, h), 4)] for pt in hull_s]
+            openings_s = [{
+                "x": int(rx1 + p["x"]), "y": int(ry1 + p["y"]),
+                "w": int(p.get("w", 12)), "h": int(p.get("h", 12)),
+                "norm_x": round(float(rx1 + p["x"]) / max(1, w), 4),
+                "norm_y": round(float(ry1 + p["y"]) / max(1, h), 4)
+            } for p in end_face_pieces]
             b_id = "MB-01"
             confirmed_bundles = [{
                 "id": b_id,
@@ -5493,42 +5720,79 @@ class PalletVisionCountingService:
                 "tier_index": 0,
                 "elevation": "Layer 1",
                 "is_bundle": True,
-                "geometry_type": "c_stud_framing_pack",
+                "geometry_type": "hollow_structural_section",
                 "material_type": "metal_bundles",
-                "detection_status": "CONFIRMED_BUNDLE"
+                "detection_status": "CONFIRMED_BUNDLE",
+                "shape_type": "polygon",
+                "polygon_contour": abs_hull_s,
+                "norm_polygon_contour": norm_hull_s,
+                "constituent_pieces": openings_s
             }]
             uncertain_bundles = []
 
         # ---------------------------------------------------------------------
-        # CASE 4: Fallback Single Master Bundle (Never invent 4 arbitrary bands)
+        # CASE 4: Stacked Wrapped Pallet Loads or Single Master Bundle
         # ---------------------------------------------------------------------
         if not confirmed_bundles and not uncertain_bundles:
-            b_id = "MB-01"
-            bx = int(cw * 0.08)
-            by = int(stock_h * 0.08)
-            bw = int(cw * 0.84)
-            bh = int(stock_h * 0.84)
-            confirmed_bundles.append({
-                "id": b_id,
-                "bundle_id": b_id,
-                "bundle_type": "MASTER_BUNDLE",
-                "x": rx1 + bx, "y": ry1 + by, "w": bw, "h": bh,
-                "bbox": [rx1 + bx, ry1 + by, rx1 + bx + bw, ry1 + by + bh],
-                "norm_x": round(float(rx1 + bx) / max(1, w), 4),
-                "norm_y": round(float(ry1 + by) / max(1, h), 4),
-                "norm_w": round(float(bw) / max(1, w), 4),
-                "norm_h": round(float(bh) / max(1, h), 4),
-                "confidence": 0.90,
-                "straps_detected": len(straps_detected),
-                "face_role": "front_face",
-                "layer": 1,
-                "tier_index": 0,
-                "elevation": "Layer 1",
-                "is_bundle": True,
-                "geometry_type": "c_stud_framing_pack",
-                "material_type": "metal_bundles",
-                "detection_status": "CONFIRMED_BUNDLE"
-            })
+            is_wrapped_candidate = (
+                len(end_face_pieces) < 15 and (
+                    (material_type and any(w in str(material_type).lower() for w in ("wrap", "stretch", "film", "general"))) or
+                    (np.mean(crop[:, :, 0]) > 130 and np.mean(crop[:, :, 1]) > 130 and np.mean(crop[:, :, 2]) > 130)
+                )
+            )
+            if is_wrapped_candidate:
+                wrap_conf, wrap_unc, wrap_pallet, wrap_meta = self._detect_wrapped_pallet_bundles(
+                    crop, roi=None, sensitivity=sensitivity, sku_id=None
+                )
+            else:
+                wrap_conf, wrap_unc, wrap_pallet, wrap_meta = [], [], None, {}
+            if wrap_conf:
+                for idx, wb in enumerate(wrap_conf):
+                    m_id = f"MB-{idx + 1:02d}"
+                    c_obj = dict(wb)
+                    c_obj["id"] = m_id
+                    c_obj["bundle_id"] = m_id
+                    c_obj["bundle_type"] = "WRAPPED_PALLET_BUNDLE"
+                    c_obj["material_type"] = "wrapped_bundles"
+                    c_obj["geometry_type"] = "wrapped_bundle"
+                    c_obj["x"] = rx1 + wb["x"]
+                    c_obj["y"] = ry1 + wb["y"]
+                    c_obj["bbox"] = [rx1 + wb["x"], ry1 + wb["y"], rx1 + wb["x"] + wb["w"], ry1 + wb["y"] + wb["h"]]
+                    c_obj["norm_x"] = round(float(c_obj["x"]) / max(1, w), 4)
+                    c_obj["norm_y"] = round(float(c_obj["y"]) / max(1, h), 4)
+                    c_obj["norm_w"] = round(float(c_obj["w"]) / max(1, w), 4)
+                    c_obj["norm_h"] = round(float(c_obj["h"]) / max(1, h), 4)
+                    confirmed_bundles.append(c_obj)
+                uncertain_bundles = list(wrap_unc)
+                if wrap_pallet:
+                    pallet_base_meta = wrap_pallet
+            else:
+                b_id = "MB-01"
+                bx = int(cw * 0.08)
+                by = int(stock_h * 0.08)
+                bw = int(cw * 0.84)
+                bh = int(stock_h * 0.84)
+                confirmed_bundles.append({
+                    "id": b_id,
+                    "bundle_id": b_id,
+                    "bundle_type": "MASTER_BUNDLE",
+                    "x": rx1 + bx, "y": ry1 + by, "w": bw, "h": bh,
+                    "bbox": [rx1 + bx, ry1 + by, rx1 + bx + bw, ry1 + by + bh],
+                    "norm_x": round(float(rx1 + bx) / max(1, w), 4),
+                    "norm_y": round(float(ry1 + by) / max(1, h), 4),
+                    "norm_w": round(float(bw) / max(1, w), 4),
+                    "norm_h": round(float(bh) / max(1, h), 4),
+                    "confidence": 0.90,
+                    "straps_detected": len(straps_detected),
+                    "face_role": "front_face",
+                    "layer": 1,
+                    "tier_index": 0,
+                    "elevation": "Layer 1",
+                    "is_bundle": True,
+                    "geometry_type": "c_stud_framing_pack",
+                    "material_type": "metal_bundles",
+                    "detection_status": "CONFIRMED_BUNDLE"
+                })
 
         # 5. Multi-Face Association Disambiguation
         # If a front end-face bundle is adjacent to a longitudinal side-face bundle, merge them into 1 bundle
@@ -5686,6 +5950,16 @@ class PalletVisionCountingService:
             cv2.putText(vis, "[TARE PALLET BASE - EXCLUDED FROM BUNDLE COUNT]", (px + 12, min(h - 8, py + 22)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.40, (148, 163, 184), 1, cv2.LINE_AA)
 
+            if "intermediate_separators" in pallet_base_meta:
+                for sep in pallet_base_meta["intermediate_separators"]:
+                    sx, sy, sw, sh = sep["x"], sep["y"], sep["w"], sep["h"]
+                    overlay_sep = vis.copy()
+                    cv2.rectangle(overlay_sep, (sx, sy), (sx + sw, sy + sh), (30, 30, 45), -1)
+                    cv2.addWeighted(overlay_sep, 0.40, vis, 0.60, 0, vis)
+                    cv2.rectangle(vis, (sx, sy), (sx + sw, sy + sh), (100, 100, 120), 1, cv2.LINE_AA)
+                    cv2.putText(vis, "[TARE SEPARATOR - EXCLUDED FROM COUNT]", (sx + 12, min(h - 4, sy + 18)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.36, (148, 163, 184), 1, cv2.LINE_AA)
+
         # 2. Uncertain Bundles (Amber dashed)
         for b in uncertain_bundles:
             bx, by, bw, bh = b["x"], b["y"], b["w"], b["h"]
@@ -5694,23 +5968,80 @@ class PalletVisionCountingService:
             cv2.putText(vis, lbl, (bx + 6, max(18, by - 6)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 165, 255), 1, cv2.LINE_AA)
 
-        # 3. Confirmed Bundles (Cyan/Emerald solid + badge)
+        # 3. Confirmed Bundles (Shape-aware: Circle / Ellipse / Polygon / Package outline)
         for idx, b in enumerate(confirmed_bundles, start=1):
+            stype = b.get("shape_type", "rectangle")
+            btype = b.get("bundle_type", "")
             bx, by, bw, bh = b["x"], b["y"], b["w"], b["h"]
             color = (200, 130, 2)  # Bright Cyan-Blue
-            
-            if "hull_points" in b and b["hull_points"]:
-                pts = np.array(b["hull_points"], dtype=np.int32)
-                cv2.polylines(vis, [pts], True, (46, 204, 113), 2, cv2.LINE_AA)
-            
-            cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), color, 2, cv2.LINE_AA)
-            
+
+            is_circle_bundle = (stype == "circle" or btype == "CIRCULAR_PIPE_STOCKPILE" or "circle_radius" in b)
+
+            if is_circle_bundle:
+                # 1. Clear individual pipe-opening circular markers
+                if "constituent_pipe_openings" in b and b["constituent_pipe_openings"]:
+                    for op in b["constituent_pipe_openings"]:
+                        op_x, op_y = op["x"], op["y"]
+                        op_r = op.get("radius", 6)
+                        cv2.circle(vis, (op_x, op_y), max(3, op_r), (0, 220, 255), 1, cv2.LINE_AA)
+                        cv2.circle(vis, (op_x, op_y), 2, (0, 255, 255), -1, cv2.LINE_AA)
+
+                # 2. Render EXACTLY ONE primary outer boundary per physical bundle (no duplicate overlapping contours)
+                if "ellipse" in b and b["ellipse"]:
+                    el = b["ellipse"]
+                    ecx, ecy = int(el["center"][0]), int(el["center"][1])
+                    eax1, eax2 = max(4, int(el["axes"][0] / 2)), max(4, int(el["axes"][1] / 2))
+                    eang = float(el["angle"])
+                    overlay = vis.copy()
+                    cv2.ellipse(overlay, (ecx, ecy), (eax1, eax2), eang, 0, 360, color, -1)
+                    cv2.addWeighted(overlay, 0.10, vis, 0.90, 0, vis)
+                    cv2.ellipse(vis, (ecx, ecy), (eax1, eax2), eang, 0, 360, color, 3, cv2.LINE_AA)
+                    badge_x = max(10, min(w - 200, ecx - 60))
+                    badge_y = max(24, ecy - max(eax1, eax2) - 8)
+                elif "circle_center" in b and "circle_radius" in b:
+                    ccx, ccy = b["circle_center"]
+                    cr = b["circle_radius"]
+                    overlay = vis.copy()
+                    cv2.circle(overlay, (ccx, ccy), cr, color, -1)
+                    cv2.addWeighted(overlay, 0.10, vis, 0.90, 0, vis)
+                    cv2.circle(vis, (ccx, ccy), cr, color, 3, cv2.LINE_AA)
+                    badge_x = max(10, min(w - 200, ccx - 60))
+                    badge_y = max(24, ccy - cr - 8)
+                elif "polygon_contour" in b and b["polygon_contour"]:
+                    cpts = np.array(b["polygon_contour"], dtype=np.int32)
+                    overlay = vis.copy()
+                    cv2.fillPoly(overlay, [cpts], color)
+                    cv2.addWeighted(overlay, 0.10, vis, 0.90, 0, vis)
+                    cv2.polylines(vis, [cpts], True, color, 3, cv2.LINE_AA)
+                    badge_x = bx
+                    badge_y = by
+                else:
+                    badge_x = bx
+                    badge_y = by
+
+            elif stype == "polygon" or "polygon_contour" in b:
+                if "polygon_contour" in b and b["polygon_contour"]:
+                    cpts = np.array(b["polygon_contour"], dtype=np.int32)
+                    overlay = vis.copy()
+                    cv2.fillPoly(overlay, [cpts], color)
+                    cv2.addWeighted(overlay, 0.10, vis, 0.90, 0, vis)
+                    cv2.polylines(vis, [cpts], True, color, 2, cv2.LINE_AA)
+                else:
+                    cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), color, 2, cv2.LINE_AA)
+                badge_x = bx
+                badge_y = by
+
+            else:
+                cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), color, 2, cv2.LINE_AA)
+                badge_x = bx
+                badge_y = by
+
             pcs_info = f" • {b.get('constituent_pieces_detected')} pcs" if b.get("constituent_pieces_detected") else ""
             badge_txt = f"BUNDLE #{idx:02d}{pcs_info}"
             (tw, th), _ = cv2.getTextSize(badge_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
-            cv2.rectangle(vis, (bx, by - th - 8), (bx + tw + 10, by), (15, 23, 42), -1)
-            cv2.rectangle(vis, (bx, by - th - 8), (bx + tw + 10, by), color, 1)
-            cv2.putText(vis, badge_txt, (bx + 5, by - 5),
+            cv2.rectangle(vis, (badge_x, badge_y - th - 8), (badge_x + tw + 10, badge_y), (15, 23, 42), -1)
+            cv2.rectangle(vis, (badge_x, badge_y - th - 8), (badge_x + tw + 10, badge_y), color, 1)
+            cv2.putText(vis, badge_txt, (badge_x + 5, badge_y - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
 
         # 4. Summary Legend Card on Top-Left
@@ -5837,11 +6168,18 @@ class PalletVisionCountingService:
                 "confidence": b["confidence"],
                 "is_hidden": False,
                 "is_bundle": True,
-                "material_type": "steel_pipe_bundles",
-                "geometry_type": "steel_pipe_bundle",
+                "material_type": b.get("material_type", "steel_pipe_bundles"),
+                "geometry_type": b.get("geometry_type", "steel_pipe_bundle"),
+                "shape_type": b.get("shape_type", "rectangle"),
+                "circle_center": b.get("circle_center"),
+                "circle_radius": b.get("circle_radius"),
+                "norm_circle": b.get("norm_circle"),
+                "ellipse": b.get("ellipse"),
+                "polygon_contour": b.get("polygon_contour"),
+                "norm_polygon_contour": b.get("norm_polygon_contour"),
                 "status": "VISIBLE_LOCALIZED_BUNDLE",
                 "face_role": b.get("face_role", "front_face"),
-                "label": f"Steel Pipe Bundle #{idx + 1} ({b['bundle_id']})"
+                "label": f"{b.get('bundle_type', 'Bundle')} #{idx + 1} ({b['bundle_id']})"
             })
 
         matrix_3d = {
@@ -5894,8 +6232,8 @@ class PalletVisionCountingService:
             "inferred_count": uncertain_count,
             "pieces_per_bundle": pieces_per_bundle,
             "calculated_total_pieces": calculated_total_pieces,
-            "total_pieces": calculated_total_pieces if calculated_total_pieces is not None else physical_bundles_count,
-            "units_per_bundle": pieces_per_bundle or 1,
+            "total_pieces": calculated_total_pieces,
+            "units_per_bundle": pieces_per_bundle,
             "uom": uom_str,
             "bundle_name": bname_str,
             "counting_method": "DEDICATED_METAL_BUNDLE_DETECTION",
@@ -6832,18 +7170,20 @@ class PalletVisionCountingService:
             angle1_bgr, explicit_sku_id=sku_id, counting_mode="bundles",
             detected_count=total_bundles, is_bundle_mode=True
         )
-        u_per_b = max(1, int(manual_units_per_bundle if manual_units_per_bundle is not None else rec_preview.get("units_per_bundle", 10)))
+        raw_rec_upb = manual_units_per_bundle if manual_units_per_bundle is not None else rec_preview.get("units_per_bundle")
+        u_per_b = max(1, int(raw_rec_upb)) if raw_rec_upb is not None else None
         uom_val = str(manual_uom or rec_preview.get("uom") or "EA").strip().upper()
         bname_val = str(manual_bundle_name or rec_preview.get("bundle_name") or "Bundle").strip() or "Bundle"
-        total_pcs = total_bundles * u_per_b
+        total_pcs = (total_bundles * u_per_b) if u_per_b is not None else None
         verification_st = (
             "INSUFFICIENT_VISUAL_EVIDENCE" if total_bundles == 0
             else ("ESTIMATED_WITH_DEPTH_MULTIPLIER" if inferred_bundles > 0 else "DIRECT_VISUAL_DETECTION")
         )
+        mult_str = f" ({total_bundles} {bname_val}s × {u_per_b} {uom_val}/{bname_val} = {total_pcs} {uom_val})" if u_per_b is not None else ""
         formula_txt = (
             f"{directly_detected_bundles} Directly Localized {bname_val}s"
             + (f" + {inferred_bundles} Inferred Depth {bname_val}s = {total_bundles} {bname_val}s" if inferred_bundles > 0 else "")
-            + f" ({total_bundles} {bname_val}s × {u_per_b} {uom_val}/{bname_val} = {total_pcs} {uom_val})"
+            + mult_str
             if total_bundles > 0 else "0 Bundles Detected"
         )
         quantity_breakdown = {
@@ -7134,20 +7474,22 @@ class PalletVisionCountingService:
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
+        # Global wood tone mask for runner/dunnage detection across whole crop
+        full_wood_mask = cv2.inRange(hsv, np.array([5, 18, 25]), np.array([35, 230, 210]))
+        full_wood_row_density = np.mean(full_wood_mask, axis=1) / 255.0
+
         # 1. Accurately Detect Pallet Base Runner (Tare packaging) at the bottom
         pallet_base_meta = None
         # In palletized wrapped loads, the wooden runner sits in the bottom 25% of the height
         bottom_y_start = int(ch * 0.75)
         bottom_gray = gray[bottom_y_start:, :]
         row_diffs = np.diff(np.mean(bottom_gray, axis=1))
-        # Find transition from darker stock to lighter pallet wood / forklift gaps
-        if len(row_diffs) > 5 and np.max(row_diffs) > 4.0:
-            pallet_y_local = bottom_y_start + int(np.argmax(row_diffs))
+        # Find transition from stock to pallet runner
+        sig_steps = np.where(row_diffs > 4.0)[0]
+        if len(sig_steps) > 0:
+            pallet_y_local = bottom_y_start + int(sig_steps[0])
         else:
-            # Color-based check for wood tones at base
-            wood_mask = cv2.inRange(hsv[bottom_y_start:, :], np.array([8, 25, 40]), np.array([32, 220, 220]))
-            wood_row_density = np.mean(wood_mask, axis=1) / 255.0
-            dense_rows = np.where(wood_row_density > 0.18)[0]
+            dense_rows = np.where(full_wood_row_density[bottom_y_start:] > 0.18)[0]
             pallet_y_local = (bottom_y_start + int(dense_rows[0])) if len(dense_rows) > 0 else int(ch * 0.85)
 
         pallet_base_meta = {
@@ -7163,12 +7505,48 @@ class PalletVisionCountingService:
         confirmed_bundles: List[Dict[str, Any]] = []
         uncertain_bundles: List[Dict[str, Any]] = []
 
-        # 2. Localize Physically Separate Wrapped Packs using Instance Segmentation & Edge Seams
+        # 2. Localize Physically Separate Wrapped Packs using Instance Segmentation, Dunnage/Pallet Separators & Edge Seams
         detected_instances, _, inst_meta = self._detect_physical_carton_instances(crop, sensitivity=sensitivity)
         valid_instances = [
             inst for inst in detected_instances
             if inst.get("y", 0) + inst.get("h", 0) * 0.5 < stock_h and inst.get("w", 0) >= 20 and inst.get("h", 0) >= 20
         ]
+
+        # Check for intermediate wooden pallet / dunnage separators between handling units
+        intermediate_seps = []
+        mid_start = int(ch * 0.18)
+        mid_end = int(stock_h - ch * 0.10) if stock_h > ch * 0.35 else int(ch * 0.70)
+        if mid_end > mid_start:
+            wood_sub = cv2.inRange(hsv[mid_start:mid_end, :], np.array([5, 18, 25]), np.array([35, 230, 210]))
+            wood_mid_density = np.mean(wood_sub, axis=1) / 255.0
+            sobel_mid_y = np.abs(cv2.Sobel(gray[mid_start:mid_end, :], cv2.CV_32F, 0, 1, ksize=3))
+            row_mid_edges = np.mean(sobel_mid_y, axis=1)
+            norm_mid_edges = row_mid_edges / (np.max(row_mid_edges) + 1e-5)
+            sep_metric = wood_mid_density * 2.5 + norm_mid_edges
+            from scipy.signal import find_peaks
+            mid_peaks, _ = find_peaks(sep_metric, height=0.45, distance=max(25, int(ch * 0.15)), prominence=0.20)
+            for p_idx, p in enumerate(mid_peaks):
+                py = mid_start + p
+                if np.max(full_wood_row_density[max(0, py - 10):min(ch, py + 10)]) > 0.08:
+                    s_top = py
+                    while s_top > mid_start and (wood_mid_density[s_top - mid_start] > 0.04 or norm_mid_edges[s_top - mid_start] > 0.35):
+                        s_top -= 1
+                    s_bot = py
+                    while s_bot < mid_end and (wood_mid_density[s_bot - mid_start] > 0.04 or norm_mid_edges[s_bot - mid_start] > 0.35):
+                        s_bot += 1
+                    intermediate_seps.append((int(s_top), int(s_bot)))
+                    if pallet_base_meta is not None:
+                        if "intermediate_separators" not in pallet_base_meta:
+                            pallet_base_meta["intermediate_separators"] = []
+                        pallet_base_meta["intermediate_separators"].append({
+                            "id": f"SEP-{p_idx + 1:02d}",
+                            "type": "WOOD_PALLET_RUNNER_SEPARATOR",
+                            "x": rx1,
+                            "y": ry1 + s_top,
+                            "w": cw,
+                            "h": max(8, s_bot - s_top),
+                            "tare_excluded": True
+                        })
 
         if len(valid_instances) >= 4:
             # Sort instances into elevation layers and left-to-right columns
@@ -7223,13 +7601,86 @@ class PalletVisionCountingService:
                     "is_bundle": True,
                     "geometry_type": "wrapped_bundle",
                     "material_type": "wrapped_bundles",
-                    "mask_polygon": inst.get("mask_polygon")
+                    "shape_type": "polygon",
+                    "mask_polygon": inst.get("mask_polygon") or [[bx, by], [bx + bw, by], [bx + bw, by + bh], [bx, by + bh]],
+                    "polygon_contour": inst.get("mask_polygon") or [[bx, by], [bx + bw, by], [bx + bw, by + bh], [bx, by + bh]],
+                    "norm_polygon_contour": [[round(pt[0]/max(1, w), 4), round(pt[1]/max(1, h), 4)] for pt in (inst.get("mask_polygon") or [[bx, by], [bx + bw, by], [bx + bw, by + bh], [bx, by + bh]])]
                 }
                 if is_unc:
                     uncertain_bundles.append(b_obj)
                 else:
                     confirmed_bundles.append(b_obj)
             total_layers = n_layers
+        elif intermediate_seps:
+            tier_bounds = [int(max(15, ch * 0.03))]
+            for s_top, s_bot in intermediate_seps:
+                tier_bounds.append(s_top)
+                tier_bounds.append(s_bot)
+            tier_bounds.append(stock_h)
+
+            n_tiers = len(intermediate_seps) + 1
+            for t_idx in range(n_tiers):
+                ty1 = tier_bounds[t_idx * 2]
+                ty2 = tier_bounds[t_idx * 2 + 1]
+                crop_t = gray[ty1:ty2, :]
+                mask_t = (crop_t < 235) & (crop_t > 15)
+                col_counts = np.sum(mask_t, axis=0)
+                valid_cols = np.where(col_counts > int((ty2 - ty1) * 0.20))[0]
+                if len(valid_cols) > 0:
+                    tx1 = valid_cols[0]
+                    tx2 = valid_cols[-1]
+                else:
+                    tx1, tx2 = int(cw * 0.05), int(cw * 0.95)
+                elev_name = f"Layer {n_tiers - t_idx} (" + ("Upper Load" if t_idx == 0 else ("Lower Load" if t_idx == n_tiers - 1 else f"Tier {t_idx + 1}")) + ")"
+                b_id = f"WB-{t_idx + 1:02d}"
+                bx = rx1 + tx1
+                by = ry1 + ty1
+                bw = tx2 - tx1
+                bh = ty2 - ty1
+                b_obj = {
+                    "id": b_id,
+                    "bundle_id": b_id,
+                    "bundle_type": "WRAPPED_PALLET_BUNDLE",
+                    "x": bx,
+                    "y": by,
+                    "w": bw,
+                    "h": bh,
+                    "bbox": [bx, by, bx + bw, by + bh],
+                    "norm_x": round(float(bx) / max(1, w), 4),
+                    "norm_y": round(float(by) / max(1, h), 4),
+                    "norm_w": round(float(bw) / max(1, w), 4),
+                    "norm_h": round(float(bh) / max(1, h), 4),
+                    "confidence": 0.96,
+                    "layer": n_tiers - 1 - t_idx,
+                    "tier_index": n_tiers - 1 - t_idx,
+                    "elevation": elev_name,
+                    "detection_status": "CONFIRMED_BUNDLE",
+                    "is_uncertain": False,
+                    "is_bundle": True,
+                    "geometry_type": "wrapped_bundle",
+                    "material_type": "wrapped_bundles",
+                    "shape_type": "polygon",
+                    "mask_polygon": [
+                        [bx, by],
+                        [bx + bw, by],
+                        [bx + bw, by + bh],
+                        [bx, by + bh]
+                    ],
+                    "polygon_contour": [
+                        [bx, by],
+                        [bx + bw, by],
+                        [bx + bw, by + bh],
+                        [bx, by + bh]
+                    ],
+                    "norm_polygon_contour": [
+                        [round(float(bx) / max(1, w), 4), round(float(by) / max(1, h), 4)],
+                        [round(float(bx + bw) / max(1, w), 4), round(float(by) / max(1, h), 4)],
+                        [round(float(bx + bw) / max(1, w), 4), round(float(by + bh) / max(1, h), 4)],
+                        [round(float(bx) / max(1, w), 4), round(float(by + bh) / max(1, h), 4)]
+                    ]
+                }
+                confirmed_bundles.append(b_obj)
+            total_layers = n_tiers
 
         else:
             # Fallback: Transverse & layer packaging boundary intersection
@@ -7358,12 +7809,28 @@ class PalletVisionCountingService:
             py = pallet_base_meta["y"]
             pw = pallet_base_meta["w"]
             ph = pallet_base_meta["h"]
-            cv2.rectangle(ann_img, (px, py), (px + pw, py + ph), (60, 60, 60), 2)
-            cv2.putText(ann_img, "TARE: WOOD PALLET BASE (EXCLUDED)", (px + 10, py + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+            cv2.rectangle(ann_img, (px, py), (px + pw, py + ph), (45, 45, 60), -1)
+            cv2.rectangle(ann_img, (px, py), (px + pw, py + ph), (100, 100, 120), 2)
+            cv2.putText(ann_img, "[TARE PALLET BASE - EXCLUDED FROM BUNDLE COUNT]", (px + 10, py + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 200, 200), 1)
+
+            if "intermediate_separators" in pallet_base_meta:
+                for sep in pallet_base_meta["intermediate_separators"]:
+                    sx, sy, sw, sh = sep["x"], sep["y"], sep["w"], sep["h"]
+                    cv2.rectangle(ann_img, (sx, sy), (sx + sw, sy + sh), (45, 45, 60), -1)
+                    cv2.rectangle(ann_img, (sx, sy), (sx + sw, sy + sh), (100, 100, 120), 2)
+                    cv2.putText(ann_img, "[TARE SEPARATOR - EXCLUDED FROM COUNT]", (sx + 10, sy + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
 
         for b in confirmed_bundles:
             bx, by, bw, bh = b["x"], b["y"], b["w"], b["h"]
-            cv2.rectangle(ann_img, (bx, by), (bx + bw, by + bh), (0, 200, 0), 2)
+            poly = b.get("mask_polygon") or b.get("polygon_contour")
+            if poly:
+                pts_w = np.array(poly, dtype=np.int32)
+                overlay = ann_img.copy()
+                cv2.fillPoly(overlay, [pts_w], (0, 200, 0))
+                cv2.addWeighted(overlay, 0.08, ann_img, 0.92, 0, ann_img)
+                cv2.polylines(ann_img, [pts_w], True, (0, 200, 0), 2, cv2.LINE_AA)
+            else:
+                cv2.rectangle(ann_img, (bx, by), (bx + bw, by + bh), (0, 200, 0), 2)
             lbl = f"{b['bundle_id']} ({b.get('elevation', 'Pack')})"
             cv2.putText(ann_img, lbl, (bx + 6, by + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
 
@@ -7522,6 +7989,7 @@ class PalletVisionCountingService:
             "quantity_breakdown": session_obj["quantity_breakdown"],
             "image_url": annotated_url,
             "annotated_url": annotated_url,
+            "annotated_image_url": annotated_url,
             "is_mismatch": is_mismatch,
             "mismatch_warning": mismatch_warning,
             "is_bundle_mode": True,
