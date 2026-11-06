@@ -212,7 +212,7 @@ def api_login():
                 logger.warning(f"Login warehouse blueprint sync notice: {e_sync}")
         user_clean = {
             "username": user.get("username"),
-            "company_name": user.get("company_name", "Skantha Industrial Solutions"),
+            "company_name": user.get("company_name", "WARLOG Intelligence Systems"),
             "assigned_warehouse_code": wh_code,
             "role": user.get("role", "Admin"),
             "active_warehouse": switched
@@ -273,18 +273,18 @@ def send_verification_email(recipient_email: str, otp_code: str, username: str |
         smtp_password = os.environ.get('SMTP_PASSWORD', 'hwflfuagdsqglxkp')
 
         msg = MIMEMultipart('alternative')
-        msg['Subject'] = f'Your Skantha WMS Verification Code: {otp_code}'
-        msg['From'] = f'Skantha WMS Security <{smtp_user}>'
+        msg['Subject'] = f'Your WARLOG Verification Code: {otp_code}'
+        msg['From'] = f'WARLOG Security <{smtp_user}>'
         msg['To'] = recipient_email
 
         greeting = f"Hello {username}," if username else "Hello,"
         text_content = (
             f"{greeting}\n\n"
-            f"Your Skantha WMS verification code for warehouse registration is:\n\n"
+            f"Your WARLOG verification code for warehouse registration is:\n\n"
             f"  {otp_code}\n\n"
             f"This code will expire in 10 minutes.\n"
             f"If you did not request this verification code, please ignore this email.\n\n"
-            f"— The Skantha WMS Security Team"
+            f"— The WARLOG Security Team"
         )
 
         html_content = f"""<!DOCTYPE html>
@@ -320,7 +320,7 @@ def send_verification_email(recipient_email: str, otp_code: str, username: str |
       If you did not request this registration code, you can safely ignore this email.
     </p>
     <div class="footer">
-      This is an automated security dispatch from Skantha WMS Enterprise Platform.
+      This is an automated security dispatch from WARLOG Enterprise Platform.
     </div>
   </div>
 </body>
@@ -465,7 +465,7 @@ def api_verify_otp_and_register():
             username=username,
             password=password,
             email=email,
-            company_name=company_name or 'Skantha Industrial Solutions',
+            company_name=company_name or 'WARLOG Intelligence Systems',
             assigned_warehouse_code=assigned_wh_code
         )
         if not user_created:
@@ -475,7 +475,7 @@ def api_verify_otp_and_register():
         user_session = {
             'username': username,
             'email': email,
-            'company_name': company_name or 'Skantha Industrial Solutions',
+            'company_name': company_name or 'WARLOG Intelligence Systems',
             'assigned_warehouse_code': assigned_wh_code,
             'role': 'Admin'
         }
@@ -551,7 +551,7 @@ def api_register():
         except Exception as e_ind:
             logger.warning(f"Auto-industry setup on registration notice: {e_ind}")
     
-    if db.create_user(username, password, email=email, company_name=company_name or 'Skantha Industrial Solutions', assigned_warehouse_code=assigned_wh_code):
+    if db.create_user(username, password, email=email, company_name=company_name or 'WARLOG Intelligence Systems', assigned_warehouse_code=assigned_wh_code):
         user_clean = {
             'username': username,
             'email': email,
@@ -800,7 +800,7 @@ def api_create_warehouse():
         if not company_name and session.get('user'):
             company_name = session['user'].get('company_name')
         if not company_name:
-            company_name = 'Skantha Industrial Solutions'
+            company_name = 'WARLOG Intelligence Systems'
 
         if not name:
             return jsonify({"success": False, "error": "Warehouse facility name is required"}), 400
