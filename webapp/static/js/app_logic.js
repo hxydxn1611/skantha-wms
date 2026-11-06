@@ -5393,3 +5393,88 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             setTimeout(initWarlogTelemetryChart, 350);
             setInterval(fetchLiveTelemetryData, 10000);
         });
+
+
+
+// =====================================================================
+// MACOS DOCK MAGNIFICATION & ACCESSIBILITY INTERACTION ENGINE
+// =====================================================================
+
+function initMacosDockMagnification() {
+    const dockList = document.querySelector('.macos-dock-list');
+    if (!dockList) return;
+
+    const items = dockList.querySelectorAll('.macos-dock-item');
+    const baseScale = 1.0;
+    const maxScale = 1.28;
+    const effectRadius = 90; // Pixels radius of magnification curve
+
+    dockList.addEventListener('mousemove', function(e) {
+        const mouseClientY = e.clientY;
+
+        items.forEach(item => {
+            const rect = item.getBoundingClientRect();
+            const itemCenterY = rect.top + rect.height / 2;
+            const distance = Math.abs(mouseClientY - itemCenterY);
+
+            if (distance < effectRadius) {
+                // Cosine interpolation for organic macOS fish-eye wave
+                const factor = Math.cos((distance / effectRadius) * (Math.PI / 2));
+                const scale = baseScale + (maxScale - baseScale) * factor;
+                item.style.transform = `scale(${scale.toFixed(3)}) translateX(${((scale - 1) * 8).toFixed(1)}px)`;
+                item.style.zIndex = '15';
+            } else {
+                item.style.transform = 'scale(1.0) translateX(0px)';
+                item.style.zIndex = '1';
+            }
+        });
+    });
+
+    dockList.addEventListener('mouseleave', function() {
+        items.forEach(item => {
+            item.style.transform = 'scale(1.0) translateX(0px)';
+            item.style.zIndex = '1';
+        });
+    });
+
+    // Keyboard accessibility for dock items (Enter or Space to switch tabs)
+    items.forEach(item => {
+        const btn = item.querySelector('.dock-btn');
+        if (btn) {
+            btn.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    btn.click();
+                }
+            });
+        }
+    });
+}
+
+// Auto-initialize dock magnification
+document.addEventListener('DOMContentLoaded', function() {
+    initMacosDockMagnification();
+});
+
+/* ==========================================================================
+   MACOS FLOATING DOCK: COLLAPSE / EXPAND TOGGLE & ACCESSIBILITY
+   ========================================================================== */
+window.toggleDockCollapse = function() {
+    const dock = document.querySelector('.macos-floating-dock-sidebar');
+    if (!dock) return;
+    const isCollapsed = dock.classList.toggle('collapsed');
+    try {
+        localStorage.setItem('warlog_dock_collapsed', isCollapsed ? '1' : '0');
+    } catch(e) {}
+};
+
+// Initialize Dock State from LocalStorage
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        const saved = localStorage.getItem('warlog_dock_collapsed');
+        if (saved === '1') {
+            const dock = document.querySelector('.macos-floating-dock-sidebar');
+            if (dock) dock.classList.add('collapsed');
+        }
+    } catch(e) {}
+});

@@ -1092,10 +1092,11 @@
 
     <!-- APP WORKSPACE LAYOUT -->
     <div class="app-layout" id="app-layout" style="display:flex;">
-        <aside style="display:flex;" id="main-header">
+                        <aside style="display:flex;" id="main-header" class="macos-floating-dock-sidebar">
+            <!-- MOBILE DRAWER CONTROLS (MOBILE ONLY) -->
             <div class="mobile-sidebar-close-btn mobile-only">
-                <span style="font-weight: 700; font-size: 0.95rem; color: var(--primary-navy);"><i class="fas fa-layer-group" style="color:var(--accent); margin-right:6px;"></i> Modules</span>
-                <button type="button" onclick="closeMobileSidebar()" style="background:transparent; border:none; font-size:1.5rem; color:var(--text-muted); cursor:pointer; padding:4px 8px;" aria-label="Close Navigation">&times;</button>
+                <span class="mobile-drawer-title"><i class="fas fa-layer-group text-accent"></i> W.A.R.L.O.G. Modules</span>
+                <button type="button" onclick="closeMobileSidebar()" class="btn-close-drawer" aria-label="Close Navigation">&times;</button>
             </div>
 
             <!-- MOBILE DRAWER QUICK ACCESS CARD (USER, FACILITY, LOGOUT) -->
@@ -1123,64 +1124,465 @@
                 </div>
             </div>
 
-            <div class="sidebar-nav-header">
-                <span class="sidebar-nav-title">WORKSPACE MODULES</span>
-            </div>
-
-            <div class="tabs">
-                <div class="nav-category-header">ANALYTICS &amp; OVERVIEW</div>
-                <button class="tab-btn active" onclick="switchTab('dashboard')">
-                    <span class="tab-btn-content"><i class="fas fa-chart-line tab-icon"></i> Dashboard</span>
-                </button>
-
-                <div class="nav-category-header">YARD &amp; GATE OPS</div>
-                <button class="tab-btn" onclick="switchTab('deliveries')">
-                    <span class="tab-btn-content"><i class="fas fa-clipboard-check tab-icon"></i> Pre-Registration</span>
-                </button>
-                <button class="tab-btn" onclick="switchTab('gate-passes')">
-                    <span class="tab-btn-content"><i class="fas fa-shield-halved tab-icon"></i> Gate Management</span>
-                    <span id="gate-badge" class="nav-badge"></span>
-                </button>
-                <button class="tab-btn" onclick="switchTab('docks')">
-                    <span class="tab-btn-content"><i class="fas fa-truck-ramp-box tab-icon"></i> Dock Management</span>
-                    <span id="dock-badge" class="nav-badge"></span>
-                </button>
-
-                <div class="nav-category-header">AUTONOMOUS VISION AI</div>
-                <button class="tab-btn" id="nav-btn-ai-vision" onclick="switchTab('ai-vision')">
-                    <span class="tab-btn-content"><i class="fas fa-brain tab-icon"></i> AI Vision</span>
-                    <span class="pulse-indicator-pill" style="background:rgba(99,102,241,0.15); color:#6366f1; border-color:rgba(99,102,241,0.3);"><span class="pulse-dot" style="background:#6366f1;"></span>SKU MASTER</span>
-                </button>
-                <button class="tab-btn" onclick="switchTab('cameras')">
-                    <span class="tab-btn-content"><i class="fas fa-video tab-icon"></i> Camera Junction</span>
-                    <span class="pulse-indicator-pill"><span class="pulse-dot"></span>LIVE</span>
-                </button>
-                <button class="tab-btn" onclick="switchTab('inbound-flow')">
-                    <span class="tab-btn-content"><i class="fas fa-microchip tab-icon"></i> Inbound Automation</span>
-                    <span id="inbound-badge" class="nav-badge" style="background:var(--success); display:none;"></span>
-                </button>
-                <button class="tab-btn" onclick="switchTab('outbound')">
-                    <span class="tab-btn-content"><i class="fas fa-boxes-packing tab-icon"></i> Outbound Flow</span>
-                </button>
-                <button class="tab-btn" onclick="switchTab('palletization')">
-                    <span class="tab-btn-content"><i class="fas fa-pallet tab-icon"></i> Palletization</span>
-                    <span class="pulse-indicator-pill" style="background:rgba(16,185,129,0.15); color:#10b981; border-color:rgba(16,185,129,0.3);"><span class="pulse-dot" style="background:#10b981;"></span>BUNDLE AI</span>
-                </button>
-
-                <div class="nav-category-header">ENTERPRISE CONFIG</div>
-                <button class="tab-btn" onclick="switchTab('warehouses')">
-                    <span class="tab-btn-content"><i class="fas fa-warehouse tab-icon"></i> Warehouse Locations</span>
-                    <span id="nav-warehouses-count" class="nav-badge" style="background:#38bdf8; color:#0f172a; font-weight:700;">1</span>
-                </button>
-                <button class="tab-btn" onclick="switchTab('master-hub')">
-                    <span class="tab-btn-content"><i class="fas fa-database tab-icon"></i> Master Data Hub</span>
+            <!-- DESKTOP DOCK HEADER (TITLE & COLLAPSE TOGGLE) -->
+            <div class="dock-header">
+                <div class="dock-brand-pill">
+                    <span class="dock-brand-dot"></span>
+                    <span class="dock-brand-text">MODULES</span>
+                </div>
+                <button type="button" class="dock-collapse-btn" onclick="toggleDockCollapse()" title="Toggle Compact / Expanded View" aria-label="Toggle Navigation Dock Width">
+                    <i class="fas fa-chevron-left" id="dockCollapseIcon"></i>
                 </button>
             </div>
 
-            
-                    <div class="sidebar-footer-brand">
-                <span class="sidebar-version-pill"><i class="fas fa-shield-halved"></i> W.A.R.L.O.G. Intelligence</span>
-                <span class="sidebar-sub-brand">v1.2.0 &bull; WARLOG Systems</span>
+            <!-- MACOS FLOATING DOCK SHELF -->
+            <div class="macos-dock-container">
+                <div class="macos-dock-list" role="tablist" aria-label="W.A.R.L.O.G. Navigation Dock">
+                    <!-- 1. Dashboard -->
+                    <div class="macos-dock-item" data-module="dashboard">
+                        <button class="tab-btn dock-btn active" onclick="switchTab('dashboard')" role="tab" aria-selected="true" aria-label="Dashboard" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="db-wall" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569"/><stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="db-roof" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="db-door" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/><stop offset="50%" stop-color="#94a3b8"/><stop offset="100%" stop-color="#64748b"/>
+    </linearGradient>
+    <filter id="db-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#0284c7" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <g filter="url(#db-glow)">
+    <!-- 3D Warehouse Main Body -->
+    <path d="M6,19 L24,9 L42,19 L42,40 L6,40 Z" fill="url(#db-wall)"/>
+    <!-- Overhang Roof -->
+    <path d="M4,18 L24,7 L44,18 L41,21 L24,11 L7,21 Z" fill="url(#db-roof)"/>
+    <!-- Ridge Highlight -->
+    <path d="M24,7 L24,11 L42,20" stroke="#bae6fd" stroke-width="1.2" fill="none"/>
+    <!-- Roll-up Bay Door -->
+    <rect x="15" y="24" width="18" height="16" rx="2" fill="url(#db-door)"/>
+    <!-- Horizontal Slats -->
+    <line x1="15" y1="28" x2="33" y2="28" stroke="#334155" stroke-width="1.2"/>
+    <line x1="15" y1="32" x2="33" y2="32" stroke="#334155" stroke-width="1.2"/>
+    <line x1="15" y1="36" x2="33" y2="36" stroke="#334155" stroke-width="1.2"/>
+    <!-- Amber Status Beacon -->
+    <circle cx="24" cy="18" r="2.2" fill="#38bdf8"/>
+    <circle cx="24" cy="18" r="4.5" fill="#38bdf8" opacity="0.35"/>
+  </g>
+</svg>
+                            </div>
+                            <span class="dock-label">Dashboard</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Dashboard</span>
+                            <span class="tooltip-desc">Warehouse Intelligence Matrix</span>
+                        </div>
+                    </div>
+
+                    <div class="dock-separator"></div>
+
+                    <!-- 2. Pre-Registration -->
+                    <div class="macos-dock-item" data-module="deliveries">
+                        <button class="tab-btn dock-btn" onclick="switchTab('deliveries')" role="tab" aria-selected="false" aria-label="Pre-Registration" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="del-board" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155"/><stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="del-sheet" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+    <linearGradient id="del-clip" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#cbd5e1"/><stop offset="100%" stop-color="#64748b"/>
+    </linearGradient>
+    <linearGradient id="del-check" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+  <!-- 3D Clipboard Board -->
+  <rect x="8" y="7" width="32" height="36" rx="5" fill="url(#del-board)" stroke="#64748b" stroke-width="1"/>
+  <!-- Paper Sheet -->
+  <rect x="12" y="13" width="24" height="26" rx="3" fill="url(#del-sheet)"/>
+  <!-- Top Metallic Clip -->
+  <rect x="18" y="5" width="12" height="6" rx="2" fill="url(#del-clip)"/>
+  <circle cx="24" cy="7" r="1.5" fill="#0f172a"/>
+  <!-- Document Lines -->
+  <line x1="16" y1="19" x2="26" y2="19" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="16" y1="24" x2="24" y2="24" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- 3D Checkmark Shield Badge -->
+  <circle cx="28" cy="29" r="8" fill="url(#del-check)" filter="drop-shadow(0 2px 5px rgba(5,150,105,0.4))"/>
+  <path d="M24,29 L27,32 L33,26" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Pre-Registration</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Pre-Registration</span>
+                            <span class="tooltip-desc">Inbound Expected Deliveries</span>
+                        </div>
+                    </div>
+
+                    <!-- 3. Gate Management -->
+                    <div class="macos-dock-item" data-module="gate-passes">
+                        <button class="tab-btn dock-btn" onclick="switchTab('gate-passes')" role="tab" aria-selected="false" aria-label="Gate Management" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="gate-post" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#64748b"/><stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="gate-bar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ef4444"/><stop offset="30%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#ef4444"/><stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <!-- Security Post Base -->
+  <rect x="6" y="20" width="10" height="22" rx="3" fill="url(#gate-post)"/>
+  <!-- Top Access Beacon -->
+  <circle cx="11" cy="18" r="3" fill="#10b981"/>
+  <circle cx="11" cy="18" r="6" fill="#10b981" opacity="0.3"/>
+  <!-- Automated Barrier Arm -->
+  <g transform="rotate(-18 14 24)">
+    <rect x="12" y="22" width="30" height="5" rx="2.5" fill="url(#gate-bar)" stroke="#b91c1c" stroke-width="0.8"/>
+  </g>
+  <!-- Road Surface Base -->
+  <rect x="4" y="41" width="40" height="3" rx="1.5" fill="#334155"/>
+  <!-- RFID Scanner Pedestal -->
+  <rect x="36" y="27" width="5" height="15" rx="2" fill="url(#gate-post)"/>
+  <rect x="35" y="24" width="7" height="6" rx="1.5" fill="#0284c7"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Gate Management</span>
+                            <span id="gate-badge" class="dock-badge-counter" style="display:none;">0</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Gate Management</span>
+                            <span class="tooltip-desc">Automated Barriers &amp; Passes</span>
+                        </div>
+                    </div>
+
+                    <!-- 4. Dock Management -->
+                    <div class="macos-dock-item" data-module="docks">
+                        <button class="tab-btn dock-btn" onclick="switchTab('docks')" role="tab" aria-selected="false" aria-label="Dock Management" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="dock-apron" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569"/><stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="dock-guide" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/><stop offset="25%" stop-color="#1e293b"/>
+      <stop offset="50%" stop-color="#f59e0b"/><stop offset="75%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <!-- Elevated Dock Bay Wall -->
+  <rect x="6" y="8" width="36" height="24" rx="3" fill="url(#dock-apron)"/>
+  <!-- Sectional Overhead Door -->
+  <rect x="12" y="12" width="24" height="20" rx="2" fill="#0f172a" stroke="#38bdf8" stroke-width="1.2"/>
+  <line x1="12" y1="17" x2="36" y2="17" stroke="#38bdf8" stroke-width="0.8" opacity="0.7"/>
+  <line x1="12" y1="22" x2="36" y2="22" stroke="#38bdf8" stroke-width="0.8" opacity="0.7"/>
+  <line x1="12" y1="27" x2="36" y2="27" stroke="#38bdf8" stroke-width="0.8" opacity="0.7"/>
+  <!-- Dock Apron Level -->
+  <rect x="4" y="32" width="40" height="11" rx="2" fill="#1e293b"/>
+  <!-- Hazard Safety Edge Strip -->
+  <rect x="4" y="32" width="40" height="4" fill="url(#dock-guide)"/>
+  <!-- Rubber Dock Bumpers -->
+  <rect x="8" y="36" width="5" height="6" rx="1.5" fill="#0f172a"/>
+  <rect x="35" y="36" width="5" height="6" rx="1.5" fill="#0f172a"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Dock Management</span>
+                            <span id="dock-badge" class="dock-badge-counter" style="display:none;">0</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Dock Management</span>
+                            <span class="tooltip-desc">Loading Bays &amp; Turnaround</span>
+                        </div>
+                    </div>
+
+                    <div class="dock-separator"></div>
+
+                    <!-- 5. AI Vision -->
+                    <div class="macos-dock-item" data-module="ai-vision">
+                        <button class="tab-btn dock-btn" id="nav-btn-ai-vision" onclick="switchTab('ai-vision')" role="tab" aria-selected="false" aria-label="AI Vision" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="ai-iris" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/><stop offset="50%" stop-color="#6366f1"/><stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <filter id="ai-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+  <!-- Outer Holographic Sensor Eye Ring -->
+  <ellipse cx="24" cy="24" rx="19" ry="12" fill="none" stroke="#38bdf8" stroke-width="2" stroke-dasharray="3 2" filter="url(#ai-glow)"/>
+  <ellipse cx="24" cy="24" rx="19" ry="12" fill="none" stroke="#bae6fd" stroke-width="1.2"/>
+  <!-- 3D Neural Optical Core -->
+  <circle cx="24" cy="24" r="9" fill="url(#ai-iris)"/>
+  <circle cx="24" cy="24" r="4.5" fill="#0f172a"/>
+  <circle cx="22" cy="22" r="1.8" fill="#ffffff"/>
+  <!-- Scanning Laser Reticle -->
+  <line x1="5" y1="24" x2="43" y2="24" stroke="#a855f7" stroke-width="1" stroke-dasharray="4 2"/>
+  <line x1="24" y1="12" x2="24" y2="36" stroke="#a855f7" stroke-width="1" stroke-dasharray="4 2"/>
+</svg>
+                            </div>
+                            <span class="dock-label">AI Vision</span>
+                            <span class="dock-mini-badge badge-purple">AI</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">AI Vision</span>
+                            <span class="tooltip-desc">SKU Master &amp; Optical Neural Core</span>
+                        </div>
+                    </div>
+
+                    <!-- 6. Camera Junction -->
+                    <div class="macos-dock-item" data-module="cameras">
+                        <button class="tab-btn dock-btn" onclick="switchTab('cameras')" role="tab" aria-selected="false" aria-label="Camera Junction" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="cam-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/><stop offset="70%" stop-color="#cbd5e1"/><stop offset="100%" stop-color="#64748b"/>
+    </linearGradient>
+    <linearGradient id="cam-lens" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7"/><stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <!-- Wall Mount Bracket -->
+  <rect x="6" y="10" width="4" height="24" rx="2" fill="#334155"/>
+  <path d="M10,22 L17,20" stroke="#475569" stroke-width="4" stroke-linecap="round"/>
+  <!-- 3D Articulated CCTV Bullet Housing -->
+  <path d="M15,16 L35,12 L38,28 L17,30 Z" fill="url(#cam-body)" stroke="#94a3b8" stroke-width="0.8"/>
+  <!-- Front Sunshield Visor -->
+  <path d="M13,15 L38,10 L38,14 L14,18 Z" fill="#475569"/>
+  <!-- Optical Front Lens -->
+  <ellipse cx="36" cy="20" rx="3" ry="7" fill="url(#cam-lens)"/>
+  <circle cx="36" cy="19" r="1.5" fill="#38bdf8"/>
+  <!-- Red Recording Sensor LED -->
+  <circle cx="28" cy="16" r="1.5" fill="#ef4444"/>
+  <circle cx="28" cy="16" r="3.5" fill="#ef4444" opacity="0.4"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Camera Junction</span>
+                            <span class="dock-mini-badge badge-emerald">LIVE</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Camera Junction</span>
+                            <span class="tooltip-desc">CCTV Streams &amp; Optical Matrix</span>
+                        </div>
+                    </div>
+
+                    <!-- 7. Inbound Automation -->
+                    <div class="macos-dock-item" data-module="inbound-flow">
+                        <button class="tab-btn dock-btn" onclick="switchTab('inbound-flow')" role="tab" aria-selected="false" aria-label="Inbound Automation" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="in-cab" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7"/><stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+    <linearGradient id="in-cargo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/><stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+  <!-- 3D Inbound Semi Trailer Box -->
+  <rect x="5" y="13" width="22" height="19" rx="3" fill="url(#in-cargo)" stroke="#94a3b8" stroke-width="0.8"/>
+  <!-- Cab Chassis -->
+  <path d="M27,18 L34,18 L39,24 L39,32 L27,32 Z" fill="url(#in-cab)"/>
+  <!-- Cab Windshield -->
+  <path d="M29,20 L33,20 L37,24 L29,24 Z" fill="#38bdf8" opacity="0.8"/>
+  <!-- Chrome Grille -->
+  <rect x="38" y="25" width="2" height="6" fill="#e2e8f0"/>
+  <!-- Wheels with Hubs -->
+  <circle cx="11" cy="33" r="4.5" fill="#0f172a"/><circle cx="11" cy="33" r="2" fill="#94a3b8"/>
+  <circle cx="19" cy="33" r="4.5" fill="#0f172a"/><circle cx="19" cy="33" r="2" fill="#94a3b8"/>
+  <circle cx="34" cy="33" r="4.5" fill="#0f172a"/><circle cx="34" cy="33" r="2" fill="#94a3b8"/>
+  <!-- Incoming Green Arrow Pill -->
+  <path d="M20,6 L26,6 L26,3 L31,8 L26,13 L26,10 L20,10 Z" fill="#10b981" filter="drop-shadow(0 2px 4px rgba(16,185,129,0.5))"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Inbound Flow</span>
+                            <span id="inbound-badge" class="dock-badge-counter" style="display:none;">0</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Inbound Automation</span>
+                            <span class="tooltip-desc">Direct Dock Intake &amp; Verification</span>
+                        </div>
+                    </div>
+
+                    <!-- 8. Outbound Flow -->
+                    <div class="macos-dock-item" data-module="outbound">
+                        <button class="tab-btn dock-btn" onclick="switchTab('outbound')" role="tab" aria-selected="false" aria-label="Outbound Flow" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="out-cab" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f97316"/><stop offset="100%" stop-color="#c2410c"/>
+    </linearGradient>
+    <linearGradient id="out-box" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155"/><stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <!-- 3D Courier Express Truck Body -->
+  <rect x="6" y="14" width="21" height="18" rx="2.5" fill="url(#out-box)" stroke="#475569" stroke-width="0.8"/>
+  <!-- Outgoing Speed Stripe -->
+  <line x1="9" y1="22" x2="23" y2="22" stroke="#f97316" stroke-width="2" stroke-linecap="round"/>
+  <!-- Truck Front Cab -->
+  <path d="M27,19 L34,19 L39,24 L39,32 L27,32 Z" fill="url(#out-cab)"/>
+  <path d="M29,21 L33,21 L37,25 L29,25 Z" fill="#fdba74" opacity="0.8"/>
+  <!-- Wheels -->
+  <circle cx="12" cy="33" r="4.5" fill="#0f172a"/><circle cx="12" cy="33" r="2" fill="#f97316"/>
+  <circle cx="34" cy="33" r="4.5" fill="#0f172a"/><circle cx="34" cy="33" r="2" fill="#f97316"/>
+  <!-- Outgoing Rapid Dispatch Arrow -->
+  <path d="M28,6 L22,6 L22,3 L17,8 L22,13 L22,10 L28,10 Z" fill="#f97316" filter="drop-shadow(0 2px 4px rgba(249,115,22,0.5))"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Outbound Flow</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Outbound Flow</span>
+                            <span class="tooltip-desc">Picking Orders &amp; Rapid Dispatch</span>
+                        </div>
+                    </div>
+
+                    <!-- 9. Palletization -->
+                    <div class="macos-dock-item" data-module="palletization">
+                        <button class="tab-btn dock-btn" onclick="switchTab('palletization')" role="tab" aria-selected="false" aria-label="Palletization" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="pal-wood" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d97706"/><stop offset="100%" stop-color="#78350f"/>
+    </linearGradient>
+    <linearGradient id="pal-box1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde68a"/><stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="pal-box2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fed7aa"/><stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <!-- Wooden Pallet Base -->
+  <rect x="5" y="35" width="38" height="4" rx="1.5" fill="url(#pal-wood)"/>
+  <rect x="9" y="39" width="6" height="3" fill="#451a03"/>
+  <rect x="21" y="39" width="6" height="3" fill="#451a03"/>
+  <rect x="33" y="39" width="6" height="3" fill="#451a03"/>
+  <!-- Bottom Tier Cartons -->
+  <rect x="7" y="21" width="16" height="14" rx="2" fill="url(#pal-box1)" stroke="#b45309" stroke-width="0.8"/>
+  <rect x="25" y="21" width="16" height="14" rx="2" fill="url(#pal-box2)" stroke="#c2410c" stroke-width="0.8"/>
+  <!-- Top Tier Centered Carton -->
+  <rect x="15" y="8" width="18" height="13" rx="2" fill="url(#pal-box1)" stroke="#b45309" stroke-width="0.8"/>
+  <!-- Bundling Straps -->
+  <line x1="15" y1="21" x2="15" y2="35" stroke="#10b981" stroke-width="1.5"/>
+  <line x1="33" y1="21" x2="33" y2="35" stroke="#10b981" stroke-width="1.5"/>
+  <line x1="24" y1="8" x2="24" y2="21" stroke="#10b981" stroke-width="1.5"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Palletization</span>
+                            <span class="dock-mini-badge badge-cyan">BUNDLE</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Palletization</span>
+                            <span class="tooltip-desc">Bundle AI &amp; Layer Verification</span>
+                        </div>
+                    </div>
+
+                    <div class="dock-separator"></div>
+
+                    <!-- 10. Warehouse Locations -->
+                    <div class="macos-dock-item" data-module="warehouses">
+                        <button class="tab-btn dock-btn" onclick="switchTab('warehouses')" role="tab" aria-selected="false" aria-label="Warehouse Locations" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="pin-head" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/><stop offset="50%" stop-color="#0284c7"/><stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="pin-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff"/><stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <!-- Ground Holographic Target Ring -->
+  <ellipse cx="24" cy="38" rx="14" ry="5" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-dasharray="3 2"/>
+  <ellipse cx="24" cy="38" rx="7" ry="2.5" fill="#38bdf8" opacity="0.3"/>
+  <!-- 3D Isometric Location Marker Pin -->
+  <path d="M24,7 C16.5,7 11,12.5 11,19 C11,27.5 24,37 24,37 C24,37 37,27.5 37,19 C37,12.5 31.5,7 24,7 Z" fill="url(#pin-head)" stroke="#7dd3fc" stroke-width="1"/>
+  <!-- Inner Glass Sphere -->
+  <circle cx="24" cy="19" r="5.5" fill="url(#pin-glow)"/>
+  <circle cx="22" cy="17" r="1.8" fill="#ffffff"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Warehouses</span>
+                            <span id="nav-warehouses-count" class="dock-badge-counter">1</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Warehouse Locations</span>
+                            <span class="tooltip-desc">Facility Matrix &amp; Geo-Nodes</span>
+                        </div>
+                    </div>
+
+                    <!-- 11. Master Data Hub -->
+                    <div class="macos-dock-item" data-module="master-hub">
+                        <button class="tab-btn dock-btn" onclick="switchTab('master-hub')" role="tab" aria-selected="false" aria-label="Master Data Hub" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="hub-disc" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#64748b"/><stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="hub-accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+  </defs>
+  <!-- Top Disc -->
+  <ellipse cx="24" cy="12" rx="16" ry="6" fill="url(#hub-accent)"/>
+  <ellipse cx="24" cy="12" rx="14" ry="4.5" fill="#1e293b"/>
+  <!-- Mid Disc 1 -->
+  <path d="M8,12 L8,20 C8,23.5 15,26 24,26 C33,26 40,23.5 40,20 L40,12" fill="url(#hub-disc)" stroke="#475569" stroke-width="0.8"/>
+  <ellipse cx="24" cy="20" rx="14" ry="4.5" fill="none" stroke="#38bdf8" stroke-width="1.2"/>
+  <circle cx="34" cy="17" r="1.5" fill="#10b981"/>
+  <!-- Mid Disc 2 -->
+  <path d="M8,20 L8,28 C8,31.5 15,34 24,34 C33,34 40,31.5 40,28 L40,20" fill="url(#hub-disc)" stroke="#475569" stroke-width="0.8"/>
+  <ellipse cx="24" cy="28" rx="14" ry="4.5" fill="none" stroke="#38bdf8" stroke-width="1.2"/>
+  <circle cx="34" cy="25" r="1.5" fill="#38bdf8"/>
+  <!-- Base Disc -->
+  <path d="M8,28 L8,36 C8,39.5 15,42 24,42 C33,42 40,39.5 40,36 L40,28" fill="url(#hub-disc)" stroke="#475569" stroke-width="0.8"/>
+  <circle cx="34" cy="33" r="1.5" fill="#f59e0b"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Master Hub</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Master Data Hub</span>
+                            <span class="tooltip-desc">Enterprise Configuration &amp; Sync</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dock Bottom Compact Status Icon -->
+            <div class="dock-bottom-indicator" title="W.A.R.L.O.G. v1.2">
+                <div class="dock-indicator-dot"></div>
+                <span class="dock-brand-subtext">W.A.R.L.O.G. v1.2</span>
             </div>
         </aside>
 
