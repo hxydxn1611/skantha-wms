@@ -1134,24 +1134,48 @@ def _synthesize_custom_blueprint(prompt: str, company_name: Optional[str] = None
     Synthesizes a 30-item industry blueprint from a custom user prompt
     (e.g., 'Boeing Aerospace Components', 'Solar Panel Factory', 'Apparel Distribution').
     """
-    clean_p = prompt.strip().title()
+    # Deduplicate repeated words in prompt
+    words = (prompt or "Industrial Logistics").split()
+    seen = set()
+    deduped = []
+    for w in words:
+        wl = w.lower()
+        if wl not in seen and wl not in ('custom', 'industrial', 'hub'):
+            seen.add(wl)
+            deduped.append(w)
+    clean_p = " ".join(deduped).strip().title() or "Industrial Logistics"
     comp = company_name.strip() if company_name else f"{clean_p} Hub"
     slug = re.sub(r'[^A-Z0-9]', '', clean_p.upper())[:5] or "IND"
 
     skus = []
     categories = [
-        ("Finished Goods", "Primary unit packaging ready for distribution", "EA", 1, 20, "Finished Unit", (40, 90, 160), "box"),
-        ("Sub-Assemblies", "Heavy sub-assembly module for integration", "Set", 2, 24, "Assembly Stillage", (60, 110, 80), "block"),
-        ("Raw Materials", "Bulk feedstock and raw material bundle", "Bundle", 25, 12, "Feedstock Bundle", (130, 90, 45), "bundle"),
-        ("Fasteners & Hardware", "High-grade industrial fastening components", "Box", 500, 40, "Fastener Box", (110, 110, 110), "box"),
-        ("Packaging & Consumables", "Protective secondary packaging and slip sheets", "Pack", 100, 30, "Consumables Pack", (150, 140, 120), "box")
+        ("Finished Goods", "Primary unit packaging ready for distribution", "EA", 1, 20, "Finished Unit", (40, 90, 160), "box", [
+            "Precision CNC Machined Valve Unit", "Heavy Industrial Hydraulic Pump", "High-Torque Electric Motor Core",
+            "Variable Frequency Drive Inverter", "Sealed Pneumatic Actuator Assembly", "High-Pressure Fluid Control Manifold"
+        ]),
+        ("Sub-Assemblies", "Heavy sub-assembly module for integration", "Set", 2, 24, "Assembly Stillage", (60, 110, 80), "block", [
+            "Heavy-Duty Steel Flange Sub-Assembly", "Planetary Gearbox Housing Module", "Cast Iron Rotor Bearing Bracket",
+            "Armature Coil & Stator Core Assembly", "High-Pressure Hydraulic Cylinder Body", "Articulated Coupling Linkage Block"
+        ]),
+        ("Raw Materials", "Bulk feedstock and raw material bundle", "Bundle", 25, 12, "Feedstock Bundle", (130, 90, 45), "bundle", [
+            "Cold-Rolled Carbon Steel Sheet Bundle", "Extruded Structural Aluminum Bar (Pack 25)", "Solid Round Brass Stock Rods (Bundle 10)",
+            "Galvanized Seamless Tubing (Pack 20)", "Reinforced Polymer Resin Feedstock Sacks", "High-Tensile Steel Wire Spool (Grade 80)"
+        ]),
+        ("Fasteners & Hardware", "High-grade industrial fastening components", "Box", 500, 40, "Fastener Box", (110, 110, 110), "box", [
+            "M10 Grade-8.8 Hex Head Cap Screws (Box 500)", "M12 High-Strength Flange Bolts (Box 250)", "Zinc-Plated Locking Washers & Nuts (Box 1000)",
+            "Stainless Steel Socket Head Screws (Box 500)", "Industrial Retaining Snap Rings (Box 500)", "Threaded Hardened Steel Dowel Pins (Box 250)"
+        ]),
+        ("Packaging & Consumables", "Protective secondary packaging and slip sheets", "Pack", 100, 30, "Consumables Pack", (150, 140, 120), "box", [
+            "Heavy-Duty 5-Ply Corrugated Cartons (Pack 50)", "Commercial Stretch Wrap Film Rolls (Box 4)", "High-Tack Industrial Packing Tape (Pack 36)",
+            "Standard Anti-Static Thermal Bubble Wrap", "Heavy Wooden Euro Pallet Base Slips (Pack 25)", "Reinforced Polypropylene Strapping Band Spool"
+        ])
     ]
 
     sku_counter = 1
-    for cat_name, cat_desc, uom, upb, tbpp, bname, vcolor, ishape in categories:
+    for cat_name, cat_desc, uom, upb, tbpp, bname, vcolor, ishape, item_names in categories:
         for i in range(1, 7): # 6 items per category = 30 total SKUs
             code = f"{slug}-{cat_name[:3].upper()}-{sku_counter:02d}"
-            name = f"{clean_p} {cat_name[:-1] if cat_name.endswith('s') else cat_name} Grade-{chr(64 + i)}"
+            name = item_names[i - 1]
             skus.append({
                 "sku_id": code,
                 "name": name,
@@ -1170,7 +1194,7 @@ def _synthesize_custom_blueprint(prompt: str, company_name: Optional[str] = None
 
     return {
         "key": "custom",
-        "name": f"{clean_p} Custom Industrial Hub",
+        "name": f"{clean_p} Operations Hub",
         "badge_icon": "fa-wand-magic-sparkles",
         "theme_color": "#f59e0b",
         "company_example": comp,

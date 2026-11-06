@@ -5335,12 +5335,14 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                     // Update live activity feed in Col 3
                     renderLiveFeedData(data.feed);
 
-                    // Update camera counts in hero & health
-                    if (data.camera_count) {
+                    // Update camera counts in hero & health with real online feedback
+                    if (data.total_cameras !== undefined || data.camera_count !== undefined) {
+                        const total = data.total_cameras !== undefined ? data.total_cameras : (data.camera_count || 0);
+                        const online = data.cameras_online !== undefined ? data.cameras_online : (data.active_cameras || 0);
                         const heroCam = document.getElementById('heroCameraCount');
-                        if (heroCam) heroCam.textContent = `${data.camera_count} / ${data.camera_count}`;
+                        if (heroCam) heroCam.textContent = `${online} / ${total}`;
                         const healthCam = document.getElementById('stat-cameras-online-health');
-                        if (healthCam) healthCam.textContent = `${data.camera_count} / ${data.camera_count}`;
+                        if (healthCam) healthCam.textContent = `${online} / ${total}`;
                     }
                 }
             } catch(e) {
@@ -5574,10 +5576,11 @@ window.setMatrix = function(cols) {
 window.updateCameraJunctionStats = function(cameras) {
     if (!cameras) cameras = [];
     const total = cameras.length;
-    const online = cameras.filter(c => c.is_online !== false).length;
+    // Accurate real-time online status: must have an active status AND reachable live stream/FPS
+    const online = cameras.filter(c => c.status === 'Online' && (c.is_live || c.fps > 0 || (c.url && c.url.trim() !== ''))).length;
     const offline = total - online;
 
-    let avgLat = 14.2;
+    let avgLat = 0.0;
     const lats = cameras.map(c => c.inference_latency_ms).filter(n => typeof n === 'number' && n > 0);
     if (lats.length > 0) {
         avgLat = (lats.reduce((a, b) => a + b, 0) / lats.length);
@@ -5593,8 +5596,8 @@ window.updateCameraJunctionStats = function(cameras) {
     if (statTotal) statTotal.textContent = total;
     if (statOnline) statOnline.textContent = online;
     if (statOffline) statOffline.textContent = offline;
-    if (statLatency) statLatency.textContent = `${avgLat.toFixed(1)}ms`;
-    if (statFps) statFps.textContent = '60-100 FPS';
+    if (statLatency) statLatency.textContent = (total > 0 && online > 0) ? `${avgLat.toFixed(1)}ms` : '0.0ms';
+    if (statFps) statFps.textContent = (total > 0 && online > 0) ? '60-100 FPS' : '0 FPS';
 
     if (emptyState) {
         emptyState.style.display = total === 0 ? 'flex' : 'none';

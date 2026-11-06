@@ -179,37 +179,6 @@ def api_login():
         # Tenant / Session isolation: automatically switch active facility to user's assigned warehouse
         wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
         switched = db.set_active_warehouse(wh_code)
-        if switched:
-            try:
-                from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-                wh_name = switched.get('name') or ''
-                wh_city = switched.get('city') or 'Bengaluru'
-                wh_comp = switched.get('company_name') or user.get('company_name') or ''
-                wh_ind = switched.get('industry') or ''
-                det = auto_detect_company_industry(f"{wh_comp} {wh_name}", wh_ind)
-                bp_key = det.get('detected_key', 'custom')
-                res = apply_industry_blueprint(
-                    blueprint_key=bp_key,
-                    warehouse_code=wh_code,
-                    custom_company_name=wh_comp or wh_name,
-                    custom_prompt=f"{wh_comp} {wh_ind}"
-                )
-                if res.get('success'):
-                    switched = db.create_or_update_warehouse(
-                        code=wh_code,
-                        name=wh_name,
-                        city=wh_city,
-                        operating_mode=switched.get('operating_mode', 'DEDICATED'),
-                        industry=wh_ind or res.get('blueprint_name', 'General'),
-                        company_name=wh_comp
-                    )
-                    db.set_active_warehouse(wh_code)
-                    try:
-                        get_vision_runtime_manager().refresh_cameras()
-                    except Exception:
-                        pass
-            except Exception as e_sync:
-                logger.warning(f"Login warehouse blueprint sync notice: {e_sync}")
         user_clean = {
             "username": user.get("username"),
             "company_name": user.get("company_name", "WARLOG Intelligence Systems"),
@@ -7296,29 +7265,43 @@ def get_live_telemetry_endpoint():
         
         total_gp = len(gate_passes)
         total_del = len(deliveries)
-        active_cams = len(cameras)
+        total_cams = len(cameras)
+        
+        # Real-time physical active cameras check (no fake 4 fallback)
+        online_cams = 0
+        try:
+            from vision_runtime_service import get_vision_runtime_manager
+            mgr = get_vision_runtime_manager()
+            for c in cameras:
+                cid = c.get('camera_id')
+                ac = active_cameras.get(cid)
+                sess = mgr.get_session(cid) if mgr else None
+                if (ac and getattr(ac, 'is_running', False) and getattr(ac, 'raw_frame', None) is not None) or (sess and getattr(sess, 'is_connected', False)):
+                    online_cams += 1
+        except Exception:
+            online_cams = 0
         
         if time_range == '7d':
             labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
             base_m = max(1, total_gp + total_del)
-            base_v = max(1, active_cams * 2)
+            base_v = online_cams * 2
             movement_data = [base_m * 12, base_m * 18, base_m * 15, base_m * 24, base_m * 30, base_m * 22, base_m * 26]
             vision_data = [base_v * 8, base_v * 12, base_v * 10, base_v * 18, base_v * 22, base_v * 16, base_v * 19]
-            y_max = max(max(movement_data), max(vision_data)) + 50
+            y_max = max(max(movement_data), max(vision_data) if vision_data else 10) + 50
         elif time_range == '30d':
             labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
             base_m = max(1, total_gp + total_del)
-            base_v = max(1, active_cams * 2)
+            base_v = online_cams * 2
             movement_data = [base_m * 95, base_m * 120, base_m * 110, base_m * 145]
             vision_data = [base_v * 60, base_v * 82, base_v * 74, base_v * 98]
-            y_max = max(max(movement_data), max(vision_data)) + 100
+            y_max = max(max(movement_data), max(vision_data) if vision_data else 10) + 100
         else: # 24h default
             labels = ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', 'Now']
             base_m = max(1, total_gp + total_del)
-            base_v = max(1, active_cams)
+            base_v = online_cams
             movement_data = [base_m * 2, base_m * 3, base_m * 5, base_m * 9, base_m * 12, base_m * 8, base_m * 10]
             vision_data = [base_v * 1, base_v * 2, base_v * 4, base_v * 7, base_v * 9, base_v * 6, base_v * 8]
-            y_max = max(max(movement_data), max(vision_data)) + 20
+            y_max = max(max(movement_data), max(vision_data) if vision_data else 10) + 20
 
         feed = []
         for gp in gate_passes[:4]:
@@ -7351,7 +7334,7 @@ def get_live_telemetry_endpoint():
                 "badge_class": "icon-badge-emerald",
                 "icon": "fas fa-shield-check",
                 "title": "Autonomous Vision Engine Active",
-                "meta": "All monitoring zones operational"
+                "meta": "Ready for camera stream ingest" if total_cams == 0 else "All configured cameras monitored"
             })
 
         return jsonify({
@@ -7362,8 +7345,11 @@ def get_live_telemetry_endpoint():
             "vision_detections": vision_data,
             "y_max": y_max,
             "feed": feed,
-            "camera_count": active_cams or 4,
-            "system_health": "98.7%"
+            "camera_count": total_cams,
+            "total_cameras": total_cams,
+            "active_cameras": online_cams,
+            "cameras_online": online_cams,
+            "system_health": "100.0%" if total_cams == 0 else f"{round((online_cams / total_cams) * 100, 1)}%"
         })
     except Exception as e:
         logger.exception("Error in live telemetry endpoint")
