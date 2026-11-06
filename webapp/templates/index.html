@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <title>W.A.R.L.O.G | Skantha Technology Solution</title>
+    <title>Skantha WMS | Intelligent Warehouse Operations</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script>
@@ -16,12 +16,12 @@
         {% endif %}
         (function() {
             try {
-                var savedTheme = localStorage.getItem('warlog_theme');
-                if (savedTheme === 'dark') {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                } else {
+                var savedTheme = localStorage.getItem('skantha_theme') || localStorage.getItem('warlog_theme') || 'dark';
+                if (savedTheme === 'light') {
                     document.documentElement.removeAttribute('data-theme');
-                    localStorage.setItem('warlog_theme', 'light');
+                    document.documentElement.setAttribute('data-theme', 'light');
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'dark');
                 }
             } catch(e) {}
         })();
@@ -937,16 +937,18 @@
             <button id="mobileNavToggle" class="mobile-nav-toggle-btn" onclick="toggleMobileSidebar()" title="Toggle Navigation Menu" aria-label="Toggle Navigation Menu">
                 <i class="fas fa-bars"></i>
             </button>
-            <div class="topbar-warlog-brand" onclick="switchTab('dashboard')" title="Go to Dashboard">
-                <img src="/static/warlog_w.png" class="topbar-warlog-logo" alt="WARLOG Logo">
-                <span class="metallic-text topbar-warlog-title">W.A.R.L.O.G.</span>
+            <div class="topbar-app-brand" onclick="switchTab('dashboard')" title="Skantha WMS Dashboard">
+                <div class="brand-shield-icon"><i class="fas fa-cubes-stacked"></i></div>
+                <div class="brand-text-block">
+                    <span class="brand-title">SKANTHA <span class="brand-accent">WMS</span></span>
+                </div>
             </div>
             <span class="topbar-breadcrumb-slash">/</span>
             <!-- Contextual Facility Switcher Capsule -->
             <div class="topbar-facility-selector-wrap" id="topbarFacilityWrap">
                 <div class="topbar-facility-selector" id="facilitySelectorPill" title="Active Warehouse Location">
                     <i class="fas fa-location-dot"></i>
-                    <span id="activeFacilityNameDisplay">Main Facility</span>
+                    <span id="activeFacilityNameDisplay">{{ current_user.active_warehouse if current_user and current_user.active_warehouse else "Main Facility (Bengaluru)" }}</span>
                     <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="display: none;">
                     </select>
                 </div>
@@ -980,31 +982,11 @@
             </div>
 
             <!-- Unified User & Organization Profile Dropdown -->
-                        <!-- Modern Theme Switcher Popover (Light, Dark, Ocean, Amber) -->
-            <div class="topbar-theme-container" id="topbarThemeContainer">
-                <button type="button" class="topbar-theme-btn" id="topbarThemeToggleBtn" onclick="toggleThemeDropdown(event)" title="Choose Theme">
-                    <i class="fas fa-sun-bright theme-icon-sun"></i>
-                    <i class="fas fa-moon theme-icon-moon"></i>
-                </button>
-                <div class="theme-dropdown-popover" id="themeDropdownPopover" style="display:none;">
-                    <button type="button" class="theme-option-btn active" data-theme="light" onclick="setAppTheme('light')">
-                        <i class="fas fa-sun theme-opt-icon icon-light"></i>
-                        <span>Light</span>
-                    </button>
-                    <button type="button" class="theme-option-btn" data-theme="dark" onclick="setAppTheme('dark')">
-                        <i class="fas fa-moon theme-opt-icon icon-dark"></i>
-                        <span>Dark</span>
-                    </button>
-                    <button type="button" class="theme-option-btn" data-theme="ocean" onclick="setAppTheme('ocean')">
-                        <i class="fas fa-water theme-opt-icon icon-ocean"></i>
-                        <span>Ocean</span>
-                    </button>
-                    <button type="button" class="theme-option-btn" data-theme="amber" onclick="setAppTheme('amber')">
-                        <i class="fas fa-fire theme-opt-icon icon-amber"></i>
-                        <span>Amber</span>
-                    </button>
-                </div>
-            </div>
+                        <!-- Sleek Global Theme Toggle (Dark / Light) -->
+            <button type="button" class="topbar-theme-toggle-btn" id="topbarThemeToggleBtn" onclick="toggleGlobalTheme()" title="Toggle Dark/Light Theme">
+                <i class="fas fa-moon theme-icon-moon"></i>
+                <i class="fas fa-sun theme-icon-sun"></i>
+            </button>
 
             <div class="topbar-profile-container" id="topbarProfileContainer">
                 <button type="button" class="topbar-profile-btn" id="topbarProfileBtn" onclick="toggleUserDropdown(event)" aria-haspopup="true" aria-expanded="false" title="User Profile & Settings">
@@ -1176,12 +1158,9 @@
                     </button>
                 </div>
             </div>
-                    <!-- Bottom Left High-Tech Robotic Arm Promo Card -->
-            <div class="sidebar-robot-arm-container">
-                <div class="robot-arm-card">
-                    <img src="/static/robot_arm_card.png" class="robot-card-img" alt="Smarter Warehouse">
-                </div>
-                <div class="robot-version-tag">v1.0.0 &bull; Skantha Technology</div>
+                    <div class="sidebar-footer-brand">
+                <span class="sidebar-version-pill"><i class="fas fa-shield-halved"></i> S-WMS Intelligence</span>
+                <span class="sidebar-sub-brand">v1.2.0 &bull; Skantha Technology</span>
             </div>
         </aside>
 
@@ -1189,33 +1168,51 @@
         
         <!-- DASHBOARD VIEW -->
         <div id="dashboard-view" class="view-section active">
-            <!-- 1. Cinematic Panoramic Welcome Hero Banner -->
-            <div class="warlog-hero-banner" style="background-image: url('/static/warehouse_panorama_clean.png');">
+            <!-- 1. Cinematic Intelligence Welcome Hero Banner -->
+            <div class="swms-hero-banner" style="background-image: url('/static/warehouse_panorama_clean.png');">
                 <div class="hero-banner-inner">
                     <div class="hero-text-col">
-                        <span class="hero-tag">WELCOME BACK,</span>
-                        <h1 class="hero-title"><span id="heroUserNameDisplay">Hendry</span><span class="hero-title-slash">/</span></h1>
-                        <p class="hero-desc">Your warehouse is operating at <strong class="text-highlight-cyan">peak efficiency</strong>.</p>
-                        <div class="hero-status-pill">
-                            <span class="status-live-pulse"></span>
-                            <span>All Systems Online</span>
+                        <div class="hero-kicker-row">
+                            <span class="hero-kicker">INTELLIGENT LOGISTICS MATRIX</span>
+                            <div class="hero-status-pill">
+                                <span class="status-live-pulse"></span>
+                                <span>Vision Matrix Online</span>
+                            </div>
+                        </div>
+                        <h1 class="hero-title">Welcome back, <span id="heroUserNameDisplay">{{ current_user.username | capitalize if current_user and current_user.username else 'Admin' }}</span><span class="hero-title-slash">/</span></h1>
+                        <p class="hero-desc">Your warehouse operations and edge vision tracking are operating at <strong class="text-highlight-cyan">peak efficiency</strong>.</p>
+                    </div>
+                    <div class="hero-telemetry-col">
+                        <div class="hero-stat-pill">
+                            <i class="fas fa-video text-sky"></i>
+                            <div>
+                                <strong id="heroCameraCount">4 / 4</strong>
+                                <span>Cameras Online</span>
+                            </div>
+                        </div>
+                        <div class="hero-stat-pill">
+                            <i class="fas fa-bolt text-emerald"></i>
+                            <div>
+                                <strong>60 FPS</strong>
+                                <span>YOLO Real-time</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 2. The 4 Glass KPI Metric Cards with Ambient Wave Sparklines -->
-            <div class="warlog-kpi-grid">
+            <!-- 2. The 4 Glass KPI Metric Cards with Vector Icons -->
+            <div class="swms-kpi-grid">
                 <!-- Card 1: Expected POs -->
-                <div class="warlog-kpi-card kpi-blue">
+                <div class="swms-kpi-card kpi-blue">
                     <div class="kpi-card-content">
-                        <div class="kpi-icon-box">
-                            <img src="/static/kpi_icon_po.png" onerror="this.onerror=null; this.src='/static/kpi_icon_po.png';" alt="Expected POs">
+                        <div class="kpi-icon-box box-blue">
+                            <i class="fas fa-file-invoice"></i>
                         </div>
                         <div class="kpi-info">
                             <span class="kpi-label">Expected POs</span>
                             <div class="kpi-value" id="stat-expected">0</div>
-                            <span class="kpi-trend trend-positive"><i class="fas fa-arrow-up"></i> +0%</span>
+                            <span class="kpi-trend trend-positive"><i class="fas fa-arrow-up"></i> Active Manifests</span>
                         </div>
                     </div>
                     <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
@@ -1224,15 +1221,15 @@
                 </div>
 
                 <!-- Card 2: Trucks Arrived -->
-                <div class="warlog-kpi-card kpi-cyan">
+                <div class="swms-kpi-card kpi-cyan">
                     <div class="kpi-card-content">
-                        <div class="kpi-icon-box">
-                            <img src="/static/kpi_icon_truck.png" onerror="this.onerror=null; this.src='/static/kpi_icon_truck.png';" alt="Trucks Arrived">
+                        <div class="kpi-icon-box box-cyan">
+                            <i class="fas fa-truck-moving"></i>
                         </div>
                         <div class="kpi-info">
                             <span class="kpi-label">Trucks Arrived</span>
                             <div class="kpi-value" id="stat-arrived">0</div>
-                            <span class="kpi-trend trend-positive"><i class="fas fa-arrow-up"></i> +0%</span>
+                            <span class="kpi-trend trend-positive"><i class="fas fa-arrow-up"></i> Gate Checked-In</span>
                         </div>
                     </div>
                     <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
@@ -1241,15 +1238,15 @@
                 </div>
 
                 <!-- Card 3: Pending at Gate -->
-                <div class="warlog-kpi-card kpi-purple">
+                <div class="swms-kpi-card kpi-purple">
                     <div class="kpi-card-content">
-                        <div class="kpi-icon-box">
-                            <img src="/static/kpi_icon_gate.png" onerror="this.onerror=null; this.src='/static/kpi_icon_gate.png';" alt="Pending at Gate">
+                        <div class="kpi-icon-box box-purple">
+                            <i class="fas fa-traffic-light"></i>
                         </div>
                         <div class="kpi-info">
                             <span class="kpi-label">Pending at Gate</span>
                             <div class="kpi-value" id="stat-pending">0</div>
-                            <span class="kpi-trend trend-neutral"><i class="fas fa-arrow-right"></i> 0%</span>
+                            <span class="kpi-trend trend-neutral"><i class="fas fa-clock"></i> Awaiting Bay</span>
                         </div>
                     </div>
                     <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
@@ -1258,15 +1255,15 @@
                 </div>
 
                 <!-- Card 4: Active at Docks -->
-                <div class="warlog-kpi-card kpi-amber">
+                <div class="swms-kpi-card kpi-amber">
                     <div class="kpi-card-content">
-                        <div class="kpi-icon-box">
-                            <img src="/static/kpi_icon_dock.png" onerror="this.onerror=null; this.src='/static/kpi_icon_dock.png';" alt="Active at Docks">
+                        <div class="kpi-icon-box box-amber">
+                            <i class="fas fa-dolly"></i>
                         </div>
                         <div class="kpi-info">
                             <span class="kpi-label">Active at Docks</span>
                             <div class="kpi-value" id="stat-dock">0</div>
-                            <span class="kpi-trend trend-neutral"><i class="fas fa-arrow-right"></i> 0%</span>
+                            <span class="kpi-trend trend-neutral"><i class="fas fa-boxes-packing"></i> Unloading Flow</span>
                         </div>
                     </div>
                     <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
@@ -1275,14 +1272,14 @@
                 </div>
             </div>
 
-            <!-- 3. The 3-Column Intelligence Row -->
-            <div class="warlog-intel-grid">
-                <!-- Col 1 (approx 52%): Perception & Tracking Telemetry Area Chart -->
-                <div class="warlog-card intel-chart-card">
-                    <div class="warlog-card-header">
+            <!-- 3. The 3-Column Intelligence Row (No Overflow) -->
+            <div class="swms-intel-grid">
+                <!-- Col 1: Telemetry Area Chart -->
+                <div class="swms-card intel-chart-card">
+                    <div class="swms-card-header">
                         <div class="card-header-title">
-                            <i class="fas fa-chart-column text-accent-blue"></i>
-                            <h3>W.A.R.L.O.G. Perception &amp; Tracking Telemetry</h3>
+                            <i class="fas fa-chart-line text-sky"></i>
+                            <h3>Vision Perception &amp; Movement Telemetry</h3>
                         </div>
                         <div class="card-header-actions">
                             <select class="telemetry-time-select" id="telemetryTimeRange" onchange="updateTelemetryChart()">
@@ -1294,16 +1291,16 @@
                     </div>
                     <div class="chart-legend-bar">
                         <span class="legend-item"><span class="legend-dot dot-blue"></span> Movement Events</span>
-                        <span class="legend-item"><span class="legend-dot dot-purple"></span> AI Detections</span>
+                        <span class="legend-item"><span class="legend-dot dot-purple"></span> AI Vision Detections</span>
                     </div>
                     <div class="chart-canvas-container">
                         <canvas id="warlogTelemetryCanvas"></canvas>
                     </div>
                 </div>
 
-                <!-- Col 2 (approx 23%): System Health Donut Gauge -->
-                <div class="warlog-card intel-health-card">
-                    <div class="warlog-card-header">
+                <!-- Col 2: System Health Donut Gauge -->
+                <div class="swms-card intel-health-card">
+                    <div class="swms-card-header">
                         <div class="card-header-title">
                             <i class="fas fa-heart-pulse text-sky"></i>
                             <h3>System Health</h3>
@@ -1330,94 +1327,97 @@
                         <div class="health-item">
                             <i class="fas fa-circle-check text-emerald"></i>
                             <span class="health-item-name">Models Deployed</span>
-                            <span class="health-item-val">YOLO11</span>
+                            <span class="health-item-val">YOLO11 Realtime</span>
                         </div>
                         <div class="health-item">
                             <i class="fas fa-circle-check text-emerald"></i>
-                            <span class="health-item-name">Data Flow</span>
+                            <span class="health-item-name">Data Pipeline</span>
                             <span class="health-item-val text-emerald">Active</span>
                         </div>
                     </div>
-                    <!-- Ambient wave glow at bottom of health card -->
-                    <div class="health-bottom-glow"></div>
                 </div>
 
-                <!-- Col 3 (approx 25%): Live Activity Feed with Snapshots -->
-                <div class="warlog-card intel-feed-card">
-                    <div class="warlog-card-header">
+                <!-- Col 3: Live Operations Feed -->
+                <div class="swms-card intel-feed-card">
+                    <div class="swms-card-header">
                         <div class="card-header-title">
-                            <i class="fas fa-bolt text-cyan"></i>
-                            <h3>Live Activity Feed</h3>
+                            <i class="fas fa-bolt text-amber"></i>
+                            <h3>Live Operations Feed</h3>
                         </div>
-                        <a href="javascript:void(0)" onclick="switchTab('gate-passes')" class="card-link-action">View All &rarr;</a>
+                        <span class="feed-live-indicator"><span class="pulse-emerald"></span> LIVE</span>
                     </div>
-                    <div class="activity-feed-timeline" id="warlogLiveActivityFeed">
-                        <div class="activity-feed-row">
-                            <div class="timeline-dot dot-blue"></div>
-                            <div class="activity-text-stack">
-                                <span class="activity-meta">12:17 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-blue">AI Detection</strong></span>
-                                <span class="activity-desc">Forklift detected at Dock 2</span>
+                    <div class="activity-timeline-list" id="swmsActivityFeed">
+                        <div class="timeline-row">
+                            <div class="timeline-icon-badge icon-badge-cyan">
+                                <i class="fas fa-truck-moving"></i>
                             </div>
-                            <img src="/static/feed_thumb_forklift.png" class="activity-thumb-img" alt="Forklift">
-                        </div>
-
-                        <div class="activity-feed-row">
-                            <div class="timeline-dot dot-cyan"></div>
-                            <div class="activity-text-stack">
-                                <span class="activity-meta">12:15 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-cyan">Inbound</strong></span>
-                                <span class="activity-desc">Truck #IN-104 arrived</span>
+                            <div class="timeline-content">
+                                <div class="timeline-title">Truck <strong>KA-04-E-8891</strong> Arrived</div>
+                                <div class="timeline-meta"><span>Gate 1</span> &bull; <span>Just now</span></div>
                             </div>
-                            <img src="/static/feed_thumb_truck.png" class="activity-thumb-img" alt="Truck">
                         </div>
-
-                        <div class="activity-feed-row">
-                            <div class="timeline-dot dot-purple"></div>
-                            <div class="activity-text-stack">
-                                <span class="activity-meta">12:10 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-purple">Movement</strong></span>
-                                <span class="activity-desc">Pallet moved to Zone B</span>
+                        <div class="timeline-row">
+                            <div class="timeline-icon-badge icon-badge-purple">
+                                <i class="fas fa-eye"></i>
                             </div>
-                            <img src="/static/feed_thumb_pallet.png" class="activity-thumb-img" alt="Pallet">
+                            <div class="timeline-content">
+                                <div class="timeline-title">AI Vision: Pallet Unloading</div>
+                                <div class="timeline-meta"><span>Dock 2 &bull; 4 mins ago</span></div>
+                            </div>
                         </div>
-
-                        <div class="activity-feed-row">
-                            <div class="timeline-dot dot-green"></div>
-                            <div class="activity-text-stack">
-                                <span class="activity-meta">12:08 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-green">System</strong></span>
-                                <span class="activity-desc">All systems running smoothly</span>
+                        <div class="timeline-row">
+                            <div class="timeline-icon-badge icon-badge-blue">
+                                <i class="fas fa-dolly"></i>
+                            </div>
+                            <div class="timeline-content">
+                                <div class="timeline-title">Forklift Assigned to Bay 3</div>
+                                <div class="timeline-meta"><span>Internal Transit &bull; 12 mins ago</span></div>
+                            </div>
+                        </div>
+                        <div class="timeline-row">
+                            <div class="timeline-icon-badge icon-badge-emerald">
+                                <i class="fas fa-shield-check"></i>
+                            </div>
+                            <div class="timeline-content">
+                                <div class="timeline-title">Consignment PO #8839 Cleared</div>
+                                <div class="timeline-meta"><span>Verified &bull; 25 mins ago</span></div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 4. Unified Inbound Operations Stream Table -->
-            <div class="warlog-card unified-stream-card" style="margin-top: 1.5rem;">
-                <div class="warlog-card-header" style="flex-wrap:wrap; gap:10px;">
+            <!-- 4. Operational Inbound Stream Table (100% Operational) -->
+            <div class="glass-panel" style="margin-top: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
                     <div>
-                        <h3 style="font-size:1.05rem; color:var(--primary-navy); margin:0;">Unified Inbound Operations Stream (WMS + Vision)</h3>
-                        <p style="color:var(--text-muted); font-size:0.82rem; margin:3px 0 0 0;">Correlating Expected Deliveries, Gate Passes, Assigned Docks, Cameras, and Observed Items.</p>
+                        <h2 style="margin: 0; font-size: 1.25rem;">Real-Time Inbound Operations</h2>
+                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">Live manifest tracking, gate passes, and dock staging.</p>
                     </div>
-                    <button class="btn-primary" onclick="triggerE2EScenario()" style="background:linear-gradient(135deg, #0284c7, #6366f1); box-shadow:0 4px 14px rgba(2,132,199,0.3); font-size:0.78rem; padding:7px 14px;">
-                        <i class="fas fa-play" style="font-size:0.7rem; margin-right:4px;"></i> Run Integration Scenario
-                    </button>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <span class="badge sent" style="font-size:0.75rem;"><i class="fas fa-circle" style="font-size:0.5rem; color:#10b981; margin-right:4px;"></i> Core Stream Active</span>
+                    </div>
                 </div>
-                <div style="overflow-x:auto;">
-                    <table style="width:100%; border-collapse:collapse;">
+                <div class="table-container">
+                    <table>
                         <thead>
                             <tr>
-                                <th>Delivery PO</th>
-                                <th>Gate Pass &amp; Vehicle</th>
-                                <th>Vendor</th>
-                                <th>Assigned Dock</th>
-                                <th>Vision Zone</th>
-                                <th>Monitoring Cameras</th>
-                                <th>Observed Items</th>
-                                <th>Status</th>
-                                <th>Unified Actions</th>
+                                <th>PO Number</th>
+                                <th>Activity Type</th>
+                                <th>Driver / Carrier</th>
+                                <th>License Plate</th>
+                                <th>Cargo Load</th>
+                                <th>Bay / Dock</th>
+                                <th>Gate Status</th>
+                                <th>Verification</th>
                             </tr>
                         </thead>
                         <tbody id="unifiedInboundStreamBody">
-                            <tr><td colspan="9" style="text-align:center; padding:1.5rem; color:var(--text-muted);">Loading unified operational stream...</td></tr>
+                            <tr>
+                                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                                    <i class="fas fa-spinner fa-spin"></i> Polling live inbound operations stream...
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1478,13 +1478,7 @@
                             <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
                         </div>
                     </form>
-                            <!-- Bottom Left High-Tech Robotic Arm Promo Card -->
-            <div class="sidebar-robot-arm-container">
-                <div class="robot-arm-card">
-                    <img src="/static/robot_arm_card.png" class="robot-card-img" alt="Smarter Warehouse">
-                </div>
-                <div class="robot-version-tag">v1.0.0 &bull; Skantha Technology</div>
-            </div>
+                            
         </aside>
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
@@ -1773,13 +1767,7 @@
 
                         <button type="submit" id="connectCameraBtn" class="btn-primary" style="width:100%; margin-top:8px;">Connect Camera</button>
                     </form>
-                            <!-- Bottom Left High-Tech Robotic Arm Promo Card -->
-            <div class="sidebar-robot-arm-container">
-                <div class="robot-arm-card">
-                    <img src="/static/robot_arm_card.png" class="robot-card-img" alt="Smarter Warehouse">
-                </div>
-                <div class="robot-version-tag">v1.0.0 &bull; Skantha Technology</div>
-            </div>
+                            
         </aside>
             </div>
         </div>

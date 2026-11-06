@@ -5106,53 +5106,61 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
         // =====================================================================
         // W.A.R.L.O.G. THEME CONTROLLER & TELEMETRY CHART INITIALIZATION
         // =====================================================================
-        function toggleThemeDropdown(e) {
-            if (e) {
-                e.stopPropagation();
-                e.preventDefault();
-            }
-            const pop = document.getElementById('themeDropdownPopover');
-            if (!pop) return;
-            pop.style.display = pop.style.display === 'grid' ? 'none' : 'grid';
-        }
-        window.toggleThemeDropdown = toggleThemeDropdown;
+        // SKANTHA WMS INTELLIGENCE: GLOBAL THEME & TELEMETRY CHART
+        // =====================================================================
 
-        function setAppTheme(themeName) {
-            document.documentElement.setAttribute('data-theme', themeName);
-            document.body.setAttribute('data-theme', themeName);
-            localStorage.setItem('warlog_theme', themeName);
-            
-            document.querySelectorAll('.theme-option-btn').forEach(btn => {
-                if (btn.getAttribute('data-theme') === themeName) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
+        function toggleGlobalTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            setGlobalTheme(newTheme);
+        }
+        window.toggleGlobalTheme = toggleGlobalTheme;
+
+        function setGlobalTheme(theme) {
+            if (theme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+                document.body.setAttribute('data-theme', 'light');
+                try {
+                    localStorage.setItem('skantha_theme', 'light');
+                    localStorage.setItem('warlog_theme', 'light');
+                } catch(e) {}
+            } else {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                document.body.setAttribute('data-theme', 'dark');
+                try {
+                    localStorage.setItem('skantha_theme', 'dark');
+                    localStorage.setItem('warlog_theme', 'dark');
+                } catch(e) {}
+            }
+            if (typeof updateThemeButtons === 'function') {
+                updateThemeButtons(theme);
+            }
+            updateTelemetryChartTheme(theme);
+        }
+        window.setGlobalTheme = setGlobalTheme;
+        window.setTheme = setGlobalTheme;
+
+        // Sync User Greeting dynamically
+        function syncUserGreeting() {
+            try {
+                const userEl = document.getElementById('heroUserNameDisplay');
+                if (userEl && window.currentUser && window.currentUser.username) {
+                    const uname = window.currentUser.username;
+                    userEl.textContent = uname.charAt(0).toUpperCase() + uname.slice(1);
                 }
-            });
-
-            const pop = document.getElementById('themeDropdownPopover');
-            if (pop) pop.style.display = 'none';
-
-            if (window.telemetryChartInstance) {
-                updateTelemetryChartTheme(themeName);
-            }
+            } catch(e) {}
         }
-        window.setAppTheme = setAppTheme;
 
-        // Close theme popover on outside click
-        document.addEventListener('click', function(e) {
-            const container = document.getElementById('topbarThemeContainer');
-            const pop = document.getElementById('themeDropdownPopover');
-            if (pop && container && !container.contains(e.target)) {
-                pop.style.display = 'none';
+        // Initialize Theme from localStorage (Defaults to dark for high-tech aesthetic)
+        (function initTheme() {
+            const saved = localStorage.getItem('skantha_theme') || localStorage.getItem('warlog_theme') || 'dark';
+            if (saved === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+                document.body.setAttribute('data-theme', 'light');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                document.body.setAttribute('data-theme', 'dark');
             }
-        });
-
-        // Initialize Theme from localStorage
-        (function initSavedTheme() {
-            const saved = localStorage.getItem('warlog_theme') || 'light';
-            document.documentElement.setAttribute('data-theme', saved);
-            document.body.setAttribute('data-theme', saved);
         })();
 
         // Telemetry Dual-Spline Area Chart
@@ -5168,12 +5176,12 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             // Create gradients
             const chartCtx = ctx.getContext('2d');
             const blueGrad = chartCtx.createLinearGradient(0, 0, 0, 200);
-            blueGrad.addColorStop(0, 'rgba(2, 132, 199, 0.35)');
-            blueGrad.addColorStop(1, 'rgba(2, 132, 199, 0.02)');
+            blueGrad.addColorStop(0, isDark ? 'rgba(2, 132, 199, 0.35)' : 'rgba(2, 132, 199, 0.25)');
+            blueGrad.addColorStop(1, 'rgba(2, 132, 199, 0.01)');
 
             const purpleGrad = chartCtx.createLinearGradient(0, 0, 0, 200);
-            purpleGrad.addColorStop(0, 'rgba(139, 92, 246, 0.35)');
-            purpleGrad.addColorStop(1, 'rgba(139, 92, 246, 0.02)');
+            purpleGrad.addColorStop(0, isDark ? 'rgba(139, 92, 246, 0.35)' : 'rgba(139, 92, 246, 0.25)');
+            purpleGrad.addColorStop(1, 'rgba(139, 92, 246, 0.01)');
 
             const data = {
                 labels: ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', '12AM'],
@@ -5188,11 +5196,11 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                         pointBackgroundColor: '#0284c7',
                         pointBorderColor: '#ffffff',
                         pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 7
+                        pointRadius: 3,
+                        pointHoverRadius: 6
                     },
                     {
-                        label: 'AI Detections',
+                        label: 'AI Vision Detections',
                         data: [32, 45, 40, 68, 90, 72, 60],
                         borderColor: '#8b5cf6',
                         backgroundColor: purpleGrad,
@@ -5201,8 +5209,8 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                         pointBackgroundColor: '#8b5cf6',
                         pointBorderColor: '#ffffff',
                         pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 7
+                        pointRadius: 3,
+                        pointHoverRadius: 6
                     }
                 ]
             };
@@ -5213,10 +5221,18 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                            backgroundColor: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                            titleColor: isDark ? '#ffffff' : '#0f172a',
+                            bodyColor: isDark ? '#cbd5e1' : '#334155',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                            borderWidth: 1,
                             titleFont: { size: 12, weight: 'bold' },
                             bodyFont: { size: 11 },
                             padding: 10,
@@ -5243,18 +5259,24 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                 }
             };
 
+            if (window.telemetryChartInstance) {
+                window.telemetryChartInstance.destroy();
+            }
             window.telemetryChartInstance = new Chart(ctx, config);
         }
 
         function updateTelemetryChartTheme(themeName) {
             if (!window.telemetryChartInstance) return;
-            const isDark = themeName !== 'light';
+            const isDark = themeName === 'dark';
             const gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(148, 163, 184, 0.15)';
             const textColor = isDark ? '#94a3b8' : '#64748b';
 
             window.telemetryChartInstance.options.scales.x.ticks.color = textColor;
             window.telemetryChartInstance.options.scales.y.ticks.color = textColor;
             window.telemetryChartInstance.options.scales.y.grid.color = gridColor;
+            window.telemetryChartInstance.options.plugins.tooltip.backgroundColor = isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+            window.telemetryChartInstance.options.plugins.tooltip.titleColor = isDark ? '#ffffff' : '#0f172a';
+            window.telemetryChartInstance.options.plugins.tooltip.bodyColor = isDark ? '#cbd5e1' : '#334155';
             window.telemetryChartInstance.update();
         }
 
@@ -5263,12 +5285,12 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             const range = document.getElementById('telemetryTimeRange')?.value || '24h';
             if (range === '7d') {
                 window.telemetryChartInstance.data.labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                window.telemetryChartInstance.data.datasets[0].data = [240, 310, 280, 420, 510, 390, 440];
-                window.telemetryChartInstance.data.datasets[1].data = [150, 190, 175, 290, 340, 260, 310];
+                window.telemetryChartInstance.data.datasets[0].data = [240, 310, 280, 420, 510, 390, 460];
+                window.telemetryChartInstance.data.datasets[1].data = [150, 190, 175, 290, 380, 260, 310];
                 window.telemetryChartInstance.options.scales.y.max = 600;
             } else if (range === '30d') {
                 window.telemetryChartInstance.data.labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
-                window.telemetryChartInstance.data.datasets[0].data = [1820, 2150, 1980, 2490];
+                window.telemetryChartInstance.data.datasets[0].data = [1820, 2150, 1980, 2410];
                 window.telemetryChartInstance.data.datasets[1].data = [1120, 1420, 1310, 1690];
                 window.telemetryChartInstance.options.scales.y.max = 3000;
             } else {
@@ -5281,7 +5303,8 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
         }
         window.updateTelemetryChart = updateTelemetryChart;
 
-        // Auto initialize on DOM ready or switchTab('dashboard')
+        // Auto initialize on DOM ready
         document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(initWarlogTelemetryChart, 400);
+            syncUserGreeting();
+            setTimeout(initWarlogTelemetryChart, 350);
         });
