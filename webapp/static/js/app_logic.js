@@ -676,7 +676,9 @@
             const targetMobileBtn = document.querySelector(`.mobile-nav-item[data-tab="${tabId}"]`);
             if (targetMobileBtn) targetMobileBtn.classList.add('active');
 
-            if (tabId === 'deliveries') {
+            if (tabId === 'dashboard') {
+                if (typeof initWarlogTelemetryChart === 'function' && !window.telemetryChartInstance) initWarlogTelemetryChart();
+            } else if (tabId === 'deliveries') {
                 if (typeof fetchDeliveries === 'function') fetchDeliveries();
             } else if (tabId === 'gate-passes' || tabId === 'docks') {
                 if (typeof fetchGatePasses === 'function') fetchGatePasses();
@@ -5099,3 +5101,187 @@ window.addEventListener('resize', syncMobileDockDisplay);
 document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
 
 
+
+
+        // =====================================================================
+        // W.A.R.L.O.G. THEME CONTROLLER & TELEMETRY CHART INITIALIZATION
+        // =====================================================================
+        function toggleThemeDropdown(e) {
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+            const pop = document.getElementById('themeDropdownPopover');
+            if (!pop) return;
+            pop.style.display = pop.style.display === 'grid' ? 'none' : 'grid';
+        }
+        window.toggleThemeDropdown = toggleThemeDropdown;
+
+        function setAppTheme(themeName) {
+            document.documentElement.setAttribute('data-theme', themeName);
+            document.body.setAttribute('data-theme', themeName);
+            localStorage.setItem('warlog_theme', themeName);
+            
+            document.querySelectorAll('.theme-option-btn').forEach(btn => {
+                if (btn.getAttribute('data-theme') === themeName) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            const pop = document.getElementById('themeDropdownPopover');
+            if (pop) pop.style.display = 'none';
+
+            if (window.telemetryChartInstance) {
+                updateTelemetryChartTheme(themeName);
+            }
+        }
+        window.setAppTheme = setAppTheme;
+
+        // Close theme popover on outside click
+        document.addEventListener('click', function(e) {
+            const container = document.getElementById('topbarThemeContainer');
+            const pop = document.getElementById('themeDropdownPopover');
+            if (pop && container && !container.contains(e.target)) {
+                pop.style.display = 'none';
+            }
+        });
+
+        // Initialize Theme from localStorage
+        (function initSavedTheme() {
+            const saved = localStorage.getItem('warlog_theme') || 'light';
+            document.documentElement.setAttribute('data-theme', saved);
+            document.body.setAttribute('data-theme', saved);
+        })();
+
+        // Telemetry Dual-Spline Area Chart
+        window.telemetryChartInstance = null;
+        function initWarlogTelemetryChart() {
+            const ctx = document.getElementById('warlogTelemetryCanvas');
+            if (!ctx || typeof Chart === 'undefined') return;
+
+            const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(148, 163, 184, 0.15)';
+            const textColor = isDark ? '#94a3b8' : '#64748b';
+
+            // Create gradients
+            const chartCtx = ctx.getContext('2d');
+            const blueGrad = chartCtx.createLinearGradient(0, 0, 0, 200);
+            blueGrad.addColorStop(0, 'rgba(2, 132, 199, 0.35)');
+            blueGrad.addColorStop(1, 'rgba(2, 132, 199, 0.02)');
+
+            const purpleGrad = chartCtx.createLinearGradient(0, 0, 0, 200);
+            purpleGrad.addColorStop(0, 'rgba(139, 92, 246, 0.35)');
+            purpleGrad.addColorStop(1, 'rgba(139, 92, 246, 0.02)');
+
+            const data = {
+                labels: ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', '12AM'],
+                datasets: [
+                    {
+                        label: 'Movement Events',
+                        data: [55, 78, 62, 98, 128, 92, 105],
+                        borderColor: '#0284c7',
+                        backgroundColor: blueGrad,
+                        fill: true,
+                        tension: 0.42,
+                        pointBackgroundColor: '#0284c7',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 7
+                    },
+                    {
+                        label: 'AI Detections',
+                        data: [32, 45, 40, 68, 90, 72, 60],
+                        borderColor: '#8b5cf6',
+                        backgroundColor: purpleGrad,
+                        fill: true,
+                        tension: 0.42,
+                        pointBackgroundColor: '#8b5cf6',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 7
+                    }
+                ]
+            };
+
+            const config = {
+                type: 'line',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                            titleFont: { size: 12, weight: 'bold' },
+                            bodyFont: { size: 11 },
+                            padding: 10,
+                            cornerRadius: 8,
+                            boxPadding: 4
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: textColor, font: { size: 10, weight: '600' } }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            max: 160,
+                            grid: { color: gridColor },
+                            ticks: {
+                                stepSize: 50,
+                                color: textColor,
+                                font: { size: 10, weight: '600' }
+                            }
+                        }
+                    }
+                }
+            };
+
+            window.telemetryChartInstance = new Chart(ctx, config);
+        }
+
+        function updateTelemetryChartTheme(themeName) {
+            if (!window.telemetryChartInstance) return;
+            const isDark = themeName !== 'light';
+            const gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(148, 163, 184, 0.15)';
+            const textColor = isDark ? '#94a3b8' : '#64748b';
+
+            window.telemetryChartInstance.options.scales.x.ticks.color = textColor;
+            window.telemetryChartInstance.options.scales.y.ticks.color = textColor;
+            window.telemetryChartInstance.options.scales.y.grid.color = gridColor;
+            window.telemetryChartInstance.update();
+        }
+
+        function updateTelemetryChart() {
+            if (!window.telemetryChartInstance) return;
+            const range = document.getElementById('telemetryTimeRange')?.value || '24h';
+            if (range === '7d') {
+                window.telemetryChartInstance.data.labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                window.telemetryChartInstance.data.datasets[0].data = [240, 310, 280, 420, 510, 390, 440];
+                window.telemetryChartInstance.data.datasets[1].data = [150, 190, 175, 290, 340, 260, 310];
+                window.telemetryChartInstance.options.scales.y.max = 600;
+            } else if (range === '30d') {
+                window.telemetryChartInstance.data.labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+                window.telemetryChartInstance.data.datasets[0].data = [1820, 2150, 1980, 2490];
+                window.telemetryChartInstance.data.datasets[1].data = [1120, 1420, 1310, 1690];
+                window.telemetryChartInstance.options.scales.y.max = 3000;
+            } else {
+                window.telemetryChartInstance.data.labels = ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', '12AM'];
+                window.telemetryChartInstance.data.datasets[0].data = [55, 78, 62, 98, 128, 92, 105];
+                window.telemetryChartInstance.data.datasets[1].data = [32, 45, 40, 68, 90, 72, 60];
+                window.telemetryChartInstance.options.scales.y.max = 160;
+            }
+            window.telemetryChartInstance.update();
+        }
+        window.updateTelemetryChart = updateTelemetryChart;
+
+        // Auto initialize on DOM ready or switchTab('dashboard')
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(initWarlogTelemetryChart, 400);
+        });

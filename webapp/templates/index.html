@@ -187,6 +187,7 @@
             display: block !important;
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -979,6 +980,32 @@
             </div>
 
             <!-- Unified User & Organization Profile Dropdown -->
+                        <!-- Modern Theme Switcher Popover (Light, Dark, Ocean, Amber) -->
+            <div class="topbar-theme-container" id="topbarThemeContainer">
+                <button type="button" class="topbar-theme-btn" id="topbarThemeToggleBtn" onclick="toggleThemeDropdown(event)" title="Choose Theme">
+                    <i class="fas fa-sun-bright theme-icon-sun"></i>
+                    <i class="fas fa-moon theme-icon-moon"></i>
+                </button>
+                <div class="theme-dropdown-popover" id="themeDropdownPopover" style="display:none;">
+                    <button type="button" class="theme-option-btn active" data-theme="light" onclick="setAppTheme('light')">
+                        <i class="fas fa-sun theme-opt-icon icon-light"></i>
+                        <span>Light</span>
+                    </button>
+                    <button type="button" class="theme-option-btn" data-theme="dark" onclick="setAppTheme('dark')">
+                        <i class="fas fa-moon theme-opt-icon icon-dark"></i>
+                        <span>Dark</span>
+                    </button>
+                    <button type="button" class="theme-option-btn" data-theme="ocean" onclick="setAppTheme('ocean')">
+                        <i class="fas fa-water theme-opt-icon icon-ocean"></i>
+                        <span>Ocean</span>
+                    </button>
+                    <button type="button" class="theme-option-btn" data-theme="amber" onclick="setAppTheme('amber')">
+                        <i class="fas fa-fire theme-opt-icon icon-amber"></i>
+                        <span>Amber</span>
+                    </button>
+                </div>
+            </div>
+
             <div class="topbar-profile-container" id="topbarProfileContainer">
                 <button type="button" class="topbar-profile-btn" id="topbarProfileBtn" onclick="toggleUserDropdown(event)" aria-haspopup="true" aria-expanded="false" title="User Profile & Settings">
                     <div class="topbar-avatar-badge">
@@ -1149,85 +1176,233 @@
                     </button>
                 </div>
             </div>
+                    <!-- Bottom Left High-Tech Robotic Arm Promo Card -->
+            <div class="sidebar-robot-arm-container">
+                <div class="robot-arm-card">
+                    <img src="/static/robot_arm_card.png" class="robot-card-img" alt="Smarter Warehouse">
+                </div>
+                <div class="robot-version-tag">v1.0.0 &bull; Skantha Technology</div>
+            </div>
         </aside>
 
         <main class="container" style="display:none;" id="main-container">
         
         <!-- DASHBOARD VIEW -->
         <div id="dashboard-view" class="view-section active">
-            <!-- 1. Core WMS Metrics -->
-            <div class="glass-panel" style="margin-bottom: 1.5rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
-                    <div>
-                        <h2>Warehouse Inbound Operations</h2>
-                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">Authoritative WMS gate and consignment metrics.</p>
-                    </div>
-                    <span class="badge sent" style="font-size:0.75rem;">Core WMS Active</span>
-                </div>
-                <div class="metrics-grid">
-                    <div class="metric-card">
-                        <h3>Expected POs</h3>
-                        <div class="value" id="stat-expected">0</div>
-                    </div>
-                    <div class="metric-card">
-                        <h3>Trucks Arrived</h3>
-                        <div class="value" id="stat-arrived">0</div>
-                    </div>
-                    <div class="metric-card">
-                        <h3>Pending at Gate</h3>
-                        <div class="value" id="stat-pending">0</div>
-                    </div>
-                    <div class="metric-card">
-                        <h3>Active at Docks</h3>
-                        <div class="value" id="stat-dock">0</div>
+            <!-- 1. Cinematic Panoramic Welcome Hero Banner -->
+            <div class="warlog-hero-banner" style="background-image: url('/static/warehouse_panorama_clean.png');">
+                <div class="hero-banner-inner">
+                    <div class="hero-text-col">
+                        <span class="hero-tag">WELCOME BACK,</span>
+                        <h1 class="hero-title"><span id="heroUserNameDisplay">Hendry</span><span class="hero-title-slash">/</span></h1>
+                        <p class="hero-desc">Your warehouse is operating at <strong class="text-highlight-cyan">peak efficiency</strong>.</p>
+                        <div class="hero-status-pill">
+                            <span class="status-live-pulse"></span>
+                            <span>All Systems Online</span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 2. W.A.R.L.O.G. AI Perception & Tracking Telemetry -->
-            <div class="glass-panel" style="margin-bottom: 1.5rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
-                    <div>
-                        <h2 style="color:var(--accent-hover); display:flex; align-items:center; gap:8px;">
-                            <span>👁️ W.A.R.L.O.G. Perception &amp; Tracking Telemetry</span>
-                        </h2>
-                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">Real-time AI camera observation, movement events, and material traceability.</p>
+            <!-- 2. The 4 Glass KPI Metric Cards with Ambient Wave Sparklines -->
+            <div class="warlog-kpi-grid">
+                <!-- Card 1: Expected POs -->
+                <div class="warlog-kpi-card kpi-blue">
+                    <div class="kpi-card-content">
+                        <div class="kpi-icon-box">
+                            <img src="/static/kpi_icon_po.png" onerror="this.onerror=null; this.src='/static/kpi_icon_po.png';" alt="Expected POs">
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">Expected POs</span>
+                            <div class="kpi-value" id="stat-expected">0</div>
+                            <span class="kpi-trend trend-positive"><i class="fas fa-arrow-up"></i> +0%</span>
+                        </div>
                     </div>
-                    <span class="badge" style="font-size:0.75rem; background:rgba(139,92,246,0.15); color:#8b5cf6;">Part 14 Integrated</span>
+                    <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
+                        <path d="M0,28 C40,12 80,38 120,22 C160,8 185,28 200,16 L200,45 L0,45 Z" class="wave-path-blue"/>
+                    </svg>
                 </div>
-                <div class="metrics-grid">
-                    <div class="metric-card" style="border-left: 4px solid var(--accent);">
-                        <h3>Active AI Cameras</h3>
-                        <div class="value" id="stat-vision-cameras" style="color:var(--accent-hover);">0</div>
+
+                <!-- Card 2: Trucks Arrived -->
+                <div class="warlog-kpi-card kpi-cyan">
+                    <div class="kpi-card-content">
+                        <div class="kpi-icon-box">
+                            <img src="/static/kpi_icon_truck.png" onerror="this.onerror=null; this.src='/static/kpi_icon_truck.png';" alt="Trucks Arrived">
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">Trucks Arrived</span>
+                            <div class="kpi-value" id="stat-arrived">0</div>
+                            <span class="kpi-trend trend-positive"><i class="fas fa-arrow-up"></i> +0%</span>
+                        </div>
                     </div>
-                    <div class="metric-card" style="border-left: 4px solid #3b82f6;">
-                        <h3>Active Movement Events</h3>
-                        <div class="value" id="stat-vision-events" style="color:#3b82f6;">0</div>
+                    <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
+                        <path d="M0,32 C50,16 90,36 130,20 C170,10 190,22 200,18 L200,45 L0,45 Z" class="wave-path-cyan"/>
+                    </svg>
+                </div>
+
+                <!-- Card 3: Pending at Gate -->
+                <div class="warlog-kpi-card kpi-purple">
+                    <div class="kpi-card-content">
+                        <div class="kpi-icon-box">
+                            <img src="/static/kpi_icon_gate.png" onerror="this.onerror=null; this.src='/static/kpi_icon_gate.png';" alt="Pending at Gate">
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">Pending at Gate</span>
+                            <div class="kpi-value" id="stat-pending">0</div>
+                            <span class="kpi-trend trend-neutral"><i class="fas fa-arrow-right"></i> 0%</span>
+                        </div>
                     </div>
-                    <div class="metric-card" style="border-left: 4px solid #10b981;">
-                        <h3>Validated Materials</h3>
-                        <div class="value" id="stat-vision-validated-materials" style="color:#10b981;">0</div>
+                    <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
+                        <path d="M0,24 C45,30 95,14 140,26 C175,34 190,20 200,22 L200,45 L0,45 Z" class="wave-path-purple"/>
+                    </svg>
+                </div>
+
+                <!-- Card 4: Active at Docks -->
+                <div class="warlog-kpi-card kpi-amber">
+                    <div class="kpi-card-content">
+                        <div class="kpi-icon-box">
+                            <img src="/static/kpi_icon_dock.png" onerror="this.onerror=null; this.src='/static/kpi_icon_dock.png';" alt="Active at Docks">
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">Active at Docks</span>
+                            <div class="kpi-value" id="stat-dock">0</div>
+                            <span class="kpi-trend trend-neutral"><i class="fas fa-arrow-right"></i> 0%</span>
+                        </div>
                     </div>
-                    <div class="metric-card" style="border-left: 4px solid #8b5cf6;">
-                        <h3>Traceability Dossiers</h3>
-                        <div class="value" id="stat-vision-traceability" style="color:#8b5cf6;">0</div>
+                    <svg class="kpi-wave-svg" viewBox="0 0 200 45" preserveAspectRatio="none">
+                        <path d="M0,28 C40,32 80,18 125,24 C165,30 185,17 200,20 L200,45 L0,45 Z" class="wave-path-amber"/>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- 3. The 3-Column Intelligence Row -->
+            <div class="warlog-intel-grid">
+                <!-- Col 1 (approx 52%): Perception & Tracking Telemetry Area Chart -->
+                <div class="warlog-card intel-chart-card">
+                    <div class="warlog-card-header">
+                        <div class="card-header-title">
+                            <i class="fas fa-chart-column text-accent-blue"></i>
+                            <h3>W.A.R.L.O.G. Perception &amp; Tracking Telemetry</h3>
+                        </div>
+                        <div class="card-header-actions">
+                            <select class="telemetry-time-select" id="telemetryTimeRange" onchange="updateTelemetryChart()">
+                                <option value="24h">Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                                <option value="30d">Last 30 Days</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-legend-bar">
+                        <span class="legend-item"><span class="legend-dot dot-blue"></span> Movement Events</span>
+                        <span class="legend-item"><span class="legend-dot dot-purple"></span> AI Detections</span>
+                    </div>
+                    <div class="chart-canvas-container">
+                        <canvas id="warlogTelemetryCanvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Col 2 (approx 23%): System Health Donut Gauge -->
+                <div class="warlog-card intel-health-card">
+                    <div class="warlog-card-header">
+                        <div class="card-header-title">
+                            <i class="fas fa-heart-pulse text-sky"></i>
+                            <h3>System Health</h3>
+                        </div>
+                    </div>
+                    <div class="health-gauge-center">
+                        <div class="health-donut-wrapper">
+                            <svg class="donut-svg" viewBox="0 0 120 120">
+                                <circle class="donut-ring-bg" cx="60" cy="60" r="50"/>
+                                <circle class="donut-ring-val" cx="60" cy="60" r="50"/>
+                            </svg>
+                            <div class="donut-text-stack">
+                                <span class="donut-val-number">98.7%</span>
+                                <span class="donut-val-label">Operational</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="health-checklist-stack">
+                        <div class="health-item">
+                            <i class="fas fa-circle-check text-emerald"></i>
+                            <span class="health-item-name">Cameras Online</span>
+                            <span class="health-item-val" id="stat-cameras-online-health">4 / 4</span>
+                        </div>
+                        <div class="health-item">
+                            <i class="fas fa-circle-check text-emerald"></i>
+                            <span class="health-item-name">Models Deployed</span>
+                            <span class="health-item-val">YOLO11</span>
+                        </div>
+                        <div class="health-item">
+                            <i class="fas fa-circle-check text-emerald"></i>
+                            <span class="health-item-name">Data Flow</span>
+                            <span class="health-item-val text-emerald">Active</span>
+                        </div>
+                    </div>
+                    <!-- Ambient wave glow at bottom of health card -->
+                    <div class="health-bottom-glow"></div>
+                </div>
+
+                <!-- Col 3 (approx 25%): Live Activity Feed with Snapshots -->
+                <div class="warlog-card intel-feed-card">
+                    <div class="warlog-card-header">
+                        <div class="card-header-title">
+                            <i class="fas fa-bolt text-cyan"></i>
+                            <h3>Live Activity Feed</h3>
+                        </div>
+                        <a href="javascript:void(0)" onclick="switchTab('gate-passes')" class="card-link-action">View All &rarr;</a>
+                    </div>
+                    <div class="activity-feed-timeline" id="warlogLiveActivityFeed">
+                        <div class="activity-feed-row">
+                            <div class="timeline-dot dot-blue"></div>
+                            <div class="activity-text-stack">
+                                <span class="activity-meta">12:17 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-blue">AI Detection</strong></span>
+                                <span class="activity-desc">Forklift detected at Dock 2</span>
+                            </div>
+                            <img src="/static/feed_thumb_forklift.png" class="activity-thumb-img" alt="Forklift">
+                        </div>
+
+                        <div class="activity-feed-row">
+                            <div class="timeline-dot dot-cyan"></div>
+                            <div class="activity-text-stack">
+                                <span class="activity-meta">12:15 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-cyan">Inbound</strong></span>
+                                <span class="activity-desc">Truck #IN-104 arrived</span>
+                            </div>
+                            <img src="/static/feed_thumb_truck.png" class="activity-thumb-img" alt="Truck">
+                        </div>
+
+                        <div class="activity-feed-row">
+                            <div class="timeline-dot dot-purple"></div>
+                            <div class="activity-text-stack">
+                                <span class="activity-meta">12:10 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-purple">Movement</strong></span>
+                                <span class="activity-desc">Pallet moved to Zone B</span>
+                            </div>
+                            <img src="/static/feed_thumb_pallet.png" class="activity-thumb-img" alt="Pallet">
+                        </div>
+
+                        <div class="activity-feed-row">
+                            <div class="timeline-dot dot-green"></div>
+                            <div class="activity-text-stack">
+                                <span class="activity-meta">12:08 PM <span class="meta-sep">&bull;</span> <strong class="meta-tag tag-green">System</strong></span>
+                                <span class="activity-desc">All systems running smoothly</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 3. Unified Inbound Logistics & Vision Stream -->
-            <div class="glass-panel">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:10px;">
+            <!-- 4. Unified Inbound Operations Stream Table -->
+            <div class="warlog-card unified-stream-card" style="margin-top: 1.5rem;">
+                <div class="warlog-card-header" style="flex-wrap:wrap; gap:10px;">
                     <div>
-                        <h3>Unified Inbound Stream (WMS + Vision)</h3>
-                        <p style="color:var(--text-muted); font-size:0.85rem; margin:0.25rem 0 0 0;">Correlating Expected Deliveries, Gate Passes, Assigned Docks, Cameras, and Observed Items.</p>
+                        <h3 style="font-size:1.05rem; color:var(--primary-navy); margin:0;">Unified Inbound Operations Stream (WMS + Vision)</h3>
+                        <p style="color:var(--text-muted); font-size:0.82rem; margin:3px 0 0 0;">Correlating Expected Deliveries, Gate Passes, Assigned Docks, Cameras, and Observed Items.</p>
                     </div>
-                    <button class="btn-primary" onclick="triggerE2EScenario()" style="background:linear-gradient(135deg, #3b82f6, #8b5cf6); box-shadow:0 4px 12px rgba(59,130,246,0.25);">
-                        ▶ Run E2E Integration Scenario (Part 14)
+                    <button class="btn-primary" onclick="triggerE2EScenario()" style="background:linear-gradient(135deg, #0284c7, #6366f1); box-shadow:0 4px 14px rgba(2,132,199,0.3); font-size:0.78rem; padding:7px 14px;">
+                        <i class="fas fa-play" style="font-size:0.7rem; margin-right:4px;"></i> Run Integration Scenario
                     </button>
                 </div>
                 <div style="overflow-x:auto;">
-                    <table style="width:100%;">
+                    <table style="width:100%; border-collapse:collapse;">
                         <thead>
                             <tr>
                                 <th>Delivery PO</th>
@@ -1249,147 +1424,6 @@
             </div>
         </div>
 
-        <!-- INBOUND AUTOMATION VIEW -->
-        <div id="inbound-flow-view" class="view-section">
-            <div class="glass-panel" style="margin-bottom:20px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
-                    <div>
-                        <h2 style="margin:0; font-size:1.5rem; color:var(--primary-navy);">Inbound Operations Automation</h2>
-                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.9rem;">AI-driven truck arrivals, automatic dock assignments, computer vision piece verification, and automated inventory sync.</p>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                        <span class="badge sent" style="font-size:0.8rem; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
-                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--success);"></span>
-                            Matrix Agent Active
-                        </span>
-                        <button type="button" class="btn-primary" style="background:#10b981; color:#000; font-weight:bold; font-size:0.8rem; padding:8px 14px; border:none; cursor:pointer;" onclick="simulateInboundArrival()">
-                            ⚡ Simulate Inbound Arrival &amp; Unload
-                        </button>
-                        <button type="button" class="btn-secondary" style="font-size:0.8rem; padding:8px 12px;" onclick="refreshInboundAutomation()">
-                            🔄 Refresh
-                        </button>
-                    </div>
-                </div>
-
-                <!-- KPI Metric Counters -->
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:15px; margin-top:20px;">
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Active Dock Trucks</div>
-                        <div id="inbound-kpi-trucks" style="font-size:1.6rem; font-weight:700; color:var(--accent-hover); margin-top:4px;">0</div>
-                    </div>
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">AI Verified Items</div>
-                        <div id="inbound-kpi-pieces" style="font-size:1.6rem; font-weight:700; color:#10b981; margin-top:4px;">0</div>
-                    </div>
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Target Bins Allocated</div>
-                        <div id="inbound-kpi-bins" style="font-size:1.6rem; font-weight:700; color:#8b5cf6; margin-top:4px;">0</div>
-                    </div>
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Autonomous Sync</div>
-                        <div id="inbound-kpi-sync" style="font-size:1.1rem; font-weight:700; color:#34d399; margin-top:8px;">REAL-TIME ON</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Active Dock Unloading & Reconciliation Grid -->
-            <div class="glass-panel" style="margin-bottom:20px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
-                    <div>
-                        <h3 style="margin:0; font-size:1.2rem; color:var(--primary-navy);">Active Dock Unloading &amp; Material Reconciliation</h3>
-                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.82rem;">Real-time computer vision verification of materials unloading at physical docks vs PO manifest.</p>
-                    </div>
-                    <span id="inbound-dock-count-badge" class="badge" style="background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:0.75rem; padding:4px 8px;">0 Active Bays</span>
-                </div>
-                <div id="inbound-docks-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap:20px;">
-                    <!-- Dynamically populated dock cards -->
-                    <div style="grid-column: 1 / -1; text-align:center; padding: 40px 20px; color:var(--text-muted);">
-                        <i class="fas fa-truck-loading" style="font-size:2.5rem; color:var(--border-light); margin-bottom:12px; display:block;"></i>
-                        <p style="margin:0 0 10px 0; font-size:1rem; font-weight:600;">No trucks are currently docked for unloading.</p>
-                        <p style="margin:0 0 18px 0; font-size:0.85rem;">Assign a truck to a dock in Gate Management, or click below to simulate an inbound arrival.</p>
-                        <button type="button" class="btn-primary" style="font-size:0.85rem; padding:8px 16px;" onclick="simulateInboundArrival()">
-                            ⚡ Simulate Inbound Arrival &amp; Dock Unload
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-                <!-- Live Bundle & Object Counting by Camera -->
-                <div class="glass-panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
-                        <h3 style="margin:0; font-size:1.1rem;">Spatial Matrix Camera Streams</h3>
-                        <span style="font-size:0.75rem; color:var(--text-muted);">Live YOLO Clusters</span>
-                    </div>
-                    <div style="display:flex; flex-direction:column; gap:15px;" id="live-bundle-counts">
-                        <p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">Waiting for YOLO bounding box matrix clusters on unloading docks...</p>
-                    </div>
-                </div>
-
-                <!-- AI Operations Log -->
-                <div class="glass-panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
-                        <h3 style="margin:0; font-size:1.1rem;">Autonomous Operations Log</h3>
-                        <div style="display:flex; gap:6px;">
-                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="clearInboundLog()">Clear</button>
-                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="addManualLogEntry('Operator manual event check requested')">Test Event</button>
-                        </div>
-                    </div>
-                    <div id="ai-operations-log" style="height:420px; overflow-y:auto; background:#111; padding:15px; border-radius:6px; font-family:monospace; color:#10b981; font-size:0.82rem; display:flex; flex-direction:column; gap:8px;">
-                        <div><span style="color:#6366f1;">[STARTUP]</span> Matrix Engine Initialized. Listening for YOLO streams on Gates and Docks...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- OUTBOUND VIEW -->
-        <div id="outbound-view" class="view-section">
-            <div style="display:flex; gap:2rem;">
-                <aside class="glass-panel" style="flex:0 0 400px; height:fit-content;">
-                    <h3>Create Outbound Order</h3>
-                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Generate a new picking requirement.</p>
-                    <form id="formAddOutbound" onsubmit="event.preventDefault(); submitAddOutbound();">
-                        <div style="margin-bottom:1rem;">
-                            <label>Customer Name *</label>
-                            <input type="text" id="outboundCustomer" required style="width:100%; margin-bottom:0;">
-                        </div>
-                        <div style="margin-bottom:1rem;">
-                            <label>Destination *</label>
-                            <input type="text" id="outboundDest" required style="width:100%; margin-bottom:0;">
-                        </div>
-                        <div style="margin-bottom:1rem;">
-                            <label>Select SKU *</label>
-                            <select id="outboundSku" required style="width:100%; margin-bottom:0;"></select>
-                        </div>
-                        <div style="margin-bottom:1.5rem;">
-                            <label>Quantity to Pick *</label>
-                            <input type="number" id="outboundQty" required min="1" style="width:100%; margin-bottom:0;">
-                        </div>
-                        <button type="submit" class="btn-primary" style="width:100%;">Create Order</button>
-                    </form>
-                </aside>
-                <div class="glass-panel" style="flex:1;">
-                    <h3>Active Outbound Orders</h3>
-                    <div class="table-container">
-                        <table style="width:100%; margin-top:1rem;">
-                            <thead>
-                                <tr>
-                                    <th>Order ID</th>
-                                    <th>Customer</th>
-                                    <th>Destination</th>
-                                    <th>Items</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="outboundTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- PRE-REGISTRATION (EXPECTED DELIVERIES) VIEW -->
         <div id="deliveries-view" class="view-section">
             <div style="display: flex; gap: 2rem;">
                 <aside class="glass-panel" style="flex: 0 0 450px; height: fit-content;">
@@ -1444,7 +1478,14 @@
                             <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
                         </div>
                     </form>
-                </aside>
+                            <!-- Bottom Left High-Tech Robotic Arm Promo Card -->
+            <div class="sidebar-robot-arm-container">
+                <div class="robot-arm-card">
+                    <img src="/static/robot_arm_card.png" class="robot-card-img" alt="Smarter Warehouse">
+                </div>
+                <div class="robot-version-tag">v1.0.0 &bull; Skantha Technology</div>
+            </div>
+        </aside>
                 <div class="glass-panel" style="flex:1;">
                     <h2>Expected Deliveries Log</h2>
                     <div class="table-container">
@@ -1732,7 +1773,14 @@
 
                         <button type="submit" id="connectCameraBtn" class="btn-primary" style="width:100%; margin-top:8px;">Connect Camera</button>
                     </form>
-                </aside>
+                            <!-- Bottom Left High-Tech Robotic Arm Promo Card -->
+            <div class="sidebar-robot-arm-container">
+                <div class="robot-arm-card">
+                    <img src="/static/robot_arm_card.png" class="robot-card-img" alt="Smarter Warehouse">
+                </div>
+                <div class="robot-version-tag">v1.0.0 &bull; Skantha Technology</div>
+            </div>
+        </aside>
             </div>
         </div>
 
