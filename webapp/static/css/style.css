@@ -2574,8 +2574,8 @@ body {
 }
 [data-theme="dark"] .topbar-theme-toggle-btn .theme-icon-moon { display: none; }
 [data-theme="dark"] .topbar-theme-toggle-btn .theme-icon-sun { display: inline-block; color: #fbbf24; }
-:root:not([data-theme="dark"]) .topbar-theme-toggle-btn .theme-icon-sun { display: none; }
-:root:not([data-theme="dark"]) .topbar-theme-toggle-btn .theme-icon-moon { display: inline-block; }
+[data-theme="light"] .topbar-theme-toggle-btn .theme-icon-sun { display: none; }
+[data-theme="light"] .topbar-theme-toggle-btn .theme-icon-moon { display: inline-block; }
 
 /* Sidebar Footer */
 .sidebar-footer-brand {
@@ -3159,109 +3159,88 @@ body {
 }
 
 /* --- LIGHT THEME OVERRIDES --- */
-[data-theme="light"] .dashboard-topbar,
-:root:not([data-theme="dark"]) .dashboard-topbar {
+[data-theme="light"] .dashboard-topbar {
     background: #ffffff !important;
     border-bottom: 1px solid #e2e8f0 !important;
     color: #0f172a !important;
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05) !important;
 }
-[data-theme="light"] .topbar-warlog-title,
-:root:not([data-theme="dark"]) .topbar-warlog-title {
+[data-theme="light"] .topbar-warlog-title {
     color: #0f172a !important;
     text-shadow: none !important;
 }
-[data-theme="light"] .topbar-breadcrumb-slash,
-:root:not([data-theme="dark"]) .topbar-breadcrumb-slash {
+[data-theme="light"] .topbar-breadcrumb-slash {
     color: #94a3b8 !important;
     opacity: 0.8 !important;
 }
-[data-theme="light"] .topbar-facility-selector,
-:root:not([data-theme="dark"]) .topbar-facility-selector {
+[data-theme="light"] .topbar-facility-selector {
     background: #f1f5f9 !important;
     border: 1px solid #cbd5e1 !important;
     color: #0284c7 !important;
 }
-[data-theme="light"] #activeFacilityNameDisplay,
-:root:not([data-theme="dark"]) #activeFacilityNameDisplay {
+[data-theme="light"] #activeFacilityNameDisplay {
     color: #0f172a !important;
 }
-[data-theme="light"] .topbar-search-box input,
-:root:not([data-theme="dark"]) .topbar-search-box input {
+[data-theme="light"] .topbar-search-box input {
     background: #f1f5f9 !important;
     border: 1px solid #cbd5e1 !important;
     color: #0f172a !important;
 }
-[data-theme="light"] .topbar-search-box .search-icon,
-:root:not([data-theme="dark"]) .topbar-search-box .search-icon {
+[data-theme="light"] .topbar-search-box .search-icon {
     color: #64748b !important;
 }
-[data-theme="light"] .search-kbd-shortcut,
-:root:not([data-theme="dark"]) .search-kbd-shortcut {
+[data-theme="light"] .search-kbd-shortcut {
     background: #e2e8f0 !important;
     color: #64748b !important;
     border: 1px solid #cbd5e1 !important;
 }
-[data-theme="light"] .topbar-user-name,
-:root:not([data-theme="dark"]) .topbar-user-name {
+[data-theme="light"] .topbar-user-name {
     color: #0f172a !important;
 }
-[data-theme="light"] .topbar-company-name,
-:root:not([data-theme="dark"]) .topbar-company-name {
+[data-theme="light"] .topbar-company-name {
     color: #64748b !important;
 }
-[data-theme="light"] #main-header,
-:root:not([data-theme="dark"]) #main-header {
+[data-theme="light"] #main-header {
     background: #ffffff !important;
     border-right: 1px solid #e2e8f0 !important;
 }
-[data-theme="light"] body,
-:root:not([data-theme="dark"]) body {
+[data-theme="light"] body {
     background: #f8fafc !important;
     color: #0f172a !important;
 }
-[data-theme="light"] .nav-item,
-:root:not([data-theme="dark"]) .nav-item {
+[data-theme="light"] .nav-item {
     color: #475569 !important;
 }
-[data-theme="light"] .nav-item:hover,
-:root:not([data-theme="dark"]) .nav-item:hover {
+[data-theme="light"] .nav-item:hover {
     background: #f1f5f9 !important;
     color: #0284c7 !important;
 }
-[data-theme="light"] .nav-item.active,
-:root:not([data-theme="dark"]) .nav-item.active {
+[data-theme="light"] .nav-item.active {
     background: #eff6ff !important;
     color: #0284c7 !important;
     border-left-color: #0284c7 !important;
 }
-[data-theme="light"] .swms-kpi-card,
-:root:not([data-theme="dark"]) .swms-kpi-card {
+[data-theme="light"] .swms-kpi-card {
     background: #ffffff !important;
     border: 1px solid #e2e8f0 !important;
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04) !important;
 }
-[data-theme="light"] .swms-card,
-:root:not([data-theme="dark"]) .swms-card {
+[data-theme="light"] .swms-card {
     background: #ffffff !important;
     border: 1px solid #e2e8f0 !important;
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04) !important;
 }
-[data-theme="light"] .timeline-row,
-:root:not([data-theme="dark"]) .timeline-row {
+[data-theme="light"] .timeline-row {
     background: #f8fafc !important;
     border: 1px solid #e2e8f0 !important;
 }
-[data-theme="light"] .timeline-title,
-:root:not([data-theme="dark"]) .timeline-title {
+[data-theme="light"] .timeline-title {
     color: #0f172a !important;
 }
-[data-theme="light"] .health-item,
-:root:not([data-theme="dark"]) .health-item {
+[data-theme="light"] .health-item {
     background: #f8fafc !important;
 }
-[data-theme="light"] .health-item-val,
-:root:not([data-theme="dark"]) .health-item-val {
+[data-theme="light"] .health-item-val {
     color: #0f172a !important;
 }
 
@@ -6738,4 +6717,46 @@ body {
 [data-theme="dark"] #palletCountingWorkbench {
     background-color: #0b0f19 !important;
     color: #f8fafc !important;
+}
+
+
+/* Guaranteed Base Layout Color Enforcement Across All 4 Themes */
+[data-theme="ocean"] html,
+[data-theme="ocean"] body,
+[data-theme="ocean"] .app-layout,
+[data-theme="ocean"] #app-layout,
+[data-theme="ocean"] #main-container,
+[data-theme="ocean"] .container {
+    background-color: #040d1a !important;
+    color: #f0fdfa !important;
+}
+
+[data-theme="amber"] html,
+[data-theme="amber"] body,
+[data-theme="amber"] .app-layout,
+[data-theme="amber"] #app-layout,
+[data-theme="amber"] #main-container,
+[data-theme="amber"] .container {
+    background-color: #120e0a !important;
+    color: #fef3c7 !important;
+}
+
+[data-theme="dark"] html,
+[data-theme="dark"] body,
+[data-theme="dark"] .app-layout,
+[data-theme="dark"] #app-layout,
+[data-theme="dark"] #main-container,
+[data-theme="dark"] .container {
+    background-color: #0a0e1a !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="light"] html,
+[data-theme="light"] body,
+[data-theme="light"] .app-layout,
+[data-theme="light"] #app-layout,
+[data-theme="light"] #main-container,
+[data-theme="light"] .container {
+    background-color: #f8fafc !important;
+    color: #0f172a !important;
 }
