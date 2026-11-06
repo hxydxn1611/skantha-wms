@@ -460,6 +460,25 @@
    3. SMARTPHONE SPECIFIC RULES (<= 768px)
    -------------------------------------------------------------------------- */
 @media screen and (max-width: 768px) {
+
+    /* Refined Mobile Topbar for Option 1 */
+    .topbar-breadcrumb-slash {
+        display: none !important;
+    }
+    .topbar-profile-summary {
+        display: none !important;
+    }
+    .topbar-profile-btn {
+        padding: 3px !important;
+        border-radius: 50% !important;
+    }
+    .topbar-profile-caret {
+        display: none !important;
+    }
+    .topbar-facility-selector {
+        max-width: 110px !important;
+    }
+
     /* Prevent iOS Safari auto-zoom on input focus */
     input[type="text"],
     input[type="password"],

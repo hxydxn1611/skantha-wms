@@ -1466,3 +1466,409 @@
         @import url('responsive.css');
 
     
+
+/* ==========================================================================
+   OPTION 1: MODERN DECONGESTED ENTERPRISE TOPBAR (SAAS / LINEAR STYLE)
+   ========================================================================== */
+.dashboard-topbar {
+    width: 100% !important;
+    height: 56px !important;
+    background: rgba(15, 23, 42, 0.88) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 0 1.25rem !important;
+    box-sizing: border-box !important;
+    flex-shrink: 0 !important;
+    z-index: 100 !important;
+    transition: background 0.25s ease, border-color 0.25s ease !important;
+    gap: 1rem !important;
+}
+
+.topbar-left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.65rem !important;
+    flex-shrink: 0 !important;
+}
+
+.topbar-warlog-brand {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    cursor: pointer !important;
+}
+
+.topbar-warlog-logo {
+    height: 28px !important;
+    width: auto !important;
+    max-width: 32px !important;
+    object-fit: contain !important;
+    filter: drop-shadow(0 2px 6px rgba(56, 189, 248, 0.35)) !important;
+    display: block !important;
+}
+
+.topbar-warlog-title {
+    font-family: 'Orbitron', sans-serif !important;
+    font-size: 1.15rem !important;
+    font-weight: 900 !important;
+    letter-spacing: 2px !important;
+    line-height: 1 !important;
+    color: var(--primary-navy) !important;
+}
+
+.topbar-breadcrumb-slash {
+    color: rgba(255, 255, 255, 0.25) !important;
+    font-size: 1.1rem !important;
+    font-weight: 300 !important;
+    margin: 0 2px !important;
+    user-select: none !important;
+}
+
+.topbar-facility-selector-wrap {
+    display: inline-flex !important;
+    align-items: center !important;
+}
+
+.topbar-facility-selector {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 4px 10px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 20px !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    color: #e2e8f0 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    white-space: nowrap !important;
+}
+
+.topbar-facility-selector:hover {
+    border-color: rgba(56, 189, 248, 0.45) !important;
+    background: rgba(56, 189, 248, 0.1) !important;
+    color: #38bdf8 !important;
+}
+
+.topbar-facility-selector i {
+    color: #38bdf8 !important;
+    font-size: 0.75rem !important;
+}
+
+#topbarFacilitySelect {
+    background: transparent !important;
+    color: #38bdf8 !important;
+    border: none !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    outline: none !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+}
+
+#topbarFacilitySelect option {
+    background: #0f172a !important;
+    color: #f8fafc !important;
+}
+
+/* Center Search Pill */
+.topbar-center {
+    flex: 1 !important;
+    max-width: 400px !important;
+    display: flex !important;
+    justify-content: center !important;
+}
+
+.topbar-search-box {
+    position: relative !important;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+.topbar-search-box .search-icon {
+    position: absolute !important;
+    left: 12px !important;
+    font-size: 0.8rem !important;
+    color: var(--text-muted) !important;
+    pointer-events: none !important;
+    transition: color 0.2s ease !important;
+}
+
+.topbar-search-box input {
+    width: 100% !important;
+    height: 35px !important;
+    padding: 0 4rem 0 2.2rem !important;
+    background: rgba(30, 41, 59, 0.5) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 20px !important;
+    font-size: 0.8rem !important;
+    font-family: inherit !important;
+    color: #f8fafc !important;
+    box-sizing: border-box !important;
+    transition: all 0.2s ease !important;
+    outline: none !important;
+}
+
+.topbar-search-box input:focus {
+    background: rgba(30, 41, 59, 0.85) !important;
+    border-color: rgba(56, 189, 248, 0.6) !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15) !important;
+}
+
+.search-kbd-shortcut {
+    position: absolute !important;
+    right: 10px !important;
+    font-size: 0.65rem !important;
+    font-weight: 700 !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #94a3b8 !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    pointer-events: none !important;
+}
+
+/* Right Section */
+.topbar-right {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.65rem !important;
+    flex-shrink: 0 !important;
+}
+
+.topbar-telemetry-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 4px 10px !important;
+    background: rgba(16, 185, 129, 0.08) !important;
+    border: 1px solid rgba(16, 185, 129, 0.25) !important;
+    border-radius: 20px !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    color: #34d399 !important;
+}
+
+.topbar-telemetry-badge .telemetry-live-dot {
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 50% !important;
+    background: #10b981 !important;
+    box-shadow: 0 0 8px #10b981 !important;
+}
+
+/* Unified User Profile Dropdown Button & Container */
+.topbar-profile-container {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+}
+
+.topbar-profile-btn {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 3px 10px 3px 4px !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 24px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    outline: none !important;
+}
+
+.topbar-profile-btn:hover,
+.topbar-profile-btn[aria-expanded="true"] {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(56, 189, 248, 0.4) !important;
+}
+
+.topbar-avatar-badge {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 50% !important;
+    background: linear-gradient(135deg, #0284c7, #6366f1) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: #ffffff !important;
+    font-size: 0.75rem !important;
+    box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35) !important;
+    flex-shrink: 0 !important;
+}
+
+.topbar-profile-summary {
+    display: flex !important;
+    flex-direction: column !important;
+    text-align: left !important;
+    line-height: 1.15 !important;
+    max-width: 140px !important;
+    overflow: hidden !important;
+}
+
+.topbar-user-name {
+    font-size: 0.76rem !important;
+    font-weight: 700 !important;
+    color: #f8fafc !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.topbar-company-name {
+    font-size: 0.65rem !important;
+    color: #94a3b8 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.topbar-profile-caret {
+    font-size: 0.65rem !important;
+    color: #64748b !important;
+    transition: transform 0.2s ease !important;
+}
+
+.topbar-profile-btn[aria-expanded="true"] .topbar-profile-caret {
+    transform: rotate(180deg) !important;
+    color: #38bdf8 !important;
+}
+
+/* User Dropdown Menu Card */
+.topbar-user-dropdown {
+    position: absolute !important;
+    top: calc(100% + 8px) !important;
+    right: 0 !important;
+    width: 250px !important;
+    background: rgba(15, 23, 42, 0.96) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
+    padding: 8px !important;
+    z-index: 2000 !important;
+    animation: fadeInDropdown 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes fadeInDropdown {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown-header {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    padding: 8px 10px 10px 10px !important;
+}
+
+.dropdown-user-avatar {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 50% !important;
+    background: linear-gradient(135deg, #0284c7, #6366f1) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: #ffffff !important;
+    font-size: 0.95rem !important;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4) !important;
+    flex-shrink: 0 !important;
+}
+
+.dropdown-user-info {
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+}
+
+.dropdown-user-title {
+    font-size: 0.82rem !important;
+    font-weight: 700 !important;
+    color: #f8fafc !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.dropdown-user-org {
+    font-size: 0.7rem !important;
+    color: #38bdf8 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.dropdown-divider {
+    height: 1px !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    margin: 6px 0 !important;
+}
+
+.dropdown-section-title {
+    font-size: 0.62rem !important;
+    font-weight: 700 !important;
+    color: #64748b !important;
+    letter-spacing: 0.6px !important;
+    padding: 4px 10px 2px 10px !important;
+}
+
+.dropdown-item {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 8px 10px !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 8px !important;
+    color: #cbd5e1 !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    text-align: left !important;
+    transition: all 0.15s ease !important;
+}
+
+.dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: #f8fafc !important;
+}
+
+.dropdown-logout-item {
+    color: #f87171 !important;
+}
+
+.dropdown-logout-item:hover {
+    background: rgba(239, 68, 68, 0.15) !important;
+    color: #ef4444 !important;
+}
+
+.dropdown-telemetry-row {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 6px 10px !important;
+    font-size: 0.72rem !important;
+}
+
+.dropdown-telemetry-label {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    color: #94a3b8 !important;
+}
+
+.dropdown-telemetry-val {
+    color: #34d399 !important;
+    font-weight: 700 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+}

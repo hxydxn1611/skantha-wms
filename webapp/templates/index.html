@@ -930,16 +930,24 @@
     </div>
 
     <!-- DASHBOARD TOPBAR -->
+        <!-- DASHBOARD TOPBAR (MODERN ENTERPRISE SAAS STYLE) -->
     <header id="top-bar" class="dashboard-topbar" style="display:flex;">
         <div class="topbar-left">
             <button id="mobileNavToggle" class="mobile-nav-toggle-btn" onclick="toggleMobileSidebar()" title="Toggle Navigation Menu" aria-label="Toggle Navigation Menu">
                 <i class="fas fa-bars"></i>
             </button>
-            <div class="topbar-warlog-brand">
+            <div class="topbar-warlog-brand" onclick="switchTab('dashboard')" title="Go to Dashboard">
                 <img src="/static/warlog_w.png" class="topbar-warlog-logo" alt="WARLOG Logo">
-                <div class="topbar-product-text">
-                    <span class="metallic-text topbar-warlog-title">W.A.R.L.O.G.</span>
-                    <span class="topbar-warlog-subtitle">Warehouse Analytics, Recognition &amp; Logistics OS</span>
+                <span class="metallic-text topbar-warlog-title">W.A.R.L.O.G.</span>
+            </div>
+            <span class="topbar-breadcrumb-slash">/</span>
+            <!-- Contextual Facility Switcher Capsule -->
+            <div class="topbar-facility-selector-wrap" id="topbarFacilityWrap">
+                <div class="topbar-facility-selector" id="facilitySelectorPill" title="Active Warehouse Location">
+                    <i class="fas fa-location-dot"></i>
+                    <span id="activeFacilityNameDisplay">Main Facility</span>
+                    <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="display: none;">
+                    </select>
                 </div>
             </div>
         </div>
@@ -953,40 +961,72 @@
         </div>
 
         <div class="topbar-right">
-            <!-- Mobile Quick Search Trigger -->
+            <!-- Mobile Quick Search Trigger (Visible on Mobile) -->
             <button type="button" id="btnMobileSearchToggle" class="topbar-mobile-search-btn mobile-only" onclick="toggleMobileSearchDrawer()" title="Quick Search" aria-label="Search">
                 <i class="fas fa-search"></i>
             </button>
+
+            <!-- Real-time Human Error Violations Pill -->
             <button id="navViolationsBtn" class="topbar-violations-btn" onclick="toggleViolationsDrawer()" title="View Real-Time Human Error Violations" style="display:none;">
                 <i class="fas fa-triangle-exclamation"></i>
                 <span id="navViolationsCount">0</span> Violations
             </button>
-            <div class="topbar-telemetry-badge">
+
+            <!-- Subtle Live AI Telemetry Pill -->
+            <div class="topbar-telemetry-badge" title="AI Vision Processing Matrix: Active">
                 <span class="telemetry-live-dot"></span>
-                <span class="telemetry-label">AI Matrix:</span>
-                <span class="telemetry-val">Active (60 FPS)</span>
+                <span class="telemetry-val">60 FPS</span>
             </div>
-            <div class="topbar-facility-selector-wrap" style="display: flex; align-items: center; gap: 8px;">
-                <div class="topbar-facility-selector" id="facilitySelectorPill" title="Active Warehouse Location">
-                    <i class="fas fa-location-dot"></i>
-                    <span id="activeFacilityNameDisplay">Main Facility</span>
-                    <select id="topbarFacilitySelect" onchange="switchActiveFacility(this.value)" style="display: none;">
-                    </select>
-                </div>
-                <button type="button" class="btn-add-facility-trigger" onclick="openAddFacilityModal()" title="Add New Warehouse Location for this Company">
-                    <i class="fas fa-plus" style="font-size:0.7rem;"></i>
-                    <span>Add Location</span>
+
+            <!-- Unified User & Organization Profile Dropdown -->
+            <div class="topbar-profile-container" id="topbarProfileContainer">
+                <button type="button" class="topbar-profile-btn" id="topbarProfileBtn" onclick="toggleUserDropdown(event)" aria-haspopup="true" aria-expanded="false" title="User Profile & Settings">
+                    <div class="topbar-avatar-badge">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <div class="topbar-profile-summary">
+                        <span id="topbarUsername" class="topbar-user-name">Administrator</span>
+                        <span id="topbarCompanyName" class="topbar-company-name">Skantha Industrial Solutions</span>
+                    </div>
+                    <i class="fas fa-chevron-down topbar-profile-caret"></i>
                 </button>
-            </div>
-            <div class="topbar-company-identity">
-                <div style="text-align: right; display: flex; flex-direction: column;">
-                    <span id="topbarCompanyName">Skantha Industrial Solutions</span>
-                    <span id="topbarUsername">Administrator</span>
+
+                <!-- Modern Frosted Glass Dropdown Menu -->
+                <div class="topbar-user-dropdown" id="topbarUserDropdownMenu" style="display:none;">
+                    <div class="dropdown-header">
+                        <div class="dropdown-user-avatar">
+                            <i class="fas fa-user-shield"></i>
+                        </div>
+                        <div class="dropdown-user-info">
+                            <strong class="dropdown-user-title" id="dropdownDisplayUser">Administrator</strong>
+                            <span class="dropdown-user-org" id="dropdownDisplayOrg">Skantha Industrial Solutions</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    
+                    <div class="dropdown-section-title">FACILITY MANAGEMENT</div>
+                    <button type="button" class="dropdown-item" onclick="openAddFacilityModal(); closeUserDropdown();">
+                        <i class="fas fa-plus-circle" style="color:#10b981;"></i>
+                        <span>Add Warehouse Facility</span>
+                    </button>
+                    <button type="button" class="dropdown-item" onclick="switchTab('warehouses'); closeUserDropdown();">
+                        <i class="fas fa-warehouse" style="color:#38bdf8;"></i>
+                        <span>Manage All Facilities</span>
+                    </button>
+
+                    <div class="dropdown-divider"></div>
+                    <div class="dropdown-section-title">SYSTEM STATUS</div>
+                    <div class="dropdown-telemetry-row">
+                        <span class="dropdown-telemetry-label"><span class="telemetry-live-dot"></span> AI Matrix</span>
+                        <span class="dropdown-telemetry-val">Active (60 FPS)</span>
+                    </div>
+
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item dropdown-logout-item btn-logout" onclick="doLogout(); closeUserDropdown();">
+                        <i class="fas fa-arrow-right-from-bracket"></i>
+                        <span>Sign Out</span>
+                    </button>
                 </div>
-                <button type="button" onclick="doLogout()" class="btn-logout" title="Sign Out">
-                    <i class="fas fa-arrow-right-from-bracket"></i>
-                    <span>Sign Out</span>
-                </button>
             </div>
         </div>
     </header>

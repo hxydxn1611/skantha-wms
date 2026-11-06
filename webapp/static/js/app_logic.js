@@ -96,12 +96,53 @@
         }
         window.toggleAuthMode = toggleAuthMode;
 
+        // Topbar User Profile & Settings Dropdown Handlers
+        function toggleUserDropdown(e) {
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+            const menu = document.getElementById('topbarUserDropdownMenu');
+            const btn = document.getElementById('topbarProfileBtn');
+            if (!menu) return;
+            const isShowing = menu.style.display === 'block';
+            if (isShowing) {
+                menu.style.display = 'none';
+                if (btn) btn.setAttribute('aria-expanded', 'false');
+            } else {
+                menu.style.display = 'block';
+                if (btn) btn.setAttribute('aria-expanded', 'true');
+            }
+        }
+        window.toggleUserDropdown = toggleUserDropdown;
+
+        function closeUserDropdown() {
+            const menu = document.getElementById('topbarUserDropdownMenu');
+            const btn = document.getElementById('topbarProfileBtn');
+            if (menu) menu.style.display = 'none';
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+        window.closeUserDropdown = closeUserDropdown;
+
+        // Close user dropdown when clicking anywhere outside
+        document.addEventListener('click', function(e) {
+            const container = document.getElementById('topbarProfileContainer');
+            if (container && !container.contains(e.target)) {
+                closeUserDropdown();
+            }
+        });
+
+
         function syncTopbarUserDetails(user) {
             if (!user) return;
             const compEl = document.getElementById('topbarCompanyName');
             if (compEl) compEl.textContent = user.company_name || 'My Organization';
             const userEl = document.getElementById('topbarUsername');
             if (userEl) userEl.textContent = `${user.role || 'Admin'} (${user.username})`;
+            const dropUser = document.getElementById('dropdownDisplayUser');
+            if (dropUser) dropUser.textContent = `${user.role || 'Admin'} (${user.username})`;
+            const dropOrg = document.getElementById('dropdownDisplayOrg');
+            if (dropOrg) dropOrg.textContent = user.company_name || 'My Organization';
         }
 
         async function doLogin() {
