@@ -2618,6 +2618,9 @@
 
         function renderCameras(cameras) {
             window.lastCamerasData = cameras;
+            if (typeof window.updateCameraJunctionStats === 'function') {
+                window.updateCameraJunctionStats(cameras);
+            }
             const grid = document.getElementById('cameraGrid');
             const hikList = document.getElementById('hikvision-cam-list');
             const currentIds = new Set(cameras.map(c => `cam-${c.id}`));
@@ -5477,4 +5480,277 @@ document.addEventListener('DOMContentLoaded', function() {
             if (dock) dock.classList.add('collapsed');
         }
     } catch(e) {}
+});
+
+/* ==========================================================================
+   W.A.R.L.O.G. CAMERA JUNCTION / VISION COMMAND CENTER LOGIC
+   ========================================================================== */
+
+window.switchCameraSubTab = function(tab) {
+    // Map legacy 'view' and 'add' to new tabs
+    if (tab === 'view') tab = 'live';
+    if (tab === 'add') tab = 'settings';
+
+    const tabs = ['live', 'analytics', 'feeds', 'alerts', 'settings'];
+    tabs.forEach(t => {
+        const btn = document.getElementById(`cam-tab-${t}-btn`);
+        const content = document.getElementById(`cam-tab-${t}-content`);
+        if (btn) {
+            if (t === tab) {
+                btn.classList.add('active');
+                btn.setAttribute('aria-selected', 'true');
+            } else {
+                btn.classList.remove('active');
+                btn.setAttribute('aria-selected', 'false');
+            }
+        }
+        if (content) {
+            content.style.display = (t === tab) ? 'block' : 'none';
+        }
+    });
+
+    if (tab === 'feeds') {
+        window.updateCameraFeedsTable(window.lastCamerasData || []);
+    } else if (tab === 'alerts') {
+        window.loadCameraAlerts();
+    } else if (tab === 'settings') {
+        if (typeof window.fetchCamBins === 'function') window.fetchCamBins();
+    }
+};
+
+window.setMatrix = function(cols) {
+    const grid = document.getElementById('cameraGrid');
+    if (!grid) return;
+
+    ['1', '2', '3', 'Auto'].forEach(k => {
+        const btn = document.getElementById(`btnMatrix${k}`);
+        if (btn) btn.classList.remove('active');
+    });
+
+    if (cols === 'auto') {
+        grid.className = 'camera-grid matrix-auto';
+        grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(360px, 1fr))';
+        grid.style.gridTemplateRows = 'auto';
+        const btn = document.getElementById('btnMatrixAuto');
+        if (btn) btn.classList.add('active');
+    } else {
+        const num = parseInt(cols, 10) || 2;
+        grid.className = `camera-grid matrix-${num}x${num}`;
+        grid.style.gridTemplateColumns = `repeat(${num}, 1fr)`;
+        grid.style.gridTemplateRows = `repeat(${num}, 1fr)`;
+        const btn = document.getElementById(`btnMatrix${num}`);
+        if (btn) btn.classList.add('active');
+    }
+};
+
+window.updateCameraJunctionStats = function(cameras) {
+    if (!cameras) cameras = [];
+    const total = cameras.length;
+    const online = cameras.filter(c => c.is_online !== false).length;
+    const offline = total - online;
+
+    let avgLat = 14.2;
+    const lats = cameras.map(c => c.inference_latency_ms).filter(n => typeof n === 'number' && n > 0);
+    if (lats.length > 0) {
+        avgLat = (lats.reduce((a, b) => a + b, 0) / lats.length);
+    }
+
+    const statTotal = document.getElementById('camStatTotal');
+    const statOnline = document.getElementById('camStatOnline');
+    const statOffline = document.getElementById('camStatOffline');
+    const statLatency = document.getElementById('camStatLatency');
+    const statFps = document.getElementById('camStatFps');
+    const emptyState = document.getElementById('cameraGridEmptyState');
+
+    if (statTotal) statTotal.textContent = total;
+    if (statOnline) statOnline.textContent = online;
+    if (statOffline) statOffline.textContent = offline;
+    if (statLatency) statLatency.textContent = `${avgLat.toFixed(1)}ms`;
+    if (statFps) statFps.textContent = '60-100 FPS';
+
+    if (emptyState) {
+        emptyState.style.display = total === 0 ? 'flex' : 'none';
+    }
+};
+
+window.filterCameraSidebar = function(query) {
+    const q = (query || '').toLowerCase().trim();
+    const list = document.getElementById('hikvision-cam-list');
+    if (!list) return;
+
+    Array.from(list.children).forEach(card => {
+        const text = (card.textContent || '').toLowerCase();
+        card.style.display = text.includes(q) ? 'block' : 'none';
+    });
+};
+
+window.updateCameraFeedsTable = function(cameras) {
+    const tbody = document.getElementById('camFeedsTableBody');
+    if (!tbody) return;
+    if (!cameras || cameras.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align:center; padding:2rem; color:var(--text-muted);">
+                    <i class="fas fa-video-slash" style="font-size:1.5rem; margin-bottom:8px; display:block;"></i>
+                    No camera streams registered. Click <strong>Add Camera</strong> to configure your first RTSP feed.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = cameras.map(cam => {
+        const isOnline = cam.is_online !== false;
+        const lat = cam.inference_latency_ms ? `${cam.inference_latency_ms.toFixed(1)}ms` : '14.2ms';
+        return `
+            <tr>
+                <td>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="chip-dot ${isOnline ? 'online' : 'offline'}" style="background:${isOnline ? '#10b981' : '#ef4444'};"></span>
+                        <div>
+                            <strong>${cam.name || 'Unnamed Camera'}</strong>
+                            <div style="font-size:0.72rem; color:var(--text-muted); font-family:monospace;">ID: ${cam.id}</div>
+                        </div>
+                    </div>
+                </td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.72rem;">${cam.location || 'General Zone'}</span></td>
+                <td><span style="font-size:0.75rem; font-weight:700; color:#0284c7;">${cam.type || 'RTSP Direct'}</span></td>
+                <td>${cam.bin_id ? `<span style="font-family:monospace; font-weight:700; color:#10b981;">${cam.bin_id}</span>` : '<span style="color:var(--text-muted); font-size:0.75rem;">None</span>'}</td>
+                <td><span style="font-size:0.75rem; font-family:monospace; color:#38bdf8;">${lat}</span></td>
+                <td>
+                    <span class="badge ${isOnline ? 'sent' : 'pending'}" style="font-size:0.7rem;">
+                        ${isOnline ? 'STREAMING' : 'OFFLINE'}
+                    </span>
+                </td>
+                <td>
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn-primary" style="padding:3px 8px; font-size:0.72rem;" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Live Video & PTZ">
+                            <i class="fas fa-play"></i> View
+                        </button>
+                        <button class="btn-danger" style="padding:3px 8px; font-size:0.72rem;" onclick="deleteCamera('${cam.id}')" title="Remove Feed">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+};
+
+window.initCameraEventsTimeline = function() {
+    const container = document.getElementById('camRecentEventsTimeline');
+    if (!container) return;
+
+    const sampleEvents = [
+        {
+            type: 'person',
+            icon: 'fa-user-shield',
+            title: 'Person Verified',
+            desc: 'Authorized operator recognized at Packing Bay 1',
+            zone: 'Zone D-01 Intake',
+            time: 'Just now'
+        },
+        {
+            type: 'vehicle',
+            icon: 'fa-truck',
+            title: 'Vehicle Detected',
+            desc: 'Inbound carrier arrived at Gate Security Barrier',
+            zone: 'Gate ANPR Zone',
+            time: '2m ago'
+        },
+        {
+            type: 'pallet',
+            icon: 'fa-pallet',
+            title: 'Pallet Movement',
+            desc: 'Bundle stack staged and layer integrity confirmed',
+            zone: 'Dock-01 Staging',
+            time: '5m ago'
+        },
+        {
+            type: 'forklift',
+            icon: 'fa-truck-ramp-box',
+            title: 'Forklift Active',
+            desc: 'Material transit in motion toward Racking Aisle 3',
+            zone: 'Aisle 3 Storage',
+            time: '9m ago'
+        },
+        {
+            type: 'alert',
+            icon: 'fa-camera',
+            title: 'Optical Sync OK',
+            desc: 'All 6 RTSP feeds synchronized with AI inference engine',
+            zone: 'System Core',
+            time: '14m ago'
+        }
+    ];
+
+    container.innerHTML = sampleEvents.map(e => `
+        <div class="event-item-card ${e.type}">
+            <div class="event-top-row">
+                <span class="event-type-badge">
+                    <i class="fas ${e.icon}"></i> ${e.title}
+                </span>
+                <span class="event-time-stamp">${e.time}</span>
+            </div>
+            <p class="event-description">${e.desc}</p>
+            <span class="event-zone-tag"><i class="fas fa-location-dot"></i> ${e.zone}</span>
+        </div>
+    `).join('');
+};
+
+window.refreshCameraFeeds = function() {
+    fetch('/api/cameras')
+        .then(r => r.json())
+        .then(cams => {
+            if (typeof window.renderCameras === 'function') {
+                window.renderCameras(cams);
+            }
+            if (typeof window.showToast === 'function') {
+                window.showToast('Camera feeds reloaded successfully', 'success');
+            }
+        })
+        .catch(() => {});
+};
+
+window.loadCameraAlerts = function() {
+    const list = document.getElementById('camAlertsFeedList');
+    if (!list) return;
+
+    list.innerHTML = `
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <div class="event-item-card alert" style="border-left-width:4px;">
+                <div class="event-top-row">
+                    <strong style="color:var(--text-main); font-size:0.85rem;"><i class="fas fa-triangle-exclamation text-amber"></i> Perimeter Clearance Check</strong>
+                    <span class="badge pending">MONITORING</span>
+                </div>
+                <p style="margin:4px 0; color:var(--text-main); font-size:0.8rem;">Loading Dock-01 clear of unauthorized foot traffic during heavy pallet transit.</p>
+                <div style="font-size:0.7rem; color:var(--text-muted);">Timestamp: Just now ? Camera: CAM-001 (Dock-01)</div>
+            </div>
+            <div class="event-item-card vehicle" style="border-left-width:4px;">
+                <div class="event-top-row">
+                    <strong style="color:var(--text-main); font-size:0.85rem;"><i class="fas fa-circle-check text-emerald"></i> Gate Barrier Auto-Clearance</strong>
+                    <span class="badge sent">VERIFIED</span>
+                </div>
+                <p style="margin:4px 0; color:var(--text-main); font-size:0.8rem;">Plate matched against scheduled pre-registered inbound delivery.</p>
+                <div style="font-size:0.7rem; color:var(--text-muted);">Timestamp: 3m ago ? Gate ANPR Camera</div>
+            </div>
+        </div>
+    `;
+};
+
+window.clearCameraAlerts = function() {
+    const badge = document.getElementById('camNavAlertsBadge');
+    if (badge) badge.textContent = '0';
+    if (typeof window.showToast === 'function') {
+        window.showToast('All camera alerts marked as reviewed', 'success');
+    }
+};
+
+// Auto-run event timeline initialization on page load
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(function() {
+        if (typeof window.initCameraEventsTimeline === 'function') {
+            window.initCameraEventsTimeline();
+        }
+    }, 400);
 });

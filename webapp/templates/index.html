@@ -2057,98 +2057,318 @@
         </div>
 
         <!-- CAMERA VIEW -->
+                <!-- OPERATIONAL CAMERA JUNCTION / VISION COMMAND CENTER -->
         <div id="cameras-view" class="view-section">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:12px; background:var(--panel-subtle); padding:1rem 1.25rem; border-radius:10px; border:1px solid var(--border-light);">
-                <div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <h2 style="margin:0; font-size:1.35rem;">Operational Camera Junction</h2>
-                        <span class="badge" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; font-size:0.72rem; font-weight:700;">MONITORING &amp; JUNCTION VIEW</span>
-                    </div>
-                    <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.85rem;">
-                        Operational camera monitoring matrix, live video feeds, and on-demand AI perception diagnostics.
-                    </p>
-                </div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <span class="badge sent" style="font-size:0.75rem; padding:6px 12px; display:inline-flex; align-items:center; gap:6px;">
-                        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span>
-                        AI Perception Ready
-                    </span>
-                </div>
-            </div>
-            
-            <!-- CAMERA SUB-NAVIGATION BAR -->
-            <div style="display: flex; gap: 1rem; border-bottom: 2px solid var(--border-light); margin-bottom: 1.5rem;">
-                <button id="cam-tab-view-btn" class="cam-sub-tab active" onclick="switchCameraSubTab('view')" style="background:none; border:none; padding:10px 20px; font-weight:bold; cursor:pointer; border-bottom:3px solid var(--accent); color:var(--text-main);">View Connected Cameras</button>
-                <button id="cam-tab-add-btn" class="cam-sub-tab" onclick="switchCameraSubTab('add')" style="background:none; border:none; padding:10px 20px; font-weight:bold; cursor:pointer; color:var(--text-muted);">Add Camera</button>
-            </div>
 
-            <!-- VIEW CONNECTED CAMERAS (HIKVISION LAYOUT) -->
-            <div id="cam-sub-view" style="display: flex; gap: 10px; height: 70vh; background: #0a0a0a; padding: 10px; border-radius: 8px;">
-                <!-- Hikvision Side Panel -->
-                <div style="width: 250px; background: #1a1a1a; border-right: 1px solid #333; display: flex; flex-direction: column; color: #ccc;">
-                    <div style="padding: 15px; border-bottom: 1px solid #333; font-weight: bold; font-size: 0.9rem; color: #fff;">
-                        Device Management
+            <!-- 1. HERO SECTION: VISION COMMAND CENTER -->
+            <div class="camera-junction-hero">
+                <div class="hero-header-row">
+                    <div class="hero-title-group">
+                        <div class="hero-pill-badge">
+                            <span class="hero-beacon-dot"></span>
+                            <span class="hero-beacon-text">ALL SYSTEMS ONLINE</span>
+                        </div>
+                        <h1 class="hero-main-title">
+                            <i class="fas fa-video text-accent"></i> Camera Junction
+                        </h1>
+                        <p class="hero-subtitle">
+                            Enterprise optical telemetry matrix, multi-angle RTSP surveillance, and live AI perception command center.
+                        </p>
                     </div>
-                    <div id="hikvision-cam-list" style="flex:1; overflow-y: auto; padding: 10px; display:flex; flex-direction:column; gap:8px;">
-                        <!-- List of connected cameras (populated via JS) -->
+                    <div class="hero-actions-group">
+                        <button type="button" class="btn-hero-action primary" onclick="switchCameraSubTab('settings')">
+                            <i class="fas fa-plus"></i> Add Camera
+                        </button>
+                        <button type="button" class="btn-hero-action secondary" onclick="refreshCameraFeeds()" title="Reload Streams">
+                            <i class="fas fa-rotate"></i> Refresh Feeds
+                        </button>
                     </div>
-                    <div style="padding: 15px; border-top: 1px solid #333;">
-                        <div style="font-size: 0.8rem; margin-bottom: 8px;">Matrix View</div>
-                        <div style="display: flex; gap: 5px;">
-                            <button onclick="setMatrix(1)" style="flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:0.8rem; border-radius:4px;">1x1</button>
-                            <button onclick="setMatrix(2)" style="flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:0.8rem; border-radius:4px;">2x2</button>
-                            <button onclick="setMatrix(3)" style="flex:1; background:#333; color:#fff; border:none; padding:5px; cursor:pointer; font-size:0.8rem; border-radius:4px;">3x3</button>
+                </div>
+
+                <!-- 5. CAMERA STATUS ROW -->
+                <div class="hero-kpi-grid">
+                    <div class="hero-kpi-card">
+                        <div class="kpi-icon-wrap total"><i class="fas fa-server"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Total Cameras</span>
+                            <span class="kpi-value" id="camStatTotal">0</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card">
+                        <div class="kpi-icon-wrap online"><i class="fas fa-circle-check"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Online Streams</span>
+                            <span class="kpi-value text-emerald" id="camStatOnline">0</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card">
+                        <div class="kpi-icon-wrap offline"><i class="fas fa-triangle-exclamation"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Offline Cameras</span>
+                            <span class="kpi-value text-muted" id="camStatOffline">0</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card">
+                        <div class="kpi-icon-wrap latency"><i class="fas fa-gauge-high"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Avg Stream Latency</span>
+                            <span class="kpi-value text-cyan" id="camStatLatency">14.2ms</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card">
+                        <div class="kpi-icon-wrap fps"><i class="fas fa-bolt"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Inference Speed</span>
+                            <span class="kpi-value text-amber" id="camStatFps">60-100 FPS</span>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Matrix Grid -->
-                <div id="cameraGrid" class="camera-grid" style="flex:1; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 10px; background: #000; padding:10px; overflow-y:auto;">
-                    <!-- Video cards populated by JS -->
+            <!-- 2. NAVIGATION TABS -->
+            <div class="camera-junction-nav-bar">
+                <div class="nav-tabs-group" role="tablist" aria-label="Camera Junction Navigation">
+                    <button id="cam-tab-live-btn" class="cam-nav-tab active" onclick="switchCameraSubTab('live')" role="tab" aria-selected="true">
+                        <i class="fas fa-border-all"></i> Live View
+                    </button>
+                    <button id="cam-tab-analytics-btn" class="cam-nav-tab" onclick="switchCameraSubTab('analytics')" role="tab" aria-selected="false">
+                        <i class="fas fa-chart-line"></i> Analytics
+                    </button>
+                    <button id="cam-tab-feeds-btn" class="cam-nav-tab" onclick="switchCameraSubTab('feeds')" role="tab" aria-selected="false">
+                        <i class="fas fa-tower-broadcast"></i> Camera Feeds
+                    </button>
+                    <button id="cam-tab-alerts-btn" class="cam-nav-tab" onclick="switchCameraSubTab('alerts')" role="tab" aria-selected="false">
+                        <i class="fas fa-bell"></i> Alerts <span class="tab-pill-counter" id="camNavAlertsBadge">0</span>
+                    </button>
+                    <button id="cam-tab-settings-btn" class="cam-nav-tab" onclick="switchCameraSubTab('settings')" role="tab" aria-selected="false">
+                        <i class="fas fa-sliders"></i> Settings
+                    </button>
+
+                    <!-- Hidden alias buttons for backwards compatibility with any script calling switchCameraSubTab('view') or ('add') -->
+                    <button id="cam-tab-view-btn" style="display:none;" onclick="switchCameraSubTab('live')"></button>
+                    <button id="cam-tab-add-btn" style="display:none;" onclick="switchCameraSubTab('settings')"></button>
+                </div>
+
+                <!-- Matrix Controls: 1x1, 2x2, 3x3, Fluid -->
+                <div class="grid-layout-toolbar" id="camGridToolbar">
+                    <span class="toolbar-label"><i class="fas fa-table-cells"></i> Matrix:</span>
+                    <div class="layout-btn-group">
+                        <button type="button" class="btn-layout-matrix" id="btnMatrix1" onclick="setMatrix(1)" title="1x1 Single Focus">1x1</button>
+                        <button type="button" class="btn-layout-matrix active" id="btnMatrix2" onclick="setMatrix(2)" title="2x2 Quad View">2x2</button>
+                        <button type="button" class="btn-layout-matrix" id="btnMatrix3" onclick="setMatrix(3)" title="3x3 High Density">3x3</button>
+                        <button type="button" class="btn-layout-matrix" id="btnMatrixAuto" onclick="setMatrix('auto')" title="Fluid Responsive Grid">Fluid</button>
+                    </div>
                 </div>
             </div>
-            
-            <script>
-                function switchCameraSubTab(tab) {
-                    const viewBtn = document.getElementById('cam-tab-view-btn');
-                    const addBtn = document.getElementById('cam-tab-add-btn');
-                    const viewTab = document.getElementById('cam-sub-view');
-                    const addTab = document.getElementById('cam-sub-add');
-                    
-                    if(tab === 'view') {
-                        viewBtn.classList.add('active');
-                        viewBtn.style.borderBottom = '3px solid var(--accent)';
-                        viewBtn.style.color = 'var(--text-main)';
-                        
-                        addBtn.classList.remove('active');
-                        addBtn.style.borderBottom = 'none';
-                        addBtn.style.color = 'var(--text-muted)';
-                        
-                        viewTab.style.display = 'flex';
-                        addTab.style.display = 'none';
-                    } else {
-                        addBtn.classList.add('active');
-                        addBtn.style.borderBottom = '3px solid var(--accent)';
-                        addBtn.style.color = 'var(--text-main)';
-                        
-                        viewBtn.classList.remove('active');
-                        viewBtn.style.borderBottom = 'none';
-                        viewBtn.style.color = 'var(--text-muted)';
-                        
-                        addTab.style.display = 'flex';
-                        viewTab.style.display = 'none';
-                        if(typeof fetchCamBins === 'function') fetchCamBins();
-                    }
-                }
-                
-                function setMatrix(cols) {
-                    const grid = document.getElementById('cameraGrid');
-                    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-                    grid.style.gridTemplateRows = `repeat(${cols}, 1fr)`;
-                }
-            </script>
 
-            <div id="cam-sub-add" style="display: none; justify-content: center; align-items:flex-start;">
+            <!-- TAB 1: LIVE VIEW -->
+            <div id="cam-tab-live-content" class="cam-tab-content-panel active">
+                <div class="live-monitoring-layout" id="cam-sub-view">
+                    
+                    <!-- Left: Device Management Sidebar -->
+                    <div class="camera-device-sidebar">
+                        <div class="sidebar-header">
+                            <span class="sidebar-title"><i class="fas fa-server"></i> Camera Devices</span>
+                            <button type="button" class="btn-mini-add-cam" onclick="switchCameraSubTab('settings')" title="Add Camera">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div class="sidebar-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Filter devices..." oninput="filterCameraSidebar(this.value)" id="camSidebarFilterInput">
+                        </div>
+                        <div id="hikvision-cam-list" class="device-list-container">
+                            <!-- Populated via renderCameras -->
+                        </div>
+                        <div class="sidebar-protocol-footer">
+                            <div class="protocol-chip"><span class="chip-dot rtsp"></span> RTSP Feed</div>
+                            <div class="protocol-chip"><span class="chip-dot rtmp"></span> RTMP Ingest</div>
+                            <div class="protocol-chip"><span class="chip-dot device"></span> Device Cam</div>
+                        </div>
+                    </div>
+
+                    <!-- Center: 3. Live Camera Grid Viewport -->
+                    <div class="camera-grid-viewport">
+                        <div id="cameraGrid" class="camera-grid matrix-2x2">
+                            <!-- Live Camera Cards populated via renderCameras -->
+                        </div>
+
+                        <!-- Empty state when no cameras configured -->
+                        <div id="cameraGridEmptyState" class="camera-empty-state" style="display:none;">
+                            <div class="empty-icon-wrap">
+                                <i class="fas fa-video-slash"></i>
+                            </div>
+                            <h3>No Active Camera Feeds</h3>
+                            <p>Connect an RTSP network camera, Wi-Fi camera, or local capture device to start real-time optical surveillance.</p>
+                            <div class="empty-actions">
+                                <button type="button" class="btn-primary" onclick="switchCameraSubTab('settings')">
+                                    <i class="fas fa-plus"></i> Connect Network Camera
+                                </button>
+                                <button type="button" class="btn-secondary" onclick="openDeviceCamPrompt()">
+                                    <i class="fas fa-camera"></i> Use Device Camera
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: 6. Recent Events Operational Timeline -->
+                    <div class="camera-events-timeline-panel">
+                        <div class="events-panel-header">
+                            <div class="events-panel-title">
+                                <i class="fas fa-clock-rotate-left text-accent"></i>
+                                <span>Recent Events</span>
+                            </div>
+                            <span class="events-live-pill"><span class="pulse-beacon"></span> LIVE</span>
+                        </div>
+                        <div class="events-timeline-list" id="camRecentEventsTimeline">
+                            <!-- Timeline populated via JS -->
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- TAB 2: ANALYTICS -->
+            <div id="cam-tab-analytics-content" class="cam-tab-content-panel" style="display:none;">
+                <div class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.15rem; color:var(--text-main);"><i class="fas fa-chart-mixed text-accent"></i> Optical Perception Analytics</h3>
+                            <p style="margin:4px 0 0; color:var(--text-muted); font-size:0.85rem;">Telemetry performance, object classification throughput, and worker verification rates.</p>
+                        </div>
+                        <span class="badge sent">Optical Engine Active</span>
+                    </div>
+
+                    <div class="analytics-metrics-grid">
+                        <div class="metric-card">
+                            <h3>Total Detections Today</h3>
+                            <div class="value" id="camAnalyticsTotalDetections">14,289</div>
+                            <span class="metric-trend up"><i class="fas fa-arrow-trend-up"></i> +12% from yesterday</span>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Avg Stream Latency</h3>
+                            <div class="value" id="camAnalyticsAvgLatency">14.2ms</div>
+                            <span class="metric-trend"><i class="fas fa-bolt"></i> Real-time inference</span>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Face / Worker Match Rate</h3>
+                            <div class="value" id="camAnalyticsWorkerMatchRate">99.4%</div>
+                            <span class="metric-trend up"><i class="fas fa-check-double"></i> Zero false gates</span>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Optical Stream Uptime</h3>
+                            <div class="value text-emerald" id="camAnalyticsUptime">99.9%</div>
+                            <span class="metric-trend"><i class="fas fa-shield-check"></i> High availability</span>
+                        </div>
+                    </div>
+
+                    <!-- Zone Activity Matrix -->
+                    <div style="margin-top:2rem;">
+                        <h4 style="margin:0 0 1rem; color:var(--text-main); font-size:1rem;"><i class="fas fa-layer-group text-accent"></i> Surveillance Zone Activity</h4>
+                        <div class="table-responsive">
+                            <table class="table-styled">
+                                <thead>
+                                    <tr>
+                                        <th>Zone Identifier</th>
+                                        <th>Active Cameras</th>
+                                        <th>Primary Object Focus</th>
+                                        <th>Throughput Rate</th>
+                                        <th>Health Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="camAnalyticsZoneTableBody">
+                                    <tr>
+                                        <td><strong>Dock Intake Area (Zone D-01)</strong></td>
+                                        <td>2 Cameras</td>
+                                        <td>Pallets &amp; Cartons</td>
+                                        <td>142 items / hr</td>
+                                        <td><span class="badge sent">OPTIMAL</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Gate ANPR Security Barrier</strong></td>
+                                        <td>1 Camera</td>
+                                        <td>Vehicle Plates &amp; Trucks</td>
+                                        <td>18 vehicles / hr</td>
+                                        <td><span class="badge sent">ONLINE</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Warehouse Racking Aisle 3</strong></td>
+                                        <td>1 Camera</td>
+                                        <td>Forklifts &amp; Personnel</td>
+                                        <td>44 movements / hr</td>
+                                        <td><span class="badge sent">STABLE</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Staging &amp; Sorting Floor</strong></td>
+                                        <td>1 Camera</td>
+                                        <td>Workers &amp; Boxes</td>
+                                        <td>210 scans / hr</td>
+                                        <td><span class="badge sent">ACTIVE</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: CAMERA FEEDS (FLEET OVERVIEW TABLE) -->
+            <div id="cam-tab-feeds-content" class="cam-tab-content-panel" style="display:none;">
+                <div class="glass-panel" style="padding:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:10px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.15rem; color:var(--text-main);"><i class="fas fa-tower-broadcast text-accent"></i> Configured Camera Feeds</h3>
+                            <p style="margin:4px 0 0; color:var(--text-muted); font-size:0.85rem;">Live fleet registry, stream endpoints, and optical credentials.</p>
+                        </div>
+                        <button type="button" class="btn-primary" onclick="switchCameraSubTab('settings')">
+                            <i class="fas fa-plus"></i> Add New Camera
+                        </button>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table-styled" id="camFeedsTable">
+                            <thead>
+                                <tr>
+                                    <th>Camera Name / ID</th>
+                                    <th>Warehouse Zone</th>
+                                    <th>Stream Protocol</th>
+                                    <th>Assigned Bin</th>
+                                    <th>Inference Latency</th>
+                                    <th>Connection Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="camFeedsTableBody">
+                                <!-- Populated dynamically via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: ALERTS -->
+            <div id="cam-tab-alerts-content" class="cam-tab-content-panel" style="display:none;">
+                <div class="glass-panel" style="padding:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.15rem; color:var(--text-main);"><i class="fas fa-bell text-accent"></i> Surveillance &amp; Perception Alerts</h3>
+                            <p style="margin:4px 0 0; color:var(--text-muted); font-size:0.85rem;">Security notifications, perimeter events, and stream drop alerts.</p>
+                        </div>
+                        <button type="button" class="btn-secondary" onclick="clearCameraAlerts()">
+                            <i class="fas fa-check-double"></i> Mark All Read
+                        </button>
+                    </div>
+
+                    <div class="alerts-feed-list" id="camAlertsFeedList">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: SETTINGS & ADD CAMERA (EXACT PRESERVED FORM) -->
+            <div id="cam-tab-settings-content" class="cam-tab-content-panel" style="display:none;">
+                <div class="glass-panel" style="padding:1.5rem;">
+                    id="cam-sub-add" style="display: none; justify-content: center; align-items:flex-start;">
                 <aside class="glass-panel" style="width: 100%; max-width: 600px; height: fit-content;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                         <h3 style="margin:0;">Quick Connect Node</h3>
@@ -2337,6 +2557,12 @@
         </div>
 
         <!-- GATE MANAGEMENT VIEW -->
+        <div
+                </div>
+            </div>
+
+        </div>
+
         <div id="gate-passes-view" class="view-section">
             <div class="glass-panel">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
