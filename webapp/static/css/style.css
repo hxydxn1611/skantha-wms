@@ -5244,3 +5244,35 @@ body {
 .table-styled tbody tr:last-child td {
     border-bottom: none;
 }
+
+/* ==========================================================================
+   CAMERA JUNCTION: REMOVED RECENT ACTIVITY & EXPANDED 2-COLUMN / FULL GRID
+   ========================================================================== */
+.live-monitoring-layout {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 16px !important;
+    min-height: 680px !important;
+    width: 100% !important;
+}
+
+.camera-device-sidebar {
+    width: 250px !important;
+    min-width: 250px !important;
+    max-width: 250px !important;
+    transition: all 0.25s ease !important;
+}
+
+.camera-device-sidebar.collapsed {
+    display: none !important;
+}
+
+.camera-grid-viewport {
+    flex: 1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+}
+
+.camera-events-timeline-panel {
+    display: none !important;
+}

@@ -2158,6 +2158,9 @@
                         <button type="button" class="btn-layout-matrix" id="btnMatrix3" onclick="setMatrix(3)" title="3x3 High Density">3x3</button>
                         <button type="button" class="btn-layout-matrix" id="btnMatrixAuto" onclick="setMatrix('auto')" title="Fluid Responsive Grid">Fluid</button>
                     </div>
+                    <button type="button" class="btn-layout-matrix active" id="btnToggleCamSidebar" onclick="toggleCameraDeviceSidebar()" title="Toggle Camera Devices Sidebar" style="margin-left:6px;">
+                        <i class="fas fa-list-ul"></i> Devices Sidebar
+                    </button>
                 </div>
             </div>
 
@@ -2212,18 +2215,7 @@
                     </div>
 
                     <!-- Right: 6. Recent Events Operational Timeline -->
-                    <div class="camera-events-timeline-panel">
-                        <div class="events-panel-header">
-                            <div class="events-panel-title">
-                                <i class="fas fa-clock-rotate-left text-accent"></i>
-                                <span>Recent Events</span>
-                            </div>
-                            <span class="events-live-pill"><span class="pulse-beacon"></span> LIVE</span>
-                        </div>
-                        <div class="events-timeline-list" id="camRecentEventsTimeline">
-                            <!-- Timeline populated via JS -->
-                        </div>
-                    </div>
+                    
 
                 </div>
             </div>

@@ -5754,3 +5754,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, 400);
 });
+
+window.toggleCameraDeviceSidebar = function() {
+    const sidebar = document.querySelector('.camera-device-sidebar');
+    const btn = document.getElementById('btnToggleCamSidebar');
+    if (!sidebar) return;
+    const isCollapsed = sidebar.classList.toggle('collapsed');
+    if (btn) {
+        if (isCollapsed) {
+            btn.classList.remove('active');
+            btn.innerHTML = '<i class="fas fa-list-ul"></i> Show Devices';
+        } else {
+            btn.classList.add('active');
+            btn.innerHTML = '<i class="fas fa-list-ul"></i> Hide Devices';
+        }
+    }
+};
