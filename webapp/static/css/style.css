@@ -3101,3 +3101,165 @@ body {
         display: none;
     }
 }
+
+/* ==========================================================================
+   W.A.R.L.O.G. THEME ENGINE: BULLETPROOF DUAL THEME CONTRAST & VISIBILITY
+   ========================================================================== */
+
+/* --- DARK THEME OVERRIDES --- */
+[data-theme="dark"] .dashboard-topbar {
+    background: #0f172a !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+}
+[data-theme="dark"] .topbar-warlog-title {
+    color: #ffffff !important;
+    text-shadow: 0 0 14px rgba(56, 189, 248, 0.5) !important;
+}
+[data-theme="dark"] .topbar-breadcrumb-slash {
+    color: #38bdf8 !important;
+    opacity: 0.7 !important;
+}
+[data-theme="dark"] .topbar-facility-selector {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #38bdf8 !important;
+}
+[data-theme="dark"] #activeFacilityNameDisplay {
+    color: #f8fafc !important;
+}
+[data-theme="dark"] .topbar-search-box input {
+    background: #1e293b !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    color: #f8fafc !important;
+}
+[data-theme="dark"] .topbar-search-box .search-icon {
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] .search-kbd-shortcut {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #94a3b8 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+[data-theme="dark"] .topbar-user-name {
+    color: #f8fafc !important;
+}
+[data-theme="dark"] .topbar-company-name {
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] #main-header {
+    background: #0f172a !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+[data-theme="dark"] body {
+    background: #0a0e1a !important;
+    color: #f8fafc !important;
+}
+
+/* --- LIGHT THEME OVERRIDES --- */
+[data-theme="light"] .dashboard-topbar,
+:root:not([data-theme="dark"]) .dashboard-topbar {
+    background: #ffffff !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05) !important;
+}
+[data-theme="light"] .topbar-warlog-title,
+:root:not([data-theme="dark"]) .topbar-warlog-title {
+    color: #0f172a !important;
+    text-shadow: none !important;
+}
+[data-theme="light"] .topbar-breadcrumb-slash,
+:root:not([data-theme="dark"]) .topbar-breadcrumb-slash {
+    color: #94a3b8 !important;
+    opacity: 0.8 !important;
+}
+[data-theme="light"] .topbar-facility-selector,
+:root:not([data-theme="dark"]) .topbar-facility-selector {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0284c7 !important;
+}
+[data-theme="light"] #activeFacilityNameDisplay,
+:root:not([data-theme="dark"]) #activeFacilityNameDisplay {
+    color: #0f172a !important;
+}
+[data-theme="light"] .topbar-search-box input,
+:root:not([data-theme="dark"]) .topbar-search-box input {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+}
+[data-theme="light"] .topbar-search-box .search-icon,
+:root:not([data-theme="dark"]) .topbar-search-box .search-icon {
+    color: #64748b !important;
+}
+[data-theme="light"] .search-kbd-shortcut,
+:root:not([data-theme="dark"]) .search-kbd-shortcut {
+    background: #e2e8f0 !important;
+    color: #64748b !important;
+    border: 1px solid #cbd5e1 !important;
+}
+[data-theme="light"] .topbar-user-name,
+:root:not([data-theme="dark"]) .topbar-user-name {
+    color: #0f172a !important;
+}
+[data-theme="light"] .topbar-company-name,
+:root:not([data-theme="dark"]) .topbar-company-name {
+    color: #64748b !important;
+}
+[data-theme="light"] #main-header,
+:root:not([data-theme="dark"]) #main-header {
+    background: #ffffff !important;
+    border-right: 1px solid #e2e8f0 !important;
+}
+[data-theme="light"] body,
+:root:not([data-theme="dark"]) body {
+    background: #f8fafc !important;
+    color: #0f172a !important;
+}
+[data-theme="light"] .nav-item,
+:root:not([data-theme="dark"]) .nav-item {
+    color: #475569 !important;
+}
+[data-theme="light"] .nav-item:hover,
+:root:not([data-theme="dark"]) .nav-item:hover {
+    background: #f1f5f9 !important;
+    color: #0284c7 !important;
+}
+[data-theme="light"] .nav-item.active,
+:root:not([data-theme="dark"]) .nav-item.active {
+    background: #eff6ff !important;
+    color: #0284c7 !important;
+    border-left-color: #0284c7 !important;
+}
+[data-theme="light"] .swms-kpi-card,
+:root:not([data-theme="dark"]) .swms-kpi-card {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04) !important;
+}
+[data-theme="light"] .swms-card,
+:root:not([data-theme="dark"]) .swms-card {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04) !important;
+}
+[data-theme="light"] .timeline-row,
+:root:not([data-theme="dark"]) .timeline-row {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+}
+[data-theme="light"] .timeline-title,
+:root:not([data-theme="dark"]) .timeline-title {
+    color: #0f172a !important;
+}
+[data-theme="light"] .health-item,
+:root:not([data-theme="dark"]) .health-item {
+    background: #f8fafc !important;
+}
+[data-theme="light"] .health-item-val,
+:root:not([data-theme="dark"]) .health-item-val {
+    color: #0f172a !important;
+}

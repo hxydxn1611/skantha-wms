@@ -3673,16 +3673,43 @@
         handleCamTypeChange();
 
         // THEME SWITCHER LOGIC
-        function setTheme(theme) {
-            if (theme === 'dark') {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                try { localStorage.setItem('warlog_theme', 'dark'); } catch(e) {}
-            } else {
-                document.documentElement.removeAttribute('data-theme');
-                try { localStorage.setItem('warlog_theme', 'light'); } catch(e) {}
+        function setGlobalTheme(theme) {
+            const isDark = (theme === 'dark');
+            const themeName = isDark ? 'dark' : 'light';
+            
+            document.documentElement.setAttribute('data-theme', themeName);
+            if (document.body) {
+                document.body.setAttribute('data-theme', themeName);
             }
-            updateThemeButtons(theme);
+            
+            try {
+                localStorage.setItem('warlog_theme', themeName);
+                localStorage.setItem('skantha_theme', themeName);
+            } catch(e) {}
+            
+            // Sync all theme buttons across DOM
+            document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+                if (btn.getAttribute('data-theme-btn') === themeName) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Sync topbar button icon
+            const topbarBtn = document.getElementById('topbarThemeToggleBtn');
+            if (topbarBtn) {
+                topbarBtn.setAttribute('data-theme', themeName);
+                topbarBtn.setAttribute('title', isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme');
+            }
+
+            // Sync Telemetry Chart colors
+            if (typeof updateTelemetryChartTheme === 'function') {
+                updateTelemetryChartTheme(themeName);
+            }
         }
+        window.setTheme = setGlobalTheme;
+        window.setGlobalTheme = setGlobalTheme;
 
         function updateThemeButtons(theme) {
             document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
