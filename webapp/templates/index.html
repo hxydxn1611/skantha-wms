@@ -1444,6 +1444,148 @@
             </div>
         </div>
 
+        
+        <div id="inbound-flow-view" class="view-section">
+            <div class="glass-panel" style="margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+                    <div>
+                        <h2 style="margin:0; font-size:1.5rem; color:var(--primary-navy);">Inbound Operations Automation</h2>
+                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.9rem;">AI-driven truck arrivals, automatic dock assignments, computer vision piece verification, and automated inventory sync.</p>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <span class="badge sent" style="font-size:0.8rem; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
+                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--success);"></span>
+                            Matrix Agent Active
+                        </span>
+                        <button type="button" class="btn-primary" style="background:#10b981; color:#000; font-weight:bold; font-size:0.8rem; padding:8px 14px; border:none; cursor:pointer;" onclick="simulateInboundArrival()">
+                            ⚡ Simulate Inbound Arrival &amp; Unload
+                        </button>
+                        <button type="button" class="btn-secondary" style="font-size:0.8rem; padding:8px 12px;" onclick="refreshInboundAutomation()">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Metric Counters -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:15px; margin-top:20px;">
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Active Dock Trucks</div>
+                        <div id="inbound-kpi-trucks" style="font-size:1.6rem; font-weight:700; color:var(--accent-hover); margin-top:4px;">0</div>
+                    </div>
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">AI Verified Items</div>
+                        <div id="inbound-kpi-pieces" style="font-size:1.6rem; font-weight:700; color:#10b981; margin-top:4px;">0</div>
+                    </div>
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Target Bins Allocated</div>
+                        <div id="inbound-kpi-bins" style="font-size:1.6rem; font-weight:700; color:#8b5cf6; margin-top:4px;">0</div>
+                    </div>
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Autonomous Sync</div>
+                        <div id="inbound-kpi-sync" style="font-size:1.1rem; font-weight:700; color:#34d399; margin-top:8px;">REAL-TIME ON</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Dock Unloading & Reconciliation Grid -->
+            <div class="glass-panel" style="margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                    <div>
+                        <h3 style="margin:0; font-size:1.2rem; color:var(--primary-navy);">Active Dock Unloading &amp; Material Reconciliation</h3>
+                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.82rem;">Real-time computer vision verification of materials unloading at physical docks vs PO manifest.</p>
+                    </div>
+                    <span id="inbound-dock-count-badge" class="badge" style="background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:0.75rem; padding:4px 8px;">0 Active Bays</span>
+                </div>
+                <div id="inbound-docks-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap:20px;">
+                    <!-- Dynamically populated dock cards -->
+                    <div style="grid-column: 1 / -1; text-align:center; padding: 40px 20px; color:var(--text-muted);">
+                        <i class="fas fa-truck-loading" style="font-size:2.5rem; color:var(--border-light); margin-bottom:12px; display:block;"></i>
+                        <p style="margin:0 0 10px 0; font-size:1rem; font-weight:600;">No trucks are currently docked for unloading.</p>
+                        <p style="margin:0 0 18px 0; font-size:0.85rem;">Assign a truck to a dock in Gate Management, or click below to simulate an inbound arrival.</p>
+                        <button type="button" class="btn-primary" style="font-size:0.85rem; padding:8px 16px;" onclick="simulateInboundArrival()">
+                            ⚡ Simulate Inbound Arrival &amp; Dock Unload
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <!-- Live Bundle & Object Counting by Camera -->
+                <div class="glass-panel">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                        <h3 style="margin:0; font-size:1.1rem;">Spatial Matrix Camera Streams</h3>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">Live Neural Clusters</span>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:15px;" id="live-bundle-counts">
+                        <p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">Waiting for AI vision bounding box matrix clusters on unloading docks...</p>
+                    </div>
+                </div>
+
+                <!-- AI Operations Log -->
+                <div class="glass-panel">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                        <h3 style="margin:0; font-size:1.1rem;">Autonomous Operations Log</h3>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="clearInboundLog()">Clear</button>
+                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="addManualLogEntry('Operator manual event check requested')">Test Event</button>
+                        </div>
+                    </div>
+                    <div id="ai-operations-log" style="height:420px; overflow-y:auto; background:#111; padding:15px; border-radius:6px; font-family:monospace; color:#10b981; font-size:0.82rem; display:flex; flex-direction:column; gap:8px;">
+                        <div><span style="color:#6366f1;">[STARTUP]</span> Matrix Engine Initialized. Listening for Vision streams on Gates and Docks...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- OUTBOUND VIEW -->
+        <div id="outbound-view" class="view-section">
+            <div style="display:flex; gap:2rem;">
+                <aside class="glass-panel" style="flex:0 0 400px; height:fit-content;">
+                    <h3>Create Outbound Order</h3>
+                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Generate a new picking requirement.</p>
+                    <form id="formAddOutbound" onsubmit="event.preventDefault(); submitAddOutbound();">
+                        <div style="margin-bottom:1rem;">
+                            <label>Customer Name *</label>
+                            <input type="text" id="outboundCustomer" required style="width:100%; margin-bottom:0;">
+                        </div>
+                        <div style="margin-bottom:1rem;">
+                            <label>Destination *</label>
+                            <input type="text" id="outboundDest" required style="width:100%; margin-bottom:0;">
+                        </div>
+                        <div style="margin-bottom:1rem;">
+                            <label>Select SKU *</label>
+                            <select id="outboundSku" required style="width:100%; margin-bottom:0;"></select>
+                        </div>
+                        <div style="margin-bottom:1.5rem;">
+                            <label>Quantity to Pick *</label>
+                            <input type="number" id="outboundQty" required min="1" style="width:100%; margin-bottom:0;">
+                        </div>
+                        <button type="submit" class="btn-primary" style="width:100%;">Create Order</button>
+                    </form>
+                </aside>
+                <div class="glass-panel" style="flex:1;">
+                    <h3>Active Outbound Orders</h3>
+                    <div class="table-container">
+                        <table style="width:100%; margin-top:1rem;">
+                            <thead>
+                                <tr>
+                                    <th>Order ID</th>
+                                    <th>Customer</th>
+                                    <th>Destination</th>
+                                    <th>Items</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="outboundTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PRE-REGISTRATION (EXPECTED DELIVERIES) VIEW -->
+
         <div id="deliveries-view" class="view-section">
             <div style="display: flex; gap: 2rem;">
                 <aside class="glass-panel" style="flex: 0 0 450px; height: fit-content;">
