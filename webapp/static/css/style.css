@@ -5276,3 +5276,154 @@ body {
 .camera-events-timeline-panel {
     display: none !important;
 }
+
+
+/* ==========================================================================
+   W.A.R.L.O.G. PALLETIZATION MACOS STUDIO & 3D WORKBENCH
+   ========================================================================== */
+.pallet-session-hud-bar {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    background: rgba(15, 23, 42, 0.04);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 0.85rem 1.25rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}
+
+[data-theme="dark"] .pallet-session-hud-bar,
+[data-theme="ocean"] .pallet-session-hud-bar,
+[data-theme="amber"] .pallet-session-hud-bar {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.session-hud-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.hud-item-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.hud-item-val {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.hud-item-val-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hud-id-mono {
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent-color, #2563eb);
+}
+
+.hud-sub-val {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.session-hud-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pallet-radial-gauges-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 1.5rem;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-light);
+    border-radius: 14px;
+    padding: 1.25rem;
+    box-shadow: var(--card-shadow);
+    margin-bottom: 1.5rem;
+}
+
+.radial-gauge-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.radial-gauge-svg {
+    transform: rotate(-90deg);
+}
+
+.radial-gauge-track {
+    fill: none;
+    stroke: var(--border-light);
+    stroke-width: 8;
+}
+
+.radial-gauge-progress {
+    fill: none;
+    stroke-width: 8;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.6s ease;
+}
+
+.radial-gauge-progress.cyan {
+    stroke: #38bdf8;
+}
+
+.radial-gauge-progress.emerald {
+    stroke: #10b981;
+}
+
+.radial-gauge-labels {
+    display: flex;
+    flex-direction: column;
+}
+
+.radial-gauge-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.radial-gauge-val {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.radial-gauge-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.text-cyan {
+    color: #38bdf8 !important;
+}
+
+.text-emerald {
+    color: #10b981 !important;
+}
+
+.pallet-tab-panel {
+    animation: fadeInTab 0.2s ease-in-out;
+}
+
+@keyframes fadeInTab {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}

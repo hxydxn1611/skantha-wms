@@ -416,6 +416,14 @@
         if (targetBundlesElem) targetBundlesElem.textContent = isDynamic ? 'Open Count' : target;
         if (barFill) barFill.style.width = isDynamic ? '100%' : `${pct}%`;
         if (pctElem) pctElem.textContent = isDynamic ? 'DYNAMIC TALLY' : `${pct}%`;
+        const radialRing = document.getElementById('radialWeightRing');
+        if (radialRing) {
+            const circ = 251.2;
+            const offset = isDynamic ? 0 : Math.max(0, circ - (circ * (pct / 100)));
+            radialRing.style.strokeDashoffset = offset;
+        }
+        const qrPallet = document.getElementById('qrPreviewPalletId');
+        if (qrPallet) qrPallet.textContent = p.pallet_id;
         if (hudBundles) hudBundles.textContent = isDynamic ? `${bundles} Bundles` : `${bundles} / ${target}`;
         if (hudPieces) hudPieces.textContent = `${totalPcs} EA`;
 

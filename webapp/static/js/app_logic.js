@@ -5518,6 +5518,36 @@ window.switchCameraSubTab = function(tab) {
     }
 };
 
+window.switchPalletSubTab = function(tab) {
+    const tabs = ['wb', '3d', 'ledger', 'presets', 'qr'];
+    tabs.forEach(t => {
+        const btn = document.getElementById('pallet-tab-' + t + '-btn');
+        const content = document.getElementById('pallet-tab-' + t + '-content');
+        if (btn) {
+            if (t === tab) {
+                btn.classList.add('active');
+                btn.setAttribute('aria-selected', 'true');
+            } else {
+                btn.classList.remove('active');
+                btn.setAttribute('aria-selected', 'false');
+            }
+        }
+        if (content) {
+            content.style.display = (t === tab) ? 'block' : 'none';
+        }
+    });
+
+    if (tab === 'ledger') {
+        if (window.palletModule && typeof window.palletModule.loadPallets === 'function') {
+            window.palletModule.loadPallets();
+        }
+    } else if (tab === '3d') {
+        if (typeof window.initWb3DPalletViewer === 'function') {
+            window.initWb3DPalletViewer(window.lastPallet3DMatrix || null);
+        }
+    }
+};
+
 window.setMatrix = function(cols) {
     const grid = document.getElementById('cameraGrid');
     if (!grid) return;

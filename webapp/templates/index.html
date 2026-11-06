@@ -6557,38 +6557,95 @@ window.switchSubTab = switchSubTab;
         <!-- ======================================================== -->
         <!-- AUTONOMOUS PALLETIZATION & BUNDLE COUNTER VIEW -->
         <!-- ======================================================== -->
+                <!-- AUTONOMOUS PALLETIZATION & 3D VISION WORKBENCH -->
         <div id="palletization-view" class="view-section">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:12px;">
-                <div>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <h2 style="margin:0; font-size:1.4rem; color:var(--primary-navy); display:flex; align-items:center; gap:8px;">
-                            <i class="fas fa-pallet" style="color:#10b981;"></i>
-                            <span>Autonomous Palletization &amp; Bundle Counter</span>
-                        </h2>
-                        <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.75rem; padding:4px 10px;">
-                            <i class="fas fa-microchip"></i> ZERO-RETRAIN AI
-                        </span>
+
+            <!-- 1. MACOS STUDIO HERO HEADER -->
+            <div class="pallet-studio-hero">
+                <div class="hero-header-row">
+                    <div class="hero-title-group">
+                        <div class="hero-pill-badge">
+                            <span class="hero-beacon-dot"></span>
+                            <span class="hero-beacon-text">AI PERCEPTION SYNCED</span>
+                        </div>
+                        <h1 class="hero-main-title">
+                            <i class="fas fa-pallet text-accent"></i> Autonomous Palletization &amp; 3D Vision Workbench
+                        </h1>
+                        <p class="hero-subtitle">
+                            Zero-retrain multi-angle vision counting, real-time geometric layer verification, and instant Master Pallet QR label generation.
+                        </p>
                     </div>
-                    <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.85rem;">
-                        Real-time bundle counting via visual matching, declared piece multipliers, zero human recount, and instant Master Pallet QR label generation.
-                    </p>
+
+                    <!-- Header Action Pills -->
+                    <div class="hero-actions-group">
+                        <button type="button" class="btn-hero-action primary" onclick="openNewPalletModal()">
+                            <i class="fas fa-plus"></i> Build New Pallet
+                        </button>
+                        <button type="button" class="btn-hero-action secondary" onclick="printPalletMasterLabel()">
+                            <i class="fas fa-print"></i> Master QR Label
+                        </button>
+                        <button type="button" class="btn-hero-action secondary" onclick="if(window.palletModule) palletModule.loadPallets()" title="Refresh Pallets">
+                            <i class="fas fa-arrows-rotate"></i>
+                        </button>
+                    </div>
                 </div>
 
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <button type="button" class="btn-primary" onclick="openNewPalletModal()" style="background:#6366f1; border-color:#6366f1; font-size:0.82rem; padding:7px 16px;">
-                        <i class="fas fa-plus"></i> Build New Pallet
+                <!-- Active Pallet Session HUD Bar -->
+                <div class="pallet-session-hud-bar">
+                    <div class="session-hud-item">
+                        <span class="hud-item-label">Pallet Session</span>
+                        <div class="hud-item-val-wrap">
+                            <span class="badge sent" id="palletMonitorStatus">BUILDING</span>
+                            <span class="hud-id-mono" id="palletMonitorId">PLT-2026-0894</span>
+                        </div>
+                    </div>
+                    <div class="session-hud-item">
+                        <span class="hud-item-label">Target Master SKU</span>
+                        <div class="hud-item-val" id="palletMonitorSku">Industrial Fasteners &amp; Sensors</div>
+                    </div>
+                    <div class="session-hud-item">
+                        <span class="hud-item-label">Layer Fill Capacity</span>
+                        <div class="hud-item-val-wrap">
+                            <span class="hud-item-val text-cyan" id="palletFillPct">78%</span>
+                            <span class="hud-sub-val" id="palletTargetBundles">24 Bundles Staged</span>
+                        </div>
+                    </div>
+                    <div class="session-hud-item">
+                        <span class="hud-item-label">Total Unit Pieces</span>
+                        <div class="hud-item-val text-emerald" id="hudPalletPieces">240 Pcs</div>
+                    </div>
+                    <div class="session-hud-actions">
+                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="if(window.sealPallet) sealPallet()" style="padding:6px 14px; font-size:0.78rem;">
+                            <i class="fas fa-shield-check"></i> Seal Pallet
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. MACOS SEGMENTED NAVIGATION TABS -->
+            <div class="camera-junction-nav-bar" style="margin-bottom:1.25rem;">
+                <div class="nav-tabs-group" role="tablist" aria-label="Palletization Navigation">
+                    <button id="pallet-tab-wb-btn" class="cam-nav-tab active" onclick="switchPalletSubTab('wb')" role="tab" aria-selected="true">
+                        <i class="fas fa-layer-group"></i> Vision Workbench
                     </button>
-                    <button type="button" class="btn-secondary" onclick="printPalletMasterLabel()" style="font-size:0.82rem; padding:7px 14px;">
-                        <i class="fas fa-print"></i> Master Label
+                    <button id="pallet-tab-3d-btn" class="cam-nav-tab" onclick="switchPalletSubTab('3d')" role="tab" aria-selected="false">
+                        <i class="fas fa-cube"></i> 3D Digital Twin
                     </button>
-                    <button type="button" class="btn-secondary" onclick="palletModule.loadPallets()" style="font-size:0.82rem; padding:7px 10px;" title="Refresh Pallets">
-                        <i class="fas fa-arrows-rotate"></i>
+                    <button id="pallet-tab-ledger-btn" class="cam-nav-tab" onclick="switchPalletSubTab('ledger')" role="tab" aria-selected="false">
+                        <i class="fas fa-table-list"></i> Pallet Ledger
+                    </button>
+                    <button id="pallet-tab-presets-btn" class="cam-nav-tab" onclick="switchPalletSubTab('presets')" role="tab" aria-selected="false">
+                        <i class="fas fa-shapes"></i> Stacking Presets
+                    </button>
+                    <button id="pallet-tab-qr-btn" class="cam-nav-tab" onclick="switchPalletSubTab('qr')" role="tab" aria-selected="false">
+                        <i class="fas fa-qrcode"></i> Master QR Studio
                     </button>
                 </div>
             </div>
 
-            <!-- UNIFIED PALLET VISION COUNTING & BUILD WORKBENCH -->
-            <div id="palletCountingWorkbench" class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem; border:1px solid rgba(2,132,199,0.35); background:linear-gradient(180deg, #0f172a 0%, #0b1120 100%); color: var(--text-main); border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+            <!-- TAB 1: VISION WORKBENCH (PRESERVED COMPLETE WORKBENCH) -->
+            <div id="pallet-tab-wb-content" class="pallet-tab-panel active">
+                id="palletCountingWorkbench" class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem; border:1px solid rgba(2,132,199,0.35); background:linear-gradient(180deg, #0f172a 0%, #0b1120 100%); color: var(--text-main); border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
                 
                 <!-- 1. Header & Active Pallet Session Bar -->
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:1.25rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:1rem;">
@@ -6993,7 +7050,49 @@ window.switchSubTab = switchSubTab;
                     <!-- RIGHT COLUMN: Results, Automated Geometry Recognition & 3D Digital Twin -->
                     <div style="display:flex; flex-direction:column; gap:12px;">
                         
-                        <!-- 1. Proposed Quantity Hero Card -->
+                        
+                <!-- MACOS STUDIO FROSTED RADIAL GAUGES HUD -->
+                <div class="pallet-radial-gauges-card" style="margin-bottom:1rem; background:rgba(15,23,42,0.65); border:1px solid rgba(56,189,248,0.25); border-radius:12px; padding:12px 14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-size:0.75rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px;">
+                            <i class="fas fa-gauge text-accent"></i> Transport Payload Envelope
+                        </span>
+                        <span class="badge sent" style="font-size:0.68rem; padding:2px 6px;">GS1 COMPLIANT</span>
+                    </div>
+                    <div class="radial-gauges-row" style="display:flex; gap:16px; justify-content:space-around; align-items:center;">
+                        <!-- Weight Gauge -->
+                        <div class="radial-gauge-item" style="display:flex; align-items:center; gap:10px;">
+                            <div class="radial-gauge-svg-wrap" style="position:relative; width:56px; height:56px;">
+                                <svg viewBox="0 0 80 80" style="width:100%; height:100%; transform:rotate(-90deg);">
+                                    <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="7"></circle>
+                                    <circle cx="40" cy="40" r="32" fill="none" stroke="#38bdf8" stroke-width="7" stroke-dasharray="201" stroke-dashoffset="44" stroke-linecap="round" id="radialWeightRing" style="transition:stroke-dashoffset 0.6s ease;"></circle>
+                                </svg>
+                                <span style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:0.75rem; font-weight:800; color:#38bdf8;" id="radialWeightVal">78%</span>
+                            </div>
+                            <div>
+                                <div style="font-size:0.78rem; font-weight:700; color:var(--text-main);">Weight Limit</div>
+                                <div style="font-size:0.7rem; color:var(--text-muted);" id="radialWeightSub">624 / 800 kg</div>
+                            </div>
+                        </div>
+
+                        <!-- Cube Volume Gauge -->
+                        <div class="radial-gauge-item" style="display:flex; align-items:center; gap:10px;">
+                            <div class="radial-gauge-svg-wrap" style="position:relative; width:56px; height:56px;">
+                                <svg viewBox="0 0 80 80" style="width:100%; height:100%; transform:rotate(-90deg);">
+                                    <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="7"></circle>
+                                    <circle cx="40" cy="40" r="32" fill="none" stroke="#10b981" stroke-width="7" stroke-dasharray="201" stroke-dashoffset="30" stroke-linecap="round" id="radialVolumeRing" style="transition:stroke-dashoffset 0.6s ease;"></circle>
+                                </svg>
+                                <span style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-size:0.75rem; font-weight:800; color:#10b981;" id="radialVolumeVal">85%</span>
+                            </div>
+                            <div>
+                                <div style="font-size:0.78rem; font-weight:700; color:var(--text-main);">Cube Volume</div>
+                                <div style="font-size:0.7rem; color:var(--text-muted);" id="radialVolumeSub">1.70 / 2.00 m³</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 1. Proposed Quantity Hero Card -->
                         <div style="background:#1e293b; border-radius:10px; border:1px solid #334155; padding:12px 16px;">
                             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                                 <div>
@@ -7172,7 +7271,49 @@ window.switchSubTab = switchSubTab;
 
             </div>
 
-            <!-- Pallet Registry Ledger Table -->
+            
+            </div>
+
+            <!-- TAB 2: 3D DIGITAL TWIN STUDIO -->
+            <div id="pallet-tab-3d-content" class="pallet-tab-panel" style="display:none;">
+                <div class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; gap:10px;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.15rem; color:var(--text-main);"><i class="fas fa-cube text-accent"></i> Full-Screen 3D Pallet Digital Twin Studio</h3>
+                            <p style="margin:4px 0 0; color:var(--text-muted); font-size:0.85rem;">Interactive 3-axis rotation, layer separation, and spatial bounding box verification.</p>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" class="btn-secondary" onclick="if(window.toggleWbExplode3D) toggleWbExplode3D()" style="font-size:0.8rem; padding:6px 12px;">
+                                <i class="fas fa-arrows-split-up-and-left"></i> Explode Layers
+                            </button>
+                            <button type="button" class="btn-secondary" onclick="if(window.toggleWbXRay3D) toggleWbXRay3D()" style="font-size:0.8rem; padding:6px 12px;">
+                                <i class="fas fa-border-none"></i> Wireframe X-Ray
+                            </button>
+                            <button type="button" class="btn-primary" onclick="if(window.resetWb3DCamera) resetWb3DCamera()" style="font-size:0.8rem; padding:6px 12px;">
+                                <i class="fas fa-rotate"></i> Reset Camera
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Interactive Studio 3D Canvas Viewport -->
+                    <div style="position:relative; width:100%; height:520px; background:linear-gradient(180deg, #0f172a 0%, #070d18 100%); border:1px solid rgba(56,189,248,0.25); border-radius:12px; overflow:hidden; display:flex; align-items:center; justify-content:center;" id="palletStudio3DStage">
+                        <div style="text-align:center; padding:2rem;">
+                            <i class="fas fa-cube" style="font-size:3.5rem; color:#38bdf8; opacity:0.8; margin-bottom:12px; display:block;"></i>
+                            <h4 style="margin:0 0 6px; color:#ffffff; font-size:1.1rem;">Live 3D Euro-Pallet Digital Twin</h4>
+                            <p style="margin:0 auto 1.5rem; color:#94a3b8; font-size:0.85rem; max-width:480px;">Synchronized with the active vision workbench. Change layers or execute an optical count to render localized physical bundle stacks.</p>
+                            <div style="display:inline-flex; gap:8px;">
+                                <button type="button" class="btn-primary" onclick="switchPalletSubTab('wb')" style="padding:6px 14px; font-size:0.8rem;">
+                                    <i class="fas fa-camera"></i> Open Active Vision Workbench
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: PALLET REGISTRY LEDGER (PRESERVED TABLE) -->
+            <div id="pallet-tab-ledger-content" class="pallet-tab-panel" style="display:none;">
+                <!-- Pallet Registry Ledger Table -->
             <div class="glass-panel" style="padding:1.5rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                     <div>
@@ -7251,6 +7392,107 @@ window.switchSubTab = switchSubTab;
         setTimeout(() => { if(document.getElementById('manifestLinesContainer')) window.addManifestLine(); }, 1000);
     </script>
 
+
+    
+            </div>
+
+            <!-- TAB 4: STACKING PRESETS & BLUEPRINTS -->
+            <div id="pallet-tab-presets-content" class="pallet-tab-panel" style="display:none;">
+                <div class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.15rem; color:var(--text-main);"><i class="fas fa-shapes text-accent"></i> Industrial Stacking Blueprint Presets</h3>
+                            <p style="margin:4px 0 0; color:var(--text-muted); font-size:0.85rem;">Pre-configured warehouse layer footprints, interlocking patterns, and overhang tolerances.</p>
+                        </div>
+                        <button type="button" class="btn-primary" onclick="openIndustryBlueprintModal()">
+                            <i class="fas fa-plus"></i> Add Custom Blueprint
+                        </button>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+                        <!-- Preset 1: Euro-Pallet Standard -->
+                        <div class="hero-kpi-card" style="flex-direction:column; align-items:flex-start; padding:16px;">
+                            <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:8px;">
+                                <strong style="color:var(--text-main); font-size:0.95rem;">Euro-Pallet (EUR 1)</strong>
+                                <span class="badge sent">STANDARD</span>
+                            </div>
+                            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">1200 &times; 800 mm &bull; 4 Layers &bull; 24 Bundles / Pallet</div>
+                            <div style="display:flex; justify-content:space-between; width:100%; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border-light); padding-top:8px;">
+                                <span>Max Payload: <strong>800 kg</strong></span>
+                                <span>Stability: <strong style="color:#10b981;">Interlocked 99%</strong></span>
+                            </div>
+                        </div>
+
+                        <!-- Preset 2: Industrial Heavy Pallet -->
+                        <div class="hero-kpi-card" style="flex-direction:column; align-items:flex-start; padding:16px;">
+                            <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:8px;">
+                                <strong style="color:var(--text-main); font-size:0.95rem;">Industrial Pallet (EUR 2)</strong>
+                                <span class="badge" style="background:rgba(2,132,199,0.15); color:#0284c7; border:1px solid rgba(2,132,199,0.3);">HEAVY DUTY</span>
+                            </div>
+                            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">1200 &times; 1000 mm &bull; 5 Layers &bull; 30 Bundles / Pallet</div>
+                            <div style="display:flex; justify-content:space-between; width:100%; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border-light); padding-top:8px;">
+                                <span>Max Payload: <strong>1200 kg</strong></span>
+                                <span>Stability: <strong style="color:#10b981;">Interlocked 98%</strong></span>
+                            </div>
+                        </div>
+
+                        <!-- Preset 3: US GMA Spec -->
+                        <div class="hero-kpi-card" style="flex-direction:column; align-items:flex-start; padding:16px;">
+                            <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:8px;">
+                                <strong style="color:var(--text-main); font-size:0.95rem;">US Standard (GMA Spec)</strong>
+                                <span class="badge pending">EXPORT</span>
+                            </div>
+                            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">48 &times; 40 in (1219 &times; 1016 mm) &bull; 4 Layers</div>
+                            <div style="display:flex; justify-content:space-between; width:100%; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border-light); padding-top:8px;">
+                                <span>Max Payload: <strong>1000 kg</strong></span>
+                                <span>Stability: <strong style="color:#10b981;">Columnar 95%</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: GS1 MASTER QR LABEL STUDIO -->
+            <div id="pallet-tab-qr-content" class="pallet-tab-panel" style="display:none;">
+                <div class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                        <div>
+                            <h3 style="margin:0; font-size:1.15rem; color:var(--text-main);"><i class="fas fa-qrcode text-accent"></i> Master Pallet GS1 Label Studio</h3>
+                            <p style="margin:4px 0 0; color:var(--text-muted); font-size:0.85rem;">Authoritative barcode and GS1-128 shipping container label verification.</p>
+                        </div>
+                        <button type="button" class="btn-primary" onclick="printPalletMasterLabel()">
+                            <i class="fas fa-print"></i> Print Active Master Label
+                        </button>
+                    </div>
+
+                    <!-- Label Preview Box -->
+                    <div style="max-width:540px; margin:0 auto; background:#ffffff; color:#0f172a; padding:2rem; border-radius:12px; border:2px solid #0f172a; box-shadow:0 12px 36px rgba(0,0,0,0.25); font-family:'Courier New', monospace;">
+                        <div style="display:flex; justify-content:space-between; border-bottom:2px solid #0f172a; padding-bottom:8px; margin-bottom:12px;">
+                            <div>
+                                <h3 style="margin:0; font-size:1.25rem; font-weight:900; letter-spacing:1px;">WARLOG SSCC MASTER</h3>
+                                <div style="font-size:0.75rem;">SERIAL SHIPPING CONTAINER CODE</div>
+                            </div>
+                            <div style="font-size:1.6rem; color:#0f172a;">
+                                <i class="fas fa-qrcode"></i>
+                            </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:0.85rem; margin-bottom:14px;">
+                            <div>PALLET ID: <strong id="qrPreviewPalletId">PLT-2026-0894</strong></div>
+                            <div>BATCH NO: <strong>BT-8821-X</strong></div>
+                            <div>TOTAL CARTONS: <strong>24 BUNDLES</strong></div>
+                            <div>TOTAL PIECES: <strong>240 PCS</strong></div>
+                        </div>
+
+                        <div style="border-top:2px solid #0f172a; padding-top:12px; text-align:center;">
+                            <div style="font-size:2rem; font-weight:900; letter-spacing:4px; margin-bottom:4px;">||| | ||||| || |||||||| |||</div>
+                            <div style="font-size:0.75rem; letter-spacing:2px;">(00) 0 0812345 678901234 5</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
 
     <!-- Inspect Bin Modal -->
     <div id="inspectBinModal" class="modal-overlay" onclick="if(event.target===this) this.style.display='none'">
