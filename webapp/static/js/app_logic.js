@@ -3262,7 +3262,7 @@
         // AI Inbound Operations Automation Engine
         // ==========================================
         window.inboundLogEntries = [
-            { time: new Date().toLocaleTimeString(), tag: 'STARTUP', color: '#6366f1', text: 'Matrix Engine Initialized. Listening for YOLO streams on Gates and Docks...' }
+            { time: new Date().toLocaleTimeString(), tag: 'STARTUP', color: '#6366f1', text: 'Matrix Engine Initialized. Listening for Vision streams on Gates and Docks...' }
         ];
 
         window.addInboundLog = function(tag, text, color = '#10b981') {
@@ -3571,7 +3571,7 @@
                 const data = await res.json();
                 if (data.success) {
                     window.addInboundLog('DOCK-DISPATCH', data.message, '#10b981');
-                    window.addInboundLog('AI-YOLO', 'Connecting Dock 01 Overhead Camera CAM-DOCK-01. Live bundle clusters active.', '#38bdf8');
+                    window.addInboundLog('AI-VISION', 'Connecting Dock 01 Overhead Camera CAM-DOCK-01. Live bundle clusters active.', '#38bdf8');
                     window.addInboundLog('PUTAWAY', 'Spatial Putaway Engine recommends slot BIN-A1 (Zone A).', '#a855f7');
                     await refreshInboundAutomation();
                     if (typeof fetchGatePasses === 'function') fetchGatePasses();
@@ -5133,138 +5133,167 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
         // =====================================================================
         // W.A.R.L.O.G. THEME CONTROLLER & TELEMETRY CHART INITIALIZATION
         // =====================================================================
-        // SKANTHA WMS INTELLIGENCE: GLOBAL THEME & TELEMETRY CHART
+        // W.A.R.L.O.G. 4-THEME MATRIX & REAL-TIME TELEMETRY ENGINE
         // =====================================================================
 
-        function toggleGlobalTheme() {
-            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            setGlobalTheme(newTheme);
-        }
-        window.toggleGlobalTheme = toggleGlobalTheme;
-
-        function setGlobalTheme(theme) {
-            if (theme === 'light') {
-                document.documentElement.setAttribute('data-theme', 'light');
-                document.body.setAttribute('data-theme', 'light');
-                try {
-                    localStorage.setItem('skantha_theme', 'light');
-                    localStorage.setItem('warlog_theme', 'light');
-                } catch(e) {}
-            } else {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                document.body.setAttribute('data-theme', 'dark');
-                try {
-                    localStorage.setItem('skantha_theme', 'dark');
-                    localStorage.setItem('warlog_theme', 'dark');
-                } catch(e) {}
+        function toggleThemeDropdown(e) {
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
             }
-            if (typeof updateThemeButtons === 'function') {
-                updateThemeButtons(theme);
-            }
-            updateTelemetryChartTheme(theme);
+            const drop = document.getElementById('themePaletteDropdown');
+            if (!drop) return;
+            drop.style.display = (drop.style.display === 'none' || !drop.style.display) ? 'flex' : 'none';
         }
-        window.setGlobalTheme = setGlobalTheme;
-        window.setTheme = setGlobalTheme;
+        window.toggleThemeDropdown = toggleThemeDropdown;
 
-        // Sync User Greeting dynamically
-        function syncUserGreeting() {
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            const wrap = document.getElementById('topbarThemeWrap');
+            const drop = document.getElementById('themePaletteDropdown');
+            if (drop && wrap && !wrap.contains(e.target)) {
+                drop.style.display = 'none';
+            }
+        });
+
+        function applyAppTheme(themeName) {
+            const validThemes = ['dark', 'light', 'ocean', 'amber'];
+            if (!validThemes.includes(themeName)) themeName = 'dark';
+
+            document.documentElement.setAttribute('data-theme', themeName);
+            if (document.body) {
+                document.body.setAttribute('data-theme', themeName);
+            }
+
             try {
-                const userEl = document.getElementById('heroUserNameDisplay');
-                if (userEl && window.currentUser && window.currentUser.username) {
-                    const uname = window.currentUser.username;
-                    userEl.textContent = uname.charAt(0).toUpperCase() + uname.slice(1);
-                }
+                localStorage.setItem('warlog_theme', themeName);
+                localStorage.setItem('skantha_theme', themeName);
             } catch(e) {}
-        }
 
-        // Initialize Theme from localStorage (Defaults to dark for high-tech aesthetic)
-        (function initTheme() {
-            const saved = localStorage.getItem('skantha_theme') || localStorage.getItem('warlog_theme') || 'dark';
-            if (saved === 'light') {
-                document.documentElement.setAttribute('data-theme', 'light');
-                document.body.setAttribute('data-theme', 'light');
-            } else {
-                document.documentElement.setAttribute('data-theme', 'dark');
-                document.body.setAttribute('data-theme', 'dark');
+            // Update compact button label
+            const labelEl = document.getElementById('activeThemeLabel');
+            if (labelEl) {
+                labelEl.textContent = themeName.charAt(0).toUpperCase() + themeName.slice(1);
             }
+
+            // Close dropdown
+            const drop = document.getElementById('themePaletteDropdown');
+            if (drop) drop.style.display = 'none';
+
+            // Re-color Chart.js
+            updateTelemetryChartTheme(themeName);
+        }
+        window.applyAppTheme = applyAppTheme;
+        window.setTheme = applyAppTheme;
+        window.setGlobalTheme = applyAppTheme;
+
+        // Dynamic Username Greeting
+        function syncUserGreeting() {
+            let uname = '';
+            if (window.currentUser && window.currentUser.username) {
+                uname = window.currentUser.username;
+            } else {
+                const el = document.getElementById('topbarUsername');
+                if (el && el.textContent.trim()) {
+                    uname = el.textContent.trim().split(' ')[0];
+                }
+            }
+            if (!uname) uname = 'Admin';
+            uname = uname.charAt(0).toUpperCase() + uname.slice(1);
+            const greetingEl = document.getElementById('heroUserNameDisplay');
+            if (greetingEl) {
+                greetingEl.textContent = uname;
+            }
+        }
+        window.syncUserGreeting = syncUserGreeting;
+
+        // Initialize Theme from localStorage on startup
+        (function initSavedTheme() {
+            const saved = localStorage.getItem('warlog_theme') || localStorage.getItem('skantha_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', saved);
+            if (document.body) document.body.setAttribute('data-theme', saved);
+            const labelEl = document.getElementById('activeThemeLabel');
+            if (labelEl) labelEl.textContent = saved.charAt(0).toUpperCase() + saved.slice(1);
         })();
 
-        // Telemetry Dual-Spline Area Chart
+        // -------------------------------------------------------------
+        // REAL-TIME TELEMETRY CHART (Connected to Live Database API)
+        // -------------------------------------------------------------
         window.telemetryChartInstance = null;
-        function initWarlogTelemetryChart() {
+
+        async function initWarlogTelemetryChart() {
             const ctx = document.getElementById('warlogTelemetryCanvas');
             if (!ctx || typeof Chart === 'undefined') return;
 
-            const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-            const gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(148, 163, 184, 0.15)';
-            const textColor = isDark ? '#94a3b8' : '#64748b';
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const isLight = (currentTheme === 'light');
+            const gridColor = isLight ? 'rgba(148, 163, 184, 0.15)' : 'rgba(255, 255, 255, 0.06)';
+            const textColor = isLight ? '#64748b' : '#94a3b8';
 
-            // Create gradients
             const chartCtx = ctx.getContext('2d');
+            let blueColor = '#0284c7';
+            let purpleColor = '#8b5cf6';
+            if (currentTheme === 'ocean') { blueColor = '#00f0ff'; purpleColor = '#38bdf8'; }
+            if (currentTheme === 'amber') { blueColor = '#f59e0b'; purpleColor = '#fbbf24'; }
+
             const blueGrad = chartCtx.createLinearGradient(0, 0, 0, 200);
-            blueGrad.addColorStop(0, isDark ? 'rgba(2, 132, 199, 0.35)' : 'rgba(2, 132, 199, 0.25)');
+            blueGrad.addColorStop(0, 'rgba(2, 132, 199, 0.35)');
             blueGrad.addColorStop(1, 'rgba(2, 132, 199, 0.01)');
 
             const purpleGrad = chartCtx.createLinearGradient(0, 0, 0, 200);
-            purpleGrad.addColorStop(0, isDark ? 'rgba(139, 92, 246, 0.35)' : 'rgba(139, 92, 246, 0.25)');
+            purpleGrad.addColorStop(0, 'rgba(139, 92, 246, 0.35)');
             purpleGrad.addColorStop(1, 'rgba(139, 92, 246, 0.01)');
 
-            const data = {
-                labels: ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', '12AM'],
-                datasets: [
-                    {
-                        label: 'Movement Events',
-                        data: [55, 78, 62, 98, 128, 92, 105],
-                        borderColor: '#0284c7',
-                        backgroundColor: blueGrad,
-                        fill: true,
-                        tension: 0.42,
-                        pointBackgroundColor: '#0284c7',
-                        pointBorderColor: '#ffffff',
-                        pointBorderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 6
-                    },
-                    {
-                        label: 'AI Vision Detections',
-                        data: [32, 45, 40, 68, 90, 72, 60],
-                        borderColor: '#8b5cf6',
-                        backgroundColor: purpleGrad,
-                        fill: true,
-                        tension: 0.42,
-                        pointBackgroundColor: '#8b5cf6',
-                        pointBorderColor: '#ffffff',
-                        pointBorderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 6
-                    }
-                ]
-            };
-
+            // Initial chart shell
             const config = {
                 type: 'line',
-                data: data,
+                data: {
+                    labels: ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', 'Now'],
+                    datasets: [
+                        {
+                            label: 'Movement Events',
+                            data: [12, 18, 25, 42, 58, 38, 45],
+                            borderColor: blueColor,
+                            backgroundColor: blueGrad,
+                            fill: true,
+                            tension: 0.42,
+                            pointBackgroundColor: blueColor,
+                            pointBorderColor: '#ffffff',
+                            pointBorderWidth: 2,
+                            pointRadius: 3,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Vision Detections',
+                            data: [8, 12, 16, 28, 40, 26, 32],
+                            borderColor: purpleColor,
+                            backgroundColor: purpleGrad,
+                            fill: true,
+                            tension: 0.42,
+                            pointBackgroundColor: purpleColor,
+                            pointBorderColor: '#ffffff',
+                            pointBorderWidth: 2,
+                            pointRadius: 3,
+                            pointHoverRadius: 6
+                        }
+                    ]
+                },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false
-                    },
+                    interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-                            titleColor: isDark ? '#ffffff' : '#0f172a',
-                            bodyColor: isDark ? '#cbd5e1' : '#334155',
-                            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                            backgroundColor: isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.95)',
+                            titleColor: isLight ? '#0f172a' : '#ffffff',
+                            bodyColor: isLight ? '#334155' : '#cbd5e1',
+                            borderColor: isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)',
                             borderWidth: 1,
                             titleFont: { size: 12, weight: 'bold' },
                             bodyFont: { size: 11 },
                             padding: 10,
-                            cornerRadius: 8,
-                            boxPadding: 4
+                            cornerRadius: 8
                         }
                     },
                     scales: {
@@ -5274,64 +5303,93 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                         },
                         y: {
                             beginAtZero: true,
-                            max: 160,
+                            max: 100,
                             grid: { color: gridColor },
-                            ticks: {
-                                stepSize: 50,
-                                color: textColor,
-                                font: { size: 10, weight: '600' }
-                            }
+                            ticks: { stepSize: 25, color: textColor, font: { size: 10, weight: '600' } }
                         }
                     }
                 }
             };
 
-            if (window.telemetryChartInstance) {
-                window.telemetryChartInstance.destroy();
-            }
+            if (window.telemetryChartInstance) window.telemetryChartInstance.destroy();
             window.telemetryChartInstance = new Chart(ctx, config);
+
+            // Fetch live real telemetry from server
+            await fetchLiveTelemetryData();
+        }
+
+        async function fetchLiveTelemetryData() {
+            if (!window.telemetryChartInstance) return;
+            const range = document.getElementById('telemetryTimeRange')?.value || '24h';
+            try {
+                const res = await fetch(`/api/telemetry/live?range=${range}`);
+                const data = await res.json();
+                if (data.success) {
+                    window.telemetryChartInstance.data.labels = data.labels;
+                    window.telemetryChartInstance.data.datasets[0].data = data.movement_events;
+                    window.telemetryChartInstance.data.datasets[1].data = data.vision_detections;
+                    window.telemetryChartInstance.options.scales.y.max = data.y_max || 100;
+                    window.telemetryChartInstance.update();
+
+                    // Update live activity feed in Col 3
+                    renderLiveFeedData(data.feed);
+
+                    // Update camera counts in hero & health
+                    if (data.camera_count) {
+                        const heroCam = document.getElementById('heroCameraCount');
+                        if (heroCam) heroCam.textContent = `${data.camera_count} / ${data.camera_count}`;
+                        const healthCam = document.getElementById('stat-cameras-online-health');
+                        if (healthCam) healthCam.textContent = `${data.camera_count} / ${data.camera_count}`;
+                    }
+                }
+            } catch(e) {
+                console.warn('Telemetry live poll notice:', e);
+            }
+        }
+        window.updateTelemetryChart = fetchLiveTelemetryData;
+
+        function renderLiveFeedData(feedItems) {
+            const feedContainer = document.getElementById('swmsActivityFeed');
+            if (!feedContainer || !Array.isArray(feedItems) || feedItems.length === 0) return;
+
+            feedContainer.innerHTML = feedItems.map(item => `
+                <div class="timeline-row">
+                    <div class="timeline-icon-badge ${item.badge_class || 'icon-badge-blue'}">
+                        <i class="${item.icon || 'fas fa-info-circle'}"></i>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">${item.title}</div>
+                        <div class="timeline-meta"><span>${item.meta}</span></div>
+                    </div>
+                </div>
+            `).join('');
         }
 
         function updateTelemetryChartTheme(themeName) {
             if (!window.telemetryChartInstance) return;
-            const isDark = themeName === 'dark';
-            const gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(148, 163, 184, 0.15)';
-            const textColor = isDark ? '#94a3b8' : '#64748b';
+            const isLight = (themeName === 'light');
+            const gridColor = isLight ? 'rgba(148, 163, 184, 0.15)' : 'rgba(255, 255, 255, 0.06)';
+            const textColor = isLight ? '#64748b' : '#94a3b8';
+
+            let blueColor = '#0284c7';
+            let purpleColor = '#8b5cf6';
+            if (themeName === 'ocean') { blueColor = '#00f0ff'; purpleColor = '#38bdf8'; }
+            if (themeName === 'amber') { blueColor = '#f59e0b'; purpleColor = '#fbbf24'; }
+
+            window.telemetryChartInstance.data.datasets[0].borderColor = blueColor;
+            window.telemetryChartInstance.data.datasets[0].pointBackgroundColor = blueColor;
+            window.telemetryChartInstance.data.datasets[1].borderColor = purpleColor;
+            window.telemetryChartInstance.data.datasets[1].pointBackgroundColor = purpleColor;
 
             window.telemetryChartInstance.options.scales.x.ticks.color = textColor;
             window.telemetryChartInstance.options.scales.y.ticks.color = textColor;
             window.telemetryChartInstance.options.scales.y.grid.color = gridColor;
-            window.telemetryChartInstance.options.plugins.tooltip.backgroundColor = isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-            window.telemetryChartInstance.options.plugins.tooltip.titleColor = isDark ? '#ffffff' : '#0f172a';
-            window.telemetryChartInstance.options.plugins.tooltip.bodyColor = isDark ? '#cbd5e1' : '#334155';
             window.telemetryChartInstance.update();
         }
 
-        function updateTelemetryChart() {
-            if (!window.telemetryChartInstance) return;
-            const range = document.getElementById('telemetryTimeRange')?.value || '24h';
-            if (range === '7d') {
-                window.telemetryChartInstance.data.labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                window.telemetryChartInstance.data.datasets[0].data = [240, 310, 280, 420, 510, 390, 460];
-                window.telemetryChartInstance.data.datasets[1].data = [150, 190, 175, 290, 380, 260, 310];
-                window.telemetryChartInstance.options.scales.y.max = 600;
-            } else if (range === '30d') {
-                window.telemetryChartInstance.data.labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
-                window.telemetryChartInstance.data.datasets[0].data = [1820, 2150, 1980, 2410];
-                window.telemetryChartInstance.data.datasets[1].data = [1120, 1420, 1310, 1690];
-                window.telemetryChartInstance.options.scales.y.max = 3000;
-            } else {
-                window.telemetryChartInstance.data.labels = ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', '12AM'];
-                window.telemetryChartInstance.data.datasets[0].data = [55, 78, 62, 98, 128, 92, 105];
-                window.telemetryChartInstance.data.datasets[1].data = [32, 45, 40, 68, 90, 72, 60];
-                window.telemetryChartInstance.options.scales.y.max = 160;
-            }
-            window.telemetryChartInstance.update();
-        }
-        window.updateTelemetryChart = updateTelemetryChart;
-
-        // Auto initialize on DOM ready
+        // Auto initialize on DOM ready and poll live telemetry every 10s
         document.addEventListener('DOMContentLoaded', function() {
             syncUserGreeting();
             setTimeout(initWarlogTelemetryChart, 350);
+            setInterval(fetchLiveTelemetryData, 10000);
         });

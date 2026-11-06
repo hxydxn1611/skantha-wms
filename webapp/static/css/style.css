@@ -3263,3 +3263,266 @@ body {
 :root:not([data-theme="dark"]) .health-item-val {
     color: #0f172a !important;
 }
+
+/* ==========================================================================
+   4-THEME PALETTES: DARK, LIGHT, OCEAN, AMBER (COHESIVE ENTERPRISE SYSTEM)
+   ========================================================================== */
+
+/* Topbar 4-Theme Dropdown */
+.topbar-theme-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.topbar-theme-btn-compact {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #f8fafc;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.topbar-theme-btn-compact:hover {
+    background: rgba(56, 189, 248, 0.2);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: #38bdf8;
+}
+.theme-palette-icon {
+    font-size: 0.85rem;
+    color: #38bdf8;
+}
+.theme-caret-icon {
+    font-size: 0.65rem;
+    opacity: 0.7;
+}
+
+.theme-palette-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 220px;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 6px;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.theme-palette-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    color: #f8fafc;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.18s ease;
+    width: 100%;
+}
+.theme-palette-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.theme-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.swatch-dark { background: linear-gradient(135deg, #0a0e1a, #0284c7); }
+.swatch-light { background: linear-gradient(135deg, #ffffff, #0284c7); border-color: #cbd5e1; }
+.swatch-ocean { background: linear-gradient(135deg, #06152d, #00f0ff); }
+.swatch-amber { background: linear-gradient(135deg, #14120e, #f59e0b); }
+
+.theme-info {
+    display: flex;
+    flex-direction: column;
+}
+.theme-info strong {
+    font-size: 0.8rem;
+    line-height: 1.1;
+}
+.theme-info span {
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
+
+/* --- 1. DARK THEME (Obsidian Cyberpunk) --- */
+[data-theme="dark"] {
+    --bg-main: #0a0e1a;
+    --panel-bg: #111827;
+    --panel-subtle: #1e293b;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --border-light: rgba(255, 255, 255, 0.08);
+    --accent: #38bdf8;
+}
+
+/* --- 2. LIGHT THEME (Minimalist Clean) --- */
+[data-theme="light"], :root:not([data-theme="dark"]):not([data-theme="ocean"]):not([data-theme="amber"]) {
+    --bg-main: #f8fafc;
+    --panel-bg: #ffffff;
+    --panel-subtle: #f1f5f9;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --border-light: #e2e8f0;
+    --accent: #0284c7;
+}
+[data-theme="light"] .topbar-theme-btn-compact,
+:root:not([data-theme="dark"]):not([data-theme="ocean"]):not([data-theme="amber"]) .topbar-theme-btn-compact {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #0f172a;
+}
+[data-theme="light"] .theme-palette-dropdown,
+:root:not([data-theme="dark"]):not([data-theme="ocean"]):not([data-theme="amber"]) .theme-palette-dropdown {
+    background: #ffffff;
+    border-color: #e2e8f0;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.12);
+}
+[data-theme="light"] .theme-palette-item,
+:root:not([data-theme="dark"]):not([data-theme="ocean"]):not([data-theme="amber"]) .theme-palette-item {
+    color: #0f172a;
+}
+[data-theme="light"] .theme-palette-item:hover,
+:root:not([data-theme="dark"]):not([data-theme="ocean"]):not([data-theme="amber"]) .theme-palette-item:hover {
+    background: #f1f5f9;
+}
+
+/* --- 3. OCEAN THEME (Deep Marine Aqua) --- */
+[data-theme="ocean"] {
+    --bg-main: #06152d;
+    --panel-bg: #0c2340;
+    --panel-subtle: #123055;
+    --text-main: #f0fdfa;
+    --text-muted: #7dd3fc;
+    --border-light: rgba(0, 240, 255, 0.15);
+    --accent: #00f0ff;
+}
+[data-theme="ocean"] body {
+    background: #06152d !important;
+    color: #f0fdfa !important;
+}
+[data-theme="ocean"] .dashboard-topbar {
+    background: #081d3d !important;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.2) !important;
+    color: #f0fdfa !important;
+    box-shadow: 0 4px 20px rgba(0, 240, 255, 0.12) !important;
+}
+[data-theme="ocean"] #main-header {
+    background: #081d3d !important;
+    border-right: 1px solid rgba(0, 240, 255, 0.15) !important;
+}
+[data-theme="ocean"] .topbar-warlog-title {
+    color: #00f0ff !important;
+    text-shadow: 0 0 14px rgba(0, 240, 255, 0.6) !important;
+}
+[data-theme="ocean"] .topbar-facility-selector {
+    background: rgba(0, 240, 255, 0.08) !important;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+    color: #00f0ff !important;
+}
+[data-theme="ocean"] #activeFacilityNameDisplay {
+    color: #f0fdfa !important;
+}
+[data-theme="ocean"] .topbar-search-box input {
+    background: #0c2340 !important;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+    color: #f0fdfa !important;
+}
+[data-theme="ocean"] .swms-kpi-card,
+[data-theme="ocean"] .swms-card,
+[data-theme="ocean"] .glass-panel {
+    background: rgba(12, 35, 64, 0.85) !important;
+    border: 1px solid rgba(0, 240, 255, 0.15) !important;
+    color: #f0fdfa !important;
+    box-shadow: 0 4px 20px rgba(6, 21, 45, 0.4) !important;
+}
+[data-theme="ocean"] .swms-hero-banner {
+    background-color: #081d3d !important;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+}
+[data-theme="ocean"] .hero-banner-inner {
+    background: linear-gradient(90deg, #06152d 0%, rgba(6, 21, 45, 0.94) 45%, rgba(6, 21, 45, 0.6) 75%, rgba(6, 21, 45, 0.15) 100%) !important;
+}
+[data-theme="ocean"] .topbar-user-name { color: #f0fdfa !important; }
+[data-theme="ocean"] .topbar-company-name { color: #7dd3fc !important; }
+[data-theme="ocean"] .theme-palette-dropdown {
+    background: #0c2340 !important;
+    border-color: rgba(0, 240, 255, 0.25) !important;
+}
+
+/* --- 4. AMBER THEME (Titanium Gold) --- */
+[data-theme="amber"] {
+    --bg-main: #14120e;
+    --panel-bg: #1f1a14;
+    --panel-subtle: #2d261d;
+    --text-main: #fef3c7;
+    --text-muted: #d97706;
+    --border-light: rgba(245, 158, 11, 0.18);
+    --accent: #f59e0b;
+}
+[data-theme="amber"] body {
+    background: #14120e !important;
+    color: #fef3c7 !important;
+}
+[data-theme="amber"] .dashboard-topbar {
+    background: #1a1611 !important;
+    border-bottom: 1px solid rgba(245, 158, 11, 0.2) !important;
+    color: #fef3c7 !important;
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.1) !important;
+}
+[data-theme="amber"] #main-header {
+    background: #1a1611 !important;
+    border-right: 1px solid rgba(245, 158, 11, 0.15) !important;
+}
+[data-theme="amber"] .topbar-warlog-title {
+    color: #fbbf24 !important;
+    text-shadow: 0 0 14px rgba(245, 158, 11, 0.6) !important;
+}
+[data-theme="amber"] .topbar-facility-selector {
+    background: rgba(245, 158, 11, 0.08) !important;
+    border: 1px solid rgba(245, 158, 11, 0.2) !important;
+    color: #fbbf24 !important;
+}
+[data-theme="amber"] #activeFacilityNameDisplay {
+    color: #fef3c7 !important;
+}
+[data-theme="amber"] .topbar-search-box input {
+    background: #1f1a14 !important;
+    border: 1px solid rgba(245, 158, 11, 0.2) !important;
+    color: #fef3c7 !important;
+}
+[data-theme="amber"] .swms-kpi-card,
+[data-theme="amber"] .swms-card,
+[data-theme="amber"] .glass-panel {
+    background: rgba(31, 26, 20, 0.88) !important;
+    border: 1px solid rgba(245, 158, 11, 0.18) !important;
+    color: #fef3c7 !important;
+    box-shadow: 0 4px 20px rgba(20, 18, 14, 0.4) !important;
+}
+[data-theme="amber"] .swms-hero-banner {
+    background-color: #1a1611 !important;
+    border: 1px solid rgba(245, 158, 11, 0.2) !important;
+}
+[data-theme="amber"] .hero-banner-inner {
+    background: linear-gradient(90deg, #14120e 0%, rgba(20, 18, 14, 0.94) 45%, rgba(20, 18, 14, 0.6) 75%, rgba(20, 18, 14, 0.15) 100%) !important;
+}
+[data-theme="amber"] .topbar-user-name { color: #fef3c7 !important; }
+[data-theme="amber"] .topbar-company-name { color: #d97706 !important; }
+[data-theme="amber"] .theme-palette-dropdown {
+    background: #1f1a14 !important;
+    border-color: rgba(245, 158, 11, 0.25) !important;
+}
