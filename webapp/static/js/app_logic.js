@@ -2647,103 +2647,136 @@
                 const hasBin = !!cam.bin_id;
                 const isAutoSync = window.autoSyncCameras && window.autoSyncCameras.has(cam.id);
                 
-                // Update Main Grid
+                // Update Main Grid (macOS Vision Window)
                 let card = document.getElementById(`cam-${cam.id}`);
                 if (!card && grid) {
                     card = document.createElement('div');
-                    card.className = 'glass-panel';
-                    card.style.margin = '0';
-                    card.style.height = '100%';
-                    card.style.display = 'flex';
-                    card.style.flexDirection = 'column';
+                    card.className = 'macos-cam-card glass-panel';
                     card.id = `cam-${cam.id}`;
                     grid.appendChild(card);
                 }
 
                 if (card) {
                     const isGate = !!cam.is_gate_camera;
-                    const latency = cam.inference_latency_ms ? `${cam.inference_latency_ms.toFixed(1)}ms` : '18.4ms';
+                    const isOnline = cam.status === 'Online' && (cam.is_live || cam.fps > 0 || (cam.url && cam.url.trim() !== ''));
+                    const latency = cam.inference_latency_ms ? `${cam.inference_latency_ms.toFixed(1)}ms` : (isOnline ? '14.2ms' : '0.0ms');
                     const netCount = cam.net_stock_count !== undefined ? cam.net_stock_count : pileCount;
 
                     const headerHtml = `
-                        <strong style="font-size:0.95rem; color:var(--primary-navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${cam.name}">${cam.name}</strong>
-                        <div style="display:flex; gap:4px; align-items:center;">
-                            ${isGate ? '<span class="badge" style="background:rgba(234,179,8,0.18); color:#eab308; border:1px solid rgba(234,179,8,0.4); padding:2px 6px; font-size:0.65rem; font-weight:700;">🛡️ GATE ANPR</span>' : ''}
-                            ${cam.type === 'Device Camera' ? '<span class="badge pulse-badge" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; padding:2px 4px; font-size:0.6rem;">📲</span>' : ''}
+                        <div class="macos-window-header-left">
+                            <div class="macos-traffic-dots">
+                                <span class="macos-dot macos-dot-red" title="Camera ID: ${escapeHtml(cam.id)}"></span>
+                                <span class="macos-dot macos-dot-yellow" title="${cam.is_frozen ? 'Status: Frozen Frame' : 'Status: Ready'}"></span>
+                                <span class="macos-dot macos-dot-green ${isOnline ? 'pulse-green' : ''}" title="${isOnline ? 'Status: Online & Ingesting' : 'Status: Offline'}"></span>
+                            </div>
+                            <strong class="macos-cam-title" title="${escapeHtml(cam.name)}">${escapeHtml(cam.name)}</strong>
+                        </div>
+                        <div class="macos-window-header-right">
+                            ${isGate ? '<span class="macos-badge badge-gate"><i class="fas fa-shield"></i> GATE ANPR</span>' : ''}
+                            ${cam.type === 'Device Camera' ? '<span class="macos-badge badge-device"><i class="fas fa-camera"></i> Device</span>' : ''}
                             ${!isGate && hasBin ? 
-                                `<span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.65rem; padding:2px 6px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')" title="Click to change Bin">📍 ${cam.bin_id}</span>` : 
-                                (!isGate ? `<button style="background:#334155; color:#94a3b8; border:none; padding:2px 6px; font-size:0.65rem; border-radius:3px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">+ Assign Bin</button>` : '')
+                                `<span class="macos-badge badge-bin" onclick="promptAssignCameraBin('${cam.id}')" title="Click to reassign Bin"><i class="fas fa-location-dot"></i> ${escapeHtml(cam.bin_id)}</span>` : 
+                                (!isGate ? `<button class="macos-btn-subtle" onclick="promptAssignCameraBin('${cam.id}')"><i class="fas fa-plus"></i> Assign Bin</button>` : '')
                             }
-                            <span class="badge pending" style="font-size:0.65rem; padding:2px 4px;">${cam.location}</span>
+                            <span class="macos-badge badge-zone"><i class="fas fa-warehouse"></i> ${escapeHtml(cam.location || 'Zone 01')}</span>
                         </div>
                     `;
 
-                    const footerHtml = `
-                        ${isGate ? `
-                        <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.85); border:1px solid rgba(234,179,8,0.3); padding:6px 8px; border-radius:4px; font-size:0.75rem;">
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <span style="color:#eab308; font-weight:700;">💳 Plate:</span>
-                                <span style="background:#000; color:#fde047; font-family:monospace; padding:1px 6px; border-radius:3px; font-weight:800; border:1px solid #ca8a04;">${cam.last_detected_plate || 'SCANNING...'}</span>
-                                ${cam.last_gate_pass_id ? `<span class="badge" style="background:#064e3b; color:#34d399; font-size:0.65rem;">🎫 ${cam.last_gate_pass_id}</span>` : ''}
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <span style="color:#94a3b8; font-size:0.65rem;">⚡ <b>${latency}</b></span>
-                                <span class="badge" style="background:#1e293b; color:#94a3b8; font-size:0.6rem;">🔒 NO INVENTORY COUNT</span>
-                            </div>
-                        </div>
-                        ` : `
-                        <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:6px; border-radius:4px; font-size:0.75rem;">
-                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                                <span style="color:#10b981; font-weight:bold;">📦 Net Stock: ${netCount}</span>
-                                <span style="color:#38bdf8; font-size:0.68rem; font-weight:600;">(+${cam.inbound_count || 0} / -${cam.outbound_count || 0})</span>
-                                <span style="color:#c084fc; font-size:0.68rem; font-weight:600;">⚡ ${latency}</span>
-                                ${cam.head_count ? `<span class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:0.65rem; padding:1px 4px;">🎯 End Heads</span>` : ''}
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <button style="background:${cam.is_frozen ? '#f59e0b' : '#334155'}; color:#fff; border:none; padding:2px 6px; font-size:0.65rem; border-radius:3px; cursor:pointer;" onclick="toggleFreezeCamera('${cam.id}')" title="Freeze frame to lock pins">
-                                    ${cam.is_frozen ? '▶️ Live' : '📸 Freeze'}
-                                </button>
-                                <label style="font-size:0.65rem; color:#cbd5e1; display:flex; align-items:center; gap:2px; cursor:pointer;" title="Continuously reflect live count into Bin inventory">
-                                    <input type="checkbox" onchange="toggleAutoSync('${cam.id}', this.checked)" ${isAutoSync ? 'checked' : ''} ${!hasBin ? 'disabled' : ''}> Auto
-                                </label>
-                                <button class="btn-primary" style="padding:3px 8px; font-size:0.65rem; background:#10b981; color:#000; font-weight:bold; border:none; border-radius:3px; cursor:pointer;" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''} title="${hasBin ? 'Sync live count directly to Bin ' + cam.bin_id : 'Assign a Bin first'}">⚡ Sync</button>
+                    const footerHtml = isGate ? `
+                        <div class="macos-dock-card-footer gate-footer">
+                            <div class="macos-plate-strip">
+                                <div class="plate-info-box">
+                                    <span class="plate-lbl"><i class="fas fa-credit-card"></i> ANPR PLATE:</span>
+                                    <span class="plate-tag">${escapeHtml(cam.last_detected_plate || 'SCANNING...')}</span>
+                                    ${cam.last_gate_pass_id ? `<span class="macos-badge badge-pass"><i class="fas fa-ticket"></i> ${escapeHtml(cam.last_gate_pass_id)}</span>` : ''}
+                                </div>
+                                <div class="plate-status-box">
+                                    <span class="meta-speed"><i class="fas fa-bolt"></i> ${latency}</span>
+                                    <span class="macos-badge badge-static"><i class="fas fa-lock"></i> NO INVENTORY COUNT</span>
+                                </div>
                             </div>
                         </div>
-                        <div style="margin-top:3px; display:flex; justify-content:space-between; align-items:center; padding:2px 4px; font-size:0.68rem; color:#94a3b8;">
-                            <span>👤 Workers: <b>${cam.active_workers_count || 0}</b></span>
-                            <span>📦 Moving Stock: <b>${cam.active_stocks_count || 0}</b></span>
-                            <button type="button" style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.45); padding:2px 7px; font-size:0.65rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="openTrainWorkerModal('${cam.id}')" title="Train & Display Worker Name on Live Feed">👷 Train Worker</button>
-                            <span style="color:#22c55e;">● Live Tracking</span>
+                    ` : `
+                        <div class="macos-dock-card-footer storage-footer">
+                            <div class="macos-stats-action-row">
+                                <div class="macos-pill-stats">
+                                    <span class="stat-pill stat-stock">
+                                        <i class="fas fa-box"></i> Net Stock: <strong>${netCount}</strong>
+                                        <small>(+${cam.inbound_count || 0} / -${cam.outbound_count || 0})</small>
+                                    </span>
+                                    <span class="stat-pill stat-speed">
+                                        <i class="fas fa-bolt"></i> ${latency}
+                                    </span>
+                                    ${cam.head_count ? `<span class="stat-pill stat-heads"><i class="fas fa-bullseye"></i> End Heads</span>` : ''}
+                                </div>
+                                <div class="macos-pill-actions">
+                                    <button class="macos-dock-btn ${cam.is_frozen ? 'active-frozen' : ''}" onclick="toggleFreezeCamera('${cam.id}')" title="Freeze frame to lock pins">
+                                        ${cam.is_frozen ? '<i class="fas fa-play"></i> Live' : '<i class="fas fa-camera"></i> Freeze'}
+                                    </button>
+                                    <label class="macos-dock-toggle" title="Continuously reflect live count into Bin inventory">
+                                        <input type="checkbox" onchange="toggleAutoSync('${cam.id}', this.checked)" ${isAutoSync ? 'checked' : ''} ${!hasBin ? 'disabled' : ''}>
+                                        <span>Auto</span>
+                                    </label>
+                                    <button class="macos-dock-btn btn-sync-highlight" onclick="syncCameraToBin('${cam.id}')" ${!hasBin ? 'disabled' : ''} title="${hasBin ? 'Sync live count directly to Bin ' + cam.bin_id : 'Assign a Bin first'}">
+                                        <i class="fas fa-bolt"></i> Sync
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="macos-meta-status-row">
+                                <div class="macos-workers-info">
+                                    <span><i class="fas fa-user-tie"></i> Workers: <strong>${cam.active_workers_count || 0}</strong></span>
+                                    <span><i class="fas fa-truck-ramp-box"></i> Moving: <strong>${cam.active_stocks_count || 0}</strong></span>
+                                </div>
+                                <div class="macos-worker-train-wrap">
+                                    <button type="button" class="macos-train-worker-btn" onclick="openTrainWorkerModal('${cam.id}')" title="Train & Display Worker Name on Live Feed">
+                                        <i class="fas fa-id-badge"></i> Train Worker
+                                    </button>
+                                    <span class="live-pulse-indicator"><span class="pulse-emerald-dot"></span> Live Tracking</span>
+                                </div>
+                            </div>
+                            ${!isGate && cam.cluster_breakdown && Object.keys(cam.cluster_breakdown).length > 0 ? `
+                            <div class="macos-cluster-breakdown">
+                                ${Object.entries(cam.cluster_breakdown).map(([grp, cnt], idx) => {
+                                    const colors = ['#e879f9', '#60a5fa', '#4ade80', '#fb923c'];
+                                    const c = colors[idx % colors.length];
+                                    return `<span class="cluster-tag" style="border-color:${c}; color:${c};">● ${grp}: <strong>${cnt}</strong></span>`;
+                                }).join('')}
+                            </div>
+                            ` : ''}
                         </div>
-                        `}
-                        ${!isGate && cam.cluster_breakdown && Object.keys(cam.cluster_breakdown).length > 0 ? `
-                        <div style="margin-top:4px; display:flex; gap:4px; flex-wrap:wrap; font-size:0.65rem;">
-                            ${Object.entries(cam.cluster_breakdown).map(([grp, cnt], idx) => {
-                                const colors = ['#e879f9', '#60a5fa', '#4ade80', '#fb923c'];
-                                const c = colors[idx % colors.length];
-                                return `<span style="background:rgba(255,255,255,0.06); padding:2px 5px; border-radius:3px; color:${c}; border:1px solid rgba(255,255,255,0.1);">● ${grp}: <b>${cnt}</b></span>`;
-                            }).join('')}
-                        </div>
-                        ` : ''}
                     `;
 
                     let hdrEl = document.getElementById(`cam-hdr-${cam.id}`);
                     let ftrEl = document.getElementById(`cam-ftr-${cam.id}`);
                     if (!hdrEl || !ftrEl) {
                         card.innerHTML = `
-                            <div id="cam-hdr-${cam.id}" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                            <div id="cam-hdr-${cam.id}" class="macos-cam-window-bar">
                                 ${headerHtml}
                             </div>
-                            <div class="video-container" style="flex:1; border-radius:4px; overflow:hidden; min-height:100px; display:flex; align-items:center; justify-content:center; background:#111; cursor:pointer; position:relative;" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
-                                <img src="/video_feed/${cam.id}" alt="Live Feed" style="width:100%; height:100%; object-fit:contain; image-rendering:-webkit-optimize-contrast;">
-                                <div style="position:absolute; top:6px; right:6px; display:flex; gap:4px; z-index:2;">
-                                    <button type="button" style="background:rgba(15,23,42,0.88); color:#34d399; border:1px solid #10b981; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openTrainWorkerModal('${cam.id}')" title="Train & Display Worker Name on Live Feed">👷 Worker ID</button>
-                                    <button type="button" style="background:rgba(15,23,42,0.85); color:#38bdf8; border:1px solid #0284c7; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Interactive PTZ & Digital Zoom">🕹️ PTZ</button>
-                                    <button type="button" style="background:rgba(15,23,42,0.85); color:#60a5fa; border:1px solid #2563eb; padding:2px 7px; font-size:0.68rem; font-weight:700; border-radius:4px; cursor:pointer;" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Cinema Fullscreen Mode">⛶</button>
+                            <div class="macos-cam-stage video-container" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
+                                <img src="/video_feed/${cam.id}" alt="Live Feed" class="macos-cam-img">
+                                <div class="macos-stage-floating-top">
+                                    <div class="macos-rec-pill">
+                                        <span class="rec-red-dot"></span>
+                                        <span>${isGate ? 'ANPR RECORDING' : 'LIVE FEED'}</span>
+                                    </div>
+                                    <div class="macos-stage-actions">
+                                        <button type="button" class="macos-stage-btn" onclick="event.stopPropagation(); openTrainWorkerModal('${cam.id}')" title="Train & Identify Worker on Live Feed">
+                                            <i class="fas fa-user-gear"></i> Worker ID
+                                        </button>
+                                        <button type="button" class="macos-stage-btn" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Interactive PTZ & Digital Zoom">
+                                            <i class="fas fa-gamepad"></i> PTZ
+                                        </button>
+                                        <button type="button" class="macos-stage-btn" onclick="event.stopPropagation(); openFullscreen('/video_feed/${cam.id}', '${cam.id}')" title="Cinema Fullscreen View">
+                                            <i class="fas fa-expand"></i>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.65); padding:2px 6px; border-radius:4px; font-size:0.62rem; pointer-events:none; color:#34d399; font-weight:700;">⚡ 60-100 FPS</div>
+                                <div class="macos-stage-floating-bottom">
+                                    <span class="macos-fps-pill"><i class="fas fa-bolt"></i> ${isOnline ? '60-100 FPS' : '0 FPS'}</span>
+                                </div>
                             </div>
-                            <div id="cam-ftr-${cam.id}">
+                            <div id="cam-ftr-${cam.id}" class="macos-cam-footer-wrap">
                                 ${footerHtml}
                             </div>
                         `;
@@ -5559,15 +5592,15 @@ window.setMatrix = function(cols) {
 
     if (cols === 'auto') {
         grid.className = 'camera-grid matrix-auto';
-        grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(360px, 1fr))';
+        grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(440px, 1fr))';
         grid.style.gridTemplateRows = 'auto';
         const btn = document.getElementById('btnMatrixAuto');
         if (btn) btn.classList.add('active');
     } else {
         const num = parseInt(cols, 10) || 2;
         grid.className = `camera-grid matrix-${num}x${num}`;
-        grid.style.gridTemplateColumns = `repeat(${num}, 1fr)`;
-        grid.style.gridTemplateRows = `repeat(${num}, 1fr)`;
+        grid.style.gridTemplateColumns = `repeat(${num}, minmax(0, 1fr))`;
+        grid.style.gridTemplateRows = 'auto';
         const btn = document.getElementById(`btnMatrix${num}`);
         if (btn) btn.classList.add('active');
     }

@@ -1911,12 +1911,13 @@
 }
 
 [data-theme="amber"] {
-    --bg-page: #1a150e;
-    --card-bg: rgba(36, 28, 17, 0.88);
-    --card-border: rgba(245, 158, 11, 0.2);
+    --bg-page: #120e0a;
+    --card-bg: rgba(28, 22, 17, 0.92);
+    --card-border: rgba(245, 158, 11, 0.28);
     --card-shadow: 0 12px 36px rgba(15, 10, 5, 0.5);
     --text-primary: #fef3c7;
-    --text-secondary: #d97706;
+    --text-secondary: #fde68a;
+    --primary-navy: #fef3c7;
 }
 
 body {
@@ -3466,12 +3467,14 @@ body {
 
 /* --- 4. AMBER THEME (Titanium Gold) --- */
 [data-theme="amber"] {
-    --bg-main: #14120e;
-    --panel-bg: #1f1a14;
-    --panel-subtle: #2d261d;
+    --primary-navy: #fef3c7 !important;
+    --bg-main: #120e0a;
+    --bg-page: #120e0a;
+    --panel-bg: #1c1611;
+    --panel-subtle: #292018;
     --text-main: #fef3c7;
-    --text-muted: #d97706;
-    --border-light: rgba(245, 158, 11, 0.18);
+    --text-muted: #fcd34d;
+    --border-light: rgba(245, 158, 11, 0.28);
     --accent: #f59e0b;
 }
 [data-theme="amber"] body {
@@ -3521,7 +3524,7 @@ body {
     background: linear-gradient(90deg, #14120e 0%, rgba(20, 18, 14, 0.94) 45%, rgba(20, 18, 14, 0.6) 75%, rgba(20, 18, 14, 0.15) 100%) !important;
 }
 [data-theme="amber"] .topbar-user-name { color: #fef3c7 !important; }
-[data-theme="amber"] .topbar-company-name { color: #d97706 !important; }
+[data-theme="amber"] .topbar-company-name { color: #fbbf24 !important; }
 [data-theme="amber"] .theme-palette-dropdown {
     background: #1f1a14 !important;
     border-color: rgba(245, 158, 11, 0.25) !important;
@@ -5036,15 +5039,17 @@ body {
     min-width: 0;
 }
 .camera-grid {
-    display: grid;
-    gap: 12px;
-    width: 100%;
-    height: 100%;
+    display: grid !important;
+    gap: 20px !important;
+    width: 100% !important;
+    height: auto !important;
+    align-content: start !important;
+    grid-auto-rows: auto !important;
 }
-.camera-grid.matrix-1x1 { grid-template-columns: 1fr; }
-.camera-grid.matrix-2x2 { grid-template-columns: repeat(2, 1fr); }
-.camera-grid.matrix-3x3 { grid-template-columns: repeat(3, 1fr); }
-.camera-grid.matrix-auto { grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+.camera-grid.matrix-1x1 { grid-template-columns: 1fr !important; }
+.camera-grid.matrix-2x2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.camera-grid.matrix-3x3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+.camera-grid.matrix-auto { grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)) !important; }
 
 /* Empty state */
 .camera-empty-state {
@@ -5976,4 +5981,761 @@ body {
     background: #1c1611 !important;
     border-color: rgba(245, 158, 11, 0.28) !important;
     color: #fef3c7 !important;
+}
+
+
+/* ==========================================================================
+   W.A.R.L.O.G. MACOS CAMERA WINDOW STUDIO & VISION COMMAND CENTER
+   ========================================================================== */
+
+/* Viewport dynamic self-sizing (prevents vertical card overlapping) */
+.camera-grid-viewport {
+    flex: 1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+}
+
+/* macOS Camera Window Card */
+.macos-cam-card {
+    background: var(--panel-bg, #111827) !important;
+    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.12)) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: fit-content !important;
+    overflow: hidden !important;
+    position: relative !important;
+    margin: 0 !important;
+    padding: 12px 14px 14px 14px !important;
+    box-sizing: border-box !important;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease !important;
+}
+.macos-cam-card:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* macOS Window Bar */
+.macos-cam-window-bar {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-bottom: 10px !important;
+    padding: 0 2px !important;
+}
+.macos-window-header-left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    min-width: 0 !important;
+}
+.macos-traffic-dots {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-shrink: 0 !important;
+}
+.macos-dot {
+    width: 11px !important;
+    height: 11px !important;
+    border-radius: 50% !important;
+    display: inline-block !important;
+    transition: opacity 0.2s ease, transform 0.2s ease !important;
+}
+.macos-dot:hover {
+    transform: scale(1.15) !important;
+}
+.macos-dot-red { background: #ff5f56 !important; border: 1px solid rgba(224, 68, 62, 0.5) !important; }
+.macos-dot-yellow { background: #ffbd2e !important; border: 1px solid rgba(222, 161, 35, 0.5) !important; }
+.macos-dot-green { background: #27c93f !important; border: 1px solid rgba(43, 173, 62, 0.5) !important; }
+.macos-dot-green.pulse-green {
+    box-shadow: 0 0 8px rgba(39, 201, 63, 0.6) !important;
+    animation: macosGreenPulse 2s infinite !important;
+}
+@keyframes macosGreenPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.65; transform: scale(0.92); }
+}
+
+.macos-cam-title {
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    color: var(--text-main, #f8fafc) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    letter-spacing: -0.01em !important;
+}
+
+.macos-window-header-right {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-shrink: 0 !important;
+}
+.macos-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    padding: 3px 8px !important;
+    border-radius: 20px !important;
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+}
+.badge-gate {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border: 1px solid rgba(245, 158, 11, 0.35) !important;
+}
+.badge-device {
+    background: rgba(168, 85, 247, 0.15) !important;
+    color: #c084fc !important;
+    border: 1px solid rgba(168, 85, 247, 0.35) !important;
+}
+.badge-bin {
+    background: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+    border: 1px solid rgba(16, 185, 129, 0.35) !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+.badge-bin:hover {
+    background: rgba(16, 185, 129, 0.25) !important;
+    transform: scale(1.04) !important;
+}
+.badge-zone {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: var(--text-muted, #94a3b8) !important;
+    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.1)) !important;
+}
+.macos-btn-subtle {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: var(--text-muted, #94a3b8) !important;
+    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.15)) !important;
+    padding: 3px 8px !important;
+    border-radius: 6px !important;
+    font-size: 0.68rem !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+.macos-btn-subtle:hover {
+    background: rgba(56, 189, 248, 0.15) !important;
+    color: #38bdf8 !important;
+    border-color: rgba(56, 189, 248, 0.4) !important;
+}
+
+/* macOS Video Player Stage */
+.macos-cam-stage {
+    width: 100% !important;
+    aspect-ratio: 16/9 !important;
+    background: #090d16 !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    position: relative !important;
+    cursor: pointer !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.7) !important;
+}
+.macos-cam-img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    display: block !important;
+    image-rendering: -webkit-optimize-contrast !important;
+}
+
+/* Floating Glass HUDs on Stage */
+.macos-stage-floating-top {
+    position: absolute !important;
+    top: 8px !important;
+    left: 8px !important;
+    right: 8px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    z-index: 3 !important;
+    pointer-events: none !important;
+}
+.macos-rec-pill {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    background: rgba(15, 23, 42, 0.75) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(239, 68, 68, 0.35) !important;
+    padding: 3px 8px !important;
+    border-radius: 20px !important;
+    font-size: 0.65rem !important;
+    font-weight: 800 !important;
+    color: #f87171 !important;
+    letter-spacing: 0.04em !important;
+    pointer-events: auto !important;
+}
+.rec-red-dot {
+    width: 7px !important;
+    height: 7px !important;
+    border-radius: 50% !important;
+    background: #ef4444 !important;
+    animation: macosRecBlink 1.5s infinite !important;
+}
+@keyframes macosRecBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+}
+
+.macos-stage-actions {
+    display: flex !important;
+    gap: 6px !important;
+    pointer-events: auto !important;
+}
+.macos-stage-btn {
+    background: rgba(15, 23, 42, 0.75) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    color: #e2e8f0 !important;
+    padding: 4px 8px !important;
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    border-radius: 7px !important;
+    cursor: pointer !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    transition: all 0.15s ease !important;
+}
+.macos-stage-btn:hover {
+    background: rgba(56, 189, 248, 0.25) !important;
+    border-color: #38bdf8 !important;
+    color: #ffffff !important;
+    transform: translateY(-1px) !important;
+}
+
+.macos-stage-floating-bottom {
+    position: absolute !important;
+    bottom: 8px !important;
+    right: 8px !important;
+    z-index: 3 !important;
+    pointer-events: none !important;
+}
+.macos-fps-pill {
+    background: rgba(15, 23, 42, 0.75) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(52, 211, 153, 0.3) !important;
+    color: #34d399 !important;
+    padding: 2px 7px !important;
+    border-radius: 6px !important;
+    font-size: 0.62rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+}
+
+/* macOS Card Footer Dock */
+.macos-cam-footer-wrap {
+    margin-top: 10px !important;
+    width: 100% !important;
+}
+.macos-dock-card-footer {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08)) !important;
+    border-radius: 12px !important;
+    padding: 8px 10px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    box-sizing: border-box !important;
+}
+
+/* Gate Footer */
+.macos-plate-strip {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+}
+.plate-info-box {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+.plate-lbl {
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    color: #fbbf24 !important;
+}
+.plate-tag {
+    background: #000 !important;
+    color: #fde047 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.82rem !important;
+    font-weight: 800 !important;
+    padding: 2px 8px !important;
+    border-radius: 5px !important;
+    border: 1px solid #ca8a04 !important;
+    letter-spacing: 0.06em !important;
+}
+.plate-status-box {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+.badge-pass {
+    background: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+    border: 1px solid rgba(16, 185, 129, 0.3) !important;
+}
+.badge-static {
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: var(--text-muted, #94a3b8) !important;
+}
+.meta-speed {
+    font-size: 0.7rem !important;
+    font-weight: 700 !important;
+    color: var(--text-muted, #94a3b8) !important;
+}
+
+/* Storage / Inventory Footer */
+.macos-stats-action-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+}
+.macos-pill-stats {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-wrap: wrap !important;
+}
+.stat-pill {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
+    padding: 2px 7px !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+.stat-stock {
+    color: #34d399 !important;
+    border: 1px solid rgba(16, 185, 129, 0.25) !important;
+}
+.stat-stock strong {
+    font-weight: 800 !important;
+    font-size: 0.8rem !important;
+}
+.stat-stock small {
+    color: #38bdf8 !important;
+    margin-left: 2px !important;
+}
+.stat-speed {
+    color: #c084fc !important;
+    border: 1px solid rgba(192, 132, 252, 0.25) !important;
+}
+.stat-heads {
+    color: #60a5fa !important;
+    border: 1px solid rgba(96, 165, 250, 0.25) !important;
+}
+
+.macos-pill-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+.macos-dock-btn {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: var(--text-main, #f8fafc) !important;
+    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.15)) !important;
+    padding: 3px 8px !important;
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    transition: all 0.15s ease !important;
+}
+.macos-dock-btn:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
+}
+.macos-dock-btn.active-frozen {
+    background: #f59e0b !important;
+    color: #000 !important;
+    border-color: #d97706 !important;
+}
+.btn-sync-highlight {
+    background: #10b981 !important;
+    color: #042f2e !important;
+    border-color: #059669 !important;
+    font-weight: 800 !important;
+}
+.btn-sync-highlight:hover {
+    background: #34d399 !important;
+}
+.btn-sync-highlight:disabled {
+    opacity: 0.45 !important;
+    cursor: not-allowed !important;
+}
+
+.macos-dock-toggle {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    font-size: 0.68rem !important;
+    font-weight: 600 !important;
+    color: var(--text-muted, #94a3b8) !important;
+    cursor: pointer !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    padding: 2px 6px !important;
+    border-radius: 6px !important;
+    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08)) !important;
+}
+.macos-dock-toggle input {
+    margin: 0 !important;
+    cursor: pointer !important;
+}
+
+.macos-meta-status-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    font-size: 0.68rem !important;
+    color: var(--text-muted, #94a3b8) !important;
+    padding-top: 4px !important;
+    border-top: 1px solid var(--border-light, rgba(255, 255, 255, 0.06)) !important;
+}
+.macos-workers-info {
+    display: flex !important;
+    gap: 12px !important;
+}
+.macos-workers-info strong {
+    color: var(--text-main, #f8fafc) !important;
+}
+.macos-worker-train-wrap {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+.macos-train-worker-btn {
+    background: rgba(56, 189, 248, 0.12) !important;
+    color: #38bdf8 !important;
+    border: 1px solid rgba(56, 189, 248, 0.35) !important;
+    padding: 2px 7px !important;
+    font-size: 0.65rem !important;
+    font-weight: 700 !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+.macos-train-worker-btn:hover {
+    background: rgba(56, 189, 248, 0.25) !important;
+    border-color: #38bdf8 !important;
+}
+.live-pulse-indicator {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    color: #34d399 !important;
+    font-weight: 700 !important;
+}
+.pulse-emerald-dot {
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 50% !important;
+    background: #10b981 !important;
+    box-shadow: 0 0 6px #10b981 !important;
+}
+
+.macos-cluster-breakdown {
+    display: flex !important;
+    gap: 5px !important;
+    flex-wrap: wrap !important;
+    margin-top: 4px !important;
+    padding-top: 4px !important;
+    border-top: 1px dashed var(--border-light, rgba(255, 255, 255, 0.06)) !important;
+}
+.cluster-tag {
+    font-size: 0.65rem !important;
+    font-weight: 600 !important;
+    padding: 1px 6px !important;
+    border-radius: 4px !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid !important;
+}
+
+/* ==========================================================================
+   4-THEME COMPREHENSIVE TEXT CONTRAST & UNTHEMED SECTORS MASTER ADAPTATION
+   ========================================================================== */
+
+/* 1. AMBER THEME HIGH CONTRAST MASTER */
+[data-theme="amber"] {
+    --primary-navy: #fef3c7 !important;
+    --text-primary: #fef3c7 !important;
+    --text-main: #fef3c7 !important;
+    --text-secondary: #fde68a !important;
+    --text-muted: #fcd34d !important;
+    --border-light: rgba(245, 158, 11, 0.28) !important;
+    --panel-bg: #1c1611 !important;
+    --panel-subtle: #292018 !important;
+    --bg-main: #120e0a !important;
+    --bg-page: #120e0a !important;
+}
+
+/* Force high contrast text on all elements in Amber mode */
+[data-theme="amber"] h1, [data-theme="amber"] h2, [data-theme="amber"] h3,
+[data-theme="amber"] h4, [data-theme="amber"] h5, [data-theme="amber"] h6,
+[data-theme="amber"] strong, [data-theme="amber"] b,
+[data-theme="amber"] .card-title, [data-theme="amber"] .metric-label,
+[data-theme="amber"] .kpi-label, [data-theme="amber"] .topbar-warlog-title,
+[data-theme="amber"] .sidebar-title, [data-theme="amber"] .macos-cam-title,
+[data-theme="amber"] th, [data-theme="amber"] td,
+[data-theme="amber"] label, [data-theme="amber"] span:not(.badge):not(.cluster-tag):not(.plate-tag),
+[data-theme="amber"] p, [data-theme="amber"] a:not(.btn-primary):not(.btn-danger) {
+    color: #fef3c7;
+}
+
+[data-theme="amber"] .text-muted,
+[data-theme="amber"] .subtext,
+[data-theme="amber"] small,
+[data-theme="amber"] .meta-speed,
+[data-theme="amber"] .details-label,
+[data-theme="amber"] .stat-label {
+    color: #fcd34d !important;
+}
+
+/* Overriding dark text colors in Amber theme */
+[data-theme="amber"] [style*="color:#0a2540"],
+[data-theme="amber"] [style*="color: #0a2540"],
+[data-theme="amber"] [style*="color:var(--primary-navy)"],
+[data-theme="amber"] [style*="color: var(--primary-navy)"],
+[data-theme="amber"] [style*="color:#0f172a"],
+[data-theme="amber"] [style*="color: #0f172a"],
+[data-theme="amber"] [style*="color:#1e293b"],
+[data-theme="amber"] [style*="color: #1e293b"],
+[data-theme="amber"] [style*="color:#334155"],
+[data-theme="amber"] [style*="color: #334155"],
+[data-theme="amber"] [style*="color:#475569"],
+[data-theme="amber"] [style*="color: #475569"],
+[data-theme="amber"] [style*="color:#64748b"],
+[data-theme="amber"] [style*="color: #64748b"],
+[data-theme="amber"] [style*="color:#94a3b8"],
+[data-theme="amber"] [style*="color: #94a3b8"] {
+    color: #fef3c7 !important;
+}
+
+/* Amber theme sector backgrounds */
+[data-theme="amber"] .view-section,
+[data-theme="amber"] #dashboard-view,
+[data-theme="amber"] #inbound-flow-view,
+[data-theme="amber"] #outbound-view,
+[data-theme="amber"] #deliveries-view,
+[data-theme="amber"] #cameras-view,
+[data-theme="amber"] #gate-passes-view,
+[data-theme="amber"] #docks-view,
+[data-theme="amber"] #warehouses-view,
+[data-theme="amber"] #master-hub-view,
+[data-theme="amber"] #ai-vision-view,
+[data-theme="amber"] #ai-vision-master-view,
+[data-theme="amber"] #palletCountingWorkbench {
+    background-color: #120e0a !important;
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] .macos-cam-card {
+    background: #1c1611 !important;
+    border: 1px solid rgba(245, 158, 11, 0.28) !important;
+    box-shadow: 0 8px 32px rgba(20, 15, 10, 0.5) !important;
+}
+[data-theme="amber"] .macos-cam-title {
+    color: #fef3c7 !important;
+}
+[data-theme="amber"] .macos-dock-card-footer {
+    background: #241c14 !important;
+    border-color: rgba(245, 158, 11, 0.22) !important;
+}
+[data-theme="amber"] .stat-pill {
+    background: rgba(245, 158, 11, 0.08) !important;
+}
+[data-theme="amber"] .macos-dock-btn {
+    background: rgba(245, 158, 11, 0.12) !important;
+    color: #fef3c7 !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+}
+[data-theme="amber"] .macos-dock-toggle {
+    background: rgba(245, 158, 11, 0.08) !important;
+    color: #fcd34d !important;
+    border-color: rgba(245, 158, 11, 0.25) !important;
+}
+[data-theme="amber"] .macos-workers-info strong {
+    color: #fef3c7 !important;
+}
+[data-theme="amber"] .meta-speed {
+    color: #fcd34d !important;
+}
+
+/* 2. OCEAN THEME COMPREHENSIVE MASTER */
+[data-theme="ocean"] {
+    --primary-navy: #f0fdfa !important;
+    --text-primary: #f0fdfa !important;
+    --text-main: #f0fdfa !important;
+    --text-secondary: #7dd3fc !important;
+    --text-muted: #7dd3fc !important;
+    --border-light: rgba(0, 240, 255, 0.22) !important;
+    --panel-bg: #0c2340 !important;
+    --panel-subtle: #123055 !important;
+    --bg-main: #040d1a !important;
+    --bg-page: #040d1a !important;
+}
+
+[data-theme="ocean"] .view-section,
+[data-theme="ocean"] #dashboard-view,
+[data-theme="ocean"] #inbound-flow-view,
+[data-theme="ocean"] #outbound-view,
+[data-theme="ocean"] #deliveries-view,
+[data-theme="ocean"] #cameras-view,
+[data-theme="ocean"] #gate-passes-view,
+[data-theme="ocean"] #docks-view,
+[data-theme="ocean"] #warehouses-view,
+[data-theme="ocean"] #master-hub-view,
+[data-theme="ocean"] #ai-vision-view,
+[data-theme="ocean"] #ai-vision-master-view,
+[data-theme="ocean"] #palletCountingWorkbench {
+    background-color: #040d1a !important;
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] .macos-cam-card {
+    background: #0c2340 !important;
+    border: 1px solid rgba(0, 240, 255, 0.22) !important;
+    box-shadow: 0 8px 32px rgba(2, 10, 24, 0.5) !important;
+}
+[data-theme="ocean"] .macos-cam-title {
+    color: #f0fdfa !important;
+}
+[data-theme="ocean"] .macos-dock-card-footer {
+    background: #091a30 !important;
+    border-color: rgba(0, 240, 255, 0.18) !important;
+}
+[data-theme="ocean"] .stat-pill {
+    background: rgba(0, 240, 255, 0.06) !important;
+}
+[data-theme="ocean"] .macos-dock-btn {
+    background: rgba(0, 240, 255, 0.1) !important;
+    color: #f0fdfa !important;
+    border-color: rgba(0, 240, 255, 0.25) !important;
+}
+[data-theme="ocean"] .macos-dock-toggle {
+    background: rgba(0, 240, 255, 0.06) !important;
+    color: #7dd3fc !important;
+    border-color: rgba(0, 240, 255, 0.2) !important;
+}
+[data-theme="ocean"] .macos-workers-info strong {
+    color: #f0fdfa !important;
+}
+
+/* 3. LIGHT THEME COMPREHENSIVE MASTER */
+[data-theme="light"] {
+    --primary-navy: #0f172a !important;
+    --text-primary: #0f172a !important;
+    --text-main: #0f172a !important;
+    --text-secondary: #475569 !important;
+    --text-muted: #64748b !important;
+    --border-light: #e2e8f0 !important;
+    --panel-bg: #ffffff !important;
+    --panel-subtle: #f8fafc !important;
+    --bg-main: #f8fafc !important;
+    --bg-page: #f8fafc !important;
+}
+
+[data-theme="light"] .view-section,
+[data-theme="light"] #dashboard-view,
+[data-theme="light"] #inbound-flow-view,
+[data-theme="light"] #outbound-view,
+[data-theme="light"] #deliveries-view,
+[data-theme="light"] #cameras-view,
+[data-theme="light"] #gate-passes-view,
+[data-theme="light"] #docks-view,
+[data-theme="light"] #warehouses-view,
+[data-theme="light"] #master-hub-view,
+[data-theme="light"] #ai-vision-view,
+[data-theme="light"] #ai-vision-master-view,
+[data-theme="light"] #palletCountingWorkbench {
+    background-color: #f8fafc !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .macos-cam-card {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06) !important;
+}
+[data-theme="light"] .macos-cam-title {
+    color: #0f172a !important;
+}
+[data-theme="light"] .macos-dock-card-footer {
+    background: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+}
+[data-theme="light"] .stat-pill {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+}
+[data-theme="light"] .macos-dock-btn {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+}
+[data-theme="light"] .macos-dock-toggle {
+    background: #f1f5f9 !important;
+    color: #475569 !important;
+    border-color: #cbd5e1 !important;
+}
+[data-theme="light"] .macos-workers-info strong {
+    color: #0f172a !important;
+}
+
+/* 4. DARK THEME COMPREHENSIVE MASTER */
+[data-theme="dark"] {
+    --primary-navy: #f8fafc !important;
+    --text-primary: #f8fafc !important;
+    --text-main: #f8fafc !important;
+    --text-secondary: #94a3b8 !important;
+    --text-muted: #94a3b8 !important;
+    --border-light: rgba(255, 255, 255, 0.08) !important;
+    --panel-bg: #111827 !important;
+    --panel-subtle: #1e293b !important;
+    --bg-main: #0a0e1a !important;
+    --bg-page: #0a0e1a !important;
+}
+
+[data-theme="dark"] .view-section,
+[data-theme="dark"] #dashboard-view,
+[data-theme="dark"] #inbound-flow-view,
+[data-theme="dark"] #outbound-view,
+[data-theme="dark"] #deliveries-view,
+[data-theme="dark"] #cameras-view,
+[data-theme="dark"] #gate-passes-view,
+[data-theme="dark"] #docks-view,
+[data-theme="dark"] #warehouses-view,
+[data-theme="dark"] #master-hub-view,
+[data-theme="dark"] #ai-vision-view,
+[data-theme="dark"] #ai-vision-master-view,
+[data-theme="dark"] #palletCountingWorkbench {
+    background-color: #0b0f19 !important;
+    color: #f8fafc !important;
 }
