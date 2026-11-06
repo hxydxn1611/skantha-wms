@@ -3677,39 +3677,17 @@
 
         // THEME SWITCHER LOGIC
         function setGlobalTheme(theme) {
-            const isDark = (theme === 'dark');
-            const themeName = isDark ? 'dark' : 'light';
-            
-            document.documentElement.setAttribute('data-theme', themeName);
-            if (document.body) {
-                document.body.setAttribute('data-theme', themeName);
+            if (typeof window.applyAppTheme === 'function') {
+                return window.applyAppTheme(theme);
             }
-            
+            const validThemes = ['dark', 'light', 'ocean', 'amber'];
+            const themeName = validThemes.includes(theme) ? theme : 'dark';
+            document.documentElement.setAttribute('data-theme', themeName);
+            if (document.body) document.body.setAttribute('data-theme', themeName);
             try {
                 localStorage.setItem('warlog_theme', themeName);
                 localStorage.setItem('skantha_theme', themeName);
             } catch(e) {}
-            
-            // Sync all theme buttons across DOM
-            document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
-                if (btn.getAttribute('data-theme-btn') === themeName) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
-            });
-
-            // Sync topbar button icon
-            const topbarBtn = document.getElementById('topbarThemeToggleBtn');
-            if (topbarBtn) {
-                topbarBtn.setAttribute('data-theme', themeName);
-                topbarBtn.setAttribute('title', isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme');
-            }
-
-            // Sync Telemetry Chart colors
-            if (typeof updateTelemetryChartTheme === 'function') {
-                updateTelemetryChartTheme(themeName);
-            }
         }
         window.setTheme = setGlobalTheme;
         window.setGlobalTheme = setGlobalTheme;
@@ -5179,12 +5157,32 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                 labelEl.textContent = themeName.charAt(0).toUpperCase() + themeName.slice(1);
             }
 
+            // Sync active class on dropdown palette items
+            document.querySelectorAll('.theme-palette-item').forEach(item => {
+                if (item.getAttribute('data-theme-opt') === themeName) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+
+            // Sync toggle buttons if any exist
+            document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+                if (btn.getAttribute('data-theme-btn') === themeName) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
             // Close dropdown
             const drop = document.getElementById('themePaletteDropdown');
             if (drop) drop.style.display = 'none';
 
-            // Re-color Chart.js
-            updateTelemetryChartTheme(themeName);
+            // Re-color Chart.js if present
+            if (typeof updateTelemetryChartTheme === 'function') {
+                updateTelemetryChartTheme(themeName);
+            }
         }
         window.applyAppTheme = applyAppTheme;
         window.setTheme = applyAppTheme;
