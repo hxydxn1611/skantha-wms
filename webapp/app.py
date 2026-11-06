@@ -591,11 +591,16 @@ def handle_deliveries():
         return jsonify({"success": True, "delivery": new_deliv})
     return jsonify(db.get_all_deliveries())
 
-@app.route('/api/deliveries/<po_number>', methods=['GET', 'DELETE'])
+@app.route('/api/deliveries/<po_number>', methods=['GET', 'DELETE', 'PUT', 'PATCH'])
 def handle_single_delivery(po_number):
     if request.method == 'DELETE':
         db.delete_delivery(po_number)
-        return jsonify({"success": True})
+        return jsonify({"success": True, "message": "Delivery deleted successfully"})
+    if request.method in ['PUT', 'PATCH']:
+        data = request.json or {}
+        data['po_number'] = po_number
+        updated = db.update_delivery(po_number, data)
+        return jsonify({"success": True, "delivery": updated})
     deliv = db.get_delivery(po_number)
     if deliv:
         return jsonify(deliv)

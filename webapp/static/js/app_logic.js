@@ -1073,132 +1073,677 @@
             } catch(e) {}
         }
 
-        // Deliveries
-        document.getElementById('addDeliveryForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const manifestContainer = document.getElementById('manifestLinesContainer');
-            const lines = manifestContainer.children;
-            const manifest = [];
-            for (let i = 0; i < lines.length; i++) {
-                const lineId = lines[i].id.split('_')[1];
-                const sku = document.getElementById(`manifestSku_${lineId}`).value;
-                const vendor = document.getElementById(`manifestVendor_${lineId}`).value;
-                const qty = parseInt(document.getElementById(`manifestQty_${lineId}`).value);
-                if(sku && vendor && qty > 0) {
-                    manifest.push({ sku_id: sku, vendor: vendor, expected: qty });
+        // ==========================================================================
+        // PRE-REGISTRATION TWO-TAB ARCHITECTURE LOGIC (MACOS STUDIO)
+        // ==========================================================================
+
+        window.deliveryFilters = {
+            po: '',
+            vendor: '',
+            plate: '',
+            status: 'all',
+            activity: 'all',
+            date: ''
+        };
+        window.deliveryCurrentPage = 1;
+        window.deliveryPageSize = 10;
+        window.deliverySortCol = 'created_at';
+        window.deliverySortDir = 'desc';
+
+        // Switch between Tab 1 (Registration) and Tab 2 (Registered Deliveries)
+        window.switchPreRegSubTab = function(tabName) {
+            const btnReg = document.getElementById('prereg-tab-register-btn');
+            const btnRec = document.getElementById('prereg-tab-records-btn');
+            const panelReg = document.getElementById('prereg-tab-register-content');
+            const panelRec = document.getElementById('prereg-tab-records-content');
+
+            if(tabName === 'records') {
+                if(btnReg) { btnReg.classList.remove('active'); btnReg.setAttribute('aria-selected', 'false'); }
+                if(btnRec) { btnRec.classList.add('active'); btnRec.setAttribute('aria-selected', 'true'); }
+                if(panelReg) panelReg.style.display = 'none';
+                if(panelRec) panelRec.style.display = 'block';
+                window.renderDeliveryRecords();
+            } else {
+                if(btnReg) { btnReg.classList.add('active'); btnReg.setAttribute('aria-selected', 'true'); }
+                if(btnRec) { btnRec.classList.remove('active'); btnRec.setAttribute('aria-selected', 'false'); }
+                if(panelReg) panelReg.style.display = 'block';
+                if(panelRec) panelRec.style.display = 'none';
+            }
+        };
+
+        // Reset Pre-registration form
+        window.resetPreRegForm = function() {
+            const form = document.getElementById('addDeliveryForm');
+            if(form) form.reset();
+            const container = document.getElementById('manifestLinesContainer');
+            if(container) container.innerHTML = '';
+            if(window.addManifestLine) window.addManifestLine();
+            const dateInput = document.getElementById('expDate');
+            if(dateInput) dateInput.valueAsDate = new Date();
+            if(window.updateManifestSummary) window.updateManifestSummary();
+        };
+
+        // Pre-registration Form Submit
+        const addDelivFormEl = document.getElementById('addDeliveryForm');
+        if(addDelivFormEl) {
+            addDelivFormEl.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const manifestContainer = document.getElementById('manifestLinesContainer');
+                const lines = manifestContainer ? manifestContainer.children : [];
+                const manifest = [];
+                for (let i = 0; i < lines.length; i++) {
+                    if(!lines[i].id) continue;
+                    const lineId = lines[i].id.split('_')[1];
+                    const skuEl = document.getElementById(`manifestSku_${lineId}`);
+                    const vendorEl = document.getElementById(`manifestVendor_${lineId}`);
+                    const qtyEl = document.getElementById(`manifestQty_${lineId}`);
+                    const sku = skuEl ? skuEl.value : '';
+                    const vendor = vendorEl ? vendorEl.value : '';
+                    const qty = qtyEl ? parseInt(qtyEl.value) : 0;
+                    if(sku && vendor && qty > 0) {
+                        manifest.push({ sku_id: sku, vendor: vendor, expected: qty });
+                    }
                 }
-            }
 
-            if (manifest.length === 0) {
-                alert("Please add at least one item to the Inbound Manifest.");
-                return;
-            }
+                if (manifest.length === 0) {
+                    alert("Please add at least one item to the Inbound Manifest with valid SKU and quantity.");
+                    return;
+                }
 
-            await fetch('/api/deliveries', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    po_number: document.getElementById('expPO').value,
-                    expected_date: document.getElementById('expDate').value,
-                    plate: document.getElementById('expPlate').value,
-                    driver_name: document.getElementById('expDriver').value,
-                    driver_phone: document.getElementById('expDriverPhone').value,
-                    vendor_email: document.getElementById('expVendorEmail').value,
-                    activity: document.getElementById('expActivity').value,
-                    unloading_sheet: manifest
-                })
+                const poVal = document.getElementById('expPO') ? document.getElementById('expPO').value.trim() : '';
+                const vendorNameVal = document.getElementById('expVendorName') ? document.getElementById('expVendorName').value.trim() : '';
+                const initialStatusVal = document.getElementById('expInitialStatus') ? document.getElementById('expInitialStatus').value : 'Pending';
+                const notesVal = document.getElementById('expNotes') ? document.getElementById('expNotes').value.trim() : '';
+
+                try {
+                    const res = await fetch('/api/deliveries', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            po_number: poVal,
+                            expected_date: document.getElementById('expDate') ? document.getElementById('expDate').value : '',
+                            plate: document.getElementById('expPlate') ? document.getElementById('expPlate').value.trim().toUpperCase() : '',
+                            driver_name: document.getElementById('expDriver') ? document.getElementById('expDriver').value.trim() : '',
+                            driver_phone: document.getElementById('expDriverPhone') ? document.getElementById('expDriverPhone').value.trim() : '',
+                            vendor: vendorNameVal,
+                            vendor_email: document.getElementById('expVendorEmail') ? document.getElementById('expVendorEmail').value.trim() : '',
+                            activity: document.getElementById('expActivity') ? document.getElementById('expActivity').value : 'Unloading',
+                            load_description: notesVal,
+                            status: initialStatusVal,
+                            unloading_sheet: manifest
+                        })
+                    });
+                    const result = await res.json();
+                    
+                    if(result.success || result.delivery) {
+                        // Toast / Alert
+                        const toastMsg = document.createElement('div');
+                        toastMsg.className = 'glass-panel';
+                        toastMsg.style.cssText = 'position:fixed; bottom:24px; right:24px; z-index:10005; padding:16px 20px; border-radius:12px; background:rgba(15,23,42,0.95); border:1px solid rgba(56,189,248,0.4); box-shadow:0 10px 30px rgba(0,0,0,0.6); display:flex; align-items:center; gap:14px; color:#fff; animation:slideIn 0.3s ease;';
+                        toastMsg.innerHTML = `
+                            <div style="width:36px; height:36px; border-radius:50%; background:#10b981; display:flex; align-items:center; justify-content:center; color:#fff; font-size:1.1rem;"><i class="fas fa-check"></i></div>
+                            <div>
+                                <div style="font-weight:700; font-size:0.95rem;">Delivery Registered Successfully</div>
+                                <div style="font-size:0.8rem; color:#94a3b8;">PO ${escapeHtml(poVal)} synchronized to inbound queue.</div>
+                            </div>
+                            <button type="button" class="btn-primary" style="margin-left:12px; font-size:0.78rem; padding:6px 12px;" onclick="this.parentElement.remove(); window.switchPreRegSubTab('records');">View Records &rarr;</button>
+                            <button type="button" style="background:none; border:none; color:#94a3b8; font-size:1.1rem; cursor:pointer;" onclick="this.parentElement.remove()">&times;</button>
+                        `;
+                        document.body.appendChild(toastMsg);
+                        setTimeout(() => { if(toastMsg.parentNode) toastMsg.remove(); }, 6000);
+                        
+                        window.resetPreRegForm();
+                        await fetchDeliveries();
+                        if(typeof pollData === 'function') pollData();
+                    } else {
+                        alert("Could not register delivery: " + (result.message || result.error || 'Server error'));
+                    }
+                } catch(err) {
+                    console.error("Delivery registration error:", err);
+                    alert("Error saving delivery: " + err.message);
+                }
             });
-            e.target.reset();
-            document.getElementById('manifestLinesContainer').innerHTML = '';
-            window.addManifestLine();
-            document.getElementById('expDate').valueAsDate = new Date();
-            fetchDeliveries();
-            pollData();
-        });
+        }
 
+        // Fetch & Cache Deliveries
         async function fetchDeliveries() {
             try {
                 const res = await fetch('/api/deliveries');
                 globalDeliveries = await res.json();
+                window.globalDeliveries = globalDeliveries;
                 
-                const tbody = document.getElementById('expectedTableBody');
+                // Authoritative Read-Only PO Viewer Table in PO Master
                 const pBody = document.getElementById('poMasterBody');
-                if(globalDeliveries.length === 0) {
-                    const emptyMsg = '<tr><td colspan="9" style="text-align:center;">No expected deliveries registered.</td></tr>';
-                    if(tbody) tbody.innerHTML = emptyMsg;
-                    if(pBody) pBody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No Purchase Orders / Expected Deliveries registered.</td></tr>';
-                    return;
-                }
-                const rowsHtml = globalDeliveries.map(d => {
-                    let statusBadge = '<span class="badge pending" style="font-size:0.75rem;">Awaiting Gate</span>';
-                    if (d.linked_gate_pass_id) {
-                        statusBadge = `<span class="badge sent" style="font-size:0.75rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🔗 Pass ${escapeHtml(d.linked_gate_pass_id)} (${escapeHtml(d.status)})</span>`;
-                    } else if (d.status === 'Arrived') {
-                        statusBadge = `<span class="badge sent" style="font-size:0.75rem;">Arrived</span>`;
+                if(pBody) {
+                    if(globalDeliveries.length === 0) {
+                        pBody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:1.5rem; color:var(--text-muted);">No Purchase Orders / Expected Deliveries registered.</td></tr>';
+                    } else {
+                        pBody.innerHTML = globalDeliveries.map(d => {
+                            let statusBadge = '<span class="badge pending" style="font-size:0.72rem;">Awaiting Gate</span>';
+                            if (d.linked_gate_pass_id) {
+                                statusBadge = `<span class="badge sent" style="font-size:0.72rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🔗 Pass ${escapeHtml(d.linked_gate_pass_id)} (${escapeHtml(d.status)})</span>`;
+                            } else if (d.status === 'Arrived' || d.status === 'Completed') {
+                                statusBadge = `<span class="badge sent" style="font-size:0.72rem;">Completed</span>`;
+                            }
+                            const totalQty = d.unloading_sheet && Array.isArray(d.unloading_sheet) ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0) : '-';
+                            return `
+                            <tr>
+                                <td style="font-weight:bold; color:var(--accent-hover);">${escapeHtml(d.po_number)}</td>
+                                <td>${escapeHtml(d.expected_date)}</td>
+                                <td>${escapeHtml(d.activity || 'Loading')}</td>
+                                <td style="color:var(--text-muted);">${escapeHtml(d.vendor || 'Unknown')}</td>
+                                <td style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(d.vendor_email || '-')}</td>
+                                <td>${escapeHtml(d.load || '-')}</td>
+                                <td style="font-weight:bold;">${totalQty}</td>
+                                <td style="font-family:monospace;">${escapeHtml(d.plate || 'Unknown / Not Provided')}</td>
+                                <td>
+                                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                                        <span class="badge" style="background:#f1f5f9; color:#475569; font-size:0.7rem; border:1px solid #cbd5e1;">READ-ONLY</span>
+                                        ${statusBadge}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                        <button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:var(--accent);" onclick="switchTab('deliveries')">Open in Pre-Registration &rarr;</button>
+                                        <button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${escapeHtml(d.po_number)}')">🔍 Trace</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            `;
+                        }).join('');
                     }
-                    return `
+                }
+                
+                window.renderDeliveryRecords();
+                if(typeof fetchGatePasses === 'function') fetchGatePasses();
+            } catch(e) {
+                console.warn("fetchDeliveries error:", e);
+            }
+        }
+
+        // Filter and Render Registered Deliveries (Tab 2)
+        window.renderDeliveryRecords = function() {
+            const list = window.globalDeliveries || [];
+            
+            // 1. Calculate KPI Metrics
+            const totalCount = list.length;
+            let pendingCount = 0;
+            let approvedCount = 0;
+            let rejectedCount = 0;
+            let completedCount = 0;
+
+            list.forEach(d => {
+                const s = (d.status || '').toLowerCase();
+                if(s === 'approved') approvedCount++;
+                else if(s === 'rejected') rejectedCount++;
+                else if(s === 'completed' || s === 'arrived' || d.linked_gate_pass_id) completedCount++;
+                else pendingCount++;
+            });
+
+            // Update KPI Counter DOM
+            const elTotal = document.getElementById('kpiTotalRegistered');
+            const elPending = document.getElementById('kpiPendingRegistered');
+            const elApproved = document.getElementById('kpiApprovedRegistered');
+            const elRejected = document.getElementById('kpiRejectedRegistered');
+            const elCompleted = document.getElementById('kpiCompletedRegistered');
+            const elBadge = document.getElementById('preregNavRecordsBadge');
+
+            if(elTotal) elTotal.innerText = totalCount;
+            if(elPending) elPending.innerText = pendingCount;
+            if(elApproved) elApproved.innerText = approvedCount;
+            if(elRejected) elRejected.innerText = rejectedCount;
+            if(elCompleted) elCompleted.innerText = completedCount;
+            if(elBadge) elBadge.innerText = totalCount;
+
+            // 2. Filter Deliveries
+            const f = window.deliveryFilters;
+            const filtered = list.filter(d => {
+                if(f.po && !d.po_number.toLowerCase().includes(f.po.toLowerCase())) return false;
+                if(f.vendor && !(d.vendor || '').toLowerCase().includes(f.vendor.toLowerCase())) return false;
+                if(f.plate && !(d.plate || '').toLowerCase().includes(f.plate.toLowerCase())) return false;
+                if(f.activity && f.activity !== 'all' && (d.activity || 'Unloading').toLowerCase() !== f.activity.toLowerCase()) return false;
+                if(f.date && d.expected_date !== f.date) return false;
+                if(f.status && f.status !== 'all') {
+                    const st = (d.status || 'Pending').toLowerCase();
+                    const targetSt = f.status.toLowerCase();
+                    if(targetSt === 'completed') {
+                        if(st !== 'completed' && st !== 'arrived' && !d.linked_gate_pass_id) return false;
+                    } else if(targetSt === 'pending') {
+                        if(st !== 'pending' && st !== 'expected' && st !== 'awaiting gate') return false;
+                    } else {
+                        if(st !== targetSt) return false;
+                    }
+                }
+                return true;
+            });
+
+            // 3. Sort Deliveries
+            const col = window.deliverySortCol;
+            const dir = window.deliverySortDir === 'asc' ? 1 : -1;
+            filtered.sort((a, b) => {
+                let vA = a[col] || '';
+                let vB = b[col] || '';
+                if(typeof vA === 'string') vA = vA.toLowerCase();
+                if(typeof vB === 'string') vB = vB.toLowerCase();
+                if(vA < vB) return -1 * dir;
+                if(vA > vB) return 1 * dir;
+                return 0;
+            });
+
+            // Update Records count label
+            const countLabel = document.getElementById('deliveryRecordsCount');
+            if(countLabel) {
+                countLabel.innerText = `Showing ${filtered.length} of ${totalCount} deliveries`;
+            }
+
+            // 4. Pagination
+            const pageSize = window.deliveryPageSize;
+            const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+            if(window.deliveryCurrentPage > totalPages) window.deliveryCurrentPage = totalPages;
+            const startIdx = (window.deliveryCurrentPage - 1) * pageSize;
+            const pageItems = filtered.slice(startIdx, startIdx + pageSize);
+
+            // Update Pagination DOM
+            const pageInfo = document.getElementById('deliveryPageCurrent');
+            const pageSummary = document.getElementById('deliveryPaginationSummary');
+            const btnPrev = document.getElementById('btnDeliveryPrev');
+            const btnNext = document.getElementById('btnDeliveryNext');
+
+            if(pageInfo) pageInfo.innerText = `Page ${window.deliveryCurrentPage} of ${totalPages}`;
+            if(pageSummary) {
+                const endIdx = Math.min(filtered.length, startIdx + pageSize);
+                pageSummary.innerText = filtered.length > 0 ? `Showing ${startIdx + 1}-${endIdx} of ${filtered.length}` : '0 results';
+            }
+            if(btnPrev) btnPrev.disabled = (window.deliveryCurrentPage <= 1);
+            if(btnNext) btnNext.disabled = (window.deliveryCurrentPage >= totalPages);
+
+            // 5. Render Rows to tbody
+            const tbody = document.getElementById('expectedTableBody');
+            if(!tbody) return;
+
+            if(filtered.length === 0) {
+                tbody.innerHTML = `
                     <tr>
-                        <td style="font-weight:bold; color:var(--accent-hover);">${escapeHtml(d.po_number)}</td>
-                        <td>${escapeHtml(d.expected_date)}</td>
-                        <td>${escapeHtml(d.activity || 'Loading')}</td>
-                        <td style="color:var(--text-muted);">${escapeHtml(d.vendor || 'Unknown')}</td>
-                        <td style="color:var(--text-muted);">${escapeHtml(d.vendor_email || '-')}</td>
-                        <td>${escapeHtml(d.load)}</td>
-                        <td style="font-weight:bold;">${d.unloading_sheet && Array.isArray(d.unloading_sheet) ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0) : '-'}</td>
-                        <td style="font-family:monospace;">${escapeHtml(d.plate || 'Unknown / Not Provided')}</td>
-                        <td>
-                            ${statusBadge}
-                            <div style="margin-top:5px; display:flex; gap:4px; flex-wrap:wrap;">
-                                ${d.linked_gate_pass_id ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px;" onclick="navigateToEntity('gate_pass', '${escapeHtml(d.linked_gate_pass_id)}')">🎫 Pass</button>` : ''}
-                                <button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${escapeHtml(d.po_number)}')">🔍 Trace</button>
+                        <td colspan="9" style="text-align:center; padding:3rem 1.5rem;">
+                            <div style="display:flex; flex-direction:column; align-items:center; gap:12px; color:var(--text-muted);">
+                                <i class="fas fa-boxes-packing" style="font-size:2.5rem; opacity:0.4;"></i>
+                                <div style="font-size:1.05rem; font-weight:700; color:var(--text-main);">No Deliveries Found</div>
+                                <div style="font-size:0.85rem; max-width:400px;">No registered inbound purchase orders match your current filters.</div>
+                                <div style="display:flex; gap:8px; margin-top:8px;">
+                                    <button type="button" class="btn-secondary" onclick="resetDeliveryFilters()" style="font-size:0.8rem; padding:6px 14px;">Clear Filters</button>
+                                    <button type="button" class="btn-primary" onclick="switchPreRegSubTab('register')" style="font-size:0.8rem; padding:6px 14px;"><i class="fas fa-plus"></i> Register New Delivery</button>
+                                </div>
                             </div>
                         </td>
                     </tr>
-                `;}).join('');
-                
-                if(tbody) tbody.innerHTML = rowsHtml;
-                
-                // Authoritative Read-Only PO Viewer Table
-                if(pBody) {
-                    pBody.innerHTML = globalDeliveries.map(d => {
-                        let statusBadge = '<span class="badge pending" style="font-size:0.72rem;">Awaiting Gate</span>';
-                        if (d.linked_gate_pass_id) {
-                            statusBadge = `<span class="badge sent" style="font-size:0.72rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🔗 Pass ${escapeHtml(d.linked_gate_pass_id)} (${escapeHtml(d.status)})</span>`;
-                        } else if (d.status === 'Arrived') {
-                            statusBadge = `<span class="badge sent" style="font-size:0.72rem;">Arrived</span>`;
-                        }
-                        const totalQty = d.unloading_sheet && Array.isArray(d.unloading_sheet) ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0) : '-';
-                        return `
-                        <tr>
-                            <td style="font-weight:bold; color:var(--accent-hover);">${escapeHtml(d.po_number)}</td>
-                            <td>${escapeHtml(d.expected_date)}</td>
-                            <td>${escapeHtml(d.activity || 'Loading')}</td>
-                            <td style="color:var(--text-muted);">${escapeHtml(d.vendor || 'Unknown')}</td>
-                            <td style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(d.vendor_email || '-')}</td>
-                            <td>${escapeHtml(d.load || '-')}</td>
-                            <td style="font-weight:bold;">${totalQty}</td>
-                            <td style="font-family:monospace;">${escapeHtml(d.plate || 'Unknown / Not Provided')}</td>
-                            <td>
-                                <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                                    <span class="badge" style="background:#f1f5f9; color:#475569; font-size:0.7rem; border:1px solid #cbd5e1;">READ-ONLY</span>
-                                    ${statusBadge}
-                                </div>
-                            </td>
-                            <td>
-                                <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                                    <button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:var(--accent);" onclick="switchTab('deliveries')">Open in Pre-Registration &rarr;</button>
-                                    <button type="button" class="btn-primary" style="font-size:0.72rem; padding:4px 8px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${escapeHtml(d.po_number)}')">🔍 Trace</button>
-                                </div>
-                            </td>
-                        </tr>
-                        `;
-                    }).join('');
+                `;
+                return;
+            }
+
+            tbody.innerHTML = pageItems.map(d => {
+                // Status pill
+                let statusHtml = '';
+                const st = (d.status || 'Pending').toLowerCase();
+                if(d.linked_gate_pass_id) {
+                    statusHtml = `<span class="status-pill linked" title="Connected to Gate Pass ${escapeHtml(d.linked_gate_pass_id)}"><i class="fas fa-link"></i> Pass #${escapeHtml(d.linked_gate_pass_id)}</span>`;
+                } else if(st === 'approved') {
+                    statusHtml = `<span class="status-pill approved"><i class="fas fa-circle-check"></i> Approved</span>`;
+                } else if(st === 'rejected') {
+                    statusHtml = `<span class="status-pill rejected"><i class="fas fa-circle-xmark"></i> Rejected</span>`;
+                } else if(st === 'completed' || st === 'arrived') {
+                    statusHtml = `<span class="status-pill completed"><i class="fas fa-truck-ramp-box"></i> Docked</span>`;
+                } else {
+                    statusHtml = `<span class="status-pill pending"><i class="fas fa-clock"></i> Pending Gate</span>`;
                 }
-                
-                fetchGatePasses();
-            } catch(e) {}
-        }
+
+                // Total Manifest Quantity
+                const totalUnits = (d.unloading_sheet && Array.isArray(d.unloading_sheet)) 
+                    ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0)
+                    : 0;
+                const itemCount = (d.unloading_sheet && Array.isArray(d.unloading_sheet)) ? d.unloading_sheet.length : 0;
+
+                // Formatted registration timestamp
+                let regDateStr = d.created_at || '-';
+                if(d.created_at && d.created_at.includes('T')) {
+                    regDateStr = d.created_at.split('T')[0];
+                } else if(d.created_at && d.created_at.includes(' ')) {
+                    regDateStr = d.created_at.split(' ')[0];
+                }
+
+                const poEscaped = escapeHtml(d.po_number);
+
+                return `
+                <tr>
+                    <td>
+                        <span class="mono-badge" style="font-weight:700; color:var(--accent); cursor:pointer; font-size:0.88rem;" onclick="openDeliveryDetails('${poEscaped}')" title="Click to inspect manifest">
+                            ${poEscaped}
+                        </span>
+                    </td>
+                    <td>
+                        <div style="font-weight:600; color:var(--text-main); font-size:0.86rem;">${escapeHtml(d.vendor || 'Unknown')}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(d.vendor_email || '-')}</div>
+                    </td>
+                    <td>
+                        <div style="display:inline-flex; align-items:center; gap:6px; font-size:0.84rem;">
+                            <i class="fas fa-calendar text-accent" style="font-size:0.75rem;"></i>
+                            <span>${escapeHtml(d.expected_date || '-')}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="badge" style="font-size:0.72rem; ${d.activity === 'Loading' ? 'background:rgba(139,92,246,0.15); color:#8b5cf6;' : 'background:rgba(2,132,199,0.15); color:#0284c7;'}">
+                            ${escapeHtml(d.activity || 'Unloading')}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="font-family:monospace; font-weight:700; font-size:0.82rem; background:var(--panel-subtle); padding:2px 6px; border-radius:4px; border:1px solid var(--border-light);">
+                            ${escapeHtml(d.plate || 'UNASSIGNED')}
+                        </span>
+                    </td>
+                    <td style="font-size:0.82rem; color:var(--text-muted);">${escapeHtml(regDateStr)}</td>
+                    <td>
+                        <span class="badge" style="background:var(--panel-subtle); border:1px solid var(--border-light); font-size:0.75rem; color:var(--text-main);">
+                            ${itemCount} items &bull; <strong>${totalUnits}</strong> pcs
+                        </span>
+                    </td>
+                    <td>${statusHtml}</td>
+                    <td style="text-align:right;">
+                        <div style="display:inline-flex; gap:4px; align-items:center; justify-content:flex-end;">
+                            <button type="button" class="btn-secondary" style="font-size:0.72rem; padding:4px 8px;" onclick="openDeliveryDetails('${poEscaped}')" title="Inspect Delivery Manifest">
+                                <i class="fas fa-eye"></i> Details
+                            </button>
+                            <button type="button" class="btn-secondary" style="font-size:0.72rem; padding:4px 8px;" onclick="openEditDelivery('${poEscaped}')" title="Edit Delivery">
+                                <i class="fas fa-pen"></i>
+                            </button>
+                            <button type="button" class="btn-secondary" style="font-size:0.72rem; padding:4px 8px; color:var(--danger, #ef4444);" onclick="deleteDelivery('${poEscaped}')" title="Delete Delivery">
+                                <i class="fas fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        };
+
+        // Filter event handler
+        window.onDeliveryFilterChange = function() {
+            window.deliveryFilters.po = (document.getElementById('searchPoInput') ? document.getElementById('searchPoInput').value : '').trim();
+            window.deliveryFilters.vendor = (document.getElementById('searchVendorInput') ? document.getElementById('searchVendorInput').value : '').trim();
+            window.deliveryFilters.plate = (document.getElementById('searchPlateInput') ? document.getElementById('searchPlateInput').value : '').trim();
+            window.deliveryFilters.status = document.getElementById('filterStatusSelect') ? document.getElementById('filterStatusSelect').value : 'all';
+            window.deliveryFilters.activity = document.getElementById('filterActivitySelect') ? document.getElementById('filterActivitySelect').value : 'all';
+            window.deliveryFilters.date = document.getElementById('filterDateInput') ? document.getElementById('filterDateInput').value : '';
+            window.deliveryCurrentPage = 1;
+            window.renderDeliveryRecords();
+        };
+
+        // Quick filter by status from KPI capsules
+        window.setDeliveryStatusFilter = function(status) {
+            window.switchPreRegSubTab('records');
+            const select = document.getElementById('filterStatusSelect');
+            if(select) select.value = status;
+            window.onDeliveryFilterChange();
+        };
+
+        // Reset all filters
+        window.resetDeliveryFilters = function() {
+            if(document.getElementById('searchPoInput')) document.getElementById('searchPoInput').value = '';
+            if(document.getElementById('searchVendorInput')) document.getElementById('searchVendorInput').value = '';
+            if(document.getElementById('searchPlateInput')) document.getElementById('searchPlateInput').value = '';
+            if(document.getElementById('filterStatusSelect')) document.getElementById('filterStatusSelect').value = 'all';
+            if(document.getElementById('filterActivitySelect')) document.getElementById('filterActivitySelect').value = 'all';
+            if(document.getElementById('filterDateInput')) document.getElementById('filterDateInput').value = '';
+            window.deliveryFilters = { po: '', vendor: '', plate: '', status: 'all', activity: 'all', date: '' };
+            window.deliveryCurrentPage = 1;
+            window.renderDeliveryRecords();
+        };
+
+        // Sorting
+        window.sortDeliveries = function(col) {
+            if(window.deliverySortCol === col) {
+                window.deliverySortDir = window.deliverySortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                window.deliverySortCol = col;
+                window.deliverySortDir = 'asc';
+            }
+            window.renderDeliveryRecords();
+        };
+
+        // Pagination controls
+        window.changeDeliveryPageSize = function(size) {
+            window.deliveryPageSize = parseInt(size) || 10;
+            window.deliveryCurrentPage = 1;
+            window.renderDeliveryRecords();
+        };
+
+        window.navigateDeliveryPage = function(delta) {
+            window.deliveryCurrentPage += delta;
+            window.renderDeliveryRecords();
+        };
+
+        // Refresh action
+        window.refreshDeliveriesData = async function() {
+            await fetchDeliveries();
+        };
+
+        // Open Delivery Details Modal
+        window.openDeliveryDetails = function(poNumber) {
+            const list = window.globalDeliveries || [];
+            const deliv = list.find(d => d.po_number === poNumber);
+            if(!deliv) {
+                alert("Delivery record not found.");
+                return;
+            }
+
+            const modal = document.getElementById('modalDeliveryDetails');
+            if(!modal) return;
+
+            document.getElementById('delivModalPoId').innerText = deliv.po_number;
+            document.getElementById('delivModalVendor').innerText = deliv.vendor || 'Unknown Vendor';
+            document.getElementById('delivModalVendorEmail').innerText = deliv.vendor_email || 'No email provided';
+            document.getElementById('delivModalDate').innerText = deliv.expected_date || 'Unspecified';
+            document.getElementById('delivModalActivity').innerText = (deliv.activity || 'Unloading') + ' Workflow';
+            document.getElementById('delivModalPlate').innerText = deliv.plate || 'NO VEHICLE LINKED';
+            document.getElementById('delivModalDriver').innerText = (deliv.driver_name ? deliv.driver_name : 'No Driver') + (deliv.driver_phone ? ` (${deliv.driver_phone})` : '');
+            
+            // Status badge
+            const stBadge = document.getElementById('delivModalStatusBadge');
+            if(stBadge) {
+                stBadge.innerText = deliv.status || 'Pending';
+                stBadge.className = 'badge ' + ((deliv.status || '').toLowerCase() === 'approved' ? 'sent' : 'pending');
+            }
+
+            // Gate pass connection
+            const gpEl = document.getElementById('delivModalGatePass');
+            if(gpEl) {
+                if(deliv.linked_gate_pass_id) {
+                    gpEl.innerHTML = `<span style="color:#10b981;">🔗 Linked Pass #${escapeHtml(deliv.linked_gate_pass_id)}</span>`;
+                } else {
+                    gpEl.innerText = 'Awaiting Gate Arrival';
+                }
+            }
+
+            document.getElementById('delivModalCreated').innerText = deliv.created_at ? `Registered: ${deliv.created_at}` : '';
+
+            // Manifest line items
+            const tbody = document.getElementById('delivModalManifestTbody');
+            const totalUnitsEl = document.getElementById('delivModalTotalUnits');
+            const sheet = deliv.unloading_sheet || [];
+            let totalUnits = 0;
+
+            if(Array.isArray(sheet) && sheet.length > 0) {
+                tbody.innerHTML = sheet.map((item, idx) => {
+                    const q = parseInt(item.expected) || 0;
+                    totalUnits += q;
+                    return `
+                    <tr style="border-bottom:1px solid var(--border-light);">
+                        <td style="padding:8px 12px; color:var(--text-muted);">${idx + 1}</td>
+                        <td style="padding:8px 12px; font-weight:700; color:var(--accent); font-family:monospace;">${escapeHtml(item.sku_id || '-')}</td>
+                        <td style="padding:8px 12px; color:var(--text-main);">${escapeHtml(item.vendor || deliv.vendor || '-')}</td>
+                        <td style="padding:8px 12px; text-align:right; font-weight:700;">${q}</td>
+                    </tr>
+                    `;
+                }).join('');
+            } else {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:1.2rem; color:var(--text-muted);">No line items logged in manifest.</td></tr>`;
+            }
+
+            if(totalUnitsEl) totalUnitsEl.innerText = `${totalUnits} Units Total (${sheet.length} lines)`;
+
+            // Notes
+            const notesWrap = document.getElementById('delivModalNotesWrap');
+            const notesText = document.getElementById('delivModalNotes');
+            if(deliv.load_description || deliv.load) {
+                if(notesWrap) notesWrap.style.display = 'block';
+                if(notesText) notesText.innerText = deliv.load_description || deliv.load;
+            } else {
+                if(notesWrap) notesWrap.style.display = 'none';
+            }
+
+            // Buttons
+            const btnTrace = document.getElementById('btnModalDelivTrace');
+            if(btnTrace) {
+                btnTrace.onclick = () => {
+                    window.closeDeliveryDetailsModal();
+                    if(typeof navigateToEntity === 'function') navigateToEntity('traceability', deliv.po_number);
+                };
+            }
+            const btnEdit = document.getElementById('btnModalDelivEdit');
+            if(btnEdit) {
+                btnEdit.onclick = () => {
+                    window.closeDeliveryDetailsModal();
+                    window.openEditDelivery(deliv.po_number);
+                };
+            }
+
+            modal.style.display = 'flex';
+        };
+
+        window.closeDeliveryDetailsModal = function() {
+            const modal = document.getElementById('modalDeliveryDetails');
+            if(modal) modal.style.display = 'none';
+        };
+
+        // Open Edit Delivery Modal
+        window.openEditDelivery = function(poNumber) {
+            const list = window.globalDeliveries || [];
+            const deliv = list.find(d => d.po_number === poNumber);
+            if(!deliv) return;
+
+            const modal = document.getElementById('modalEditDelivery');
+            if(!modal) return;
+
+            document.getElementById('editDelivPo').value = deliv.po_number;
+            document.getElementById('editDelivPoBadge').innerText = deliv.po_number;
+            document.getElementById('editDelivDate').value = deliv.expected_date || '';
+            document.getElementById('editDelivActivity').value = deliv.activity || 'Unloading';
+            document.getElementById('editDelivVendor').value = deliv.vendor || '';
+            document.getElementById('editDelivVendorEmail').value = deliv.vendor_email || '';
+            document.getElementById('editDelivPlate').value = deliv.plate || '';
+            document.getElementById('editDelivDriver').value = deliv.driver_name || '';
+            document.getElementById('editDelivDriverPhone').value = deliv.driver_phone || '';
+            document.getElementById('editDelivStatus').value = deliv.status || 'Pending';
+
+            modal.style.display = 'flex';
+        };
+
+        window.closeEditDeliveryModal = function() {
+            const modal = document.getElementById('modalEditDelivery');
+            if(modal) modal.style.display = 'none';
+        };
+
+        // Submit Edit Delivery
+        window.submitEditDelivery = async function(e) {
+            e.preventDefault();
+            const po = document.getElementById('editDelivPo').value;
+            const payload = {
+                expected_date: document.getElementById('editDelivDate').value,
+                activity: document.getElementById('editDelivActivity').value,
+                vendor: document.getElementById('editDelivVendor').value.trim(),
+                vendor_email: document.getElementById('editDelivVendorEmail').value.trim(),
+                plate: document.getElementById('editDelivPlate').value.trim().toUpperCase(),
+                driver_name: document.getElementById('editDelivDriver').value.trim(),
+                driver_phone: document.getElementById('editDelivDriverPhone').value.trim(),
+                status: document.getElementById('editDelivStatus').value
+            };
+
+            try {
+                const res = await fetch(`/api/deliveries/${encodeURIComponent(po)}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const result = await res.json();
+                if(result.success) {
+                    window.closeEditDeliveryModal();
+                    await fetchDeliveries();
+                } else {
+                    alert("Could not update delivery: " + (result.message || 'Server error'));
+                }
+            } catch(err) {
+                alert("Error updating delivery: " + err.message);
+            }
+        };
+
+        // Delete Delivery with confirmation
+        window.deleteDelivery = async function(poNumber) {
+            if(!confirm(`Are you sure you want to delete delivery registration for PO: ${poNumber}?\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/deliveries/${encodeURIComponent(poNumber)}`, {
+                    method: 'DELETE'
+                });
+                const result = await res.json();
+                if(result.success) {
+                    await fetchDeliveries();
+                } else {
+                    alert("Could not delete delivery: " + (result.message || 'Server error'));
+                }
+            } catch(err) {
+                alert("Error deleting delivery: " + err.message);
+            }
+        };
+
+        // Export Deliveries to CSV
+        window.exportDeliveriesCSV = function() {
+            const list = window.globalDeliveries || [];
+            if(list.length === 0) {
+                alert("No delivery records to export.");
+                return;
+            }
+
+            const headers = ["PO Number", "Expected Date", "Activity", "Vendor", "Vendor Email", "Vehicle Plate", "Driver Name", "Driver Phone", "Status", "Items Count", "Total Expected Units"];
+            const rows = list.map(d => {
+                const totalUnits = (d.unloading_sheet && Array.isArray(d.unloading_sheet)) 
+                    ? d.unloading_sheet.reduce((sum, item) => sum + (parseInt(item.expected) || 0), 0)
+                    : 0;
+                const itemsCount = (d.unloading_sheet && Array.isArray(d.unloading_sheet)) ? d.unloading_sheet.length : 0;
+                return [
+                    `"${(d.po_number || '').replace(/"/g, '""')}"`,
+                    `"${(d.expected_date || '').replace(/"/g, '""')}"`,
+                    `"${(d.activity || '').replace(/"/g, '""')}"`,
+                    `"${(d.vendor || '').replace(/"/g, '""')}"`,
+                    `"${(d.vendor_email || '').replace(/"/g, '""')}"`,
+                    `"${(d.plate || '').replace(/"/g, '""')}"`,
+                    `"${(d.driver_name || '').replace(/"/g, '""')}"`,
+                    `"${(d.driver_phone || '').replace(/"/g, '""')}"`,
+                    `"${(d.status || '').replace(/"/g, '""')}"`,
+                    itemsCount,
+                    totalUnits
+                ].join(',');
+            });
+
+            const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `WARLOG_Deliveries_Export_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
 
         // Helper to autofill row when PO is selected
         function handlePOSelect(selectElement, gpId) {

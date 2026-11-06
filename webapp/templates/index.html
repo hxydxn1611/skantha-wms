@@ -1985,73 +1985,577 @@
             </div>
         </div>
 
-        <!-- PRE-REGISTRATION (EXPECTED DELIVERIES) VIEW -->
-
+        <!-- PRE-REGISTRATION (INBOUND CONSIGNMENT INTELLIGENCE) VIEW -->
         <div id="deliveries-view" class="view-section">
-            <div style="display: flex; gap: 2rem;">
-                <aside class="glass-panel" style="flex: 0 0 450px; height: fit-content;">
-                    <h3>Pre-Register Delivery</h3>
-                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 1.5rem;">Log incoming orders even if you don't know the truck yet.</p>
-                    <form id="addDeliveryForm" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div style="grid-column: 1 / -1;">
-                            <label>PO / Order Number *</label>
-                            <input type="text" id="expPO" placeholder="PO-12345" required style="width: 100%; margin-bottom: 0;">
-                        </div>
-                        
-                        <div>
-                            <label>Activity *</label>
-                            <select id="expActivity" style="width: 100%; margin-bottom: 0;">
-                                <option value="Unloading">Unloading (Incoming)</option>
-                                <option value="Loading">Loading (Outgoing)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label>Expected Date *</label> 
-                            <input type="date" id="expDate" required style="width: 100%; margin-bottom: 0;">
-                        </div>
 
-                        <div style="grid-column: 1 / -1; border-top: 1px solid var(--border-light); padding-top: 1rem; margin-top: 0.5rem;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
-                                <label style="margin:0; font-size:1rem; color:var(--primary-navy);">Inbound Manifest (Expected Items)</label>
-                                <button type="button" class="btn-secondary" onclick="addManifestLine()" style="font-size:0.75rem; padding:4px 8px;">+ Add Line</button>
-                            </div>
-                            <div id="manifestLinesContainer" style="display:flex; flex-direction:column; gap:0.5rem; max-height: 250px; overflow-y:auto; padding-right:5px;">
-                            </div>
+            <!-- 1. HERO SECTION: PRE-REGISTRATION COMMAND BANNER -->
+            <div class="prereg-hero-banner">
+                <div class="hero-header-row">
+                    <div class="hero-title-group">
+                        <div class="hero-pill-badge">
+                            <span class="hero-beacon-dot"></span>
+                            <span class="hero-beacon-text">CONSIGNMENT PIPELINE ACTIVE</span>
                         </div>
-
-                        <div style="grid-column: 1 / -1;">
-                            <label>Primary Vendor Email (For Invoices)</label>
-                            <input type="email" id="expVendorEmail" placeholder="logistics@vendor.com" required style="width: 100%; margin-bottom: 0;">
-                        </div>
-                        <div>
-                            <label>Expected Plate</label> 
-                            <input type="text" id="expPlate" placeholder="XYZ 123" style="width: 100%; margin-bottom: 0;">
-                        </div>
-                        <div>
-                            <label>Driver Name</label> 
-                            <input type="text" id="expDriver" placeholder="John Doe" style="width: 100%; margin-bottom: 0;">
-                        </div>
-
-                        <div style="grid-column: 1 / -1;">
-                            <label>Driver Phone</label> 
-                            <input type="tel" id="expDriverPhone" placeholder="123-456-7890" style="width: 100%; margin-bottom: 0;">
-                        </div>
-                        
-                        <div style="grid-column: 1 / -1; margin-top: 0.5rem;">
-                            <button type="submit" class="btn-primary" style="width:100%">Register PO</button>
-                        </div>
-                    </form>
-                            
-        </aside>
-                <div class="glass-panel" style="flex:1;">
-                    <h2>Expected Deliveries Log</h2>
-                    <div class="table-container">
-                        <table>
-                            <thead><tr><th>PO Number</th><th>Expected Date</th><th>Activity</th><th>Vendor</th><th>Vendor Email</th><th>Expected Load</th><th>Qty</th><th>Plate (If Known)</th><th>Connected Pass / Status</th></tr></thead>
-                            <tbody id="expectedTableBody"></tbody>
-                        </table>
+                        <h1 class="hero-main-title">
+                            <i class="fas fa-truck-ramp-box text-accent"></i> Pre-Registration Studio
+                        </h1>
+                        <p class="hero-subtitle">
+                            Enterprise inbound consignment scheduling, multi-line manifest intelligence &amp; vendor delivery pipeline.
+                        </p>
+                    </div>
+                    <div class="hero-actions-group">
+                        <button type="button" class="btn-hero-action primary" onclick="switchPreRegSubTab('register')">
+                            <i class="fas fa-plus"></i> New PO Registration
+                        </button>
+                        <button type="button" class="btn-hero-action secondary" onclick="refreshDeliveriesData()" title="Reload Deliveries">
+                            <i class="fas fa-rotate"></i> Refresh Pipeline
+                        </button>
                     </div>
                 </div>
+
+                <!-- 5 KPI COUNTER CAPSULES -->
+                <div class="hero-kpi-grid prereg-kpi-grid">
+                    <div class="hero-kpi-card" onclick="setDeliveryStatusFilter('all')" title="Filter: All Deliveries">
+                        <div class="kpi-icon-wrap total"><i class="fas fa-boxes-stacked"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Total Registered</span>
+                            <span class="kpi-value" id="kpiTotalRegistered">0</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card" onclick="setDeliveryStatusFilter('Pending')" title="Filter: Pending">
+                        <div class="kpi-icon-wrap latency"><i class="fas fa-clock"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Pending</span>
+                            <span class="kpi-value text-amber" id="kpiPendingRegistered">0</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card" onclick="setDeliveryStatusFilter('Approved')" title="Filter: Approved">
+                        <div class="kpi-icon-wrap online"><i class="fas fa-circle-check"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Approved</span>
+                            <span class="kpi-value text-emerald" id="kpiApprovedRegistered">0</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card" onclick="setDeliveryStatusFilter('Rejected')" title="Filter: Rejected">
+                        <div class="kpi-icon-wrap offline"><i class="fas fa-circle-xmark"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Rejected</span>
+                            <span class="kpi-value text-rose" id="kpiRejectedRegistered">0</span>
+                        </div>
+                    </div>
+                    <div class="hero-kpi-card" onclick="setDeliveryStatusFilter('Completed')" title="Filter: Completed / Arrived">
+                        <div class="kpi-icon-wrap fps"><i class="fas fa-truck-fast"></i></div>
+                        <div class="kpi-meta">
+                            <span class="kpi-label">Completed / Docked</span>
+                            <span class="kpi-value text-cyan" id="kpiCompletedRegistered">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. SEGMENTED NAVIGATION TABS -->
+            <div class="prereg-nav-bar">
+                <div class="nav-tabs-group" role="tablist" aria-label="Pre-Registration Navigation">
+                    <button id="prereg-tab-register-btn" class="prereg-nav-tab active" onclick="switchPreRegSubTab('register')" role="tab" aria-selected="true">
+                        <i class="fas fa-clipboard-check"></i> Registration
+                    </button>
+                    <button id="prereg-tab-records-btn" class="prereg-nav-tab" onclick="switchPreRegSubTab('records')" role="tab" aria-selected="false">
+                        <i class="fas fa-clipboard-list"></i> Registered Deliveries <span class="tab-pill-counter" id="preregNavRecordsBadge">0</span>
+                    </button>
+                </div>
+                <div class="prereg-status-indicator">
+                    <span class="pulse-indicator"></span> Real-time Telemetry Synced
+                </div>
+            </div>
+
+            <!-- 3. TAB 1: REGISTRATION WORKFLOW (DELIVERY CREATION) -->
+            <div id="prereg-tab-register-content" class="prereg-tab-panel">
+                <div class="prereg-form-card glass-panel">
+                    <div class="prereg-form-header">
+                        <div class="prereg-form-header-title">
+                            <i class="fas fa-file-circle-plus text-accent"></i>
+                            <div>
+                                <h3>Inbound Delivery Intake Specification</h3>
+                                <p>Pre-register planned purchase orders, multi-line manifests, and transport details prior to gate arrival.</p>
+                            </div>
+                        </div>
+                        <div class="prereg-form-actions-top">
+                            <button type="button" class="btn-secondary" onclick="resetPreRegForm()" style="font-size:0.8rem; padding:6px 12px;">
+                                <i class="fas fa-rotate-left"></i> Reset Form
+                            </button>
+                        </div>
+                    </div>
+
+                    <form id="addDeliveryForm" class="prereg-studio-form">
+                        
+                        <!-- SECTION 1: PURCHASE ORDER INFORMATION -->
+                        <div class="prereg-form-section">
+                            <div class="section-title-wrap">
+                                <span class="section-num-pill">1</span>
+                                <h4 class="section-heading"><i class="fas fa-file-invoice"></i> Purchase Order Information</h4>
+                            </div>
+                            <div class="prereg-grid-3">
+                                <div class="form-field-group">
+                                    <label for="expPO">PO / Order Number <span class="req-star">*</span></label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-barcode"></i>
+                                        <input type="text" id="expPO" placeholder="e.g. PO-INB-9840" required autocomplete="off">
+                                    </div>
+                                    <span class="field-hint">Unique identifier for tracking, audit &amp; gate pass binding.</span>
+                                </div>
+                                <div class="form-field-group">
+                                    <label for="expActivity">Activity Type <span class="req-star">*</span></label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-dolly"></i>
+                                        <select id="expActivity" required>
+                                            <option value="Unloading" selected>Unloading (Inbound Inflow)</option>
+                                            <option value="Loading">Loading (Outbound Dispatch)</option>
+                                        </select>
+                                    </div>
+                                    <span class="field-hint">Operational staging workflow for warehouse bay.</span>
+                                </div>
+                                <div class="form-field-group">
+                                    <label for="expDate">Expected Arrival Date <span class="req-star">*</span></label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-calendar-day"></i>
+                                        <input type="date" id="expDate" required>
+                                    </div>
+                                    <span class="field-hint">Scheduled arrival window for dock queuing.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SECTION 2: VENDOR INFORMATION -->
+                        <div class="prereg-form-section">
+                            <div class="section-title-wrap">
+                                <span class="section-num-pill">2</span>
+                                <h4 class="section-heading"><i class="fas fa-building"></i> Vendor &amp; Supplier Information</h4>
+                            </div>
+                            <div class="prereg-grid-3">
+                                <div class="form-field-group">
+                                    <label for="expVendorName">Vendor / Supplier Organization <span class="req-star">*</span></label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-industry"></i>
+                                        <input type="text" id="expVendorName" placeholder="e.g. Tata AutoComp Systems" required autocomplete="organization">
+                                    </div>
+                                    <span class="field-hint">Authoritative supplier name or dispatch entity.</span>
+                                </div>
+                                <div class="form-field-group">
+                                    <label for="expVendorEmail">Primary Vendor Email (ASN &amp; Invoices) <span class="req-star">*</span></label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-envelope"></i>
+                                        <input type="email" id="expVendorEmail" placeholder="logistics@vendor.com" required autocomplete="email">
+                                    </div>
+                                    <span class="field-hint">Receives automatic gate entry notification &amp; e-Pass receipt.</span>
+                                </div>
+                                <div class="form-field-group">
+                                    <label for="expVendorContact">Vendor Phone / Dispatch Desk</label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-phone"></i>
+                                        <input type="tel" id="expVendorContact" placeholder="+91 98765 43210">
+                                    </div>
+                                    <span class="field-hint">Contact person for delivery coordination.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SECTION 3: VEHICLE & DRIVER INFORMATION -->
+                        <div class="prereg-form-section">
+                            <div class="section-title-wrap">
+                                <span class="section-num-pill">3</span>
+                                <h4 class="section-heading"><i class="fas fa-truck"></i> Vehicle &amp; Driver Logistics</h4>
+                            </div>
+                            <div class="prereg-grid-3">
+                                <div class="form-field-group">
+                                    <label for="expPlate">Expected License Plate (Optional)</label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-id-card"></i>
+                                        <input type="text" id="expPlate" placeholder="e.g. MH-12-RN-4821" style="font-family:monospace; text-transform:uppercase;">
+                                    </div>
+                                    <span class="field-hint">Matches ANPR camera optical detection at gate.</span>
+                                </div>
+                                <div class="form-field-group">
+                                    <label for="expDriver">Assigned Driver Full Name</label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-user"></i>
+                                        <input type="text" id="expDriver" placeholder="e.g. Rajesh Kumar">
+                                    </div>
+                                    <span class="field-hint">Driver name for gate entry verification.</span>
+                                </div>
+                                <div class="form-field-group">
+                                    <label for="expDriverPhone">Driver Contact Phone</label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-mobile-screen"></i>
+                                        <input type="tel" id="expDriverPhone" placeholder="10-digit mobile number">
+                                    </div>
+                                    <span class="field-hint">Receives SMS gate verification OTP code.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SECTION 4: INBOUND MANIFEST -->
+                        <div class="prereg-form-section">
+                            <div class="section-title-wrap manifest-header-flex">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span class="section-num-pill">4</span>
+                                    <h4 class="section-heading" style="margin:0;"><i class="fas fa-cubes"></i> Inbound Manifest (Expected Items) <span class="req-star">*</span></h4>
+                                </div>
+                                <div class="manifest-toolbar">
+                                    <span class="manifest-summary-pill" id="manifestSummaryPill">
+                                        <i class="fas fa-box"></i> <span id="manifestSummaryItems">0</span> Items &bull; <span id="manifestSummaryUnits">0</span> Units
+                                    </span>
+                                    <button type="button" class="btn-primary" onclick="addManifestLine()" style="font-size:0.78rem; padding:5px 12px;">
+                                        <i class="fas fa-plus"></i> Add Line Item
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="manifest-table-wrapper">
+                                <div class="manifest-columns-header">
+                                    <div style="flex:2.2;">SKU / Product Description</div>
+                                    <div style="flex:1.8;">Vendor / Brand</div>
+                                    <div style="flex:1;">Expected Qty</div>
+                                    <div style="width:36px; text-align:center;">Del</div>
+                                </div>
+                                <div id="manifestLinesContainer" class="manifest-lines-scroll">
+                                    <!-- Dynamic items generated via addManifestLine() -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SECTION 5: ADDITIONAL LOGISTICS INSTRUCTIONS & STATUS -->
+                        <div class="prereg-form-section">
+                            <div class="section-title-wrap">
+                                <span class="section-num-pill">5</span>
+                                <h4 class="section-heading"><i class="fas fa-clipboard-notes"></i> Logistics Notes &amp; Initial Status</h4>
+                            </div>
+                            <div class="prereg-grid-2">
+                                <div class="form-field-group">
+                                    <label for="expNotes">Special Dock &amp; Handling Instructions</label>
+                                    <textarea id="expNotes" rows="2" placeholder="e.g. Forklift required for heavy pallets, temperature-controlled bay, inspect seals upon dock arrival..."></textarea>
+                                </div>
+                                <div class="form-field-group">
+                                    <label for="expInitialStatus">Initial Manifest Status</label>
+                                    <select id="expInitialStatus">
+                                        <option value="Pending" selected>Pending Review (Awaiting Gate)</option>
+                                        <option value="Approved">Pre-Approved (Fast Track Dock)</option>
+                                    </select>
+                                    <span class="field-hint">Pre-approved deliveries bypass manual triage upon arrival.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- FORM SUBMIT ACTION BAR -->
+                        <div class="prereg-form-footer">
+                            <div class="footer-note">
+                                <i class="fas fa-shield-halved text-accent"></i>
+                                <span>All registrations are immutably signed &amp; synchronized across enterprise gate telemetry.</span>
+                            </div>
+                            <div class="footer-buttons">
+                                <button type="button" class="btn-secondary" onclick="resetPreRegForm()">
+                                    <i class="fas fa-rotate-left"></i> Reset
+                                </button>
+                                <button type="submit" class="btn-primary" id="btnSubmitDelivery" style="padding:10px 24px; font-size:0.95rem; font-weight:700;">
+                                    <i class="fas fa-paper-plane"></i> Register Delivery
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 4. TAB 2: REGISTERED DELIVERIES (FULL-WIDTH DATA MANAGEMENT) -->
+            <div id="prereg-tab-records-content" class="prereg-tab-panel" style="display:none;">
+                
+                <!-- ADVANCED FILTER & SEARCH BAR -->
+                <div class="prereg-filter-card glass-panel">
+                    <div class="filter-header-row">
+                        <div class="filter-title-group">
+                            <i class="fas fa-filter text-accent"></i>
+                            <span class="filter-title">Filter Registered Deliveries</span>
+                        </div>
+                        <div class="filter-stats-group">
+                            <span class="records-counter-text" id="deliveryRecordsCount">Showing 0 deliveries</span>
+                            <button type="button" class="btn-text-action" onclick="resetDeliveryFilters()" title="Reset all filters">
+                                <i class="fas fa-filter-circle-xmark"></i> Clear Filters
+                            </button>
+                        </div>
+                    </div>
+                    <div class="filter-inputs-grid">
+                        <div class="filter-input-wrap">
+                            <label><i class="fas fa-magnifying-glass"></i> Search PO Number</label>
+                            <input type="text" id="searchPoInput" placeholder="Filter by PO..." oninput="onDeliveryFilterChange()">
+                        </div>
+                        <div class="filter-input-wrap">
+                            <label><i class="fas fa-industry"></i> Vendor</label>
+                            <input type="text" id="searchVendorInput" placeholder="Filter by vendor..." oninput="onDeliveryFilterChange()">
+                        </div>
+                        <div class="filter-input-wrap">
+                            <label><i class="fas fa-truck"></i> Vehicle Plate</label>
+                            <input type="text" id="searchPlateInput" placeholder="Filter by plate..." oninput="onDeliveryFilterChange()" style="text-transform:uppercase;">
+                        </div>
+                        <div class="filter-input-wrap">
+                            <label><i class="fas fa-layer-group"></i> Status</label>
+                            <select id="filterStatusSelect" onchange="onDeliveryFilterChange()">
+                                <option value="all" selected>All Statuses</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Approved">Approved</option>
+                                <option value="Rejected">Rejected</option>
+                                <option value="Completed">Completed / Docked</option>
+                                <option value="Expected">Expected</option>
+                                <option value="Arrived">Arrived</option>
+                            </select>
+                        </div>
+                        <div class="filter-input-wrap">
+                            <label><i class="fas fa-dolly"></i> Activity</label>
+                            <select id="filterActivitySelect" onchange="onDeliveryFilterChange()">
+                                <option value="all" selected>All Activities</option>
+                                <option value="Unloading">Unloading</option>
+                                <option value="Loading">Loading</option>
+                            </select>
+                        </div>
+                        <div class="filter-input-wrap">
+                            <label><i class="fas fa-calendar-day"></i> Expected Date</label>
+                            <input type="date" id="filterDateInput" onchange="onDeliveryFilterChange()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FULL-WIDTH REGISTERED DELIVERIES TABLE -->
+                <div class="prereg-table-card glass-panel">
+                    <div class="prereg-table-header-bar">
+                        <div class="table-title-group">
+                            <i class="fas fa-table-list text-accent"></i>
+                            <h3 style="margin:0; font-size:1.05rem;">Expected Deliveries Roster</h3>
+                        </div>
+                        <div class="table-actions-group">
+                            <button type="button" class="btn-secondary" onclick="exportDeliveriesCSV()" style="font-size:0.78rem; padding:5px 10px;">
+                                <i class="fas fa-file-csv"></i> Export CSV
+                            </button>
+                            <button type="button" class="btn-primary" onclick="switchPreRegSubTab('register')" style="font-size:0.78rem; padding:5px 12px;">
+                                <i class="fas fa-plus"></i> Add Delivery
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-container prereg-table-container">
+                        <table class="prereg-data-table">
+                            <thead>
+                                <tr>
+                                    <th onclick="sortDeliveries('po_number')">PO Number <i class="fas fa-sort sort-icon"></i></th>
+                                    <th onclick="sortDeliveries('vendor')">Vendor / Organization <i class="fas fa-sort sort-icon"></i></th>
+                                    <th onclick="sortDeliveries('expected_date')">Expected Date <i class="fas fa-sort sort-icon"></i></th>
+                                    <th>Activity</th>
+                                    <th>Vehicle Plate</th>
+                                    <th onclick="sortDeliveries('created_at')">Registration Date <i class="fas fa-sort sort-icon"></i></th>
+                                    <th>Manifest Items</th>
+                                    <th>Status</th>
+                                    <th style="text-align:right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="expectedTableBody">
+                                <tr>
+                                    <td colspan="9" style="text-align:center; padding:2rem; color:var(--text-muted);">
+                                        <i class="fas fa-circle-notch fa-spin"></i> Loading registered deliveries...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- PAGINATION & ROW CONTROLS -->
+                    <div class="prereg-pagination-bar" id="deliveryPaginationBar">
+                        <div class="pagination-rows-info">
+                            <span>Rows per page:</span>
+                            <select id="deliveryPageSizeSelect" onchange="changeDeliveryPageSize(this.value)">
+                                <option value="10" selected>10</option>
+                                <option value="25">25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                            <span id="deliveryPaginationSummary" style="margin-left:12px; color:var(--text-muted); font-size:0.8rem;">Showing 1-10 of 10</span>
+                        </div>
+                        <div class="pagination-page-nav">
+                            <button type="button" class="btn-page-nav" id="btnDeliveryPrev" onclick="navigateDeliveryPage(-1)" disabled>
+                                <i class="fas fa-chevron-left"></i> Prev
+                            </button>
+                            <span class="page-indicator" id="deliveryPageCurrent">Page 1 of 1</span>
+                            <button type="button" class="btn-page-nav" id="btnDeliveryNext" onclick="navigateDeliveryPage(1)" disabled>
+                                Next <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DELIVERY DETAILS INSPECTION MODAL (MACOS STUDIO) -->
+        <div id="modalDeliveryDetails" class="modal-overlay" style="display:none; position:fixed; inset:0; z-index:10002; background:rgba(8,12,24,0.88); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:16px;" onclick="if(event.target===this) closeDeliveryDetailsModal()">
+            <div class="macos-modal-window" style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:14px; max-width:850px; width:100%; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7), 0 0 30px rgba(56,189,248,0.2);">
+                <div class="macos-modal-header" style="padding:14px 20px; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; background:var(--panel-subtle);">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span class="modal-traffic-lights" style="display:inline-flex; gap:6px;">
+                            <span style="width:11px; height:11px; border-radius:50%; background:#ef4444; cursor:pointer;" onclick="closeDeliveryDetailsModal()"></span>
+                            <span style="width:11px; height:11px; border-radius:50%; background:#f59e0b;"></span>
+                            <span style="width:11px; height:11px; border-radius:50%; background:#10b981;"></span>
+                        </span>
+                        <div>
+                            <h3 id="delivModalPoTitle" style="margin:0; font-size:1.1rem; color:var(--text-main); font-weight:700;">Delivery Details &bull; <span id="delivModalPoId">PO-XXXX</span></h3>
+                            <div id="delivModalSubtitle" style="font-size:0.75rem; color:var(--text-muted);">Inbound Purchase Order Specification &amp; Manifest</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span id="delivModalStatusBadge" class="badge">Expected</span>
+                        <button type="button" onclick="closeDeliveryDetailsModal()" style="background:none; border:none; color:var(--text-muted); font-size:1.3rem; cursor:pointer; line-height:1; padding:4px;" title="Close">&times;</button>
+                    </div>
+                </div>
+
+                <div class="macos-modal-body" style="padding:20px; overflow-y:auto; flex:1; max-height:calc(92vh - 130px); display:flex; flex-direction:column; gap:16px;">
+                    <!-- Metadata Grid -->
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; background:var(--panel-subtle); padding:14px; border-radius:10px; border:1px solid var(--border-light);">
+                        <div>
+                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Vendor / Supplier</div>
+                            <div id="delivModalVendor" style="font-weight:600; color:var(--text-main); font-size:0.9rem;">-</div>
+                            <div id="delivModalVendorEmail" style="font-size:0.75rem; color:var(--text-muted);">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Scheduled Date</div>
+                            <div id="delivModalDate" style="font-weight:600; color:var(--text-main); font-size:0.9rem;">-</div>
+                            <div id="delivModalActivity" style="font-size:0.75rem; color:var(--accent);">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Vehicle &amp; Transport</div>
+                            <div id="delivModalPlate" style="font-family:monospace; font-weight:700; color:var(--text-main);">-</div>
+                            <div id="delivModalDriver" style="font-size:0.75rem; color:var(--text-muted);">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Gate Pass Status</div>
+                            <div id="delivModalGatePass" style="font-weight:600; font-size:0.85rem;">Not Linked</div>
+                            <div id="delivModalCreated" style="font-size:0.75rem; color:var(--text-muted);">-</div>
+                        </div>
+                    </div>
+
+                    <!-- Manifest Line Items Table -->
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <h4 style="margin:0; font-size:0.95rem; color:var(--text-main);"><i class="fas fa-boxes-packing text-accent"></i> Expected Line Items Manifest</h4>
+                            <span id="delivModalTotalUnits" class="badge" style="background:rgba(56,189,248,0.15); color:var(--accent); font-weight:700;">0 Units Total</span>
+                        </div>
+                        <div style="border:1px solid var(--border-light); border-radius:8px; overflow:hidden;">
+                            <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+                                <thead>
+                                    <tr style="background:var(--panel-subtle); border-bottom:1px solid var(--border-light); text-align:left;">
+                                        <th style="padding:8px 12px; color:var(--text-muted);">#</th>
+                                        <th style="padding:8px 12px; color:var(--text-muted);">SKU Code</th>
+                                        <th style="padding:8px 12px; color:var(--text-muted);">Vendor / Source</th>
+                                        <th style="padding:8px 12px; color:var(--text-muted); text-align:right;">Expected Qty</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="delivModalManifestTbody">
+                                    <!-- Rendered dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Notes Section -->
+                    <div id="delivModalNotesWrap" style="display:none; background:var(--panel-subtle); padding:10px 14px; border-radius:8px; border:1px solid var(--border-light);">
+                        <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Special Instructions &amp; Handling</div>
+                        <p id="delivModalNotes" style="margin:4px 0 0; font-size:0.82rem; color:var(--text-main);"></p>
+                    </div>
+                </div>
+
+                <div class="macos-modal-footer" style="padding:12px 20px; background:var(--panel-subtle); border-top:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" class="btn-secondary" id="btnModalDelivTrace" style="font-size:0.78rem; padding:6px 12px;">
+                            <i class="fas fa-magnifying-glass"></i> View In Traceability
+                        </button>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" class="btn-primary" id="btnModalDelivEdit" style="font-size:0.78rem; padding:6px 14px;">
+                            <i class="fas fa-pen-to-square"></i> Edit Registration
+                        </button>
+                        <button type="button" class="btn-secondary" onclick="closeDeliveryDetailsModal()" style="font-size:0.78rem; padding:6px 14px;">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DELIVERY EDIT MODAL -->
+        <div id="modalEditDelivery" class="modal-overlay" style="display:none; position:fixed; inset:0; z-index:10003; background:rgba(8,12,24,0.88); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:16px;" onclick="if(event.target===this) closeEditDeliveryModal()">
+            <div class="macos-modal-window" style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:14px; max-width:650px; width:100%; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7);">
+                <div class="macos-modal-header" style="padding:14px 20px; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; background:var(--panel-subtle);">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <i class="fas fa-pen-to-square text-accent" style="font-size:1.2rem;"></i>
+                        <div>
+                            <h3 style="margin:0; font-size:1.05rem; color:var(--text-main); font-weight:700;">Edit Delivery Registration</h3>
+                            <div style="font-size:0.75rem; color:var(--text-muted);"><span id="editDelivPoBadge" style="font-family:monospace; font-weight:700;">PO-XXXX</span></div>
+                        </div>
+                    </div>
+                    <button type="button" onclick="closeEditDeliveryModal()" style="background:none; border:none; color:var(--text-muted); font-size:1.3rem; cursor:pointer; line-height:1; padding:4px;" title="Close">&times;</button>
+                </div>
+                
+                <form id="editDeliveryForm" onsubmit="submitEditDelivery(event)" style="padding:20px; overflow-y:auto; flex:1; max-height:calc(92vh - 130px); display:flex; flex-direction:column; gap:14px;">
+                    <input type="hidden" id="editDelivPo">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="form-field-group">
+                            <label>Expected Date *</label>
+                            <input type="date" id="editDelivDate" required style="width:100%;">
+                        </div>
+                        <div class="form-field-group">
+                            <label>Activity *</label>
+                            <select id="editDelivActivity" required style="width:100%;">
+                                <option value="Unloading">Unloading</option>
+                                <option value="Loading">Loading</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="form-field-group">
+                            <label>Vendor Organization</label>
+                            <input type="text" id="editDelivVendor" style="width:100%;">
+                        </div>
+                        <div class="form-field-group">
+                            <label>Vendor Email</label>
+                            <input type="email" id="editDelivVendorEmail" style="width:100%;">
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="form-field-group">
+                            <label>Vehicle Plate</label>
+                            <input type="text" id="editDelivPlate" style="width:100%; font-family:monospace; text-transform:uppercase;">
+                        </div>
+                        <div class="form-field-group">
+                            <label>Driver Name</label>
+                            <input type="text" id="editDelivDriver" style="width:100%;">
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="form-field-group">
+                            <label>Driver Phone</label>
+                            <input type="tel" id="editDelivDriverPhone" style="width:100%;">
+                        </div>
+                        <div class="form-field-group">
+                            <label>Registration Status *</label>
+                            <select id="editDelivStatus" required style="width:100%;">
+                                <option value="Pending">Pending</option>
+                                <option value="Approved">Approved</option>
+                                <option value="Rejected">Rejected</option>
+                                <option value="Completed">Completed / Docked</option>
+                                <option value="Expected">Expected</option>
+                                <option value="Arrived">Arrived</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="macos-modal-footer" style="margin-top:10px; padding-top:14px; border-top:1px solid var(--border-light); display:flex; justify-content:flex-end; gap:8px;">
+                        <button type="button" class="btn-secondary" onclick="closeEditDeliveryModal()">Cancel</button>
+                        <button type="submit" class="btn-primary" style="font-weight:700;"><i class="fas fa-save"></i> Save Changes</button>
+                    </div>
+                </form>
             </div>
         </div>
 
@@ -7312,19 +7816,43 @@ window.switchSubTab = switchSubTab;
 
     <script>
         window.manifestLineCount = 0;
+
+        window.updateManifestSummary = function() {
+            const container = document.getElementById('manifestLinesContainer');
+            if(!container) return;
+            const lines = container.children;
+            let totalUnits = 0;
+            let totalLines = 0;
+            for(let i = 0; i < lines.length; i++) {
+                if(!lines[i].id) continue;
+                const lineId = lines[i].id.split('_')[1];
+                const skuEl = document.getElementById(`manifestSku_${lineId}`);
+                const qtyEl = document.getElementById(`manifestQty_${lineId}`);
+                if(skuEl && skuEl.value) totalLines++;
+                if(qtyEl && qtyEl.value) {
+                    totalUnits += parseInt(qtyEl.value) || 0;
+                }
+            }
+            const itemsPill = document.getElementById('manifestSummaryItems');
+            const unitsPill = document.getElementById('manifestSummaryUnits');
+            if(itemsPill) itemsPill.innerText = totalLines;
+            if(unitsPill) unitsPill.innerText = totalUnits;
+        };
+
         window.addManifestLine = async function() {
             window.manifestLineCount++;
             const id = window.manifestLineCount;
             const container = document.getElementById('manifestLinesContainer');
+            if(!container) return;
             
             const lineDiv = document.createElement('div');
             lineDiv.id = `manifestLine_${id}`;
-            lineDiv.style.cssText = "display:grid; grid-template-columns: 2fr 2fr 1fr 30px; gap:8px; align-items:center; background:var(--panel-subtle); padding:8px; border-radius:6px; border:1px solid var(--border-light);";
+            lineDiv.className = 'manifest-line-row';
             
-            let skuOptions = '<option value="">Select SKU...</option>';
+            let skuOptions = '<option value="">Select SKU Code...</option>';
             if(window.globalSkus && window.globalSkus.length > 0) {
                 window.globalSkus.forEach(s => {
-                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} - ${s.name}</option>`;
+                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} &bull; ${s.name || ''}</option>`;
                 });
             } else {
                 try {
@@ -7332,24 +7860,34 @@ window.switchSubTab = switchSubTab;
                     const skus = await res.json();
                     window.globalSkus = skus;
                     skus.forEach(s => {
-                        skuOptions += `<option value="${s.sku_id}">${s.sku_id} - ${s.name}</option>`;
+                        skuOptions += `<option value="${s.sku_id}">${s.sku_id} &bull; ${s.name || ''}</option>`;
                     });
                 } catch(e){}
             }
 
+            // Inherit default vendor from expVendorName if already typed
+            const defaultVendor = (document.getElementById('expVendorName') && document.getElementById('expVendorName').value) || '';
+
             lineDiv.innerHTML = `
-                <div style="display:flex; align-items:center; gap:4px;">
-                    <select id="manifestSku_${id}" required style="margin:0; padding:6px; font-size:0.8rem; flex-grow:1;" title="SKU">${skuOptions}</select>
-                    <button type="button" onclick="document.getElementById('addSkuModal').style.display='flex'" style="background:var(--primary-teal); color:white; border:none; padding:6px; border-radius:4px; cursor:pointer; font-size:0.75rem;" title="Quick Add SKU">+</button>
+                <div style="display:flex; align-items:center; gap:4px; min-width:0;">
+                    <select id="manifestSku_${id}" required style="margin:0; padding:7px 10px; font-size:0.82rem; flex:1; min-width:0;" title="SKU" onchange="window.updateManifestSummary()">
+                        ${skuOptions}
+                    </select>
+                    <button type="button" onclick="document.getElementById('addSkuModal').style.display='flex'" style="background:var(--accent); color:white; border:none; padding:7px 10px; border-radius:6px; cursor:pointer; font-size:0.8rem; flex-shrink:0;" title="Quick Add SKU">+</button>
                 </div>
-                <input type="text" id="manifestVendor_${id}" placeholder="Vendor Name" required style="margin:0; padding:6px; font-size:0.8rem;" title="Vendor">
-                <input type="number" id="manifestQty_${id}" placeholder="Qty" required min="1" style="margin:0; padding:6px; font-size:0.8rem;" title="Expected Qty">
-                <button type="button" onclick="document.getElementById('manifestLine_${id}').remove()" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:1.2rem; padding:0;" title="Remove Line">&times;</button>
+                <input type="text" id="manifestVendor_${id}" placeholder="Vendor / Source" value="${escapeHtml(defaultVendor)}" required style="margin:0; padding:7px 10px; font-size:0.82rem; width:100%;" title="Vendor">
+                <input type="number" id="manifestQty_${id}" placeholder="Qty" required min="1" style="margin:0; padding:7px 10px; font-size:0.82rem; width:100%;" title="Expected Qty" oninput="window.updateManifestSummary()">
+                <button type="button" onclick="document.getElementById('manifestLine_${id}').remove(); window.updateManifestSummary();" style="background:none; border:none; color:var(--danger, #ef4444); cursor:pointer; font-size:1.25rem; padding:0; display:flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:6px;" title="Remove Line">&times;</button>
             `;
             container.appendChild(lineDiv);
+            window.updateManifestSummary();
         };
         
-        setTimeout(() => { if(document.getElementById('manifestLinesContainer')) window.addManifestLine(); }, 1000);
+        setTimeout(() => { 
+            if(document.getElementById('manifestLinesContainer') && document.getElementById('manifestLinesContainer').children.length === 0) {
+                window.addManifestLine(); 
+            }
+        }, 800);
     </script>
 
 

@@ -895,7 +895,7 @@ def create_delivery(data):
             vendor = ", ".join(list(set([str(item.get('vendor', '')) for item in sheet if isinstance(item, dict)])))
             
         sheet_json = json.dumps(sheet) if isinstance(sheet, (list, dict)) else str(sheet)
-        status = "Expected"
+        status = data.get("status") or "Pending"
 
         vendor_email = data.get("vendor_email") or ""
         driver_phone = data.get("driver_phone") or ""
@@ -913,8 +913,46 @@ def create_delivery(data):
                 plate = excluded.plate,
                 driver_name = excluded.driver_name,
                 driver_phone = excluded.driver_phone,
-                unloading_sheet = excluded.unloading_sheet
+                unloading_sheet = excluded.unloading_sheet,
+                status = excluded.status
         """, (po_number, expected_date, activity, vendor, vendor_email, load_desc, plate, driver_name, driver_phone, sheet_json, status))
+    conn.close()
+    return get_delivery(po_number)
+
+def update_delivery(po_number, data):
+    """Update existing expected delivery attributes."""
+    conn = get_db()
+    with conn:
+        existing = conn.execute("SELECT * FROM expected_deliveries WHERE po_number = ?", (po_number,)).fetchone()
+        if not existing:
+            conn.close()
+            data['po_number'] = po_number
+            return create_delivery(data)
+        
+        row_dict = dict(existing)
+        expected_date = data.get("expected_date") if "expected_date" in data else row_dict.get("expected_date")
+        activity = data.get("activity") if "activity" in data else row_dict.get("activity")
+        vendor = data.get("vendor") if "vendor" in data else row_dict.get("vendor")
+        vendor_email = data.get("vendor_email") if "vendor_email" in data else row_dict.get("vendor_email")
+        load_desc = data.get("load") or data.get("load_description") if ("load" in data or "load_description" in data) else row_dict.get("load_description")
+        plate = (data.get("plate") or "").strip().upper() if "plate" in data else row_dict.get("plate")
+        driver_name = data.get("driver_name") if "driver_name" in data else row_dict.get("driver_name")
+        driver_phone = data.get("driver_phone") if "driver_phone" in data else row_dict.get("driver_phone")
+        status = data.get("status") if "status" in data else row_dict.get("status")
+        
+        sheet = data.get("unloading_sheet")
+        if sheet is not None:
+            sheet_json = json.dumps(sheet) if isinstance(sheet, (list, dict)) else str(sheet)
+        else:
+            sheet_json = row_dict.get("unloading_sheet")
+
+        conn.execute("""
+            UPDATE expected_deliveries 
+            SET expected_date = ?, activity = ?, vendor = ?, vendor_email = ?, 
+                load_description = ?, plate = ?, driver_name = ?, driver_phone = ?, 
+                unloading_sheet = ?, status = ?
+            WHERE po_number = ?
+        """, (expected_date, activity, vendor, vendor_email, load_desc, plate, driver_name, driver_phone, sheet_json, status, po_number))
     conn.close()
     return get_delivery(po_number)
 
