@@ -4293,3 +4293,340 @@ body {
     font-weight: 600 !important;
     letter-spacing: 0.5px !important;
 }
+
+/* ==========================================================================
+   UNIVERSAL THEME TEXT VISIBILITY & SIDEBAR DOCK WIDTH CORRECTIONS
+   ========================================================================== */
+
+/* 1. DOCK SIDEBAR WIDTH & LABEL VISIBILITY FIX */
+.macos-floating-dock-sidebar {
+    width: 252px !important;
+    min-width: 252px !important;
+    max-width: 252px !important;
+    padding: 12px 10px !important;
+    box-sizing: border-box !important;
+}
+
+.dock-header {
+    width: 100% !important;
+    padding: 4px 6px 10px 8px !important;
+}
+
+.dock-btn {
+    width: 100% !important;
+    height: 42px !important;
+    padding: 0 10px !important;
+    gap: 10px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    box-sizing: border-box !important;
+    border-radius: 12px !important;
+}
+
+.dock-icon-wrapper {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+}
+
+.dock-3d-svg {
+    width: 30px !important;
+    height: 30px !important;
+}
+
+.dock-label {
+    font-size: 0.835rem !important;
+    font-weight: 600 !important;
+    color: var(--text-main) !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    flex: 1 !important;
+    text-align: left !important;
+    letter-spacing: -0.15px !important;
+    line-height: 1.2 !important;
+    display: block !important;
+}
+
+.dock-badge-counter {
+    margin-left: auto !important;
+    flex-shrink: 0 !important;
+}
+
+.dock-mini-badge {
+    margin-left: auto !important;
+    flex-shrink: 0 !important;
+}
+
+/* 2. UNIVERSAL TEXT VISIBILITY ACROSS ALL 4 THEMES */
+
+/* LIGHT THEME COMPREHENSIVE TEXT VISIBILITY */
+[data-theme="light"], :root:not([data-theme="dark"]):not([data-theme="ocean"]):not([data-theme="amber"]) {
+    --bg-color: #f8fafc !important;
+    --bg-main: #f8fafc !important;
+    --bg-page: #f8fafc !important;
+    --panel-bg: #ffffff !important;
+    --panel-subtle: #f1f5f9 !important;
+    --border-light: #e2e8f0 !important;
+    --border-blue: #bfdbfe !important;
+    --text-main: #0f172a !important;
+    --text-primary: #0f172a !important;
+    --text-color: #0f172a !important;
+    --text-muted: #475569 !important;
+    --text-secondary: #475569 !important;
+    --primary-navy: #0f172a !important;
+    --accent: #0284c7 !important;
+    --accent-hover: #0369a1 !important;
+}
+
+[data-theme="light"] body,
+[data-theme="light"] .container,
+[data-theme="light"] #main-container,
+[data-theme="light"] .view-section,
+[data-theme="light"] table,
+[data-theme="light"] table td,
+[data-theme="light"] .glass-panel,
+[data-theme="light"] .swms-card,
+[data-theme="light"] .metric-card,
+[data-theme="light"] .modal-content,
+[data-theme="light"] .modal-header,
+[data-theme="light"] .modal-body,
+[data-theme="light"] .modal-footer,
+[data-theme="light"] h1, [data-theme="light"] h2, [data-theme="light"] h3,
+[data-theme="light"] h4, [data-theme="light"] h5, [data-theme="light"] h6 {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] table th {
+    background: #f1f5f9 !important;
+    color: #334155 !important;
+    border-bottom: 2px solid #cbd5e1 !important;
+    font-weight: 700 !important;
+}
+
+[data-theme="light"] table td {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] table tbody tr:hover td {
+    background: #f8fafc !important;
+}
+
+[data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] label {
+    color: #1e293b !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="light"] .sub-tab-btn {
+    background: #f1f5f9 !important;
+    color: #1e293b !important;
+    border: 1px solid #cbd5e1 !important;
+}
+
+[data-theme="light"] .sub-tab-btn.active {
+    background: #0284c7 !important;
+    color: #ffffff !important;
+    border-color: #0284c7 !important;
+}
+
+[data-theme="light"] .topbar-facility-selector,
+[data-theme="light"] #activeFacilityNameDisplay,
+[data-theme="light"] #topbarCompanyName,
+[data-theme="light"] .company-title-accent,
+[data-theme="light"] .topbar-user-name,
+[data-theme="light"] .topbar-warlog-title {
+    color: #0f172a !important;
+}
+
+/* DARK THEME COMPREHENSIVE TEXT VISIBILITY */
+[data-theme="dark"] body,
+[data-theme="dark"] .container,
+[data-theme="dark"] #main-container,
+[data-theme="dark"] .view-section,
+[data-theme="dark"] table,
+[data-theme="dark"] table td,
+[data-theme="dark"] .glass-panel,
+[data-theme="dark"] .swms-card,
+[data-theme="dark"] .metric-card,
+[data-theme="dark"] .modal-content,
+[data-theme="dark"] h1, [data-theme="dark"] h2, [data-theme="dark"] h3,
+[data-theme="dark"] h4, [data-theme="dark"] h5, [data-theme="dark"] h6 {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] table th {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.12) !important;
+    font-weight: 700 !important;
+}
+
+[data-theme="dark"] table td {
+    background: #111827 !important;
+    color: #f8fafc !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="dark"] table tbody tr:hover td {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] label {
+    color: #cbd5e1 !important;
+    font-weight: 600 !important;
+}
+
+/* OCEAN THEME COMPREHENSIVE TEXT VISIBILITY */
+[data-theme="ocean"] body,
+[data-theme="ocean"] .container,
+[data-theme="ocean"] #main-container,
+[data-theme="ocean"] .view-section,
+[data-theme="ocean"] table,
+[data-theme="ocean"] table td,
+[data-theme="ocean"] .glass-panel,
+[data-theme="ocean"] .swms-card,
+[data-theme="ocean"] .metric-card,
+[data-theme="ocean"] .modal-content,
+[data-theme="ocean"] h1, [data-theme="ocean"] h2, [data-theme="ocean"] h3,
+[data-theme="ocean"] h4, [data-theme="ocean"] h5, [data-theme="ocean"] h6 {
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] table th {
+    background: #0a1f3a !important;
+    color: #7dd3fc !important;
+    border-bottom: 2px solid rgba(0, 240, 255, 0.25) !important;
+    font-weight: 700 !important;
+}
+
+[data-theme="ocean"] table td {
+    background: #0c2340 !important;
+    color: #f0fdfa !important;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.1) !important;
+}
+
+[data-theme="ocean"] table tbody tr:hover td {
+    background: #123055 !important;
+}
+
+[data-theme="ocean"] input, [data-theme="ocean"] select, [data-theme="ocean"] textarea {
+    background: #0a1f3a !important;
+    border: 1px solid rgba(0, 240, 255, 0.3) !important;
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] label {
+    color: #7dd3fc !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="ocean"] .sub-tab-btn {
+    background: #0c2340 !important;
+    color: #7dd3fc !important;
+    border: 1px solid rgba(0, 240, 255, 0.25) !important;
+}
+
+[data-theme="ocean"] .sub-tab-btn.active {
+    background: #00f0ff !important;
+    color: #06152d !important;
+    font-weight: 700 !important;
+    border-color: #00f0ff !important;
+}
+
+/* AMBER THEME COMPREHENSIVE TEXT VISIBILITY */
+[data-theme="amber"] body,
+[data-theme="amber"] .container,
+[data-theme="amber"] #main-container,
+[data-theme="amber"] .view-section,
+[data-theme="amber"] table,
+[data-theme="amber"] table td,
+[data-theme="amber"] .glass-panel,
+[data-theme="amber"] .swms-card,
+[data-theme="amber"] .metric-card,
+[data-theme="amber"] .modal-content,
+[data-theme="amber"] h1, [data-theme="amber"] h2, [data-theme="amber"] h3,
+[data-theme="amber"] h4, [data-theme="amber"] h5, [data-theme="amber"] h6 {
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] table th {
+    background: #261f18 !important;
+    color: #fbbf24 !important;
+    border-bottom: 2px solid rgba(245, 158, 11, 0.28) !important;
+    font-weight: 700 !important;
+}
+
+[data-theme="amber"] table td {
+    background: #1f1a14 !important;
+    color: #fef3c7 !important;
+    border-bottom: 1px solid rgba(245, 158, 11, 0.12) !important;
+}
+
+[data-theme="amber"] table tbody tr:hover td {
+    background: #2d261d !important;
+}
+
+[data-theme="amber"] input, [data-theme="amber"] select, [data-theme="amber"] textarea {
+    background: #261f18 !important;
+    border: 1px solid rgba(245, 158, 11, 0.3) !important;
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] label {
+    color: #fbbf24 !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="amber"] .sub-tab-btn {
+    background: #1f1a14 !important;
+    color: #fbbf24 !important;
+    border: 1px solid rgba(245, 158, 11, 0.25) !important;
+}
+
+[data-theme="amber"] .sub-tab-btn.active {
+    background: #f59e0b !important;
+    color: #14120e !important;
+    font-weight: 700 !important;
+    border-color: #f59e0b !important;
+}
+
+/* 3. SAFETY NET FOR INLINE HARDCODED TEXT */
+[data-theme="light"] .view-section [style*="color:#f8fafc"],
+[data-theme="light"] .view-section [style*="color: #f8fafc"],
+[data-theme="light"] .view-section [style*="color:#cbd5e1"],
+[data-theme="light"] .view-section [style*="color: #cbd5e1"],
+[data-theme="light"] .view-section [style*="color:#e2e8f0"],
+[data-theme="light"] .view-section [style*="color: #e2e8f0"],
+[data-theme="light"] .view-section [style*="color:#94a3b8"],
+[data-theme="light"] .view-section [style*="color: #94a3b8"] {
+    color: #0f172a !important;
+}
+
+:is([data-theme="dark"], [data-theme="ocean"], [data-theme="amber"]) .view-section [style*="color:#0f172a"],
+:is([data-theme="dark"], [data-theme="ocean"], [data-theme="amber"]) .view-section [style*="color: #0f172a"],
+:is([data-theme="dark"], [data-theme="ocean"], [data-theme="amber"]) .view-section [style*="color:#1e293b"],
+:is([data-theme="dark"], [data-theme="ocean"], [data-theme="amber"]) .view-section [style*="color: #1e293b"],
+:is([data-theme="dark"], [data-theme="ocean"], [data-theme="amber"]) .view-section [style*="color:#334155"],
+:is([data-theme="dark"], [data-theme="ocean"], [data-theme="amber"]) .view-section [style*="color: #334155"] {
+    color: #f8fafc !important;
+}

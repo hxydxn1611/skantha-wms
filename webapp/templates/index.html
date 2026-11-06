@@ -201,7 +201,7 @@
             <!-- Top Cinema Header Bar -->
             <div style="width:100%; display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.88); backdrop-filter:blur(10px); padding:8px 18px; border-radius:10px; border:1px solid #334155; margin-bottom:8px; z-index:10;">
                 <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-size:1.05rem; font-weight:800; color:#f8fafc;" id="fsCamTitle">Live Camera Feed</span>
+                    <span style="font-size:1.05rem; font-weight:800; color: var(--text-main);" id="fsCamTitle">Live Camera Feed</span>
                     <span class="badge" style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:0.75rem; font-weight:700;">
                         <span class="pulse-dot" style="background:#10b981; display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:4px;"></span> 60-100 FPS PRO
                     </span>
@@ -224,7 +224,7 @@
                 <div id="fsPtzWidget" style="display:flex; flex-direction:column; gap:8px; position:absolute; bottom:20px; right:20px; z-index:25; background:rgba(15,23,42,0.90); backdrop-filter:blur(12px); border:1px solid #334155; padding:12px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.8);">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                         <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">🕹️ PTZ &amp; ZOOM</span>
-                        <span style="font-size:0.68rem; color:#94a3b8; cursor:pointer;" onclick="togglePtzPanel()">✕</span>
+                        <span style="font-size:0.68rem; color: var(--text-muted); cursor:pointer;" onclick="togglePtzPanel()">✕</span>
                     </div>
 
                     <!-- 3x3 Directional D-Pad -->
@@ -254,7 +254,7 @@
                 </div>
 
                 <!-- Floating Helper Prompt -->
-                <div style="position:absolute; bottom:14px; left:16px; background:rgba(0,0,0,0.65); padding:4px 10px; border-radius:6px; font-size:0.72rem; color:#94a3b8; pointer-events:none;">
+                <div style="position:absolute; bottom:14px; left:16px; background:rgba(0,0,0,0.65); padding:4px 10px; border-radius:6px; font-size:0.72rem; color: var(--text-muted); pointer-events:none;">
                     💡 <b>Pro Tips:</b> Scroll mouse wheel to Zoom (1x–5x) | Click &amp; Drag to Pan | Arrow keys to Tilt/Pan
                 </div>
             </div>
@@ -1416,7 +1416,7 @@
   <path d="M20,6 L26,6 L26,3 L31,8 L26,13 L26,10 L20,10 Z" fill="#10b981" filter="drop-shadow(0 2px 4px rgba(16,185,129,0.5))"/>
 </svg>
                             </div>
-                            <span class="dock-label">Inbound Flow</span>
+                            <span class="dock-label">Inbound Automation</span>
                             <span id="inbound-badge" class="dock-badge-counter" style="display:none;">0</span>
                             <span class="dock-active-glow"></span>
                         </button>
@@ -1529,7 +1529,7 @@
   <circle cx="22" cy="17" r="1.8" fill="#ffffff"/>
 </svg>
                             </div>
-                            <span class="dock-label">Warehouses</span>
+                            <span class="dock-label">Warehouse Locations</span>
                             <span id="nav-warehouses-count" class="dock-badge-counter">1</span>
                             <span class="dock-active-glow"></span>
                         </button>
@@ -1568,7 +1568,7 @@
   <circle cx="34" cy="33" r="1.5" fill="#f59e0b"/>
 </svg>
                             </div>
-                            <span class="dock-label">Master Hub</span>
+                            <span class="dock-label">Master Data Hub</span>
                             <span class="dock-active-glow"></span>
                         </button>
                         <div class="dock-floating-tooltip">
@@ -2240,14 +2240,14 @@
                                 </div>
                             </div>
                             <div id="wifiRtmpSubSection">
-                                <p style="font-size:0.75rem; color:#cbd5e1; margin-bottom:8px; line-height:1.4;">
+                                <p style="font-size:0.75rem; color: var(--text-muted); margin-bottom:8px; line-height:1.4;">
                                     For cloud-first cameras (<b>Trueview / Tuya / Smart Life</b>): Toggle <b>RTMP</b> ON in the mobile app and paste:
                                 </p>
                                 <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
                                     <input type="text" id="wifiRtmpPushUrl" value="rtmp://127.0.0.1:1935/live/cam" readonly style="width:100%; padding:8px; border-radius:5px; border:1px solid #10b981; background:#0f172a; color:#34d399; font-family:monospace; font-size:0.85rem; font-weight:600;">
                                     <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('wifiRtmpPushUrl').value); if(typeof showToast==='function') showToast('Copied RTMP URL!', 'success'); else alert('Copied RTMP URL!');" class="btn-xs" style="background:#10b981; color:#0f172a; font-weight:700; border:none; border-radius:4px; padding:8px 12px; cursor:pointer; white-space:nowrap;">📋 Copy</button>
                                 </div>
-                                <div style="font-size:0.72rem; color:#94a3b8; line-height:1.4;">
+                                <div style="font-size:0.72rem; color: var(--text-muted); line-height:1.4;">
                                     💡 <b>Auto-Ingest:</b> The server detects and streams the broadcast instantly with zero password required.
                                 </div>
                             </div>
@@ -2262,22 +2262,22 @@
 
                             <div style="display:grid; grid-template-columns: 2fr 1fr; gap:8px; margin-bottom:8px;">
                                 <div>
-                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">IP Address / Host</label>
+                                    <label style="font-size:0.75rem; color: var(--text-muted); margin-bottom:2px;">IP Address / Host</label>
                                     <input type="text" id="camHost" placeholder="e.g. 192.168.1.64" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
                                 </div>
                                 <div>
-                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">RTSP Port</label>
+                                    <label style="font-size:0.75rem; color: var(--text-muted); margin-bottom:2px;">RTSP Port</label>
                                     <input type="number" id="camPort" value="554" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
                                 </div>
                             </div>
 
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px;">
                                 <div>
-                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Username</label>
+                                    <label style="font-size:0.75rem; color: var(--text-muted); margin-bottom:2px;">Username</label>
                                     <input type="text" id="camUsername" value="admin" placeholder="admin" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
                                 </div>
                                 <div>
-                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Password</label>
+                                    <label style="font-size:0.75rem; color: var(--text-muted); margin-bottom:2px;">Password</label>
                                     <div style="position:relative; display:flex; align-items:center;">
                                         <input type="password" id="camPassword" placeholder="••••••••" style="width:100%; padding:7px 32px 7px 7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
                                         <button type="button" id="togglePasswordBtn" onclick="toggleCamPasswordVisibility()" style="position:absolute; right:6px; background:none; border:none; color:#94a3b8; cursor:pointer; font-size:0.85rem; padding:2px;" title="Show/Hide Password">👁️</button>
@@ -2287,7 +2287,7 @@
 
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:6px;">
                                 <div>
-                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Camera Channel</label>
+                                    <label style="font-size:0.75rem; color: var(--text-muted); margin-bottom:2px;">Camera Channel</label>
                                     <select id="camChannel" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
                                         <option value="1">Channel 1 (Cam 1)</option>
                                         <option value="2">Channel 2 (Cam 2)</option>
@@ -2301,7 +2301,7 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label style="font-size:0.75rem; color:#94a3b8; margin-bottom:2px;">Stream Profile</label>
+                                    <label style="font-size:0.75rem; color: var(--text-muted); margin-bottom:2px;">Stream Profile</label>
                                     <select id="camStreamQuality" style="width:100%; padding:7px; border-radius:5px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:0.85rem;">
                                         <option value="sub">Sub Stream (AI Fast - 102)</option>
                                         <option value="main">Main Stream (HD - 101)</option>
@@ -2309,7 +2309,7 @@
                                 </div>
                             </div>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
-                                <span style="font-size:0.7rem; color:#64748b;">🛡️ Your credentials are never exposed in public URLs</span>
+                                <span style="font-size:0.7rem; color: var(--text-muted);">🛡️ Your credentials are never exposed in public URLs</span>
                                 <a href="javascript:void(0)" onclick="toggleManualUrlMode()" style="font-size:0.7rem; color:#38bdf8; text-decoration:none;">Custom Raw URL</a>
                             </div>
                         </div>
@@ -2513,34 +2513,34 @@
 
                 <!-- ADD BIN MODAL -->
                 <div id="addBinModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
-                    <div style="background:linear-gradient(145deg, #0f172a, #1e293b); border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:100%; max-width:480px; padding:22px; color:#f8fafc; box-shadow:0 20px 40px rgba(0,0,0,0.6);">
+                    <div style="background:linear-gradient(145deg, #0f172a, #1e293b); border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:100%; max-width:480px; padding:22px; color: var(--text-main); box-shadow:0 20px 40px rgba(0,0,0,0.6);">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
                             <h3 style="margin:0; font-size:1.15rem; display:flex; align-items:center; gap:8px;">
                                 <i class="fas fa-box" style="color:#38bdf8;"></i> Register New Storage Bin
                             </h3>
-                            <button type="button" onclick="closeAddBinModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">&times;</button>
+                            <button type="button" onclick="closeAddBinModal()" style="background:transparent; border:none; color: var(--text-muted); font-size:1.2rem; cursor:pointer;">&times;</button>
                         </div>
                         <form onsubmit="event.preventDefault(); submitAddBin();" style="display:flex; flex-direction:column; gap:12px;">
                             <div>
-                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Bin ID *</label>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Bin ID *</label>
                                 <input type="text" id="newBinId" required placeholder="e.g. BIN-A-101" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                             </div>
                             <div>
-                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Warehouse Zone</label>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Warehouse Zone</label>
                                 <input type="text" id="newBinZone" placeholder="e.g. Zone A" value="Zone A" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                             </div>
                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                                 <div>
-                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Volume (m³) *</label>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Max Volume (m³) *</label>
                                     <input type="number" step="0.1" id="newBinVol" required value="100.0" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                                 </div>
                                 <div>
-                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Weight (kg) *</label>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Max Weight (kg) *</label>
                                     <input type="number" step="1" id="newBinWt" required value="1000.0" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                                 </div>
                             </div>
                             <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-                                <button type="button" onclick="closeAddBinModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:8px 14px; color:#cbd5e1; cursor:pointer;">Cancel</button>
+                                <button type="button" onclick="closeAddBinModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:8px 14px; color: var(--text-muted); cursor:pointer;">Cancel</button>
                                 <button type="submit" class="btn-primary" style="background:linear-gradient(135deg, #0284c7, #2563eb); border:none; padding:8px 16px; border-radius:6px; color:#fff; font-weight:700; cursor:pointer;">Create Bin</button>
                             </div>
                         </form>
@@ -2549,43 +2549,43 @@
 
                 <!-- EDIT / EXPAND BIN SIZE MODAL -->
                 <div id="editBinModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
-                    <div style="background:linear-gradient(145deg, #0f172a, #1e293b); border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:100%; max-width:500px; padding:22px; color:#f8fafc; box-shadow:0 20px 40px rgba(0,0,0,0.6);">
+                    <div style="background:linear-gradient(145deg, #0f172a, #1e293b); border:1px solid rgba(56,189,248,0.35); border-radius:14px; width:100%; max-width:500px; padding:22px; color: var(--text-main); box-shadow:0 20px 40px rgba(0,0,0,0.6);">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
                             <h3 style="margin:0; font-size:1.15rem; display:flex; align-items:center; gap:8px;">
                                 <i class="fas fa-up-right-and-down-left-from-center" style="color:#38bdf8;"></i> Edit / Expand Bin <span id="editBinIdTitle" style="color:#38bdf8;"></span>
                             </h3>
-                            <button type="button" onclick="closeEditBinModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">&times;</button>
+                            <button type="button" onclick="closeEditBinModal()" style="background:transparent; border:none; color: var(--text-muted); font-size:1.2rem; cursor:pointer;">&times;</button>
                         </div>
                         <form onsubmit="event.preventDefault(); submitEditBin();" style="display:flex; flex-direction:column; gap:12px;">
                             <input type="hidden" id="editBinId">
                             <div>
-                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Zone</label>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Zone</label>
                                 <input type="text" id="editBinZone" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                             </div>
                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                                 <div>
-                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Volume (m³)</label>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Max Volume (m³)</label>
                                     <input type="number" step="0.1" id="editBinVol" required style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                                 </div>
                                 <div>
-                                    <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Max Weight (kg)</label>
+                                    <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Max Weight (kg)</label>
                                     <input type="number" step="1" id="editBinWt" required style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                                 </div>
                             </div>
 
                             <!-- Quick Size Expansion Buttons -->
                             <div style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:10px; margin-top:2px;">
-                                <span style="font-size:0.75rem; color:#94a3b8; font-weight:700; display:block; margin-bottom:6px;">QUICK SIZE EXPANSION:</span>
+                                <span style="font-size:0.75rem; color: var(--text-muted); font-weight:700; display:block; margin-bottom:6px;">QUICK SIZE EXPANSION:</span>
                                 <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                                    <button type="button" onclick="quickExpandBinSize(25, 250)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer;">+25 m³ / +250 kg</button>
-                                    <button type="button" onclick="quickExpandBinSize(50, 500)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer;">+50 m³ / +500 kg</button>
+                                    <button type="button" onclick="quickExpandBinSize(25, 250)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color: var(--text-muted); border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer;">+25 m³ / +250 kg</button>
+                                    <button type="button" onclick="quickExpandBinSize(50, 500)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color: var(--text-muted); border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer;">+50 m³ / +500 kg</button>
                                     <button type="button" onclick="quickExpandBinSize(100, 1000)" style="background:rgba(56,189,248,0.18); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer; font-weight:700;">+100 m³ / +1000 kg</button>
                                     <button type="button" onclick="quickExpandBinSize(200, 2000)" style="background:rgba(16,185,129,0.18); border:1px solid rgba(16,185,129,0.4); color:#34d399; border-radius:4px; padding:4px 8px; font-size:0.75rem; cursor:pointer; font-weight:700;">Double Capacity (2x)</button>
                                 </div>
                             </div>
 
                             <div>
-                                <label style="display:block; font-size:0.8rem; font-weight:700; color:#cbd5e1; margin-bottom:4px;">Operational Status</label>
+                                <label style="display:block; font-size:0.8rem; font-weight:700; color: var(--text-muted); margin-bottom:4px;">Operational Status</label>
                                 <select id="editBinStatus" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 12px; color:#fff; font-size:0.88rem; outline:none;">
                                     <option value="Active">Active</option>
                                     <option value="Reserved">Reserved</option>
@@ -2595,7 +2595,7 @@
                             </div>
 
                             <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-                                <button type="button" onclick="closeEditBinModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:8px 14px; color:#cbd5e1; cursor:pointer;">Cancel</button>
+                                <button type="button" onclick="closeEditBinModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:8px 14px; color: var(--text-muted); cursor:pointer;">Cancel</button>
                                 <button type="submit" class="btn-primary" style="background:linear-gradient(135deg, #0284c7, #2563eb); border:none; padding:8px 16px; border-radius:6px; color:#fff; font-weight:700; cursor:pointer;">Save Changes</button>
                             </div>
                         </form>
@@ -3524,9 +3524,9 @@ window.switchSubTab = switchSubTab;
                                     <img id="dashPreviewImg" src="" alt="Live Video Preview" style="width:100%; height:100%; object-fit:contain; display:block;" onerror="handleDashPreviewError()" onload="handleDashPreviewSuccess()">
                                     
                                     <!-- Fallback Display when camera is stopped or disconnected -->
-                                    <div id="dashPreviewFallback" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#64748b; text-align:center; padding:2rem;">
+                                    <div id="dashPreviewFallback" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:8px; color: var(--text-muted); text-align:center; padding:2rem;">
                                         <span style="font-size:2.5rem;">📷</span>
-                                        <strong style="color:#94a3b8; font-size:0.95rem;" id="dashFallbackMsg">Camera Stream Standby</strong>
+                                        <strong style="color: var(--text-muted); font-size:0.95rem;" id="dashFallbackMsg">Camera Stream Standby</strong>
                                         <p style="font-size:0.78rem; max-width:280px; margin:0;" id="dashFallbackSub">Click "Start Runtime" or "Test Step" to acquire live video frames via SharedFrameBus.</p>
                                     </div>
 
@@ -3537,7 +3537,7 @@ window.switchSubTab = switchSubTab;
                                     </div>
 
                                     <!-- Bottom-Left Metadata HUD -->
-                                    <div style="position:absolute; bottom:12px; left:12px; background:rgba(15,23,42,0.85); backdrop-filter:blur(4px); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:4px 10px; font-size:0.72rem; color:#cbd5e1; display:flex; gap:12px;" id="dashHudStrip">
+                                    <div style="position:absolute; bottom:12px; left:12px; background:rgba(15,23,42,0.85); backdrop-filter:blur(4px); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:4px 10px; font-size:0.72rem; color: var(--text-muted); display:flex; gap:12px;" id="dashHudStrip">
                                         <span>📍 <span id="dashHudZone">Zone: DOCK-01</span></span>
                                         <span>⏱ <span id="dashHudLatency">Latency: 14ms</span></span>
                                         <span>🎯 <span id="dashHudObjects">Objects: 0</span></span>
@@ -4635,18 +4635,18 @@ window.switchSubTab = switchSubTab;
                             <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #64748b; border-radius:6px; padding:8px 10px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <strong style="font-size:0.82rem; color:var(--text-main);">FORKLIFT</strong>
-                                    <span style="font-size:0.68rem; color:#64748b; font-weight:700;">NO SOURCE</span>
+                                    <span style="font-size:0.68rem; color: var(--text-muted); font-weight:700;">NO SOURCE</span>
                                 </div>
                                 <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">No equipment table</div>
-                                <div style="font-size:0.68rem; color:#64748b; font-family:monospace; margin-top:2px;">Gap Documented</div>
+                                <div style="font-size:0.68rem; color: var(--text-muted); font-family:monospace; margin-top:2px;">Gap Documented</div>
                             </div>
                             <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-left:3px solid #64748b; border-radius:6px; padding:8px 10px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <strong style="font-size:0.82rem; color:var(--text-main);">PALLET</strong>
-                                    <span style="font-size:0.68rem; color:#64748b; font-weight:700;">NO SOURCE</span>
+                                    <span style="font-size:0.68rem; color: var(--text-muted); font-weight:700;">NO SOURCE</span>
                                 </div>
                                 <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">No pallet asset table</div>
-                                <div style="font-size:0.68rem; color:#64748b; font-family:monospace; margin-top:2px;">Gap Documented</div>
+                                <div style="font-size:0.68rem; color: var(--text-muted); font-family:monospace; margin-top:2px;">Gap Documented</div>
                             </div>
                         </div>
                     </div>
@@ -5876,7 +5876,7 @@ window.switchSubTab = switchSubTab;
                                 </div>
                             </div>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:0.75rem; color:var(--text-muted);">
-                                <span>Legend: <strong style="color:#10b981;">● ACTIVE</strong> | <strong style="color:#f59e0b;">● CANDIDATE</strong> | <strong style="color:#6366f1;">● COMPLETED</strong> | <strong style="color:#94a3b8;">● EXPIRED</strong></span>
+                                <span>Legend: <strong style="color:#10b981;">● ACTIVE</strong> | <strong style="color:#f59e0b;">● CANDIDATE</strong> | <strong style="color:#6366f1;">● COMPLETED</strong> | <strong style="color: var(--text-muted);">● EXPIRED</strong></span>
                                 <span>State Engine: In-Memory</span>
                             </div>
                         </div>
@@ -6370,7 +6370,7 @@ window.switchSubTab = switchSubTab;
             </div>
 
             <!-- UNIFIED PALLET VISION COUNTING & BUILD WORKBENCH -->
-            <div id="palletCountingWorkbench" class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem; border:1px solid rgba(2,132,199,0.35); background:linear-gradient(180deg, #0f172a 0%, #0b1120 100%); color:#f8fafc; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+            <div id="palletCountingWorkbench" class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem; border:1px solid rgba(2,132,199,0.35); background:linear-gradient(180deg, #0f172a 0%, #0b1120 100%); color: var(--text-main); border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
                 
                 <!-- 1. Header & Active Pallet Session Bar -->
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:1.25rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:1rem;">
@@ -6381,12 +6381,12 @@ window.switchSubTab = switchSubTab;
                             </div>
                             <div>
                                 <div style="display:flex; align-items:center; gap:8px;">
-                                    <h3 style="margin:0; font-size:1.15rem; color:#f8fafc; font-weight:800;">Pallet Vision Counting Workbench</h3>
+                                    <h3 style="margin:0; font-size:1.15rem; color: var(--text-main); font-weight:800;">Pallet Vision Counting Workbench</h3>
                                     <span id="palletMonitorStatus" class="pallet-status-pill" style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); font-size:0.68rem; padding:2px 8px; border-radius:4px; font-weight:700;">
                                         IN PROGRESS
                                     </span>
                                 </div>
-                                <div style="margin-top:2px; font-size:0.75rem; color:#94a3b8; display:flex; align-items:center; gap:10px;">
+                                <div style="margin-top:2px; font-size:0.75rem; color: var(--text-muted); display:flex; align-items:center; gap:10px;">
                                     <span>Active Pallet: <b id="palletMonitorId" style="color:#38bdf8; font-family:'JetBrains Mono',monospace;">PLT-ACTIVE</b></span>
                                     <span>&bull;</span>
                                     <span>SKU: <b id="palletMonitorSku" style="color:#a78bfa;">--</b></span>
@@ -6441,7 +6441,7 @@ window.switchSubTab = switchSubTab;
 
                         <!-- Bundle Material Selector (Visible when Bundles mode selected) -->
                         <div id="wbBundleMaterialSelectWrap" style="display:none; align-items:center; gap:6px; background:#1e293b; border:1px solid #334155; border-radius:6px; padding:3px 8px;">
-                            <label for="wbBundleMaterialSelect" style="font-size:0.7rem; color:#94a3b8; font-weight:700; text-transform:uppercase; margin:0; white-space:nowrap;">
+                            <label for="wbBundleMaterialSelect" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; margin:0; white-space:nowrap;">
                                 <i class="fas fa-cubes" style="color:#f59e0b; margin-right:3px;"></i>Material:
                             </label>
                             <select id="wbBundleMaterialSelect" onchange="onWorkbenchBundleMaterialChange(this.value)" style="background:#0f172a; color:#38bdf8; border:1px solid #0284c7; border-radius:5px; font-size:0.74rem; padding:4px 8px; font-weight:700;">
@@ -6499,8 +6499,8 @@ window.switchSubTab = switchSubTab;
                             <i class="fas fa-ruler-combined"></i> Glass Measurement Profile &amp; Dimensions:
                         </span>
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                            <label for="wbGlassProfileSelect" style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin:0;">Saved Profile:</label>
-                            <select id="wbGlassProfileSelect" onchange="onWorkbenchGlassProfileChange(this.value)" style="background:#0f172a; color:#f8fafc; border:1px solid #06b6d4; border-radius:5px; font-size:0.74rem; padding:4px 8px; font-weight:700; max-width:280px;">
+                            <label for="wbGlassProfileSelect" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; margin:0;">Saved Profile:</label>
+                            <select id="wbGlassProfileSelect" onchange="onWorkbenchGlassProfileChange(this.value)" style="background:#0f172a; color: var(--text-main); border:1px solid #06b6d4; border-radius:5px; font-size:0.74rem; padding:4px 8px; font-weight:700; max-width:280px;">
                                 <option value="">-- Select Saved Glass Profile --</option>
                             </select>
                             <button type="button" onclick="saveCurrentGlassProfilePrompt()" style="background:#0891b2; color:#fff; border:none; border-radius:5px; padding:4px 10px; font-size:0.72rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Save current glass dimensions as a new profile">
@@ -6512,19 +6512,19 @@ window.switchSubTab = switchSubTab;
                     <!-- Dimension Inputs Grid -->
                     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                         <div style="display:flex; align-items:center; gap:4px;">
-                            <label for="wbGlassLengthInput" style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin:0;">Length (L):</label>
+                            <label for="wbGlassLengthInput" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; margin:0;">Length (L):</label>
                             <input type="number" id="wbGlassLengthInput" step="0.1" value="2440" oninput="onWorkbenchGlassDimInput()" style="width:75px; background:#1e293b; color:#38bdf8; border:1px solid #475569; border-radius:5px; padding:3px 6px; font-size:0.78rem; font-weight:800; text-align:center;">
                         </div>
                         <div style="display:flex; align-items:center; gap:4px;">
-                            <label for="wbGlassWidthInput" style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin:0;">Width / Height (W):</label>
+                            <label for="wbGlassWidthInput" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; margin:0;">Width / Height (W):</label>
                             <input type="number" id="wbGlassWidthInput" step="0.1" value="1830" oninput="onWorkbenchGlassDimInput()" style="width:75px; background:#1e293b; color:#38bdf8; border:1px solid #475569; border-radius:5px; padding:3px 6px; font-size:0.78rem; font-weight:800; text-align:center;">
                         </div>
                         <div style="display:flex; align-items:center; gap:4px;">
-                            <label for="wbGlassThicknessInput" style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin:0;">Thickness (T):</label>
+                            <label for="wbGlassThicknessInput" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; margin:0;">Thickness (T):</label>
                             <input type="number" id="wbGlassThicknessInput" step="0.1" value="6.0" oninput="onWorkbenchGlassDimInput()" style="width:60px; background:#1e293b; color:#38bdf8; border:1px solid #475569; border-radius:5px; padding:3px 6px; font-size:0.78rem; font-weight:800; text-align:center;">
                         </div>
                         <div style="display:flex; align-items:center; gap:4px;">
-                            <label for="wbGlassUnitSelect" style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin:0;">Unit:</label>
+                            <label for="wbGlassUnitSelect" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; margin:0;">Unit:</label>
                             <select id="wbGlassUnitSelect" onchange="onWorkbenchGlassDimInput()" style="background:#1e293b; color:#10b981; border:1px solid #475569; border-radius:5px; padding:3px 6px; font-size:0.74rem; font-weight:800;">
                                 <option value="mm" selected>mm</option>
                                 <option value="cm">cm</option>
@@ -6533,7 +6533,7 @@ window.switchSubTab = switchSubTab;
                             </select>
                         </div>
                         <div style="display:flex; align-items:center; gap:4px;">
-                            <label for="wbGlassPackagingSelect" style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin:0;">Packaging / Stillage:</label>
+                            <label for="wbGlassPackagingSelect" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; margin:0;">Packaging / Stillage:</label>
                             <select id="wbGlassPackagingSelect" onchange="onWorkbenchGlassDimInput()" style="background:#1e293b; color:#f59e0b; border:1px solid #475569; border-radius:5px; padding:3px 6px; font-size:0.74rem; font-weight:800;">
                                 <option value="A_FRAME_STILLAGE" selected>A-Frame Stillage</option>
                                 <option value="WOODEN_CRATE">Wooden Crate</option>
@@ -6542,7 +6542,7 @@ window.switchSubTab = switchSubTab;
                             </select>
                         </div>
                         <div style="display:flex; align-items:center; gap:4px;">
-                            <label for="wbGlassSheetsPerBundleInput" style="font-size:0.7rem; color:#94a3b8; font-weight:700; margin:0;">Sheets / Bundle:</label>
+                            <label for="wbGlassSheetsPerBundleInput" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; margin:0;">Sheets / Bundle:</label>
                             <input type="number" id="wbGlassSheetsPerBundleInput" min="1" placeholder="Optional (e.g. 25)" oninput="onWorkbenchGlassDimInput()" style="width:75px; background:#1e293b; color:#22d3ee; border:1px solid #475569; border-radius:5px; padding:3px 6px; font-size:0.78rem; font-weight:800; text-align:center;" title="Optional declared sheet count per stillage">
                         </div>
                     </div>
@@ -6556,14 +6556,14 @@ window.switchSubTab = switchSubTab;
                             <span style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:#38bdf8; letter-spacing:0.5px; display:inline-flex; align-items:center; gap:5px;">
                                 <i class="fas fa-microchip"></i> SKU Recognition:
                             </span>
-                            <select id="wbTargetSkuSelect" onchange="onWorkbenchSkuSelectChange(this.value)" style="background:#0f172a; color:#f8fafc; border:1px solid #0284c7; border-radius:6px; font-size:0.78rem; padding:6px 10px; font-weight:700; min-width:250px; flex:1;">
+                            <select id="wbTargetSkuSelect" onchange="onWorkbenchSkuSelectChange(this.value)" style="background:#0f172a; color: var(--text-main); border:1px solid #0284c7; border-radius:6px; font-size:0.78rem; padding:6px 10px; font-weight:700; min-width:250px; flex:1;">
                                 <option value="">✨ Auto-Recognize Product from Warehouse SKUs (100% AI Match)</option>
                             </select>
                         </div>
 
                         <!-- Manual Declaration: Individuals in 1 Bundle + Practical UOM -->
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; background:rgba(15,23,42,0.75); padding:6px 10px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">
-                            <label for="wbUnitsPerBundleInput" style="font-size:0.73rem; font-weight:700; color:#e2e8f0; margin:0; white-space:nowrap;">
+                            <label for="wbUnitsPerBundleInput" style="font-size:0.73rem; font-weight:700; color: var(--text-muted); margin:0; white-space:nowrap;">
                                 <i class="fas fa-cubes" style="color:#f59e0b; margin-right:4px;"></i>1 Bundle =
                             </label>
                             <input type="number" id="wbUnitsPerBundleInput" min="1" max="10000" value="1" oninput="onWorkbenchBundleMultiplierChange()" style="width:72px; background:#1e293b; color:#38bdf8; border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.82rem; font-weight:800; text-align:center; margin:0;" title="Declare how many individual items (sheets, planks, pipes, pieces) are in 1 bundle">
@@ -6585,7 +6585,7 @@ window.switchSubTab = switchSubTab;
                                 <option value="DRUMS">DRUMS / IBC TOTES</option>
                                 <option value="PALLETS">PALLETS</option>
                             </select>
-                            <input type="text" id="wbBundleNameInput" value="Bundle" placeholder="Pack Type (e.g. A-Frame, Stack)" oninput="onWorkbenchBundleMultiplierChange()" style="width:118px; background:#1e293b; color:#cbd5e1; border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.75rem; font-weight:600; margin:0;" title="Bundle or Pack Type (e.g. A-Frame Stillage, Plywood Stack, Timber Pack)">
+                            <input type="text" id="wbBundleNameInput" value="Bundle" placeholder="Pack Type (e.g. A-Frame, Stack)" oninput="onWorkbenchBundleMultiplierChange()" style="width:118px; background:#1e293b; color: var(--text-muted); border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.75rem; font-weight:600; margin:0;" title="Bundle or Pack Type (e.g. A-Frame Stillage, Plywood Stack, Timber Pack)">
                             <button type="button" onclick="saveWorkbenchBundleConfigToSku()" style="background:#10b981; color:#052e16; border:none; border-radius:5px; padding:5px 10px; font-size:0.72rem; font-weight:800; cursor:pointer; white-space:nowrap;" title="Save this Individuals-per-Bundle and UOM declaration to the active SKU">
                                 <i class="fas fa-floppy-disk"></i> Save to SKU
                             </button>
@@ -6596,7 +6596,7 @@ window.switchSubTab = switchSubTab;
                     <div id="wbRecognizedSkuBanner" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.35); border-radius:6px; padding:7px 12px;">
                         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                             <span style="background:#10b981; color:#052e16; font-size:0.68rem; font-weight:900; padding:2px 7px; border-radius:4px; text-transform:uppercase; letter-spacing:0.5px;">AI SKU READY</span>
-                            <span id="wbRecognizedSkuText" style="font-size:0.8rem; font-weight:700; color:#f8fafc;">Select or upload any Glass, Timber, Pipe, or Carton image — AI Vision will recognize the exact SKU and calculate total individual units.</span>
+                            <span id="wbRecognizedSkuText" style="font-size:0.8rem; font-weight:700; color: var(--text-main);">Select or upload any Glass, Timber, Pipe, or Carton image — AI Vision will recognize the exact SKU and calculate total individual units.</span>
                         </div>
                         <div id="wbRealizedUnitsPill" style="font-family:monospace; font-size:0.84rem; font-weight:800; color:#34d399; background:rgba(6,78,59,0.7); padding:4px 10px; border-radius:5px; border:1px solid rgba(52,211,153,0.4);">
                             0 Bundles &times; 1 EA = 0 EA
@@ -6629,14 +6629,14 @@ window.switchSubTab = switchSubTab;
                                     <button type="button" onclick="captureWorkbenchCameraAsView()" style="background:#10b981; color:#fff; border:none; border-radius:5px; padding:4px 10px; font-size:0.72rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Capture live camera frame into this multi-view session">
                                         <i class="fas fa-video"></i> + Capture View
                                     </button>
-                                    <button type="button" onclick="clearAllWorkbenchViews()" style="background:transparent; color:#94a3b8; border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.7rem; cursor:pointer;" title="Clear all staged views">
+                                    <button type="button" onclick="clearAllWorkbenchViews()" style="background:transparent; color: var(--text-muted); border:1px solid #475569; border-radius:5px; padding:4px 8px; font-size:0.7rem; cursor:pointer;" title="Clear all staged views">
                                         <i class="fas fa-trash-can"></i> Clear
                                     </button>
                                 </div>
                             </div>
                             <!-- Views Filmstrip -->
                             <div id="wbMultiViewStrip" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; min-height:60px; align-items:center;">
-                                <div id="wbMultiViewEmptyPrompt" style="color:#64748b; font-size:0.74rem; font-style:italic; padding:6px 0;">
+                                <div id="wbMultiViewEmptyPrompt" style="color: var(--text-muted); font-size:0.74rem; font-style:italic; padding:6px 0;">
                                     Drop a primary photo below, or click "+ Add View Photo" to stage multiple camera angles (Front, Rear, Left, Right, Top).
                                 </div>
                             </div>
@@ -6650,8 +6650,8 @@ window.switchSubTab = switchSubTab;
                                 <div style="width:44px; height:44px; border-radius:50%; background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.3); display:inline-flex; align-items:center; justify-content:center; color:#38bdf8; font-size:1.2rem; margin-bottom:6px;">
                                     <i class="fas fa-camera" id="wbPlaceholderIcon"></i>
                                 </div>
-                                <div style="font-size:0.92rem; font-weight:700; color:#f8fafc;" id="wbPlaceholderTitle">Click to Select Pallet Photo or Drop File</div>
-                                <div style="font-size:0.74rem; color:#94a3b8; margin-top:3px;" id="wbPlaceholderSubtitle">Supports JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF &bull; Auto-conversion &amp; geometry recognition</div>
+                                <div style="font-size:0.92rem; font-weight:700; color: var(--text-main);" id="wbPlaceholderTitle">Click to Select Pallet Photo or Drop File</div>
+                                <div style="font-size:0.74rem; color: var(--text-muted); margin-top:3px;" id="wbPlaceholderSubtitle">Supports JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF &bull; Auto-conversion &amp; geometry recognition</div>
                                 <div style="margin-top:10px;">
                                     <span style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; border-radius:6px; padding:6px 14px; font-size:0.75rem; font-weight:700; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(37,99,235,0.3);">
                                         <i class="fas fa-folder-open"></i> Browse Image File
@@ -6667,7 +6667,7 @@ window.switchSubTab = switchSubTab;
                         <!-- Camera Live Feed Box (Visible when Source = Camera) -->
                         <div id="wbCameraViewWrap" style="display:none; position:relative; background:#020617; border-radius:10px; border:1px solid #334155; overflow:hidden;">
                             <img id="palletLiveFeedImg" src="/video_feed/cam_inbound_01" style="width:100%; height:260px; object-fit:cover; display:block;" alt="Camera Live Feed">
-                            <div style="position:absolute; top:8px; left:8px; background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.15); border-radius:4px; padding:3px 8px; font-size:0.7rem; color:#f8fafc; display:flex; align-items:center; gap:6px;">
+                            <div style="position:absolute; top:8px; left:8px; background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.15); border-radius:4px; padding:3px 8px; font-size:0.7rem; color: var(--text-main); display:flex; align-items:center; gap:6px;">
                                 <span class="telemetry-live-dot"></span> <span id="wbCamFeedLabel">CAM: cam_inbound_01</span>
                             </div>
                             <div style="position:absolute; bottom:8px; right:8px;">
@@ -6680,27 +6680,27 @@ window.switchSubTab = switchSubTab;
                         <!-- Processing Indicator -->
                         <div id="wbProcessingStatus" style="display:none; text-align:center; padding:1.25rem; background:#1e293b; border-radius:8px; border:1px solid #334155;">
                             <i class="fas fa-circle-notch fa-spin" style="font-size:1.8rem; color:#38bdf8; margin-bottom:8px;"></i>
-                            <div style="font-weight:700; color:#f8fafc; font-size:0.88rem;">Analyzing Pallet &amp; Detecting Objects...</div>
-                            <div style="font-size:0.72rem; color:#94a3b8;">Automated Geometry Recognition &bull; Tare Pallet Base Excluded &bull; Non-destructive</div>
+                            <div style="font-weight:700; color: var(--text-main); font-size:0.88rem;">Analyzing Pallet &amp; Detecting Objects...</div>
+                            <div style="font-size:0.72rem; color: var(--text-muted);">Automated Geometry Recognition &bull; Tare Pallet Base Excluded &bull; Non-destructive</div>
                         </div>
 
                         <!-- Additional View Request Interactive Banner -->
-                        <div id="wbViewsNeededBanner" style="display:none; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color:#f8fafc;">
+                        <div id="wbViewsNeededBanner" style="display:none; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color: var(--text-main);">
                         </div>
                         <!-- Interactive Annotated Image Stage -->
                         <div id="wbInteractiveStageCard" style="display:none; background:#020617; border-radius:8px; border:1px solid #334155; padding:12px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
                                 <div style="display:flex; align-items:center; gap:8px;">
-                                    <span style="font-size:0.76rem; color:#f8fafc; font-weight:700;">Numbered Markers Canvas</span>
+                                    <span style="font-size:0.76rem; color: var(--text-main); font-weight:700;">Numbered Markers Canvas</span>
                                     <span style="font-size:0.68rem; background:rgba(16,185,129,0.12); color:#10b981; padding:3px 8px; border-radius:4px; font-weight:600;">
                                         <i class="fas fa-hand-pointer"></i> Click badge to Delete &bull; Click image to Add marker
                                     </span>
                                 </div>
                                 <div style="display:flex; align-items:center; gap:6px;">
-                                    <button type="button" onclick="replaceWorkbenchImage()" style="background:#334155; color:#f8fafc; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Replace current image">
+                                    <button type="button" onclick="replaceWorkbenchImage()" style="background:#334155; color: var(--text-main); border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Replace current image">
                                         <i class="fas fa-arrow-rotate-right"></i> Replace
                                     </button>
-                                    <button type="button" onclick="clearWorkbenchCount()" style="background:#334155; color:#f8fafc; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Clear counted markers">
+                                    <button type="button" onclick="clearWorkbenchCount()" style="background:#334155; color: var(--text-main); border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Clear counted markers">
                                         <i class="fas fa-xmark"></i> Clear
                                     </button>
                                     <button type="button" onclick="recertifyWorkbenchMarkers()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Re-render annotations with manual additions/deletions">
@@ -6711,7 +6711,7 @@ window.switchSubTab = switchSubTab;
 
                             <!-- Multi-View Results View Switcher Bar -->
                             <div id="wbViewSwitcherBar" style="display:none; align-items:center; gap:8px; margin-bottom:8px; padding:6px 10px; background:#0f172a; border-radius:6px; border:1px solid #1e293b; overflow-x:auto;">
-                                <span style="font-size:0.68rem; color:#94a3b8; font-weight:700; text-transform:uppercase; white-space:nowrap;">
+                                <span style="font-size:0.68rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; white-space:nowrap;">
                                     <i class="fas fa-layer-group" style="color:#38bdf8; margin-right:4px;"></i>Inspect View:
                                 </span>
                                 <div id="wbViewSwitcherTabs" style="display:flex; align-items:center; gap:6px; flex-wrap:nowrap;">
@@ -6721,7 +6721,7 @@ window.switchSubTab = switchSubTab;
                             <!-- Interactive Include/Exclude Region Selection Toolbar -->
                             <div id="wbRegionControlsBar" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:8px; padding:6px 10px; background:#0f172a; border-radius:6px; border:1px solid #1e293b;">
                                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                                    <span style="font-size:0.7rem; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
+                                    <span style="font-size:0.7rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
                                         <i class="fas fa-vector-square" style="color:#10b981;"></i> Counting Regions:
                                     </span>
                                     <button type="button" id="wbBtnToolPointer" onclick="setWorkbenchRegionTool('none')" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Standard Pointer (Click badges / markers)">
@@ -6741,7 +6741,7 @@ window.switchSubTab = switchSubTab;
                                     </button>
                                 </div>
                                 <div style="display:flex; align-items:center; gap:6px;">
-                                    <span id="wbActiveRegionStatusText" style="font-size:0.68rem; color:#64748b; font-style:italic;">No regions drawn</span>
+                                    <span id="wbActiveRegionStatusText" style="font-size:0.68rem; color: var(--text-muted); font-style:italic;">No regions drawn</span>
                                     <button type="button" id="wbBtnClearRegions" onclick="clearWorkbenchRegions()" style="background:transparent; color:#94a3b8; border:1px solid #475569; border-radius:4px; padding:3px 7px; font-size:0.68rem; cursor:pointer;" title="Clear all drawn regions">
                                         <i class="fas fa-trash-can"></i> Clear Regions
                                     </button>
@@ -6779,7 +6779,7 @@ window.switchSubTab = switchSubTab;
                         <div style="background:#1e293b; border-radius:10px; border:1px solid #334155; padding:12px 16px;">
                             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                                 <div>
-                                    <span style="font-size:0.68rem; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Proposed Count</span>
+                                    <span style="font-size:0.68rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Proposed Count</span>
                                     <div style="font-size:1.85rem; font-weight:900; color:#10b981; font-family:'JetBrains Mono',monospace; line-height:1.1; margin-top:2px;" id="wbTotalBadge">
                                         0 PIECES
                                     </div>
@@ -6792,7 +6792,7 @@ window.switchSubTab = switchSubTab;
                             <!-- Automated Stack Geometry Recognition (Read-Only) -->
                             <div style="margin-top:10px; padding:8px 10px; background:#0f172a; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                    <span style="font-size:0.7rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">
+                                    <span style="font-size:0.7rem; color: var(--text-muted); font-weight:700; text-transform:uppercase;">
                                         <i class="fas fa-brain" style="color:#38bdf8; margin-right:4px;"></i> Inferred Geometry (Read-Only)
                                     </span>
                                     <span id="wbCountingMethodBadge" style="font-size:0.65rem; color:#10b981; font-weight:700;">AUTOMATED_CV</span>
@@ -6805,19 +6805,19 @@ window.switchSubTab = switchSubTab;
                             <!-- 4-Stat Mathematical Semantic Grid -->
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:8px; font-size:0.74rem;">
                                 <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
-                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;" id="wbLabelStatVisible">Visible Detected:</div>
+                                    <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;" id="wbLabelStatVisible">Visible Detected:</div>
                                     <div style="font-size:1.05rem; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;" id="wbStatVisible">0</div>
                                 </div>
                                 <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
-                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;" id="wbLabelStatInferred">Inferred (Hidden):</div>
+                                    <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;" id="wbLabelStatInferred">Inferred (Hidden):</div>
                                     <div style="font-size:1.05rem; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace;" id="wbStatInferred">0</div>
                                 </div>
                                 <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
-                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;">Arrangement Formula:</div>
-                                    <div style="font-size:0.72rem; font-weight:700; color:#e2e8f0; font-family:'JetBrains Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="wbStatFormula">--</div>
+                                    <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;">Arrangement Formula:</div>
+                                    <div style="font-size:0.72rem; font-weight:700; color: var(--text-muted); font-family:'JetBrains Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="wbStatFormula">--</div>
                                 </div>
                                 <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
-                                    <div style="color:#94a3b8; font-size:0.66rem; font-weight:600;">Tare Packaging:</div>
+                                    <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;">Tare Packaging:</div>
                                     <div style="font-size:0.72rem; font-weight:700; color:#10b981;" id="wbStatTare">0 Pallet Base</div>
                                 </div>
                             </div>
@@ -6842,11 +6842,11 @@ window.switchSubTab = switchSubTab;
                             <!-- Fusion Metrics Summary -->
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:8px; font-size:0.74rem;">
                                 <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
-                                    <div style="color:#94a3b8; font-size:0.65rem; font-weight:600;">Deduplicated Items:</div>
+                                    <div style="color: var(--text-muted); font-size:0.65rem; font-weight:600;">Deduplicated Items:</div>
                                     <div style="font-size:0.95rem; font-weight:800; color:#10b981; font-family:'JetBrains Mono',monospace;" id="wbFusionDupsRemoved">0 Merged</div>
                                 </div>
                                 <div style="background:#0f172a; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
-                                    <div style="color:#94a3b8; font-size:0.65rem; font-weight:600;">Heuristic Score:</div>
+                                    <div style="color: var(--text-muted); font-size:0.65rem; font-weight:600;">Heuristic Score:</div>
                                     <div style="font-size:0.95rem; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;" id="wbFusionConfidenceVal">100%</div>
                                 </div>
                             </div>
@@ -6854,16 +6854,16 @@ window.switchSubTab = switchSubTab;
                             <!-- Stage 6: Honest Confidence Breakdown & Geometric Limitations -->
                             <div id="wbHonestConfidenceCard" style="background:#0f172a; padding:8px 10px; border-radius:6px; border:1px solid rgba(56,189,248,0.15); margin-bottom:8px; font-size:0.7rem;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                    <span style="color:#94a3b8; font-weight:700; text-transform:uppercase; font-size:0.65rem;">Confidence Semantics:</span>
+                                    <span style="color: var(--text-muted); font-weight:700; text-transform:uppercase; font-size:0.65rem;">Confidence Semantics:</span>
                                     <span id="wbAssocQualityPill" style="font-size:0.62rem; padding:1px 6px; border-radius:3px; font-weight:700; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);">HIGH QUALITY</span>
                                 </div>
                                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px; margin-bottom:6px; font-size:0.67rem;">
-                                    <div><span style="color:#64748b;">Confidence Nature:</span> <span id="wbConfNatureVal" style="color:#e2e8f0; font-family:monospace;">HEURISTIC_ASSOCIATION_SCORE</span></div>
-                                    <div><span style="color:#64748b;">Calibration Status:</span> <span id="wbCalibStatusVal" style="color:#e2e8f0; font-family:monospace;">UNCALIBRATED</span></div>
-                                    <div><span style="color:#64748b;">Detector Confidence:</span> <span id="wbDetectorConfMeanVal" style="color:#38bdf8; font-family:monospace;">0.92</span></div>
-                                    <div><span style="color:#64748b;">Conflicts Flagged:</span> <span id="wbConflictsCountVal" style="color:#f87171; font-family:monospace;">0</span></div>
+                                    <div><span style="color: var(--text-muted);">Confidence Nature:</span> <span id="wbConfNatureVal" style="color: var(--text-muted); font-family:monospace;">HEURISTIC_ASSOCIATION_SCORE</span></div>
+                                    <div><span style="color: var(--text-muted);">Calibration Status:</span> <span id="wbCalibStatusVal" style="color: var(--text-muted); font-family:monospace;">UNCALIBRATED</span></div>
+                                    <div><span style="color: var(--text-muted);">Detector Confidence:</span> <span id="wbDetectorConfMeanVal" style="color:#38bdf8; font-family:monospace;">0.92</span></div>
+                                    <div><span style="color: var(--text-muted);">Conflicts Flagged:</span> <span id="wbConflictsCountVal" style="color:#f87171; font-family:monospace;">0</span></div>
                                 </div>
-                                <div style="color:#94a3b8; font-size:0.64rem; line-height:1.3; font-style:italic; border-top:1px dashed #334155; padding-top:4px;">
+                                <div style="color: var(--text-muted); font-size:0.64rem; line-height:1.3; font-style:italic; border-top:1px dashed #334155; padding-top:4px;">
                                     <i class="fas fa-info-circle" style="color:#38bdf8; margin-right:3px;"></i>
                                     <span id="wbGeoLimitsNote">Camera calibration unavailable. Sensor coordinates represent local 2D view frames rather than metric 3D Euclidean space. Association corroborated via appearance &amp; relative tier constraints.</span>
                                 </div>
@@ -6871,13 +6871,13 @@ window.switchSubTab = switchSubTab;
 
                             <!-- Per-View Comparison Pills -->
                             <div style="margin-bottom:8px;">
-                                <div style="color:#94a3b8; font-size:0.66rem; font-weight:700; text-transform:uppercase; margin-bottom:4px;">Per-View Counts:</div>
+                                <div style="color: var(--text-muted); font-size:0.66rem; font-weight:700; text-transform:uppercase; margin-bottom:4px;">Per-View Counts:</div>
                                 <div id="wbFusionPerViewPills" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
                             </div>
 
                             <!-- Object View Associations List -->
                             <div style="margin-bottom:8px;">
-                                <div style="color:#94a3b8; font-size:0.66rem; font-weight:700; text-transform:uppercase; margin-bottom:4px;">Unique Objects &amp; Contributing Views:</div>
+                                <div style="color: var(--text-muted); font-size:0.66rem; font-weight:700; text-transform:uppercase; margin-bottom:4px;">Unique Objects &amp; Contributing Views:</div>
                                 <div id="wbFusionAssocsList" style="display:flex; flex-wrap:wrap; gap:5px; max-height:100px; overflow-y:auto; padding:2px;"></div>
                             </div>
 
@@ -6889,7 +6889,7 @@ window.switchSubTab = switchSubTab;
                             <!-- Stage 6: Operator Review Drawer & Action Controls -->
                             <div id="wbOperatorReviewSection" style="background:#0f172a; border-radius:6px; border:1px solid #334155; padding:8px 10px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                    <span style="color:#f8fafc; font-size:0.7rem; font-weight:700; text-transform:uppercase;">
+                                    <span style="color: var(--text-main); font-size:0.7rem; font-weight:700; text-transform:uppercase;">
                                         <i class="fas fa-clipboard-check" style="color:#38bdf8; margin-right:4px;"></i> Operator Review Drawer
                                     </span>
                                     <div style="display:flex; align-items:center; gap:6px;">
@@ -6913,7 +6913,7 @@ window.switchSubTab = switchSubTab;
                         <!-- 2. Interactive 3D Digital Twin Viewport (Three.js WebGL) -->
                         <div id="wb3DSection" style="background:#1e293b; border-radius:10px; border:1px solid #334155; padding:12px; display:flex; flex-direction:column; gap:8px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-size:0.74rem; color:#f8fafc; font-weight:700; display:flex; align-items:center; gap:6px;">
+                                <span style="font-size:0.74rem; color: var(--text-main); font-weight:700; display:flex; align-items:center; gap:6px;">
                                     <i class="fas fa-cube" style="color:#10b981;"></i> Localized 3D Digital Twin (WebGL)
                                 </span>
                                 <div style="display:flex; align-items:center; gap:6px;">
@@ -6930,14 +6930,14 @@ window.switchSubTab = switchSubTab;
                             </div>
                             <div id="wbThreeJsContainer" style="position:relative; width:100%; height:250px; background:#020617; border-radius:6px; border:1px solid #334155; overflow:hidden;">
                                 <div id="wbThreeJsDepthBanner" style="display:none; position:absolute; top:6px; left:8px; right:8px; background:rgba(15,23,42,0.88); border:1px solid rgba(56,189,248,0.35); border-radius:4px; padding:3px 8px; font-size:0.66rem; color:#38bdf8; pointer-events:none; z-index:10;"></div>
-                                <div id="wbThreeJsPlaceholder" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#64748b; font-size:0.74rem; text-align:center; pointer-events:none; width:85%;">
+                                <div id="wbThreeJsPlaceholder" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: var(--text-muted); font-size:0.74rem; text-align:center; pointer-events:none; width:85%;">
                                     <i class="fas fa-cube" style="font-size:1.8rem; margin-bottom:6px; opacity:0.4; display:block;"></i>
                                     3D Digital Twin automatically reconstructs upon pallet stack detection
                                 </div>
                                 <div id="wbThreeJsLoading" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#38bdf8; font-size:0.75rem;">
                                     <i class="fas fa-circle-notch fa-spin"></i> Rendering 3D Pallet Space...
                                 </div>
-                                <div id="wbThreeJsHover" style="position:absolute; bottom:8px; left:8px; background:rgba(15,23,42,0.9); border:1px solid #475569; padding:4px 8px; border-radius:4px; font-size:0.7rem; color:#f8fafc; pointer-events:none; display:none; z-index:10;"></div>
+                                <div id="wbThreeJsHover" style="position:absolute; bottom:8px; left:8px; background:rgba(15,23,42,0.9); border:1px solid #475569; padding:4px 8px; border-radius:4px; font-size:0.7rem; color: var(--text-main); pointer-events:none; display:none; z-index:10;"></div>
                             </div>
                         </div>
 
@@ -7324,8 +7324,8 @@ window.switchSubTab = switchSubTab;
                             <div id="statExcelUpdate" style="font-size:1.3rem; font-weight:700; color:#2563eb;">0</div>
                         </div>
                         <div style="background:rgba(148,163,184,0.08); padding:10px; border-radius:6px; border:1px solid rgba(148,163,184,0.2); text-align:center;">
-                            <div style="font-size:0.75rem; color:#64748b;">Will Skip</div>
-                            <div id="statExcelSkip" style="font-size:1.3rem; font-weight:700; color:#64748b;">0</div>
+                            <div style="font-size:0.75rem; color: var(--text-muted);">Will Skip</div>
+                            <div id="statExcelSkip" style="font-size:1.3rem; font-weight:700; color: var(--text-muted);">0</div>
                         </div>
                         <div style="background:rgba(239,68,68,0.08); padding:10px; border-radius:6px; border:1px solid rgba(239,68,68,0.2); text-align:center;">
                             <div style="font-size:0.75rem; color:#dc2626;">Rejected</div>
@@ -7369,8 +7369,8 @@ window.switchSubTab = switchSubTab;
                             <div id="excelResUpdated" style="font-size:1.4rem; font-weight:700; color:#2563eb;">0</div>
                         </div>
                         <div style="background:var(--panel-subtle); padding:10px; border-radius:6px; border:1px solid var(--border-light);">
-                            <div style="font-size:0.75rem; color:#64748b;">Skipped</div>
-                            <div id="excelResSkipped" style="font-size:1.4rem; font-weight:700; color:#64748b;">0</div>
+                            <div style="font-size:0.75rem; color: var(--text-muted);">Skipped</div>
+                            <div id="excelResSkipped" style="font-size:1.4rem; font-weight:700; color: var(--text-muted);">0</div>
                         </div>
                         <div style="background:var(--panel-subtle); padding:10px; border-radius:6px; border:1px solid var(--border-light);">
                             <div style="font-size:0.75rem; color:#dc2626;">Failed</div>
@@ -7576,17 +7576,17 @@ window.switchSubTab = switchSubTab;
         <div class="modal-dialog" style="max-width: 1100px; width:95%; max-height:92vh; overflow-y:auto;">
             
             <!-- Header -->
-            <div class="modal-header" style="background:#0f172a; color:#f8fafc; border-bottom:1px solid rgba(255,255,255,0.1); padding:1rem 1.5rem;">
+            <div class="modal-header" style="background:#0f172a; color: var(--text-main); border-bottom:1px solid rgba(255,255,255,0.1); padding:1rem 1.5rem;">
                 <div style="display:flex; align-items:center; gap:12px;">
                     <div style="width:40px; height:40px; border-radius:8px; background:rgba(139,92,246,0.18); border:1px solid #8b5cf6; display:flex; align-items:center; justify-content:center; color:#c084fc; font-size:1.1rem;">
                         <i class="fas fa-microchip"></i>
                     </div>
                     <div>
-                        <h3 style="margin:0; font-size:1.2rem; color:#f8fafc; display:flex; align-items:center; gap:8px;">
+                        <h3 style="margin:0; font-size:1.2rem; color: var(--text-main); display:flex; align-items:center; gap:8px;">
                             <span>AI Palletization Dual-Mode Vision Counter</span>
                             <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.68rem; padding:2px 8px;">ZERO-TRAIN CV</span>
                         </h3>
-                        <p style="margin:2px 0 0 0; font-size:0.75rem; color:#94a3b8;">
+                        <p style="margin:2px 0 0 0; font-size:0.75rem; color: var(--text-muted);">
                             Universal counting without prior material training &bull; Individual piece pinpointer or multi-view bundle deconstruction
                         </p>
                     </div>
@@ -7611,7 +7611,7 @@ window.switchSubTab = switchSubTab;
                             <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:260px;">
                                 <div id="piecesSkuThumbWrap" style="width:42px; height:42px; border-radius:6px; background:#1e293b; border:1px solid #475569; overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
                                     <img id="piecesSkuThumb" src="" style="width:100%; height:100%; object-fit:cover; display:none;" alt="SKU Reference">
-                                    <i id="piecesSkuNoThumbIcon" class="fas fa-boxes-stacked" style="color:#64748b; font-size:1.1rem;"></i>
+                                    <i id="piecesSkuNoThumbIcon" class="fas fa-boxes-stacked" style="color: var(--text-muted); font-size:1.1rem;"></i>
                                 </div>
                                 <div style="flex:1;">
                                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -7621,17 +7621,17 @@ window.switchSubTab = switchSubTab;
                                         </span>
                                     </div>
                                     <div style="display:flex; gap:8px; margin-top:3px;">
-                                        <select id="piecesSkuSelect" onchange="onVisionSkuSelected('pieces', this.value)" style="flex:1; background:#1e293b; color:#f8fafc; border:1px solid #475569; border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600;">
+                                        <select id="piecesSkuSelect" onchange="onVisionSkuSelected('pieces', this.value)" style="flex:1; background:#1e293b; color: var(--text-main); border:1px solid #475569; border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600;">
                                             <option value="">-- Auto-Detect from Mapped SKUs --</option>
                                         </select>
-                                        <button type="button" onclick="loadVisionSkus(true)" title="Refresh SKUs from Master Data" style="background:#334155; color:#cbd5e1; border:none; border-radius:6px; padding:5px 10px; cursor:pointer;">
+                                        <button type="button" onclick="loadVisionSkus(true)" title="Refresh SKUs from Master Data" style="background:#334155; color: var(--text-muted); border:none; border-radius:6px; padding:5px 10px; cursor:pointer;">
                                             <i class="fas fa-rotate"></i>
                                         </button>
                                     </div>
                                 </div>
                             </div>
                             <div>
-                                <button type="button" onclick="toggleDemoPresets('piecesDemoDrawer')" style="background:transparent; color:#94a3b8; border:1px dashed #475569; border-radius:6px; padding:6px 10px; font-size:0.72rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                                <button type="button" onclick="toggleDemoPresets('piecesDemoDrawer')" style="background:transparent; color: var(--text-muted); border:1px dashed #475569; border-radius:6px; padding:6px 10px; font-size:0.72rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
                                     <i class="fas fa-flask"></i> <span>Sample Presets</span> <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
                                 </button>
                             </div>
@@ -7639,15 +7639,15 @@ window.switchSubTab = switchSubTab;
 
                         <!-- Collapsible Historical Demo Presets -->
                         <div id="piecesDemoDrawer" style="display:none; background:rgba(15,23,42,0.6); border:1px dashed rgba(255,255,255,0.1); border-radius:6px; padding:8px 12px; margin-top:-6px;">
-                            <div style="font-size:0.68rem; color:#64748b; margin-bottom:6px;">Test samples:</div>
+                            <div style="font-size:0.68rem; color: var(--text-muted); margin-bottom:6px;">Test samples:</div>
                             <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                                <button type="button" onclick="loadSamplePiecesImage('sample_individual_pipes_229.jpg', 'auto')" style="background:#334155; color:#cbd5e1; border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
+                                <button type="button" onclick="loadSamplePiecesImage('sample_individual_pipes_229.jpg', 'auto')" style="background:#334155; color: var(--text-muted); border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
                                     ⚡ 229 Steel Pipes
                                 </button>
-                                <button type="button" onclick="loadSamplePiecesImage('sample_carton_boxes.png', 'boxes')" style="background:#334155; color:#cbd5e1; border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
+                                <button type="button" onclick="loadSamplePiecesImage('sample_carton_boxes.png', 'boxes')" style="background:#334155; color: var(--text-muted); border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
                                     ⚡ 24 Carton Boxes
                                 </button>
-                                <button type="button" onclick="loadSamplePiecesImage('sample_cstud_pallet.png', 'auto')" style="background:#334155; color:#cbd5e1; border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
+                                <button type="button" onclick="loadSamplePiecesImage('sample_cstud_pallet.png', 'auto')" style="background:#334155; color: var(--text-muted); border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
                                     ⚡ C-Stud Pallet
                                 </button>
                             </div>
@@ -7661,9 +7661,9 @@ window.switchSubTab = switchSubTab;
                                 <div style="width:50px; height:50px; border-radius:50%; background:rgba(2,132,199,0.15); border:1px solid rgba(2,132,199,0.4); display:inline-flex; align-items:center; justify-content:center; color:#38bdf8; font-size:1.4rem; margin-bottom:8px;">
                                     <i class="fas fa-camera"></i>
                                 </div>
-                                <div style="font-size:0.95rem; font-weight:700; color:#f8fafc;">Drop Pallet / Stock Photo Here</div>
-                                <div style="font-size:0.74rem; color:#94a3b8; margin-top:3px;">or click to browse from device &bull; Auto-counts immediately on upload</div>
-                                <div style="font-size:0.68rem; color:#64748b; margin-top:6px;">Profiles, studs, pipes, tubes, cartons, billets &bull; Concrete floor noise rejected automatically</div>
+                                <div style="font-size:0.95rem; font-weight:700; color: var(--text-main);">Drop Pallet / Stock Photo Here</div>
+                                <div style="font-size:0.74rem; color: var(--text-muted); margin-top:3px;">or click to browse from device &bull; Auto-counts immediately on upload</div>
+                                <div style="font-size:0.68rem; color: var(--text-muted); margin-top:6px;">Profiles, studs, pipes, tubes, cartons, billets &bull; Concrete floor noise rejected automatically</div>
                             </div>
                             
                             <img id="piecesPreviewImg" style="max-height:220px; max-width:100%; object-fit:contain; border-radius:6px; display:none; margin:0 auto;" alt="Pieces Preview">
@@ -7671,7 +7671,7 @@ window.switchSubTab = switchSubTab;
 
                         <!-- Action Bar -->
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                            <div style="font-size:0.74rem; color:#94a3b8; display:flex; align-items:center; gap:6px;">
+                            <div style="font-size:0.74rem; color: var(--text-muted); display:flex; align-items:center; gap:6px;">
                                 <i class="fas fa-check-circle" style="color:#10b981;"></i>
                                 <span>Sequential neat count (1..N) &bull; Clean uniform badges, no confetti clusters</span>
                             </div>
@@ -7683,8 +7683,8 @@ window.switchSubTab = switchSubTab;
                         <!-- Spinner -->
                         <div id="piecesProcessingStatus" style="display:none; text-align:center; padding:1.5rem; background:#1e293b; border-radius:8px;">
                             <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; color:#38bdf8; margin-bottom:10px;"></i>
-                            <div style="font-weight:700; color:#f8fafc; font-size:0.9rem;">Counting Stock with High Precision...</div>
-                            <div style="font-size:0.75rem; color:#94a3b8;">Filtering concrete floor &bull; Numbering each piece sequentially &bull; Computing total</div>
+                            <div style="font-weight:700; color: var(--text-main); font-size:0.9rem;">Counting Stock with High Precision...</div>
+                            <div style="font-size:0.75rem; color: var(--text-muted);">Filtering concrete floor &bull; Numbering each piece sequentially &bull; Computing total</div>
                         </div>
 
                         <!-- Results Container for Pieces -->
@@ -7693,16 +7693,16 @@ window.switchSubTab = switchSubTab;
                             <!-- Total Banner -->
                             <div style="background:#0f172a; border:2px solid #10b981; border-radius:8px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                                 <div>
-                                    <span style="font-size:0.72rem; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Verified Stock Count</span>
+                                    <span style="font-size:0.72rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Verified Stock Count</span>
                                     <div style="font-size:2.2rem; font-weight:900; color:#10b981; font-family:'JetBrains Mono',monospace; line-height:1.1; margin-top:2px;" id="piecesTotalBadge">
                                         48 BUNDLES
                                     </div>
-                                    <div id="piecesSkuMatchResultTag" style="display:none; align-items:center; gap:6px; font-size:0.75rem; color:#94a3b8; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.1); margin-top:4px;"></div>
+                                    <div id="piecesSkuMatchResultTag" style="display:none; align-items:center; gap:6px; font-size:0.75rem; color: var(--text-muted); background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.1); margin-top:4px;"></div>
                                     <div id="piecesClustersPills" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;"></div>
                                 </div>
 
                                 <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                                    <button type="button" onclick="recertifyAndSavePieces()" style="background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                                    <button type="button" onclick="recertifyAndSavePieces()" style="background:#334155; color: var(--text-main); border:1px solid #475569; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
                                         <i class="fas fa-arrows-rotate"></i> Re-Render
                                     </button>
                                     <button type="button" onclick="syncPiecesCountToPallet()" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:0.82rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(16,185,129,0.35);">
@@ -7715,12 +7715,12 @@ window.switchSubTab = switchSubTab;
                             <div style="background:#020617; border-radius:8px; border:1px solid #1e293b; padding:10px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
                                     <div style="display:flex; align-items:center; gap:8px;">
-                                        <span style="font-size:0.75rem; color:#f8fafc; font-weight:700;">Interactive Canvas</span>
+                                        <span style="font-size:0.75rem; color: var(--text-main); font-weight:700;">Interactive Canvas</span>
                                         <span style="font-size:0.68rem; background:rgba(16,185,129,0.12); color:#10b981; padding:3px 8px; border-radius:4px; font-weight:600;">
                                             <i class="fas fa-hand-pointer"></i> Click badge to Delete &bull; Click image to Add item
                                         </span>
                                     </div>
-                                    <button type="button" onclick="openPiecesImageFullscreen()" style="background:#334155; color:#f8fafc; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;">
+                                    <button type="button" onclick="openPiecesImageFullscreen()" style="background:#334155; color: var(--text-main); border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;">
                                         <i class="fas fa-expand"></i> Fullscreen
                                     </button>
                                 </div>
@@ -7738,11 +7738,11 @@ window.switchSubTab = switchSubTab;
                                             <i class="fas fa-cubes"></i>
                                         </div>
                                         <div>
-                                            <h4 style="margin:0; font-size:0.98rem; color:#f8fafc; font-weight:800; display:flex; align-items:center; gap:8px;">
+                                            <h4 style="margin:0; font-size:0.98rem; color: var(--text-main); font-weight:800; display:flex; align-items:center; gap:8px;">
                                                 <span>3D Pallet Matrix Digital Twin</span>
                                                 <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:0.65rem; padding:2px 8px;">1000% MATHEMATICAL ACCURACY</span>
                                             </h4>
-                                            <p style="margin:2px 0 0 0; font-size:0.73rem; color:#94a3b8;">
+                                            <p style="margin:2px 0 0 0; font-size:0.73rem; color: var(--text-muted);">
                                                 Interactive 3D model displaying all front visible boxes + translucent glass/wireframe rear & interior boxes
                                             </p>
                                         </div>
@@ -7759,23 +7759,23 @@ window.switchSubTab = switchSubTab;
                                     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
                                         <!-- Layers Stepper -->
                                         <div style="display:flex; align-items:center; gap:6px;">
-                                            <span style="color:#94a3b8; font-weight:600;">Layers (H):</span>
+                                            <span style="color: var(--text-muted); font-weight:600;">Layers (H):</span>
                                             <button type="button" onclick="adjust3DMatrixParam('layers', -1)" style="width:24px; height:24px; border-radius:4px; border:1px solid #475569; background:#334155; color:#fff; cursor:pointer; font-weight:bold;">-</button>
-                                            <b id="matrixValLayers" style="min-width:18px; text-align:center; color:#f8fafc;">4</b>
+                                            <b id="matrixValLayers" style="min-width:18px; text-align:center; color: var(--text-main);">4</b>
                                             <button type="button" onclick="adjust3DMatrixParam('layers', 1)" style="width:24px; height:24px; border-radius:4px; border:1px solid #475569; background:#334155; color:#fff; cursor:pointer; font-weight:bold;">+</button>
                                         </div>
                                         <!-- Cols Stepper -->
                                         <div style="display:flex; align-items:center; gap:6px;">
-                                            <span style="color:#94a3b8; font-weight:600;">Columns (W):</span>
+                                            <span style="color: var(--text-muted); font-weight:600;">Columns (W):</span>
                                             <button type="button" onclick="adjust3DMatrixParam('columns', -1)" style="width:24px; height:24px; border-radius:4px; border:1px solid #475569; background:#334155; color:#fff; cursor:pointer; font-weight:bold;">-</button>
-                                            <b id="matrixValColumns" style="min-width:18px; text-align:center; color:#f8fafc;">3</b>
+                                            <b id="matrixValColumns" style="min-width:18px; text-align:center; color: var(--text-main);">3</b>
                                             <button type="button" onclick="adjust3DMatrixParam('columns', 1)" style="width:24px; height:24px; border-radius:4px; border:1px solid #475569; background:#334155; color:#fff; cursor:pointer; font-weight:bold;">+</button>
                                         </div>
                                         <!-- Depth Stepper -->
                                         <div style="display:flex; align-items:center; gap:6px;">
-                                            <span style="color:#94a3b8; font-weight:600;">Depth (D):</span>
+                                            <span style="color: var(--text-muted); font-weight:600;">Depth (D):</span>
                                             <button type="button" onclick="adjust3DMatrixParam('depth', -1)" style="width:24px; height:24px; border-radius:4px; border:1px solid #475569; background:#334155; color:#fff; cursor:pointer; font-weight:bold;">-</button>
-                                            <b id="matrixValDepth" style="min-width:18px; text-align:center; color:#f8fafc;">2</b>
+                                            <b id="matrixValDepth" style="min-width:18px; text-align:center; color: var(--text-main);">2</b>
                                             <button type="button" onclick="adjust3DMatrixParam('depth', 1)" style="width:24px; height:24px; border-radius:4px; border:1px solid #475569; background:#334155; color:#fff; cursor:pointer; font-weight:bold;">+</button>
                                         </div>
                                     </div>
@@ -7787,7 +7787,7 @@ window.switchSubTab = switchSubTab;
                                         <button type="button" id="btnToggleXRay3D" onclick="toggleXRay3D()" style="background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:4px; padding:5px 10px; cursor:pointer; font-size:0.73rem; display:flex; align-items:center; gap:5px;">
                                             <i class="fas fa-eye"></i> <span>X-Ray Glass</span>
                                         </button>
-                                        <button type="button" onclick="reset3DCamera()" style="background:#334155; color:#f8fafc; border:1px solid #475569; border-radius:4px; padding:5px 8px; cursor:pointer;" title="Reset 3D Camera">
+                                        <button type="button" onclick="reset3DCamera()" style="background:#334155; color: var(--text-main); border:1px solid #475569; border-radius:4px; padding:5px 8px; cursor:pointer;" title="Reset 3D Camera">
                                             <i class="fas fa-rotate-left"></i>
                                         </button>
                                     </div>
@@ -7795,13 +7795,13 @@ window.switchSubTab = switchSubTab;
 
                                 <!-- Three.js Canvas Viewport -->
                                 <div id="threeJsCanvasContainer" style="position:relative; width:100%; height:380px; background:#020617; border-radius:8px; border:1px solid #1e293b; overflow:hidden;">
-                                    <div id="threeJsLoadingNotice" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#94a3b8; font-size:0.8rem; pointer-events:none;">
+                                    <div id="threeJsLoadingNotice" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: var(--text-muted); font-size:0.8rem; pointer-events:none;">
                                         <i class="fas fa-circle-notch fa-spin"></i> Initializing 3D Pallet Space...
                                     </div>
-                                    <div id="threeJsHoverInfo" style="position:absolute; bottom:12px; left:12px; background:rgba(15,23,42,0.9); border:1px solid #475569; padding:5px 12px; border-radius:6px; font-size:0.75rem; color:#f8fafc; pointer-events:none; display:none; z-index:10;"></div>
+                                    <div id="threeJsHoverInfo" style="position:absolute; bottom:12px; left:12px; background:rgba(15,23,42,0.9); border:1px solid #475569; padding:5px 12px; border-radius:6px; font-size:0.75rem; color: var(--text-main); pointer-events:none; display:none; z-index:10;"></div>
                                     <!-- 3D Legend Pill -->
                                     <div style="position:absolute; top:12px; left:12px; display:flex; flex-direction:column; gap:6px; pointer-events:none; z-index:10;">
-                                        <div style="background:rgba(15,23,42,0.85); border:1px solid #0284c7; border-radius:4px; padding:3px 8px; font-size:0.68rem; color:#f8fafc; display:flex; align-items:center; gap:6px;">
+                                        <div style="background:rgba(15,23,42,0.85); border:1px solid #0284c7; border-radius:4px; padding:3px 8px; font-size:0.68rem; color: var(--text-main); display:flex; align-items:center; gap:6px;">
                                             <span style="width:8px; height:8px; background:#0284c7; border-radius:2px; display:inline-block;"></span>
                                             <b>Visible Front/Side Boxes</b>: Solid Cardboard + Badges
                                         </div>
@@ -7820,7 +7820,7 @@ window.switchSubTab = switchSubTab;
 
                 <!-- Optional Collapsible Multi-Angle 3D Deconstruction (Kept non-intrusively at bottom) -->
                 <details style="margin-top:6px; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:8px 12px;">
-                    <summary style="font-size:0.78rem; font-weight:700; color:#94a3b8; cursor:pointer; outline:none;">
+                    <summary style="font-size:0.78rem; font-weight:700; color: var(--text-muted); cursor:pointer; outline:none;">
                         <i class="fas fa-cubes-stacked" style="color:#38bdf8; margin-right:6px;"></i>
                         <span>Advanced Dual-Angle 3D Pallet Deconstruction (Front + Side Views)</span>
                     </summary>
@@ -7832,7 +7832,7 @@ window.switchSubTab = switchSubTab;
                             <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:260px;">
                                 <div id="bundlesSkuThumbWrap" style="width:48px; height:48px; border-radius:6px; background:#1e293b; border:1px solid #475569; overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
                                     <img id="bundlesSkuThumb" src="" style="width:100%; height:100%; object-fit:cover; display:none;" alt="SKU Reference">
-                                    <i id="bundlesSkuNoThumbIcon" class="fas fa-cubes-stacked" style="color:#64748b; font-size:1.2rem;"></i>
+                                    <i id="bundlesSkuNoThumbIcon" class="fas fa-cubes-stacked" style="color: var(--text-muted); font-size:1.2rem;"></i>
                                 </div>
                                 <div style="flex:1;">
                                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -7842,14 +7842,14 @@ window.switchSubTab = switchSubTab;
                                         </span>
                                     </div>
                                     <div style="display:flex; gap:8px; margin-top:4px;">
-                                        <select id="bundlesSkuSelect" onchange="onVisionSkuSelected('bundles', this.value)" style="flex:1; background:#1e293b; color:#f8fafc; border:1px solid #475569; border-radius:6px; padding:6px 10px; font-size:0.8rem; font-weight:600;">
+                                        <select id="bundlesSkuSelect" onchange="onVisionSkuSelected('bundles', this.value)" style="flex:1; background:#1e293b; color: var(--text-main); border:1px solid #475569; border-radius:6px; padding:6px 10px; font-size:0.8rem; font-weight:600;">
                                             <option value="">-- Loading Mapped AI Vision SKUs... --</option>
                                         </select>
                                     </div>
                                 </div>
                             </div>
                             <div>
-                                <button type="button" onclick="toggleDemoPresets('bundlesDemoDrawer')" style="background:transparent; color:#94a3b8; border:1px dashed #475569; border-radius:6px; padding:6px 10px; font-size:0.72rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                                <button type="button" onclick="toggleDemoPresets('bundlesDemoDrawer')" style="background:transparent; color: var(--text-muted); border:1px dashed #475569; border-radius:6px; padding:6px 10px; font-size:0.72rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
                                     <i class="fas fa-flask"></i> <span>Sample Presets</span> <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
                                 </button>
                             </div>
@@ -7857,12 +7857,12 @@ window.switchSubTab = switchSubTab;
 
                         <!-- Collapsible Historical Demo Presets (Demoted) -->
                         <div id="bundlesDemoDrawer" style="display:none; background:rgba(15,23,42,0.6); border:1px dashed rgba(255,255,255,0.1); border-radius:6px; padding:8px 12px; margin-top:-6px;">
-                            <div style="font-size:0.68rem; color:#64748b; margin-bottom:6px;">Historical demo samples:</div>
+                            <div style="font-size:0.68rem; color: var(--text-muted); margin-bottom:6px;">Historical demo samples:</div>
                             <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                                <button type="button" onclick="loadBundleSampleDemo('timber_48')" style="background:#334155; color:#cbd5e1; border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
+                                <button type="button" onclick="loadBundleSampleDemo('timber_48')" style="background:#334155; color: var(--text-muted); border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
                                     ⚡ 48 Timber Bundles
                                 </button>
-                                <button type="button" onclick="loadBundleSampleDemo('multistack_84')" style="background:#334155; color:#cbd5e1; border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
+                                <button type="button" onclick="loadBundleSampleDemo('multistack_84')" style="background:#334155; color: var(--text-muted); border:none; border-radius:4px; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
                                     ⚡ 84 Multi-Stack Bundles
                                 </button>
                             </div>
@@ -7875,13 +7875,13 @@ window.switchSubTab = switchSubTab;
                             <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 1 &mdash; FRONT VIEW</span>
-                                    <span style="font-size:0.65rem; color:#94a3b8;">Bundle Ends / Width</span>
+                                    <span style="font-size:0.65rem; color: var(--text-muted);">Bundle Ends / Width</span>
                                 </div>
                                 <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileBundleAngle1').click()">
                                     <img id="bundleAnglePreview1" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Front Preview">
                                     <div id="bundleAnglePlaceholder1" style="text-align:center; padding:10px;">
-                                        <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
-                                        <div style="font-size:0.7rem; color:#94a3b8;">Upload Front View</div>
+                                        <i class="fas fa-camera" style="color: var(--text-muted); font-size:1.5rem; margin-bottom:6px;"></i>
+                                        <div style="font-size:0.7rem; color: var(--text-muted);">Upload Front View</div>
                                     </div>
                                 </div>
                                 <input type="file" id="fileBundleAngle1" accept="image/*" style="display:none;" onchange="previewBundleAngle(1, this)">
@@ -7891,13 +7891,13 @@ window.switchSubTab = switchSubTab;
                             <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.08); padding:10px; display:flex; flex-direction:column; gap:8px;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <span style="font-size:0.75rem; font-weight:700; color:#38bdf8;">ANGLE 2 &mdash; SIDE VIEW</span>
-                                    <span style="font-size:0.65rem; color:#94a3b8;">Vertical Layers / Depth</span>
+                                    <span style="font-size:0.65rem; color: var(--text-muted);">Vertical Layers / Depth</span>
                                 </div>
                                 <div style="height:140px; background:#0f172a; border-radius:6px; border:1px dashed #334155; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; cursor:pointer;" onclick="document.getElementById('fileBundleAngle2').click()">
                                     <img id="bundleAnglePreview2" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Side Preview">
                                     <div id="bundleAnglePlaceholder2" style="text-align:center; padding:10px;">
-                                        <i class="fas fa-camera" style="color:#64748b; font-size:1.5rem; margin-bottom:6px;"></i>
-                                        <div style="font-size:0.7rem; color:#94a3b8;">Upload Side View</div>
+                                        <i class="fas fa-camera" style="color: var(--text-muted); font-size:1.5rem; margin-bottom:6px;"></i>
+                                        <div style="font-size:0.7rem; color: var(--text-muted);">Upload Side View</div>
                                     </div>
                                 </div>
                                 <input type="file" id="fileBundleAngle2" accept="image/*" style="display:none;" onchange="previewBundleAngle(2, this)">
@@ -7908,7 +7908,7 @@ window.switchSubTab = switchSubTab;
                         <!-- Run Action Bar -->
                         <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:10px 14px; border-radius:8px;">
                             <div style="display:flex; align-items:center; gap:8px;">
-                                <label style="font-size:0.75rem; color:#94a3b8; margin:0;">Depth / Cross-Lay Multiplier:</label>
+                                <label style="font-size:0.75rem; color: var(--text-muted); margin:0;">Depth / Cross-Lay Multiplier:</label>
                                 <select id="bundleDepthMultiplier" style="padding:4px 8px; font-size:0.78rem; background:#0f172a; color:#fff; border:1px solid #334155; border-radius:4px;">
                                     <option value="1" selected>Auto / Single Depth</option>
                                     <option value="3">3 Bundles Deep (Standard Cross-Lay)</option>
@@ -7925,8 +7925,8 @@ window.switchSubTab = switchSubTab;
                         <!-- Spinner -->
                         <div id="bundleProcessingStatus" style="display:none; text-align:center; padding:1.5rem; background:#1e293b; border-radius:8px;">
                             <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; color:#38bdf8; margin-bottom:10px;"></i>
-                            <div style="font-weight:700; color:#f8fafc; font-size:0.9rem;">Deconstructing Stacks &amp; Generating 3D Isometric Model...</div>
-                            <div style="font-size:0.75rem; color:#94a3b8;">Analyzing layer lines &bull; Solving multi-view correlation &bull; Composing audit board</div>
+                            <div style="font-weight:700; color: var(--text-main); font-size:0.9rem;">Deconstructing Stacks &amp; Generating 3D Isometric Model...</div>
+                            <div style="font-size:0.75rem; color: var(--text-muted);">Analyzing layer lines &bull; Solving multi-view correlation &bull; Composing audit board</div>
                         </div>
 
                         <!-- Results Container for Bundles -->
@@ -7936,7 +7936,7 @@ window.switchSubTab = switchSubTab;
                             <div style="background:#0f172a; border:2px solid #eab308; border-radius:8px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                                 <div style="display:flex; align-items:center; gap:20px;">
                                     <div>
-                                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">Certified Bundle Audit</span>
+                                        <span style="font-size:0.75rem; color: var(--text-muted); font-weight:600; text-transform:uppercase;">Certified Bundle Audit</span>
                                         <div style="font-size:1.9rem; font-weight:900; color:#facc15; font-family:'JetBrains Mono',monospace;" id="bundleTotalBundlesBadge">
                                             48 BUNDLES
                                         </div>
@@ -7947,7 +7947,7 @@ window.switchSubTab = switchSubTab;
                                 </div>
 
                                 <div style="display:flex; gap:10px;">
-                                    <button type="button" onclick="openBundleImageFullscreen()" style="background:#334155; color:#f8fafc; border:none; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                                    <button type="button" onclick="openBundleImageFullscreen()" style="background:#334155; color: var(--text-main); border:none; border-radius:6px; padding:8px 14px; font-size:0.78rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
                                         <i class="fas fa-expand"></i> Enlarge Board
                                     </button>
                                     <button type="button" onclick="syncBundlesCountToPallet()" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:8px 18px; font-size:0.82rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(16,185,129,0.3);">
@@ -7961,7 +7961,7 @@ window.switchSubTab = switchSubTab;
                                 
                                 <div style="background:#020617; border-radius:8px; border:1px solid #1e293b; padding:8px; display:flex; flex-direction:column; gap:6px;">
                                     <div style="display:flex; justify-content:space-between; align-items:center; padding:0 4px;">
-                                        <span style="font-size:0.75rem; color:#94a3b8; font-weight:600;">Combined Audit Board (Dual Angles + 3D Layout + Comparison)</span>
+                                        <span style="font-size:0.75rem; color: var(--text-muted); font-weight:600;">Combined Audit Board (Dual Angles + 3D Layout + Comparison)</span>
                                         <span style="font-size:0.68rem; color:#38bdf8;">Click to expand</span>
                                     </div>
                                     <div style="max-height:500px; overflow:hidden; border-radius:6px; cursor:pointer; border:1px solid #334155;" onclick="openBundleImageFullscreen()">
@@ -7973,11 +7973,11 @@ window.switchSubTab = switchSubTab;
                                 <div style="display:flex; flex-direction:column; gap:12px;">
                                     
                                     <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.06); padding:12px;">
-                                        <span style="font-size:0.75rem; color:#f8fafc; font-weight:700; text-transform:uppercase; display:block; margin-bottom:8px;">Stack Decomposition Table</span>
+                                        <span style="font-size:0.75rem; color: var(--text-main); font-weight:700; text-transform:uppercase; display:block; margin-bottom:8px;">Stack Decomposition Table</span>
                                         <div style="max-height:220px; overflow-y:auto;">
                                             <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
                                                 <thead>
-                                                    <tr style="border-bottom:1px solid #334155; color:#94a3b8; text-align:left;">
+                                                    <tr style="border-bottom:1px solid #334155; color: var(--text-muted); text-align:left;">
                                                         <th style="padding:6px 4px;">Stack</th>
                                                         <th style="padding:6px 4px; text-align:center;">Layers</th>
                                                         <th style="padding:6px 4px; text-align:center;">Formula</th>
@@ -7993,7 +7993,7 @@ window.switchSubTab = switchSubTab;
 
                                     <div style="background:#1e293b; border-radius:8px; border:1px solid rgba(255,255,255,0.06); padding:12px;">
                                         <span style="font-size:0.75rem; color:#38bdf8; font-weight:700; text-transform:uppercase; display:block; margin-bottom:6px;">Rule &amp; Cross-Check Summary</span>
-                                        <div id="bundleRuleSummaryText" style="font-size:0.72rem; color:#cbd5e1; line-height:1.4; white-space:pre-line; max-height:160px; overflow-y:auto;">
+                                        <div id="bundleRuleSummaryText" style="font-size:0.72rem; color: var(--text-muted); line-height:1.4; white-space:pre-line; max-height:160px; overflow-y:auto;">
                                             Rule verified across viewpoints.
                                         </div>
                                     </div>
@@ -8165,7 +8165,7 @@ window.switchSubTab = switchSubTab;
 
     <!-- INDUSTRY BLUEPRINT & MULTI-FACILITY TRANSFORMER MODAL -->
     <div id="industryBlueprintModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
-        <div class="blueprint-modal-content" style="background:linear-gradient(145deg, #0f172a, #1e1b4b); border:1px solid rgba(168,85,247,0.35); border-radius:16px; width:100%; max-width:960px; max-height:92vh; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7), 0 0 30px rgba(168,85,247,0.2); color:#f8fafc; padding:24px; position:relative;">
+        <div class="blueprint-modal-content" style="background:linear-gradient(145deg, #0f172a, #1e1b4b); border:1px solid rgba(168,85,247,0.35); border-radius:16px; width:100%; max-width:960px; max-height:92vh; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7), 0 0 30px rgba(168,85,247,0.2); color: var(--text-main); padding:24px; position:relative;">
             
             <!-- Modal Header -->
             <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:16px; margin-bottom:20px;">
@@ -8177,12 +8177,12 @@ window.switchSubTab = switchSubTab;
                         <h2 style="font-size:1.35rem; font-weight:800; margin:0; background:linear-gradient(90deg, #38bdf8, #c084fc, #f472b6); background-clip:text; -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
                             AI Industry Blueprint & Facility Transformer
                         </h2>
-                        <p style="margin:4px 0 0 0; font-size:0.85rem; color:#94a3b8;">
+                        <p style="margin:4px 0 0 0; font-size:0.85rem; color: var(--text-muted);">
                             Transform this warehouse in 1-click with pre-defined industrial SKUs, tailored AI vision classes, specialized zones, and inbound transport deliveries.
                         </p>
                     </div>
                 </div>
-                <button type="button" onclick="closeIndustryBlueprintModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#94a3b8; width:34px; height:34px; border-radius:8px; cursor:pointer; font-size:1.2rem; display:flex; align-items:center; justify-content:center; transition:all 0.2s ease;">
+                <button type="button" onclick="closeIndustryBlueprintModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color: var(--text-muted); width:34px; height:34px; border-radius:8px; cursor:pointer; font-size:1.2rem; display:flex; align-items:center; justify-content:center; transition:all 0.2s ease;">
                     &times;
                 </button>
             </div>
@@ -8192,13 +8192,13 @@ window.switchSubTab = switchSubTab;
                 <div style="display:flex; align-items:center; gap:10px;">
                     <i class="fas fa-location-crosshairs" style="color:#38bdf8; font-size:1.1rem;"></i>
                     <div>
-                        <span style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:#94a3b8; font-weight:600;">Target Facility:</span>
+                        <span style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-muted); font-weight:600;">Target Facility:</span>
                         <div id="blueprintTargetFacilityDisplay" style="font-size:0.95rem; font-weight:700; color:#f1f5f9;">Main Assembly Hub (WH-MAIN)</div>
                     </div>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <label for="blueprintApplyTargetSelect" style="font-size:0.8rem; color:#cbd5e1;">Apply Blueprint To:</label>
-                    <select id="blueprintApplyTargetSelect" style="background:#0f172a; border:1px solid rgba(255,255,255,0.15); color:#f8fafc; padding:6px 10px; border-radius:6px; font-size:0.82rem; outline:none;">
+                    <label for="blueprintApplyTargetSelect" style="font-size:0.8rem; color: var(--text-muted);">Apply Blueprint To:</label>
+                    <select id="blueprintApplyTargetSelect" style="background:#0f172a; border:1px solid rgba(255,255,255,0.15); color: var(--text-main); padding:6px 10px; border-radius:6px; font-size:0.82rem; outline:none;">
                         <option value="CURRENT">Current Active Facility</option>
                         <option value="NEW">Create New Industry Facility</option>
                     </select>
@@ -8206,7 +8206,7 @@ window.switchSubTab = switchSubTab;
             </div>
 
             <!-- Pre-Defined Industry Blueprint Cards -->
-            <h3 style="font-size:0.95rem; font-weight:700; color:#e2e8f0; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+            <h3 style="font-size:0.95rem; font-weight:700; color: var(--text-muted); margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
                 <i class="fas fa-cubes-stacked" style="color:#c084fc;"></i> Choose Pre-Defined Industry Dataset
             </h3>
             
@@ -8220,11 +8220,11 @@ window.switchSubTab = switchSubTab;
                     <i class="fas fa-microchip-ai" style="color:#38bdf8; font-size:1.1rem;"></i>
                     <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#f1f5f9;">Custom Company / Sector AI Synthesis</h4>
                 </div>
-                <p style="font-size:0.8rem; color:#94a3b8; margin:0 0 12px 0;">
+                <p style="font-size:0.8rem; color: var(--text-muted); margin:0 0 12px 0;">
                     Type any specific company name or niche industry. Our generative AI engine will synthesize tailored SKUs, AI vision classes, storage zones, and sample inbound deliveries.
                 </p>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <input type="text" id="customIndustryInput" placeholder="e.g. Coca-Cola Bottling Plant, Tata Steel Yard, or Aerospace Composites..." style="flex:1; min-width:260px; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 14px; color:#f8fafc; font-size:0.85rem; outline:none;">
+                    <input type="text" id="customIndustryInput" placeholder="e.g. Coca-Cola Bottling Plant, Tata Steel Yard, or Aerospace Composites..." style="flex:1; min-width:260px; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:9px 14px; color: var(--text-main); font-size:0.85rem; outline:none;">
                     <button type="button" onclick="applyCustomIndustryBlueprint()" style="background:linear-gradient(135deg, #0284c7, #7c3aed); border:none; border-radius:8px; padding:9px 18px; color:#ffffff; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 0 12px rgba(124,58,237,0.4);">
                         <i class="fas fa-bolt"></i> Synthesize & Apply
                     </button>
@@ -8239,7 +8239,7 @@ window.switchSubTab = switchSubTab;
 
     <!-- ADD FACILITY / LOCATION MODAL -->
     <div id="addFacilityModal" class="blueprint-modal-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(10,15,30,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); align-items:center; justify-content:center; padding:16px;">
-        <div class="blueprint-modal-content" style="background:linear-gradient(145deg, #0f172a, #1e1b4b); border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:100%; max-width:580px; max-height:92vh; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7), 0 0 30px rgba(56,189,248,0.2); color:#f8fafc; padding:24px; position:relative;">
+        <div class="blueprint-modal-content" style="background:linear-gradient(145deg, #0f172a, #1e1b4b); border:1px solid rgba(56,189,248,0.35); border-radius:16px; width:100%; max-width:580px; max-height:92vh; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7), 0 0 30px rgba(56,189,248,0.2); color: var(--text-main); padding:24px; position:relative;">
             
             <!-- Modal Header -->
             <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:14px; margin-bottom:18px;">
@@ -8248,15 +8248,15 @@ window.switchSubTab = switchSubTab;
                         <i class="fas fa-warehouse" style="color:#ffffff;"></i>
                     </div>
                     <div>
-                        <h2 style="font-size:1.2rem; font-weight:800; margin:0; color:#f8fafc;">
+                        <h2 style="font-size:1.2rem; font-weight:800; margin:0; color: var(--text-main);">
                             Add Facility / Location
                         </h2>
-                        <p style="margin:2px 0 0 0; font-size:0.8rem; color:#94a3b8;">
+                        <p style="margin:2px 0 0 0; font-size:0.8rem; color: var(--text-muted);">
                             Expand your company footprint with a location-specific warehouse node.
                         </p>
                     </div>
                 </div>
-                <button type="button" onclick="closeAddFacilityModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer; padding:4px 8px; border-radius:6px; transition:color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">
+                <button type="button" onclick="closeAddFacilityModal()" style="background:transparent; border:none; color: var(--text-muted); font-size:1.2rem; cursor:pointer; padding:4px 8px; border-radius:6px; transition:color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
@@ -8264,18 +8264,18 @@ window.switchSubTab = switchSubTab;
             <!-- Form Content -->
             <form id="formAddFacility" onsubmit="event.preventDefault(); submitAddFacility();" style="display:flex; flex-direction:column; gap:14px;">
                 <div>
-                    <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Facility / Warehouse Name *</label>
-                    <input type="text" id="newFacName" required placeholder="e.g. Bangalore North Central Fulfillment" oninput="handleFacilityRecognitionDebounced()" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                    <label style="display:block; font-size:0.82rem; font-weight:700; color: var(--text-muted); margin-bottom:5px;">Facility / Warehouse Name *</label>
+                    <input type="text" id="newFacName" required placeholder="e.g. Bangalore North Central Fulfillment" oninput="handleFacilityRecognitionDebounced()" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color: var(--text-main); font-size:0.88rem; outline:none;">
                 </div>
 
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                     <div>
-                        <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">City / Region *</label>
-                        <input type="text" id="newFacCity" required placeholder="e.g. Bengaluru, Karnataka" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                        <label style="display:block; font-size:0.82rem; font-weight:700; color: var(--text-muted); margin-bottom:5px;">City / Region *</label>
+                        <input type="text" id="newFacCity" required placeholder="e.g. Bengaluru, Karnataka" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color: var(--text-main); font-size:0.88rem; outline:none;">
                     </div>
                     <div>
-                        <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Operating Mode</label>
-                        <select id="newFacMode" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                        <label style="display:block; font-size:0.82rem; font-weight:700; color: var(--text-muted); margin-bottom:5px;">Operating Mode</label>
+                        <select id="newFacMode" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color: var(--text-main); font-size:0.88rem; outline:none;">
                             <option value="DEDICATED" selected>Dedicated Facility</option>
                             <option value="3PL">Multi-Client / 3PL Hub</option>
                         </select>
@@ -8283,8 +8283,8 @@ window.switchSubTab = switchSubTab;
                 </div>
 
                 <div>
-                    <label style="display:block; font-size:0.82rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;">Operating Environment &amp; Industry</label>
-                    <select id="newFacEnvironment" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color:#f8fafc; font-size:0.88rem; outline:none;">
+                    <label style="display:block; font-size:0.82rem; font-weight:700; color: var(--text-muted); margin-bottom:5px;">Operating Environment &amp; Industry</label>
+                    <select id="newFacEnvironment" style="width:100%; box-sizing:border-box; background:#0f172a; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:10px 14px; color: var(--text-main); font-size:0.88rem; outline:none;">
                         <option value="beverage">🥤 Food, Beverage &amp; FMCG (Cold Storage, High-Throughput Pallets, Expiry Tracking)</option>
                         <option value="automotive">🚗 Automotive &amp; Discrete Manufacturing (Heavy Racks, Parts Kitting, Assembly)</option>
                         <option value="electronics">⚡ High-Tech Electronics &amp; Hardware (Anti-Static, High-Security, Serial/IMEI Tracking)</option>
@@ -8304,7 +8304,7 @@ window.switchSubTab = switchSubTab;
                 <div id="addFacErrorBanner" style="display:none; padding:10px 14px; border-radius:8px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); font-size:0.82rem; color:#fca5a5;"></div>
 
                 <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:8px;">
-                    <button type="button" onclick="closeAddFacilityModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:9px 18px; color:#cbd5e1; font-weight:600; font-size:0.85rem; cursor:pointer;">
+                    <button type="button" onclick="closeAddFacilityModal()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:9px 18px; color: var(--text-muted); font-weight:600; font-size:0.85rem; cursor:pointer;">
                         Cancel
                     </button>
                     <button type="submit" id="btnSubmitAddFac" style="background:linear-gradient(135deg, #0284c7, #2563eb); border:none; border-radius:8px; padding:9px 20px; color:#ffffff; font-weight:700; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 4px 14px rgba(37,99,235,0.4);">
@@ -8322,19 +8322,19 @@ window.switchSubTab = switchSubTab;
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="font-size:1.3rem;">🚛</span>
                     <div>
-                        <h3 id="truckModalTitle" style="margin:0; font-size:1.05rem; font-weight:700; color:#f8fafc;">Truck ANPR Snapshot</h3>
-                        <div id="truckModalSubtitle" style="font-size:0.75rem; color:#94a3b8;">Automated AI Gate Verification Capture</div>
+                        <h3 id="truckModalTitle" style="margin:0; font-size:1.05rem; font-weight:700; color: var(--text-main);">Truck ANPR Snapshot</h3>
+                        <div id="truckModalSubtitle" style="font-size:0.75rem; color: var(--text-muted);">Automated AI Gate Verification Capture</div>
                     </div>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center;">
                     <a id="btnDownloadTruckPhoto" href="#" download="truck_snapshot.jpg" class="btn-primary" style="font-size:0.78rem; padding:6px 12px; text-decoration:none;">⬇ Download</a>
-                    <button type="button" onclick="closeTruckImageModal()" style="background:transparent; border:none; color:#94a3b8; font-size:1.3rem; cursor:pointer; padding:4px 8px; border-radius:6px; line-height:1;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">&times;</button>
+                    <button type="button" onclick="closeTruckImageModal()" style="background:transparent; border:none; color: var(--text-muted); font-size:1.3rem; cursor:pointer; padding:4px 8px; border-radius:6px; line-height:1;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">&times;</button>
                 </div>
             </div>
             <div style="padding:16px; display:flex; align-items:center; justify-content:center; background:#020617; overflow:auto; flex:1; max-height:calc(92vh - 120px);">
                 <img id="truckModalImg" src="" style="max-width:100%; max-height:72vh; border-radius:8px; object-fit:contain; border:1px solid rgba(255,255,255,0.1); box-shadow:0 10px 25px rgba(0,0,0,0.5);" alt="Truck Full View"/>
             </div>
-            <div style="padding:10px 18px; background:#1e293b; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:#94a3b8;">
+            <div style="padding:10px 18px; background:#1e293b; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color: var(--text-muted);">
                 <div id="truckModalMeta">Auto-captured within 3 seconds of arrival</div>
                 <button type="button" class="btn-secondary" onclick="closeTruckImageModal()" style="padding:4px 12px; font-size:0.78rem;">Close</button>
             </div>
