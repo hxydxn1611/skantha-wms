@@ -136,12 +136,12 @@ def main():
                         best_prob = 0
                         parts = []
                         
-                        # Ultra-precise Indian plate validation
+                        # Ultra-precise Indian plate validation, geometric rectification & color classification
                         try:
-                            from vision_runtime_service import parse_and_validate_indian_plate
+                            from vision_runtime_service import parse_and_validate_indian_plate, rectify_plate_quad, classify_plate_color
                         except Exception:
                             sys.path.append(os.path.join(os.path.dirname(__file__), 'webapp'))
-                            from vision_runtime_service import parse_and_validate_indian_plate
+                            from vision_runtime_service import parse_and_validate_indian_plate, rectify_plate_quad, classify_plate_color
 
                         for (bbox, text, prob) in ocr_results:
                             clean_text = "".join(e for e in text if e.isalnum()).upper()
