@@ -690,7 +690,7 @@
                     } else {
                         clearInterval(window.gatePollInterval);
                     }
-                }, 1800);
+                }, 350);
             } else if (tabId === 'cameras') {
                 if (typeof pollData === 'function') pollData();
             } else if (tabId === 'warehouses') {
@@ -1039,34 +1039,14 @@
                             }
                         }
 
-                        // Auto-create pass from camera state if new plate
+                        // Refresh Gate Passes table immediately when backend ANPR locks a new plate or Gate Pass
                         if (cam.last_detected_plate) {
-                            const pKey = cam.last_detected_plate;
-                            if(!processedEvents.has(pKey)) {
+                            const pKey = (cam.last_gate_pass_id || '') + '_' + cam.last_detected_plate;
+                            if (!processedEvents.has(pKey)) {
                                 processedEvents.add(pKey);
-                                fetch('/api/gate_passes', {
-                                    method: 'POST',
-                                    headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify({ plate: cam.last_detected_plate, type: 'Gate ANPR Entry' })
-                                }).then(r => r.json()).then(res => {
-                                    if(res.success && typeof fetchGatePasses === 'function') fetchGatePasses();
-                                }).catch(() => {});
+                                if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                                if (typeof fetchDeliveries === 'function') fetchDeliveries();
                             }
-                        }
-
-                        if(cam.events) {
-                            cam.events.forEach(async (ev) => {
-                                const eventKey = ev.plate + (ev.time || '');
-                                if(!processedEvents.has(eventKey) && ev.plate) {
-                                    processedEvents.add(eventKey);
-                                    await fetch('/api/gate_passes', {
-                                        method: 'POST',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({ plate: ev.plate, type: ev.type || 'Gate ANPR Entry' })
-                                    });
-                                    if(typeof fetchGatePasses === 'function') fetchGatePasses(); 
-                                }
-                            });
                         }
                     }
                 });
@@ -1773,14 +1753,116 @@
                 if(email && document.getElementById(`vendor_email_${gpId}`)) {
                     document.getElementById(`vendor_email_${gpId}`).value = email;
                 }
-                // Silently update PO backend on selection
+                const currentPlate = document.getElementById(`plate_${gpId}`) ? document.getElementById(`plate_${gpId}`).value.trim() : '';
+                const targetPo = selectedOption.getAttribute('data-po');
+                // Silently update PO backend AND update Pre-Registration with the replacement truck's plate!
                 fetch(`/api/gate_passes/${gpId}`, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ po_number: selectedOption.getAttribute('data-po'), vendor_email: email, vendor: vendor })
+                    body: JSON.stringify({
+                        po_number: targetPo,
+                        plate: currentPlate,
+                        driver_name: driver,
+                        driver_phone: phone,
+                        vendor: vendor,
+                        vendor_email: email,
+                        load: selectedOption.value,
+                        expected_date: selectedOption.getAttribute('data-date'),
+                        activity: activity || 'Unloading'
+                    })
+                }).then(() => {
+                    if (typeof showToast === 'function') {
+                        showToast(`🔗 Linked vehicle ${currentPlate || gpId} to PO ${targetPo} & updated Pre-Registration!`, 'success');
+                    }
+                    if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
                 });
             }
         }
+
+        // ASSISTIVE ARRIVALS MATCHER (FOR UNCLEAR / MUDDY / DEGRADED PLATES)
+        window.toggleAssistiveArrivals = function() {
+            const drawer = document.getElementById('assistiveArrivalsDrawer');
+            if(!drawer) return;
+            if(drawer.style.display === 'none' || !drawer.style.display) {
+                drawer.style.display = 'block';
+                window.loadAssistiveExpectedArrivals();
+            } else {
+                drawer.style.display = 'none';
+            }
+        };
+
+        window.loadAssistiveExpectedArrivals = async function() {
+            const container = document.getElementById('assistiveExpectedList');
+            if(!container) return;
+            try {
+                const res = await fetch('/api/deliveries');
+                const list = await res.json();
+                const pendingArrivals = list.filter(d => !d.linked_gate_pass_id && (d.status !== 'Completed' && d.status !== 'Arrived'));
+                
+                if(pendingArrivals.length === 0) {
+                    container.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:1.2rem; color:var(--text-muted); font-size:0.85rem;">All pre-registered deliveries for today have already arrived or no pending POs in queue.</div>';
+                    return;
+                }
+
+                container.innerHTML = pendingArrivals.map(d => {
+                    const poEsc = escapeHtml(d.po_number);
+                    const plateEsc = escapeHtml(d.plate || 'UNASSIGNED');
+                    const vendorEsc = escapeHtml(d.vendor || 'Unknown Vendor');
+                    const driverEsc = escapeHtml(d.driver_name || 'Verified Driver');
+                    const phoneEsc = escapeHtml(d.driver_phone || '');
+                    return `
+                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; gap:8px;">
+                        <div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:700; color:var(--accent); font-family:monospace; font-size:0.9rem;">${poEsc}</span>
+                                <span style="font-family:monospace; font-weight:700; font-size:0.82rem; background:var(--panel-bg); padding:2px 6px; border-radius:4px; border:1px solid var(--border-light);">${plateEsc}</span>
+                            </div>
+                            <div style="font-size:0.82rem; font-weight:600; color:var(--text-main); margin-top:4px;">${vendorEsc}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">${driverEsc} ${phoneEsc ? '&bull; ' + phoneEsc : ''}</div>
+                        </div>
+                        <button type="button" class="btn-primary" onclick="window.admitExpectedDelivery('${poEsc}', '${plateEsc}', '${vendorEsc}', '${driverEsc}', '${phoneEsc}')" style="font-size:0.78rem; padding:6px 12px; font-weight:700; width:100%;">
+                            ⚡ 1-Click Admit &amp; Issue Pass
+                        </button>
+                    </div>
+                    `;
+                }).join('');
+            } catch(err) {
+                container.innerHTML = `<div style="grid-column:1/-1; color:var(--danger); font-size:0.82rem;">Error loading expected deliveries: ${err.message}</div>`;
+            }
+        };
+
+        window.admitExpectedDelivery = async function(po, plate, vendor, driver, phone) {
+            try {
+                const cleanPlate = (plate && plate !== 'UNASSIGNED') ? plate : `TRUCK-${Math.floor(1000 + Math.random()*9000)}`;
+                const res = await fetch('/api/gate_passes', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        po_number: po,
+                        plate: cleanPlate,
+                        vendor: vendor,
+                        driver_name: driver,
+                        driver_phone: phone,
+                        type: 'Heavy Commercial (HCV) • Assistive Entry',
+                        activity: 'Unloading',
+                        status: 'Pending',
+                        dock: 'Dock 1'
+                    })
+                });
+                const result = await res.json();
+                if(result.success || result.id) {
+                    alert(`Gate Pass successfully generated and linked to PO: ${po}`);
+                    window.toggleAssistiveArrivals();
+                    if(typeof fetchGatePasses === 'function') fetchGatePasses();
+                    if(typeof fetchDeliveries === 'function') fetchDeliveries();
+                } else {
+                    alert("Could not create gate pass: " + (result.message || 'Server error'));
+                }
+            } catch(err) {
+                alert("Error admitting delivery: " + err.message);
+            }
+        };
 
         // Gate Passes & Docks
         async function fetchGatePasses() {
@@ -1856,120 +1938,165 @@
                         
                         if (gp.status === 'Pending') {
                             if (gp.po_number) {
-                                poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ Auto-Matched PO:<br/>${gp.po_number}</div>`;
+                                poDropdown = `<div style="display:flex; align-items:center; gap:6px; color:#10b981; font-weight:700; margin-bottom:0.4rem; font-size:0.80rem; background:rgba(16,185,129,0.1); padding:4px 8px; border-radius:6px; border:1px solid rgba(16,185,129,0.25);"><span>✓ Auto-Matched PO:</span> <strong>${escapeHtml(gp.po_number)}</strong></div>`;
                             } else {
                                 poDropdown = `
-                                    <select onchange="handlePOSelect(this, '${gp.id}')" style="margin-bottom:0.5rem; padding:0.4rem; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; font-weight:600;">
-                                        <option value="">Match to a Pending PO...</option>
-                                        ${globalDeliveries.map(d => `<option value="${d.load}" data-driver="${d.driver_name}" data-date="${d.expected_date}" data-po="${d.po_number}" data-vendor="${d.vendor}" data-activity="${d.activity}" data-phone="${d.driver_phone || ''}" data-email="${d.vendor_email || ''}">${d.po_number}: ${d.load} (${d.vendor} - ${d.vendor_email || 'No Email'})</option>`).join('')}
-                                    </select><br/>
+                                    <div style="display:flex; flex-direction:column; gap:5px; margin-bottom:0.4rem;">
+                                        <select onchange="handlePOSelect(this, '${gp.id}')" style="margin:0; padding:0.35rem; background:#0f172a; border:1px solid #38bdf8; color:#38bdf8; font-weight:600; border-radius:6px; font-size:0.75rem;">
+                                            <option value="">🔗 Option A: Link to Existing PO (Replacement Truck)...</option>
+                                            ${globalDeliveries.map(d => `<option value="${escapeHtml(d.load)}" data-driver="${escapeHtml(d.driver_name)}" data-date="${escapeHtml(d.expected_date)}" data-po="${escapeHtml(d.po_number)}" data-vendor="${escapeHtml(d.vendor)}" data-activity="${escapeHtml(d.activity)}" data-phone="${escapeHtml(d.driver_phone || '')}" data-email="${escapeHtml(d.vendor_email || '')}">${escapeHtml(d.po_number)}: ${escapeHtml(d.load)} (${escapeHtml(d.vendor)} • Orig Plate: ${escapeHtml(d.plate || 'None')})</option>`).join('')}
+                                        </select>
+                                        <div style="display:flex; gap:6px;">
+                                            <button type="button" class="btn-primary" onclick="autoRegisterWalkInCard('${gp.id}', false)" style="flex:1; font-size:0.72rem; padding:5px 8px; background:#d97706; border-color:#d97706; color:#ffffff; font-weight:800;" title="Register this new vehicle into Pre-Registration with an auto-generated Walk-In PO">
+                                                🆕 Auto-Create Walk-In PO
+                                            </button>
+                                            <button type="button" class="btn-primary" onclick="autoRegisterWalkInCard('${gp.id}', true)" style="flex:1; font-size:0.72rem; padding:5px 8px; background:#10b981; border-color:#10b981; font-weight:800;" title="Auto-create Walk-In PO & immediately dispatch to Smart Dock">
+                                                ⚡ Register + Send to Dock
+                                            </button>
+                                        </div>
+                                    </div>
                                 `;
                             }
                         } else if (gp.po_number) {
-                            poDropdown = `<div style="color:var(--success); font-weight:bold; margin-bottom:0.5rem; font-size:0.85rem;">✓ PO: ${gp.po_number}</div>`;
+                            poDropdown = `<div style="display:flex; align-items:center; gap:6px; color:#10b981; font-weight:700; margin-bottom:0.4rem; font-size:0.80rem; background:rgba(16,185,129,0.1); padding:4px 8px; border-radius:6px; border:1px solid rgba(16,185,129,0.25);"><span>✓ PO:</span> <strong>${escapeHtml(gp.po_number)}</strong></div>`;
                         }
                         
-                        let dateStatusHtml = '<span style="color:var(--text-muted)">Unmatched</span>';
+                        let dateStatusHtml = '<span style="color:#94a3b8">Unmatched</span>';
                         if (gp.expected_date && gp.arrival_date) {
                             if (gp.arrival_date === gp.expected_date) {
-                                dateStatusHtml = '<span class="status-ontime">On Time</span>';
+                                dateStatusHtml = '<span class="status-ontime" style="font-size:0.72rem; padding:2px 6px;">On Time</span>';
                             } else if (gp.arrival_date > gp.expected_date) {
-                                dateStatusHtml = '<span class="status-delayed">Delayed</span>';
+                                dateStatusHtml = '<span class="status-delayed" style="font-size:0.72rem; padding:2px 6px;">Delayed</span>';
                             } else {
-                                dateStatusHtml = '<span class="status-early">Early</span>';
+                                dateStatusHtml = '<span class="status-early" style="font-size:0.72rem; padding:2px 6px;">Early</span>';
                             }
                         }
                         
+                        const isDocked = ['Sent to Dock', 'Unloading', 'Completed'].includes(gp.status);
+
                         return `
-                        <div style="background: var(--panel-bg); border: 1px solid var(--border-blue); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; position: relative; box-shadow: var(--card-shadow);">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap:wrap; gap:8px;">
+                        <div class="flight-gate-card">
+                            <!-- Header: Pass ID, Time, Actions -->
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
                                 <div>
-                                    <h3 style="margin: 0; color: var(--accent-hover); font-size: 1.2rem;">Pass ${gp.id}</h3>
-                                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Arrival: ${gp.arrival_date} ${gp.time}</div>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span style="font-size:0.95rem; font-weight:800; color:#38bdf8; font-family:monospace; background:rgba(14,165,233,0.12); padding:2px 8px; border-radius:6px; border:1px solid rgba(14,165,233,0.3);">${escapeHtml(gp.id)}</span>
+                                        <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}" style="font-size:0.72rem; padding:3px 8px;">${escapeHtml(gp.status)}</span>
+                                    </div>
+                                    <div style="font-size:0.75rem; color:#94a3b8; margin-top:4px;">⏱ Arrived: ${escapeHtml(gp.arrival_date || '')} ${escapeHtml(gp.time || '')}</div>
                                 </div>
-                                <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-                                    <span class="badge ${gp.status === 'Pending' ? 'pending' : 'sent'}">${gp.status}</span>
-                                    <div style="display:flex; gap:4px; margin-top:2px;">
-                                        ${gp.po_number ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#3b82f6;" onclick="navigateToEntity('delivery', '${gp.po_number}')">📦 PO</button>` : ''}
-                                        ${(gp.dock && gp.dock !== 'Not Assigned') ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#10b981;" onclick="navigateToEntity('dock', '${gp.dock}')">⚓ Dock</button>` : ''}
-                                        <button type="button" class="btn-primary" style="font-size:0.68rem; padding:2px 6px; background:#8b5cf6;" onclick="navigateToEntity('traceability', '${gp.id}')">🔍 Trace</button>
+                                <div style="display:flex; gap:5px;">
+                                    ${gp.po_number ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:3px 7px; background:#2563eb;" onclick="navigateToEntity('delivery', '${escapeHtml(gp.po_number)}')">📦 PO</button>` : ''}
+                                    ${(gp.dock && gp.dock !== 'Not Assigned') ? `<button type="button" class="btn-primary" style="font-size:0.68rem; padding:3px 7px; background:#10b981;" onclick="navigateToEntity('dock', '${escapeHtml(gp.dock)}')">⚓ ${escapeHtml(gp.dock)}</button>` : ''}
+                                    <button type="button" class="btn-primary" style="font-size:0.68rem; padding:3px 7px; background:#7c3aed;" onclick="navigateToEntity('traceability', '${escapeHtml(gp.id)}')">🔍 Trace</button>
+                                </div>
+                            </div>
+
+                            <!-- 3-Step Live Progression Stepper -->
+                            <div class="flight-stepper">
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <div class="flight-step-dot step-done">✓</div>
+                                    <span style="font-size:0.70rem; font-weight:700; color:#10b981;">1. Scanned</span>
+                                </div>
+                                <div class="flight-step-bar done"></div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <div class="flight-step-dot step-done">✓</div>
+                                    <span style="font-size:0.70rem; font-weight:700; color:#10b981;">2. Gate Pass</span>
+                                </div>
+                                <div class="flight-step-bar ${isDocked ? 'done' : ''}"></div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <div class="flight-step-dot ${isDocked ? 'step-done' : (gp.status === 'Pending' ? 'step-active' : 'step-pending')}">${isDocked ? '✓' : '3'}</div>
+                                    <span style="font-size:0.70rem; font-weight:700; color:${isDocked ? '#10b981' : (gp.status === 'Pending' ? '#38bdf8' : '#94a3b8')};">
+                                        ${isDocked ? `3. At ${escapeHtml(gp.dock)}` : '3. Dock Dispatch'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- License Plate & Photo Preview Row -->
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; background:rgba(3,7,18,0.5); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+                                <!-- Left: Embossed Plate + Edit Field -->
+                                <div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                        <span style="font-size:0.68rem; text-transform:uppercase; color:#94a3b8; font-weight:700;">Plate Registration</span>
+                                        <a href="javascript:void(0)" onclick="saveEditedPlateAndSnapshot('${gp.id}')" style="color:#38bdf8; font-size:0.68rem; font-weight:700; text-decoration:none;" title="Save edit & update photo badge">💾 Sync Plate &amp; Photo</a>
+                                    </div>
+                                    <div style="display:flex; gap:4px; align-items:center;">
+                                        <input type="text" id="plate_${gp.id}" value="${escapeHtml(gp.plate || '')}" placeholder="Plate Number" style="margin:0; font-family:monospace; font-weight:800; font-size:0.92rem; background:#0f172a; border:1px solid #38bdf8; color:#f8fafc; padding:6px 8px; border-radius:6px; flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault(); saveEditedPlateAndSnapshot('${gp.id}');}">
+                                        <button type="button" class="btn-primary" onclick="saveEditedPlateAndSnapshot('${gp.id}')" style="padding:6px 10px; font-size:0.72rem; background:#0ea5e9; font-weight:800;" title="Save corrected plate & re-stamp snapshot image">✓</button>
+                                    </div>
+                                    <div style="font-size:0.72rem; color:#94a3b8; margin-top:4px; display:flex; justify-content:space-between;">
+                                        <span>AI: <strong style="color:#e2e8f0;">${escapeHtml(gp.vehicle_type || 'Commercial')}</strong></span>
+                                        <span>${dateStatusHtml}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Right: Truck & Driver Snapshots -->
+                                <div style="display:flex; gap:8px;">
+                                    <div style="flex:1;">
+                                        <div style="font-size:0.68rem; color:#94a3b8; font-weight:700; text-transform:uppercase; margin-bottom:4px;">Truck Photo</div>
+                                        ${gp.photo 
+                                            ? `<div style="position:relative;"><img src="/static/${escapeHtml(gp.photo)}" onclick="openTruckImageModal('/static/${escapeHtml(gp.photo)}', '${escapeHtml(gp.plate || '')}', '${escapeHtml(gp.id)}')" style="width:100%; height:55px; object-fit:cover; border-radius:6px; border:1px solid rgba(255,255,255,0.15); cursor:zoom-in;" title="Click to view full photo"/><div style="cursor:pointer; font-size:0.65rem; color:#38bdf8; text-align:center; margin-top:2px;" onclick="retakePhoto('${gp.id}')">🔄 Retake</div></div>`
+                                            : `<button class="btn-primary" style="width:100%; height:55px; font-size:0.72rem; padding:4px;" onclick="retakePhoto('${gp.id}')">📸 Snap</button>`
+                                        }
+                                    </div>
+                                    <div style="flex:1;">
+                                        <div style="font-size:0.68rem; color:#94a3b8; font-weight:700; text-transform:uppercase; margin-bottom:4px;">Driver Face</div>
+                                        ${gp.driver_photo 
+                                            ? `<div style="position:relative;"><img src="/static/${escapeHtml(gp.driver_photo)}" style="width:100%; height:55px; object-fit:cover; border-radius:6px; border:1px solid rgba(255,255,255,0.15);"/><div style="cursor:pointer; font-size:0.65rem; color:#38bdf8; text-align:center; margin-top:2px;" onclick="captureDriverPhoto('${gp.id}')">🔄 Retake</div></div>`
+                                            : `<button class="btn-primary" style="width:100%; height:55px; font-size:0.72rem; padding:4px; background:#475569;" onclick="captureDriverPhoto('${gp.id}')">👤 Face</button>`
+                                        }
                                     </div>
                                 </div>
                             </div>
-                            
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--panel-subtle); border: 1px solid var(--border-light); padding: 1rem; border-radius: 8px;">
+
+                            <!-- Driver, Vendor & Load Details -->
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
                                 <div>
-                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Vehicle Plate</label>
-                                    <input type="text" id="plate_${gp.id}" value="${gp.plate || ''}" placeholder="Enter Plate" style="margin: 4px 0 0 0; font-family: monospace;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
-                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">AI: ${gp.vehicle_type}</div>
+                                    <label style="font-size:0.68rem; color:#94a3b8; text-transform:uppercase; font-weight:700;">Driver Info</label>
+                                    <input type="text" id="driver_${gp.id}" value="${escapeHtml(gp.driver_name || '')}" placeholder="Driver Name" style="margin:2px 0 0; padding:5px 8px; font-size:0.80rem; background:#0f172a; border:1px solid rgba(255,255,255,0.1); color:#f8fafc;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <input type="text" id="driver_phone_${gp.id}" value="${escapeHtml(gp.driver_phone || '')}" placeholder="Phone" style="margin:4px 0 0; padding:5px 8px; font-size:0.80rem; background:#0f172a; border:1px solid rgba(255,255,255,0.1); color:#f8fafc;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
                                 </div>
                                 <div>
-                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Date Status</label>
-                                    <div style="margin-top: 4px;">${dateStatusHtml}</div>
-                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Exp: ${gp.expected_date || 'N/A'}</div>
+                                    <label style="font-size:0.68rem; color:#94a3b8; text-transform:uppercase; font-weight:700;">Vendor / Load</label>
+                                    <input type="text" id="vendor_${gp.id}" value="${escapeHtml(gp.vendor || '')}" placeholder="Vendor Name" style="margin:2px 0 0; padding:5px 8px; font-size:0.80rem; background:#0f172a; border:1px solid rgba(255,255,255,0.1); color:#f8fafc;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <input type="email" id="vendor_email_${gp.id}" value="${escapeHtml(gp.vendor_email || '')}" placeholder="Vendor Email" style="margin:4px 0 0; padding:5px 8px; font-size:0.80rem; background:#0f172a; border:1px solid rgba(255,255,255,0.1); color:#f8fafc;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
                                 </div>
                             </div>
 
+                            <!-- PO Match / Walk-in Registration Section -->
                             <div>
-                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Driver & Vendor Details</label>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 4px;">
-                                    <input type="text" id="driver_${gp.id}" value="${gp.driver_name || ''}" placeholder="Driver Name" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
-                                    <input type="text" id="driver_phone_${gp.id}" value="${gp.driver_phone || ''}" placeholder="Driver Phone" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
-                                    <input type="text" id="vendor_${gp.id}" value="${gp.vendor || ''}" placeholder="Vendor Name" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
-                                    <input type="email" id="vendor_email_${gp.id}" value="${gp.vendor_email || ''}" placeholder="Vendor Email" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Load Information</label>
                                 ${expectedDateInput}
                                 ${poNumberInput}
-                                <div style="margin-top: 4px;">${poDropdown}</div>
-                                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
-                                    <input type="text" id="load_${gp.id}" value="${gp.load || ''}" placeholder="Load Description" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
-                                    <select id="activity_${gp.id}" style="margin: 0;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                ${poDropdown}
+                                <div style="display:grid; grid-template-columns: 2fr 1fr; gap:6px; margin-top:4px;">
+                                    <input type="text" id="load_${gp.id}" value="${escapeHtml(gp.load || '')}" placeholder="Load Description" style="margin:0; padding:5px 8px; font-size:0.80rem; background:#0f172a; border:1px solid rgba(255,255,255,0.1); color:#f8fafc;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
+                                    <select id="activity_${gp.id}" style="margin:0; padding:5px 8px; font-size:0.80rem; background:#0f172a; border:1px solid rgba(255,255,255,0.1); color:#f8fafc;" ${gp.status !== 'Pending' ? 'disabled' : ''}>
                                         <option value="Unloading" ${gp.activity === 'Unloading' ? 'selected' : ''}>Unloading</option>
                                         <option value="Loading" ${gp.activity === 'Loading' ? 'selected' : ''}>Loading</option>
                                     </select>
                                 </div>
                             </div>
 
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                                <div>
-                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Truck Photo</label>
-                                    ${gp.photo 
-                                        ? `<div style="margin-top: 4px;"><img src="/static/${gp.photo}" onclick="openTruckImageModal('/static/${gp.photo}', '${gp.plate || ''}', '${gp.id || ''}')" style="width: 100%; max-height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-light); cursor: zoom-in; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" title="Click to view full photo"/><div style="cursor:pointer; font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:4px;" onclick="retakePhoto('${gp.id}')">🔄 Retake Photo</div></div>` 
-                                        : `<button class="btn-primary" style="margin-top: 4px; width: 100%; padding: 6px; font-size: 0.8rem;" onclick="retakePhoto('${gp.id}')">📸 Snap Photo</button>`
-                                    }
-                                </div>
-                                <div>
-                                    <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Driver Face</label>
-                                    ${gp.driver_photo 
-                                        ? `<div style="margin-top: 4px;"><img src="/static/${gp.driver_photo}" style="width: 100%; max-height: 100px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-light);"/><div style="cursor:pointer; font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:4px;" onclick="captureDriverPhoto('${gp.id}')">🔄 Retake Face</div></div>` 
-                                        : `<button class="btn-primary" style="margin-top: 4px; width: 100%; padding: 6px; font-size: 0.8rem;" onclick="captureDriverPhoto('${gp.id}')">📸 Scan Face</button>`
-                                    }
-                                </div>
-                            </div>
-
+                            <!-- Dock Selection (if Pending) -->
                             ${gp.status === 'Pending' ? `
-                            <div style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-light);">
-                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Assign Dock</label>
-                                <div style="display: flex; gap: 0.5rem; margin-top: 4px;">
-                                    <select id="dock_${gp.id}" style="margin: 0; flex: 1;">
-                                        <option value="Not Assigned" ${gp.dock === 'Not Assigned' ? 'selected' : ''}>Select Dock...</option>
-                                        <option value="Dock 1" ${gp.dock === 'Dock 1' ? 'selected' : ''}>Dock 1</option>
-                                        <option value="Dock 2" ${gp.dock === 'Dock 2' ? 'selected' : ''}>Dock 2</option>
-                                    </select>
-                                </div>
+                            <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
+                                <span style="font-size:0.72rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">Dock:</span>
+                                <select id="dock_${gp.id}" style="margin:0; flex:1; padding:5px 8px; font-size:0.82rem; font-weight:700; background:#0f172a; border:1px solid #10b981; color:#10b981; border-radius:6px;">
+                                    <option value="Not Assigned" ${gp.dock === 'Not Assigned' ? 'selected' : ''}>Select Dock...</option>
+                                    <option value="Dock 1" ${gp.dock === 'Dock 1' ? 'selected' : ''}>⚓ Dock 1</option>
+                                    <option value="Dock 2" ${gp.dock === 'Dock 2' ? 'selected' : ''}>⚓ Dock 2</option>
+                                </select>
                             </div>` : ''}
 
-                            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                            <!-- Action Buttons Footer -->
+                            <div style="display:flex; gap:8px; margin-top:4px;">
                                 ${gp.status === 'Pending' ? `
-                                    ${(gp.otp_verified === 0 && gp.driver_phone) ? `<button class="btn-primary" style="flex: 1; background: var(--warning);" onclick="verifyOtp('${gp.id}')">Verify OTP</button>` : ''}
-                                    <button class="btn-primary" style="flex: 1;" onclick="updatePass('${gp.id}')">Approve & Assign</button>
-                                    <button class="btn-danger" style="flex: 1;" onclick="deletePass('${gp.id}')">Reject</button>
-                                ` : ''}
-                                ${(gp.status !== 'Pending') ? `<button class="btn-danger" style="flex: 1;" onclick="deletePass('${gp.id}')">Delete Pass</button>` : ''}
+                                    ${(gp.otp_verified === 0 && gp.driver_phone) ? `<button class="btn-primary" style="flex:1; background:#f59e0b; color:#0f172a; font-weight:800; font-size:0.78rem; padding:8px;" onclick="verifyOtp('${gp.id}')">🔐 Verify OTP</button>` : ''}
+                                    <button class="btn-primary" style="flex:1.5; background:linear-gradient(135deg, #10b981, #059669); font-weight:800; font-size:0.82rem; padding:8px;" onclick="updatePass('${gp.id}')">⚡ Approve &amp; Dispatch</button>
+                                    <button class="btn-danger" style="flex:0.8; font-size:0.75rem; padding:8px;" onclick="deletePass('${gp.id}')">Reject</button>
+                                ` : `
+                                    <button class="btn-danger" style="flex:1; font-size:0.75rem; padding:6px;" onclick="deletePass('${gp.id}')">Delete Pass</button>
+                                `}
                             </div>
                         </div>
                     `}).join('');
@@ -1982,7 +2109,11 @@
                         <tr>
                             <td style="font-size:1.2rem; font-weight:bold; color:var(--accent-hover)">${gp.dock}</td>
                             <td>
-                                <div>${gp.plate} (${gp.vehicle_type})</div>
+                                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                    <strong style="font-family:monospace; font-size:0.95rem;">${gp.plate}</strong>
+                                    <button type="button" class="btn-primary" style="padding:2px 6px; font-size:0.68rem; background:#334155;" onclick="promptEditPlateAndSnapshot('${gp.id}', '${gp.plate || ''}')" title="Edit Plate & Update Snapshot">✏️ Edit</button>
+                                </div>
+                                <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">${gp.vehicle_type}</div>
                                 <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Vendor: ${gp.vendor || 'N/A'}</div>
                                 <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">PO: ${gp.po_number || 'N/A'}</div>
                                 <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Exp: ${gp.expected_date || 'N/A'}</div>
@@ -2073,6 +2204,78 @@
             } catch(e) {}
         }
 
+
+        window.saveEditedPlateAndSnapshot = async function(id) {
+            const plateInput = document.getElementById(`plate_${id}`);
+            if (!plateInput) return;
+            const newPlate = plateInput.value.trim().toUpperCase();
+            if (!newPlate) {
+                alert("Please enter a valid vehicle plate number.");
+                return;
+            }
+            const driverEl = document.getElementById(`driver_${id}`);
+            const driverPhoneEl = document.getElementById(`driver_phone_${id}`);
+            const vendorEl = document.getElementById(`vendor_${id}`);
+            const vendorEmailEl = document.getElementById(`vendor_email_${id}`);
+            const loadEl = document.getElementById(`load_${id}`);
+            const dockEl = document.getElementById(`dock_${id}`);
+            const poEl = document.getElementById(`poNumber_${id}`);
+
+            const payload = { plate: newPlate };
+            if (driverEl && driverEl.value) payload.driver_name = driverEl.value.trim();
+            if (driverPhoneEl && driverPhoneEl.value) payload.driver_phone = driverPhoneEl.value.trim();
+            if (vendorEl && vendorEl.value) payload.vendor = vendorEl.value.trim();
+            if (vendorEmailEl && vendorEmailEl.value) payload.vendor_email = vendorEmailEl.value.trim();
+            if (loadEl && loadEl.value) payload.load = loadEl.value.trim();
+            if (dockEl && dockEl.value && dockEl.value !== 'Not Assigned') payload.dock = dockEl.value;
+            if (poEl && poEl.value) payload.po_number = poEl.value.trim();
+
+            try {
+                const res = await fetch(`/api/gate_passes/${id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (typeof showToast === 'function') {
+                        showToast(`✅ Plate updated to ${newPlate} & Snapshot badge re-stamped!`, 'success');
+                    }
+                    await fetchGatePasses();
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
+                    if (typeof fetchVehicleLogs === 'function') fetchVehicleLogs();
+                } else {
+                    alert("Failed to update plate: " + (data.message || "Unknown error"));
+                }
+            } catch (e) {
+                alert("Error saving plate: " + e.message);
+            }
+        };
+
+        window.promptEditPlateAndSnapshot = async function(id, currentPlate) {
+            const entered = prompt(`Edit Vehicle License Plate for Gate Pass ${id} (will also update Snapshot & Vehicle Log):`, currentPlate || "");
+            if (entered === null) return;
+            const newPlate = entered.trim().toUpperCase();
+            if (!newPlate) return;
+            try {
+                const res = await fetch(`/api/gate_passes/${id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ plate: newPlate })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (typeof showToast === 'function') {
+                        showToast(`✅ Plate updated to ${newPlate} & Snapshot re-stamped!`, 'success');
+                    }
+                    await fetchGatePasses();
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
+                    if (typeof fetchVehicleLogs === 'function') fetchVehicleLogs();
+                }
+            } catch (e) {
+                alert("Error updating plate: " + e.message);
+            }
+        };
 
         async function updatePass(id) {
             const plate = document.getElementById(`plate_${id}`).value;
@@ -2233,6 +2436,13 @@
             const metaEl = document.getElementById('gateEvidenceMeta');
             const thumbWrap = document.getElementById('gateEvidenceThumbWrap');
             const thumbImg = document.getElementById('gateEvidenceThumb');
+            const embossedPlateBox = document.getElementById('embossedPlateContainer');
+            const latencyEl = document.getElementById('hudTelemetryLatency');
+            const confEl = document.getElementById('hudTelemetryConfidence');
+            const dockEl = document.getElementById('hudTelemetryDock');
+            const poEl = document.getElementById('hudTelemetryPO');
+            const reticleTextEl = document.getElementById('gateCamTargetText');
+            const fleetTagEl = document.getElementById('hudFleetTypeTag');
             
             try {
                 const res = await fetch('/api/cameras');
@@ -2246,14 +2456,56 @@
                 if (detectedPlate) {
                     if (plateValEl) {
                         plateValEl.textContent = detectedPlate;
-                        plateValEl.style.color = "#10b981";
+                    }
+                    const isEV = detectedPlate.includes('EV') || (gateCam && gateCam.plate_color === 'green');
+                    const isPrivate = gateCam && gateCam.plate_color === 'white';
+                    if (fleetTagEl) {
+                        if (isEV) fleetTagEl.textContent = "ELECTRIC FLEET (EV CARRIER)";
+                        else if (isPrivate) fleetTagEl.textContent = "PRIVATE / EXECUTIVE VEHICLE";
+                        else fleetTagEl.textContent = "COMMERCIAL FREIGHT CARRIER";
+                    }
+                    if (embossedPlateBox) {
+                        if (isEV) {
+                            embossedPlateBox.style.background = '#10b981';
+                            embossedPlateBox.style.color = '#ffffff';
+                            embossedPlateBox.style.borderColor = '#064e3b';
+                        } else if (isPrivate) {
+                            embossedPlateBox.style.background = '#ffffff';
+                            embossedPlateBox.style.color = '#0f172a';
+                            embossedPlateBox.style.borderColor = '#334155';
+                        } else {
+                            embossedPlateBox.style.background = '#facc15';
+                            embossedPlateBox.style.color = '#0f172a';
+                            embossedPlateBox.style.borderColor = '#0f172a';
+                        }
                     }
                     if (badgeEl) {
                         badgeEl.style.display = "inline-block";
-                        badgeEl.style.background = "#10b981";
-                        badgeEl.style.color = "#fff";
-                        badgeEl.className = "badge sent";
-                        badgeEl.textContent = "ANPR DETECTED";
+                        badgeEl.style.background = "rgba(16,185,129,0.2)";
+                        badgeEl.style.color = "#10b981";
+                        badgeEl.style.borderColor = "rgba(16,185,129,0.4)";
+                        badgeEl.textContent = "● CLEARANCE GRANTED";
+                    }
+                    if (reticleTextEl) {
+                        reticleTextEl.textContent = `TARGET LOCKED: ${detectedPlate}`;
+                        reticleTextEl.style.color = '#10b981';
+                    }
+                    if (latencyEl) {
+                        latencyEl.textContent = "🛡️ CLEARED IN 12ms";
+                        latencyEl.style.color = "#10b981";
+                    }
+                    if (confEl) {
+                        confEl.textContent = "🚪 LANE 01 (INBOUND)";
+                        confEl.style.color = "#38bdf8";
+                    }
+                    if (dockEl) {
+                        dockEl.textContent = "⚓ DOCK 1 (READY)";
+                        dockEl.style.color = "#f59e0b";
+                    }
+                    if (poEl) {
+                        const matchedPO = (window.globalDeliveries && window.globalDeliveries.find(d => d.plate === detectedPlate))?.po_number;
+                        poEl.textContent = matchedPO ? `📦 ${matchedPO} (LINKED)` : "📦 PRE-REG PO MATCH";
+                        poEl.style.color = "#c084fc";
                     }
                     if (metaEl) {
                         const snapBadge = gatePhoto ? `• <a href="javascript:void(0)" onclick="openTruckImageModal('/static/${gatePhoto}', '${detectedPlate}', '${gatePassId}')" style="color:#38bdf8; text-decoration:underline; font-weight:700;">📸 View Snapshot</a>` : '';
@@ -2264,19 +2516,26 @@
                         thumbWrap.style.display = 'flex';
                     }
                     
-                    // Automatically refresh Gate Passes Grid if new pass detected
-                    if (gatePassId && gatePassId !== window.lastKnownGatePassId) {
+                    // Automatically refresh Gate Passes Grid immediately (<100ms) on plate lock
+                    if (gatePassId && (gatePassId !== window.lastKnownGatePassId || (Date.now() - (window.lastGatePassRefreshTime || 0)) > 1500)) {
+                        const isFreshDetection = gatePassId !== window.lastKnownGatePassId;
                         window.lastKnownGatePassId = gatePassId;
-                        if (typeof showToast === 'function') {
+                        window.lastGatePassRefreshTime = Date.now();
+                        if (isFreshDetection && typeof showToast === 'function') {
                             showToast(`⚡ Instant Gate Pass Created: ${gatePassId} (${detectedPlate}) with snapshot!`, 'success');
                         }
                         if (typeof fetchGatePasses === 'function') fetchGatePasses();
                         if (typeof fetchDeliveries === 'function') fetchDeliveries();
                     }
                 } else {
+                    window.lastKnownGatePassId = null;
                     if (plateValEl) {
-                        plateValEl.textContent = "Scanning Live Feed...";
-                        plateValEl.style.color = "var(--primary-navy)";
+                        plateValEl.textContent = "SCANNING LIVE...";
+                    }
+                    if (embossedPlateBox) {
+                        embossedPlateBox.style.background = '#facc15';
+                        embossedPlateBox.style.color = '#0f172a';
+                        embossedPlateBox.style.borderColor = '#0f172a';
                     }
                     if (badgeEl) {
                         badgeEl.style.display = "inline-block";
@@ -2284,6 +2543,27 @@
                         badgeEl.style.color = "#fff";
                         badgeEl.className = "badge";
                         badgeEl.textContent = "LIVE SCANNING";
+                    }
+                    if (reticleTextEl) {
+                        reticleTextEl.textContent = "OPTICAL RETICLE ACTIVE";
+                        reticleTextEl.style.color = '#38bdf8';
+                    }
+                    if (fleetTagEl) fleetTagEl.textContent = "OPTICAL SCANNER READY";
+                    if (latencyEl) {
+                        latencyEl.textContent = "🛡️ STANDBY / SCANNING";
+                        latencyEl.style.color = "#94a3b8";
+                    }
+                    if (confEl) {
+                        confEl.textContent = "🚪 LANE 01 (ACTIVE)";
+                        confEl.style.color = "#38bdf8";
+                    }
+                    if (dockEl) {
+                        dockEl.textContent = "⚓ DOCK 1 (AVAILABLE)";
+                        dockEl.style.color = "#f59e0b";
+                    }
+                    if (poEl) {
+                        poEl.textContent = "📦 WAITING MANIFEST";
+                        poEl.style.color = "#94a3b8";
                     }
                     if (metaEl) {
                         metaEl.textContent = "Vehicle & license plate recognized in the live feed will automatically create and issue a Gate Pass.";
@@ -2296,40 +2576,254 @@
         };
 
         window.scanGateNowLive = async function() {
+            const plateValEl = document.getElementById('gateEvidencePlateVal');
+            if (plateValEl) plateValEl.textContent = "Locking Plate...";
             try {
                 const res = await fetch('/api/gate/scan_now', { method: 'POST' });
                 const data = await res.json();
                 if (data.success && data.detected_plate) {
-                    alert(`✓ Live ANPR Plate Detected: ${data.detected_plate}\nConnected Gate Pass: ${data.gate_pass_id || 'Issued'}`);
-                    checkGateCameraEvidence();
+                    if (typeof showToast === 'function') {
+                        showToast(`⚡ Locked ${data.detected_plate} in ${data.latency_ms || 45}ms → Gate Pass ${data.gate_pass_id || 'Issued'}`, 'success');
+                    }
+                    await checkGateCameraEvidence();
                     if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
                 } else {
-                    alert(data.message || "Scanning complete: No vehicle license plate clearly visible in the current camera frame. Present plate to camera and try again.");
+                    if (typeof showToast === 'function') {
+                        showToast(data.message || "No plate locked in frame — opening 1-Click Expected PO Queue.", 'warning');
+                    }
+                    const drawer = document.getElementById('assistiveArrivalsDrawer');
+                    if (drawer && drawer.style.display === 'none') {
+                        window.toggleAssistiveArrivals();
+                    }
+                    await checkGateCameraEvidence();
                 }
             } catch(e) {
-                alert("Scan error: " + e.message);
+                if (typeof showToast === 'function') showToast("Scan error: " + e.message, 'error');
             }
         };
 
-        window.simulateGateArrivalPrompt = async function() {
-            const plate = prompt("Enter Vehicle License Plate arriving at Gate:", "MH-12-PQ-9988");
-            if (!plate) return;
+        window.snapTruckPhotoManual = async function() {
+            try {
+                if (typeof showToast === 'function') showToast("📸 Capturing frame & running instant OCR...", "info");
+                const res = await fetch('/api/gate/snap_and_read', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    if (typeof showToast === 'function') {
+                        showToast(`✓ ${data.message}`, 'success');
+                    }
+                    if (data.photo) {
+                        const thumbWrap = document.getElementById('gateEvidenceThumbWrap');
+                        const thumbImg = document.getElementById('gateEvidenceThumb');
+                        if (thumbWrap && thumbImg) {
+                            thumbImg.src = `/static/${data.photo}?t=${Date.now()}`;
+                            thumbWrap.style.display = 'flex';
+                        }
+                    }
+                    await checkGateCameraEvidence();
+                    if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                } else {
+                    if (typeof showToast === 'function') showToast(data.message || "Capture failed", 'error');
+                }
+            } catch(e) {
+                if (typeof showToast === 'function') showToast("Snap error: " + e.message, 'error');
+            }
+        };
+
+        window.toggleGateAutoDispatch = async function(enabled) {
+            try {
+                const res = await fetch('/api/gate/auto_dispatch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ enabled: !!enabled })
+                });
+                const data = await res.json();
+                if (data.success && typeof showToast === 'function') {
+                    showToast(
+                        data.auto_dispatch
+                            ? "⚡ Zero-Click Auto-Dispatch ON: Pre-registered trucks will auto-assign & dispatch to Docks!"
+                            : "Zero-Click Auto-Dispatch OFF: Gate Passes will stay in Pending for manual review.",
+                        data.auto_dispatch ? "success" : "info"
+                    );
+                }
+            } catch(e) {}
+        };
+
+        window.approveAllMatchedPasses = async function() {
+            try {
+                const res = await fetch('/api/gate/approve_all_matched', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    if (typeof showToast === 'function') {
+                        showToast(`✓ ${data.message}`, data.dispatched_count > 0 ? 'success' : 'info');
+                    }
+                    if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
+                }
+            } catch(e) {
+                if (typeof showToast === 'function') showToast("Batch dispatch error: " + e.message, 'error');
+            }
+        };
+
+        window.toggleAssistiveArrivals = async function() {
+            const drawer = document.getElementById('assistiveArrivalsDrawer');
+            const listEl = document.getElementById('assistiveExpectedList');
+            if (!drawer || !listEl) return;
+            if (drawer.style.display === 'none' || !drawer.style.display) {
+                drawer.style.display = 'block';
+                try {
+                    const res = await fetch('/api/deliveries');
+                    const deliveries = await res.json();
+                    const active = (deliveries || []).filter(d => !['Completed', 'Rejected'].includes(d.status));
+                    if (active.length === 0) {
+                        listEl.innerHTML = '<div style="padding:12px; color:var(--text-muted); font-size:0.82rem;">No pending pre-registered deliveries found. Use <strong>+ Manual Pass</strong> or register a PO first.</div>';
+                    } else {
+                        listEl.innerHTML = active.map(d => {
+                            const plate = escapeHtml(d.plate || d.vehicle_number || 'UNASSIGNED');
+                            const po = escapeHtml(d.po_number || '');
+                            const vendor = escapeHtml(d.vendor || 'Supplier');
+                            const driver = escapeHtml(d.driver_name || 'Verified Driver');
+                            return `
+                                <div style="padding:10px 12px; background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:8px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                                    <div>
+                                        <div style="font-family:monospace; font-weight:800; font-size:0.95rem; color:var(--accent-hover);">${plate}</div>
+                                        <div style="font-size:0.76rem; color:var(--text-main); font-weight:600;">${po} • ${vendor}</div>
+                                        <div style="font-size:0.72rem; color:var(--text-muted);">Driver: ${driver} • Exp: ${escapeHtml(d.expected_date || 'Today')}</div>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:5px;">
+                                        <button type="button" class="btn-primary" style="font-size:0.74rem; padding:5px 10px; background:#10b981; border-color:#10b981; font-weight:700; white-space:nowrap;" onclick="quickAdmitExpectedPO('${po}', '${plate}', true)">
+                                            ⚡ Admit & Dock
+                                        </button>
+                                        <button type="button" class="btn-secondary" style="font-size:0.72rem; padding:4px 8px; white-space:nowrap;" onclick="quickAdmitExpectedPO('${po}', '${plate}', false)">
+                                            + Create Pass
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                } catch(e) {
+                    listEl.innerHTML = '<div style="padding:10px; color:var(--danger);">Error loading expected PO queue.</div>';
+                }
+            } else {
+                drawer.style.display = 'none';
+            }
+        };
+
+        window.quickAdmitExpectedPO = async function(poNumber, plate, autoDock) {
             try {
                 const res = await fetch('/api/gate/simulate_arrival', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ plate: plate.trim().toUpperCase(), type: 'Heavy Commercial (HCV)' })
+                    body: JSON.stringify({
+                        plate: plate,
+                        po_number: poNumber,
+                        auto_dispatch: !!autoDock,
+                        type: 'Heavy Commercial (HCV)'
+                    })
                 });
                 const data = await res.json();
                 if (data.success) {
-                    alert(`✓ ${data.message}`);
-                    checkGateCameraEvidence();
+                    if (typeof showToast === 'function') {
+                        showToast(`⚡ ${data.message}`, 'success');
+                    }
+                    await checkGateCameraEvidence();
                     if (typeof fetchGatePasses === 'function') fetchGatePasses();
-                } else {
-                    alert("Simulation error: " + (data.message || "Failed"));
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
                 }
             } catch(e) {
-                alert("Request error: " + e.message);
+                if (typeof showToast === 'function') showToast("Admission error: " + e.message, 'error');
+            }
+        };
+
+        window.simulateGateArrivalPrompt = async function() {
+            const defaultPlate = (window.globalDeliveries && window.globalDeliveries[0] && window.globalDeliveries[0].plate) ? window.globalDeliveries[0].plate : "MH-12-PQ-9988";
+            const plate = prompt("Enter Vehicle License Plate arriving at Gate:", defaultPlate);
+            if (!plate) return;
+            await window.quickAdmitExpectedPO("", plate.trim().toUpperCase(), false);
+        };
+
+        window.autoRegisterWalkInCard = async function(gpId, autoDock) {
+            try {
+                const plateEl = document.getElementById(`plate_${gpId}`);
+                const driverEl = document.getElementById(`driver_${gpId}`);
+                const phoneEl = document.getElementById(`driver_phone_${gpId}`);
+                const vendorEl = document.getElementById(`vendor_${gpId}`);
+                const emailEl = document.getElementById(`vendor_email_${gpId}`);
+                const loadEl = document.getElementById(`load_${gpId}`);
+                const actEl = document.getElementById(`activity_${gpId}`);
+                const dockEl = document.getElementById(`dock_${gpId}`);
+
+                const payload = {
+                    gate_pass_id: gpId,
+                    plate: plateEl ? plateEl.value.trim().toUpperCase() : '',
+                    driver_name: (driverEl && driverEl.value.trim()) ? driverEl.value.trim() : 'Verified Driver',
+                    driver_phone: phoneEl ? phoneEl.value.trim() : '',
+                    vendor: (vendorEl && vendorEl.value.trim()) ? vendorEl.value.trim() : 'Walk-In Supplier',
+                    vendor_email: emailEl ? emailEl.value.trim() : '',
+                    load: (loadEl && loadEl.value.trim()) ? loadEl.value.trim() : 'Walk-In Inbound Shipment',
+                    activity: actEl ? actEl.value : 'Unloading',
+                    dock: dockEl ? dockEl.value : '',
+                    auto_dispatch: !!autoDock
+                };
+
+                const res = await fetch('/api/gate/register_walkin_vehicle', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (typeof showToast === 'function') {
+                        showToast(`🆕 ${data.message}`, 'success');
+                    }
+                    if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
+                } else {
+                    if (typeof showToast === 'function') showToast(data.message || "Registration failed", 'error');
+                }
+            } catch(e) {
+                if (typeof showToast === 'function') showToast("Error: " + e.message, 'error');
+            }
+        };
+
+        window.registerNewWalkInVehiclePrompt = async function() {
+            const detectedEl = document.getElementById('gateEvidencePlateVal');
+            const liveDetected = (detectedEl && !detectedEl.textContent.includes('Scanning') && !detectedEl.textContent.includes('Locking'))
+                ? detectedEl.textContent.trim()
+                : '';
+            const plateInput = prompt(
+                "Enter New / Walk-In Vehicle License Plate (or leave as detected from live camera):",
+                liveDetected || "KA-01-XY-7788"
+            );
+            if (plateInput === null) return;
+            const vendorInput = prompt("Supplier / Vendor Name (optional):", "Walk-In Supplier") || "Walk-In Supplier";
+            const loadInput = prompt("Shipment / Material Description (optional):", "Walk-In Inbound Shipment") || "Walk-In Inbound Shipment";
+
+            try {
+                const res = await fetch('/api/gate/register_walkin_vehicle', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        plate: plateInput.trim().toUpperCase(),
+                        vendor: vendorInput.trim(),
+                        load: loadInput.trim(),
+                        auto_dispatch: false
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (typeof showToast === 'function') {
+                        showToast(`🆕 ${data.message}`, 'success');
+                    }
+                    await checkGateCameraEvidence();
+                    if (typeof fetchGatePasses === 'function') fetchGatePasses();
+                    if (typeof fetchDeliveries === 'function') fetchDeliveries();
+                } else {
+                    if (typeof showToast === 'function') showToast(data.message || "Could not register vehicle", 'error');
+                }
+            } catch(e) {
+                if (typeof showToast === 'function') showToast("Walk-In error: " + e.message, 'error');
             }
         };
 

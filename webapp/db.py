@@ -3,10 +3,12 @@ import json
 import time
 import os
 import logging
+import threading
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 
 logger = logging.getLogger(__name__)
+_GATE_PASS_CREATE_LOCK = threading.Lock()
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
 
@@ -976,7 +978,9 @@ def get_pending_gate_pass_by_plate(plate):
         return None
     conn = get_db()
     clean_p = _clean_plate(plate)
-    rows = conn.execute("SELECT * FROM gate_passes WHERE status = 'Pending'").fetchall()
+    rows = conn.execute(
+        "SELECT * FROM gate_passes WHERE status IN ('Pending', 'Arrived at Gate', 'Sent to Dock') ORDER BY created_at DESC"
+    ).fetchall()
     conn.close()
     for r in rows:
         if r['plate'] and _clean_plate(r['plate']) == clean_p:
@@ -999,98 +1003,112 @@ def get_gate_pass(gp_id):
 
 def create_gate_pass(data):
     """
-    Generate and save a Gate Pass, connecting it to a Pre-Registration entry
-    via plate matching or pre-specified PO number.
+    Generate and save a Gate Pass atomically, connecting it to a Pre-Registration entry
+    via plate matching or pre-specified PO number. Deduplicates active passes for the same plate.
     """
-    conn = get_db()
-    with conn:
-        # Atomic calculation of next Gate Pass ID
-        cursor = conn.execute("SELECT id FROM gate_passes")
-        max_num = 999
-        for row in cursor.fetchall():
-            gid = str(row['id'])
-            if gid.startswith("GP-"):
-                try:
-                    num = int(gid.split("-")[1])
-                    if num > max_num:
-                        max_num = num
-                except Exception:
-                    pass
-        new_id = f"GP-{max_num + 1}"
+    plate = (data.get('plate') or '').strip().upper()
+    if plate and not data.get('force_new'):
+        existing_active = get_pending_gate_pass_by_plate(plate)
+        if existing_active:
+            return existing_active
 
-        plate = (data.get('plate') or '').strip().upper()
-        vehicle_type = data.get('type') or ''
-        photo = data.get('photo') or ''
-        driver_name = data.get('driver_name') or ''
-        driver_phone = data.get('driver_phone') or ''
-        load_info = data.get('load') or ''
-        vendor = data.get('vendor') or ''
-        vendor_email = data.get('vendor_email') or ''
-        expected_date = data.get('expected_date') or ''
-        po_number = (data.get('po_number') or '').strip()
-        activity = data.get('activity') or 'Loading'
-        unloading_sheet = data.get('unloading_sheet') or []
-        otp = data.get('otp') or ''
+    with _GATE_PASS_CREATE_LOCK:
+        for attempt in range(5):
+            conn = get_db()
+            try:
+                with conn:
+                    cursor = conn.execute("SELECT id FROM gate_passes")
+                    max_num = 999
+                    for row in cursor.fetchall():
+                        gid = str(row['id'])
+                        if gid.startswith("GP-"):
+                            try:
+                                num = int(gid.split("-")[1])
+                                if num > max_num:
+                                    max_num = num
+                            except Exception:
+                                pass
+                    new_id = f"GP-{max_num + 1 + attempt}"
 
-        # CONNECTION LOGIC:
-        # 1. Match by Plate if plate is available
-        matched_deliv = None
-        if plate and plate != "":
-            clean_search = _clean_plate(plate)
-            # Find in expected deliveries
-            all_delivs = conn.execute("SELECT * FROM expected_deliveries ORDER BY created_at DESC").fetchall()
-            for d_row in all_delivs:
-                if d_row['plate'] and _clean_plate(d_row['plate']) == clean_search:
-                    matched_deliv = d_row
-                    break
+                    vehicle_type = data.get('type') or ''
+                    photo = data.get('photo') or ''
+                    driver_name = data.get('driver_name') or ''
+                    driver_phone = data.get('driver_phone') or ''
+                    load_info = data.get('load') or ''
+                    vendor = data.get('vendor') or ''
+                    vendor_email = data.get('vendor_email') or ''
+                    expected_date = data.get('expected_date') or ''
+                    po_number = (data.get('po_number') or '').strip()
+                    activity = data.get('activity') or 'Loading'
+                    status_val = data.get('status') or 'Pending'
+                    dock_val = data.get('dock') or 'Not Assigned'
+                    unloading_sheet = data.get('unloading_sheet') or []
+                    otp = data.get('otp') or ''
 
-        # 2. Or match by PO Number if provided
-        if not matched_deliv and po_number:
-            matched_deliv = conn.execute("SELECT * FROM expected_deliveries WHERE po_number = ?", (po_number,)).fetchone()
+                    # CONNECTION LOGIC:
+                    # 1. Match by Plate if plate is available
+                    matched_deliv = None
+                    if plate and plate != "":
+                        clean_search = _clean_plate(plate)
+                        all_delivs = conn.execute("SELECT * FROM expected_deliveries ORDER BY created_at DESC").fetchall()
+                        for d_row in all_delivs:
+                            if d_row['plate'] and _clean_plate(d_row['plate']) == clean_search:
+                                matched_deliv = d_row
+                                break
 
-        # If matched, auto-populate from pre-registration and connect them!
-        if matched_deliv:
-            po_number = matched_deliv['po_number']
-            if driver_name == '' and matched_deliv['driver_name']:
-                driver_name = matched_deliv['driver_name']
-            if not driver_phone and matched_deliv['driver_phone']:
-                driver_phone = matched_deliv['driver_phone']
-            if load_info == '' and matched_deliv['load_description']:
-                load_info = matched_deliv['load_description']
-            if not expected_date and matched_deliv['expected_date']:
-                expected_date = matched_deliv['expected_date']
-            if vendor == '' and matched_deliv['vendor']:
-                vendor = matched_deliv['vendor']
-            if not vendor_email and matched_deliv['vendor_email']:
-                vendor_email = matched_deliv['vendor_email']
-            if matched_deliv['activity']:
-                activity = matched_deliv['activity']
-            if not unloading_sheet and matched_deliv['unloading_sheet']:
-                try:
-                    unloading_sheet = json.loads(matched_deliv['unloading_sheet'])
-                except Exception:
-                    pass
+                    # 2. Or match by PO Number if provided
+                    if not matched_deliv and po_number:
+                        matched_deliv = conn.execute("SELECT * FROM expected_deliveries WHERE po_number = ?", (po_number,)).fetchone()
 
-            # Update pre-registration status to indicate truck arrival
-            conn.execute("UPDATE expected_deliveries SET status = 'Arrived' WHERE po_number = ?", (po_number,))
+                    # If matched, auto-populate from pre-registration and connect them!
+                    if matched_deliv:
+                        po_number = matched_deliv['po_number']
+                        if driver_name in ('', 'Verified Driver') and matched_deliv['driver_name']:
+                            driver_name = matched_deliv['driver_name']
+                        if not driver_phone and matched_deliv['driver_phone']:
+                            driver_phone = matched_deliv['driver_phone']
+                        if load_info in ('', 'Inbound Shipment') and matched_deliv['load_description']:
+                            load_info = matched_deliv['load_description']
+                        if not expected_date and matched_deliv['expected_date']:
+                            expected_date = matched_deliv['expected_date']
+                        if vendor == '' and matched_deliv['vendor']:
+                            vendor = matched_deliv['vendor']
+                        if not vendor_email and matched_deliv['vendor_email']:
+                            vendor_email = matched_deliv['vendor_email']
+                        if matched_deliv['activity']:
+                            activity = matched_deliv['activity']
+                        if not unloading_sheet and matched_deliv['unloading_sheet']:
+                            try:
+                                unloading_sheet = json.loads(matched_deliv['unloading_sheet'])
+                            except Exception:
+                                pass
 
-        sheet_json = json.dumps(unloading_sheet) if isinstance(unloading_sheet, (list, dict)) else str(unloading_sheet)
-        arrival_date = time.strftime("%Y-%m-%d")
-        arrival_time = time.strftime("%H:%M:%S")
+                        conn.execute("UPDATE expected_deliveries SET status = 'Arrived' WHERE po_number = ?", (po_number,))
 
-        driver_photo = data.get('driver_photo') or ''
+                    sheet_json = json.dumps(unloading_sheet) if isinstance(unloading_sheet, (list, dict)) else str(unloading_sheet)
+                    arrival_date = time.strftime("%Y-%m-%d")
+                    arrival_time = time.strftime("%H:%M:%S")
+                    driver_photo = data.get('driver_photo') or ''
 
-        conn.execute("""
-            INSERT INTO gate_passes
-            (id, po_number, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_description,
-             activity, expected_date, arrival_date, arrival_time, status, dock, photo, driver_photo,
-             unloaded_qty, bin_allocation, unloading_sheet, otp, otp_verified)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (new_id, po_number or None, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_info,
-              activity, expected_date, arrival_date, arrival_time, 'Pending', 'Not Assigned', photo, driver_photo,
-              0, '', sheet_json, otp, 0))
-    conn.close()
-    return get_gate_pass(new_id)
+                    conn.execute("""
+                        INSERT INTO gate_passes
+                        (id, po_number, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_description,
+                         activity, expected_date, arrival_date, arrival_time, status, dock, photo, driver_photo,
+                         unloaded_qty, bin_allocation, unloading_sheet, otp, otp_verified)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (new_id, po_number or None, plate, vehicle_type, driver_name, driver_phone, vendor, vendor_email, load_info,
+                          activity, expected_date, arrival_date, arrival_time, status_val, dock_val, photo, driver_photo,
+                          0, '', sheet_json, otp, 0))
+                conn.close()
+                return get_gate_pass(new_id)
+            except sqlite3.IntegrityError:
+                conn.close()
+                time.sleep(0.02)
+                continue
+            except Exception:
+                conn.close()
+                raise
+    return None
 
 def update_gate_pass(gp_id, data):
     """Update gate pass details and propagate connection updates to pre-registration."""
@@ -1101,7 +1119,8 @@ def update_gate_pass(gp_id, data):
             conn.close()
             return None
 
-        plate = data.get('plate', curr['plate'])
+        plate = (data.get('plate', curr['plate']) or '').strip().upper() or curr['plate']
+        vehicle_type = data.get('vehicle_type') or data.get('type') or curr['vehicle_type']
         driver_name = data.get('driver_name', curr['driver_name'])
         load_desc = data.get('load', curr['load_description'])
         vendor = data.get('vendor', curr['vendor'])
@@ -1126,22 +1145,36 @@ def update_gate_pass(gp_id, data):
         if po_number:
             deliv = conn.execute("SELECT * FROM expected_deliveries WHERE po_number = ?", (po_number,)).fetchone()
             if deliv:
-                # Synchronize delivery status
+                # Synchronize delivery status AND replacement/walk-in vehicle plate!
                 new_deliv_status = 'Sent to Dock' if status == 'Sent to Dock' else ('Completed' if status == 'Completed' else 'Arrived')
-                conn.execute("UPDATE expected_deliveries SET status = ? WHERE po_number = ?", (new_deliv_status, po_number))
+                updated_deliv_plate = plate if (plate and plate.strip()) else deliv['plate']
+                updated_deliv_driver = driver_name if (driver_name and driver_name.strip() and driver_name != 'Verified Driver') else (deliv['driver_name'] or driver_name)
+                conn.execute(
+                    "UPDATE expected_deliveries SET status = ?, plate = ?, driver_name = ? WHERE po_number = ?",
+                    (new_deliv_status, updated_deliv_plate, updated_deliv_driver, po_number)
+                )
                 # Inherit unloading sheet if pass currently has none
                 if (not sheet_str or sheet_str == '[]') and deliv['unloading_sheet']:
                     sheet_str = deliv['unloading_sheet']
 
         conn.execute("""
             UPDATE gate_passes SET
-                plate = ?, driver_name = ?, load_description = ?, vendor = ?,
+                plate = ?, vehicle_type = ?, driver_name = ?, load_description = ?, vendor = ?,
                 status = ?, dock = ?, expected_date = ?, po_number = ?,
                 unloaded_qty = ?, activity = ?, bin_allocation = ?, photo = ?, driver_photo = ?,
                 unloading_sheet = ?, driver_phone = ?, vendor_email = ?, otp = ?, otp_verified = ?, exit_time = ?
             WHERE id = ?
-        """, (plate, driver_name, load_desc, vendor, status, dock, expected_date,
+        """, (plate, vehicle_type, driver_name, load_desc, vendor, status, dock, expected_date,
               po_number or None, unloaded_qty, activity, bin_allocation, photo, driver_photo, sheet_str, driver_phone, vendor_email, otp, otp_verified, exit_time, gp_id))
+
+        # Keep vehicle_log synchronized whenever plate or driver_name is edited!
+        try:
+            conn.execute(
+                "UPDATE vehicle_log SET plate = ?, driver_name = ? WHERE gp_id = ?",
+                (plate, driver_name, gp_id)
+            )
+        except Exception:
+            pass
               
         # Execute putaway stock update when transitioning to Completed
         if status == 'Completed' and curr['status'] != 'Completed' and bin_allocation:
@@ -1224,6 +1257,19 @@ def create_vehicle_log(gp_id, plate, driver_name):
     conn.execute("INSERT INTO vehicle_log (gp_id, plate, driver_name, status) VALUES (?, ?, ?, 'Inside')",
                  (gp_id, plate, driver_name))
     conn.commit()
+    conn.close()
+
+def update_vehicle_log(gp_id, status=None, dock=None, driver_name=None, plate=None):
+    conn = get_db()
+    with conn:
+        if plate and driver_name and status:
+            conn.execute("UPDATE vehicle_log SET plate = ?, driver_name = ?, status = ? WHERE gp_id = ?", (plate, driver_name, status, gp_id))
+        elif driver_name and status:
+            conn.execute("UPDATE vehicle_log SET driver_name = ?, status = ? WHERE gp_id = ?", (driver_name, status, gp_id))
+        elif plate:
+            conn.execute("UPDATE vehicle_log SET plate = ? WHERE gp_id = ?", (plate, gp_id))
+        elif status:
+            conn.execute("UPDATE vehicle_log SET status = ? WHERE gp_id = ?", (status, gp_id))
     conn.close()
 
 def checkout_vehicle_log(gp_id):

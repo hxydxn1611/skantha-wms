@@ -82,8 +82,22 @@ class RTMPIngestService:
         except Exception as e:
             logger.warning(f"Error querying target cameras for RTMP: {e}")
 
-        # If no explicit Wi-Fi camera registered yet, default to fallback
-        if not target_ids:
+        # Also ensure any Gate / Inbound camera receives the RTMP video feed
+        try:
+            from db import get_db
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("SELECT camera_id, camera_code FROM cameras WHERE (location = 'Gate' OR location = 'Dock' OR name LIKE '%gate%') AND status != 'Inactive'")
+            for r in cur.fetchall():
+                if r[0] and r[0] not in target_ids:
+                    target_ids.append(r[0])
+                if r[1] and r[1] not in target_ids:
+                    target_ids.append(r[1])
+            conn.close()
+        except Exception:
+            pass
+
+        if "cam_inbound_01" not in target_ids:
             target_ids.append("cam_inbound_01")
 
         self._cached_targets = target_ids
@@ -144,6 +158,8 @@ class RTMPIngestService:
 
         while self.is_running:
             try:
+                # Reset per-connection frame timer so watchdog only monitors active stream silence
+                conn_last_frame = [0.0]
                 logger.info(f"Listening for camera RTMP push on rtmp://0.0.0.0:{self.port}{self.stream_path} ...")
                 self.proc = subprocess.Popen(
                     cmd,
@@ -159,13 +175,11 @@ class RTMPIngestService:
                 )
                 stderr_thread.start()
 
-                # Active Watchdog: Auto-detects camera disconnection or freeze
-                # Force-restarts FFmpeg listener so camera can reconnect in < 1 second!
-                def _watchdog(p):
+                def _watchdog(p, timer_ref):
                     while self.is_running and p.poll() is None:
-                        time.sleep(0.5)
-                        if self.last_frame_time > 0 and (time.time() - self.last_frame_time) > 3.0:
-                            logger.info("RTMP Watchdog: Camera feed silent > 3s. Recycling port 1935 listener for instant reconnect.")
+                        time.sleep(1.0)
+                        if timer_ref[0] > 0 and (time.time() - timer_ref[0]) > 8.0:
+                            logger.info("RTMP Watchdog: Camera feed silent > 8s. Recycling port 1935 listener for instant reconnect.")
                             try:
                                 p.kill()
                             except Exception:
@@ -173,7 +187,7 @@ class RTMPIngestService:
                             break
                 watchdog_thread = threading.Thread(
                     target=_watchdog,
-                    args=(self.proc,),
+                    args=(self.proc, conn_last_frame),
                     daemon=True,
                     name="RTMP-Watchdog"
                 )
@@ -185,7 +199,9 @@ class RTMPIngestService:
                         break
 
                     frame = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((480, 640, 3)).copy()
-                    self.last_frame_time = time.time()
+                    now_f = time.time()
+                    self.last_frame_time = now_f
+                    conn_last_frame[0] = now_f
                     self.latest_frame = frame
                     self.frame_count += 1
 
@@ -198,6 +214,24 @@ class RTMPIngestService:
                             get_vision_runtime_manager().push_frame(cid, frame)
                         except Exception:
                             pass
+
+                        try:
+                            from app import active_cameras
+                            if cid in active_cameras:
+                                active_cameras[cid].raw_frame = frame
+                                active_cameras[cid].push_frame(frame)
+                        except Exception:
+                            pass
+
+                    # Also broadcast live feed directly to any active Gate cameras
+                    try:
+                        from app import active_cameras
+                        for ac_id, ac_cam in list(active_cameras.items()):
+                            if getattr(ac_cam, 'is_gate_camera', False) or ac_cam.location == 'Gate':
+                                ac_cam.raw_frame = frame
+                                ac_cam.push_frame(frame)
+                    except Exception:
+                        pass
 
                         try:
                             from app import active_cameras

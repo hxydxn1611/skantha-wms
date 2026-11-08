@@ -193,9 +193,42 @@ class SmartCamera:
                 time.sleep(1.0)
             return
 
-        # Support integer source for USB webcams (e.g. "0")
+        # Support integer source for USB webcams (e.g. "0") — share frame if VisionRuntimeManager or another SmartCamera already opened the same USB index!
         is_usb = False
         if isinstance(cap_source, str) and cap_source.strip().isdigit():
+            try:
+                from vision_runtime_service import get_vision_runtime_manager, get_shared_frame_bus
+                mgr = get_vision_runtime_manager()
+                if mgr and self.camera_id in mgr.sessions:
+                    sess = mgr.sessions[self.camera_id]
+                    while self.is_running:
+                        f = getattr(sess, 'latest_raw_frame', None)
+                        if f is None:
+                            f = get_shared_frame_bus().get_latest_frame(self.camera_id, copy=False, max_age_seconds=1.5)
+                        if f is not None:
+                            with self.lock:
+                                self.raw_frame = f
+                        time.sleep(0.03)
+                    return
+            except Exception:
+                pass
+            try:
+                from app import active_cameras
+                for other_id, other_cam in list(active_cameras.items()):
+                    if other_id != self.camera_id and str(getattr(other_cam, 'url', '')).strip() == cap_source.strip() and getattr(other_cam, 'is_running', False):
+                        while self.is_running and getattr(other_cam, 'is_running', False):
+                            if other_cam.raw_frame is not None:
+                                with self.lock:
+                                    self.raw_frame = other_cam.raw_frame
+                                try:
+                                    from vision_runtime_service import get_shared_frame_bus
+                                    get_shared_frame_bus().publish_frame(self.camera_id, other_cam.raw_frame, source_type="SHARED_USB_CAPTURE")
+                                except Exception:
+                                    pass
+                            time.sleep(0.03)
+                        return
+            except Exception:
+                pass
             cap_source = int(cap_source.strip())
             is_usb = True
         elif isinstance(cap_source, str) and (cap_source.startswith("rtsp://") or cap_source.startswith("http://")):
@@ -277,169 +310,35 @@ class SmartCamera:
                 pass
         cap.release()
 
-    def _run_live_gate_anpr_worker(self, frame, vehicle_boxes):
-        """Dedicated high-precision ANPR worker running on the LIVE feed.
-        Extracts real license plates and auto-creates connected Gate Passes in DB."""
+    def _run_live_gate_anpr_worker(self, frame, vehicle_boxes, force_scan=False):
+        """Delegates directly to the unified Sub-50ms Industrial ANPR Engine in vision_runtime_service."""
         try:
-            import re, db
-            fh, fw = frame.shape[:2]
-            if fh < 80 or fw < 80:
-                return
-
-            candidate_crops = []
-            v_type_candidate = "Heavy Commercial (HCV)"
-
-            # 1. Inspect vehicle crops if detected by YOLO
-            for vb in vehicle_boxes:
-                x1, y1, x2, y2 = vb['x1'], vb['y1'], vb['x2'], vb['y2']
-                vw = max(1, x2 - x1)
-                vh = max(1, y2 - y1)
-                if 'Light Vehicle' in vb.get('type', ''):
-                    v_type_candidate = "Light Vehicle (LMV)"
-
-                # Plate is typically mounted on lower 60% of the vehicle
-                py1 = max(0, int(y1 + vh * 0.35))
-                py2 = min(fh, y2)
-                px1 = max(0, x1)
-                px2 = min(fw, x2)
-                v_crop = frame[py1:py2, px1:px2]
-                if v_crop.size > 0:
-                    candidate_crops.append(v_crop)
-
-            # 2. Always inspect central frame (for close-up license plates, phones, printed test cards)
-            center_crop = frame[int(fh * 0.10):int(fh * 0.90), int(fw * 0.10):int(fw * 0.90)]
-            if center_crop.size > 0:
-                candidate_crops.append(center_crop)
-
-            # 3. Full frame fallback
-            candidate_crops.append(frame)
-
-            best_plate: str = ""
-            best_prob: float = 0.0
-
-            if hasattr(SmartCamera, 'ocr_reader') and SmartCamera.ocr_reader is not None:
-                for crop in candidate_crops:
-                    if best_plate != "":
-                        break
-                    ch, cw = crop.shape[:2]
-                    if ch < 30 or cw < 60:
-                        continue
-
-                    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-                    try:
-                        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-                        enhanced = clahe.apply(gray)
-                    except Exception:
-                        enhanced = gray
-
-                    scale = 2.0 if max(ch, cw) < 350 else 1.2
-                    resized = cv2.resize(enhanced, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-                    filtered = cv2.bilateralFilter(resized, 7, 50, 50)
-
-                    try:
-                        ocr_res = SmartCamera.ocr_reader.readtext(filtered)
-                    except Exception:
-                        ocr_res = []
-
-                    from vision_runtime_service import parse_and_validate_indian_plate
-                    clean_tokens = []
-                    for (_, text, prob) in ocr_res:
-                        clean_text = "".join(c for c in text if c.isalnum()).upper()
-                        if len(clean_text) >= 2 and prob > 0.15:
-                            clean_tokens.append(clean_text)
-
-                        val = parse_and_validate_indian_plate(clean_text)
-                        if val and prob > best_prob:
-                            best_plate = val
-                            best_prob = float(prob)
-
-                    # Multi-line token recombination (e.g. ['DL', '01', 'AB', '1234'] -> 'DL-01-AB-1234')
-                    if not best_plate and clean_tokens:
-                        combined = "".join(clean_tokens)
-                        val = parse_and_validate_indian_plate(combined)
-                        if val:
-                            best_plate = val
-                            best_prob = 0.85
-
-                    # High-precision binary Otsu thresholding fallback for high glare / low-light plates
-                    if not best_plate:
-                        try:
-                            _, otsu = cv2.threshold(filtered, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                            otsu_res = SmartCamera.ocr_reader.readtext(otsu)
-                            otsu_tokens = []
-                            for (_, text, prob) in otsu_res:
-                                clean_t = "".join(c for c in text if c.isalnum()).upper()
-                                if len(clean_t) >= 2 and prob > 0.15:
-                                    otsu_tokens.append(clean_t)
-                                val = parse_and_validate_indian_plate(clean_t)
-                                if val:
-                                    best_plate = val
-                                    best_prob = float(prob)
-                                    break
-                            if not best_plate and otsu_tokens:
-                                val = parse_and_validate_indian_plate("".join(otsu_tokens))
-                                if val:
-                                    best_plate = val
-                                    best_prob = 0.80
-                        except Exception:
-                            pass
-
-            # Standardize Indian format with hyphens (e.g. MH12PQ9988 -> MH-12-PQ-9988)
-            if best_plate != "":
-                m_ind = re.match(r'^([A-Z]{2})([0-9]{1,2})([A-Z]{1,3})([0-9]{3,4})$', best_plate)
-                if m_ind:
-                    best_plate = f"{m_ind.group(1)}-{m_ind.group(2)}-{m_ind.group(3)}-{m_ind.group(4)}"
-                else:
-                    m_short = re.match(r'^([A-Z]{2})([0-9]{2})([0-9]{4})$', best_plate)
-                    if m_short:
-                        best_plate = f"{m_short.group(1)}-{m_short.group(2)}-{m_short.group(3)}"
-
-            # If a plate was detected from the live feed:
-            if best_plate != "":
-                now_t = time.time()
-                # Deduplication: only issue a new pass if plate is different or > 45s since last pass
-                if best_plate != self.last_detected_plate or (now_t - self.last_gate_pass_time) > 45.0:
-                    existing_gp = db.get_pending_gate_pass_by_plate(best_plate)
-                    if existing_gp:
-                        gp_id = existing_gp.get('id', 'GP-PENDING')
-                        print(f"[GATE ANPR LIVE] Linking active Gate Pass {gp_id} for live plate: {best_plate}")
-                    else:
-                        new_gp = db.create_gate_pass({
-                            "plate": best_plate,
-                            "type": v_type_candidate,
-                            "activity": "Unloading",
-                            "status": "Pending",
-                            "driver_name": "Verified Driver",
-                            "dock": "Dock 1"
-                        })
-                        gp_id = new_gp.get('id', 'GP-AUTO')
-                        db.create_vehicle_log(gp_id, best_plate, "Verified Driver")
-                        print(f"[GATE ANPR AUTO-PASS] Created Gate Pass {gp_id} from LIVE feed plate: {best_plate}")
-
-                    with self.lock:
-                        self.last_gate_pass_id = gp_id
-                        self.last_detected_plate = best_plate
-                        self.last_gate_pass_time = now_t
-                        self.last_plate_prob = best_prob
-                        
-                        event = {
-                            "time": time.strftime("%H:%M:%S"),
-                            "type": v_type_candidate,
-                            "plate": best_plate,
-                            "gate_pass_id": gp_id,
-                            "status": "GATE PASS ISSUED (LIVE FEED)",
-                            "camera": self.name
-                        }
-                        self.events.insert(0, event)
-            else:
-                # No plate detected in frame
-                now_t = time.time()
-                if (now_t - self.last_gate_pass_time) > 12.0:
-                    with self.lock:
-                        self.last_detected_plate = None
-                        self.last_gate_pass_id = None
+            from vision_runtime_service import get_vision_runtime_manager
+            mgr = get_vision_runtime_manager()
+            sess = mgr.get_session(self.camera_id)
+            if not sess:
+                sess = mgr.get_or_create_session(
+                    camera_id=self.camera_id,
+                    name=self.name,
+                    location=self.location or "Gate",
+                    configured_fps=15,
+                    test_mode=False
+                )
+            if not sess.anpr_in_flight or force_scan:
+                sess.anpr_in_flight = True
+                sess._run_live_gate_anpr_worker(frame, vehicle_boxes, force_scan=force_scan)
+            # Sync telemetry back to SmartCamera instance
+            if sess.last_detected_plate:
+                with self.lock:
+                    self.last_detected_plate = sess.last_detected_plate
+                    self.last_gate_pass_id = sess.last_gate_pass_id
+                    self.last_gate_pass_photo = sess.last_gate_pass_photo
+                    self.last_gate_pass_time = sess.last_gate_pass_time
+                    self.last_plate_prob = sess.last_plate_prob
+                    if sess.events:
+                        self.events = list(sess.events[:20])
         except Exception as e:
-            print(f"[GATE ANPR WORKER ERROR]: {e}")
+            print(f"[GATE ANPR DELEGATION ERROR]: {e}")
         finally:
             self.anpr_in_flight = False
 

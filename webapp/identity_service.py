@@ -155,8 +155,16 @@ class OCRAdapter:
         self.is_available = EASYOCR_AVAILABLE
 
     def _get_reader(self):
-        """Lazy initialization of EasyOCR reader to optimize cold-start latency."""
+        """Lazy initialization of EasyOCR reader — shares singleton with vision_runtime_service."""
         if self._reader is None and self.is_available and easyocr is not None:
+            try:
+                from vision_runtime_service import get_gate_ocr_reader
+                shared_r = get_gate_ocr_reader()
+                if shared_r is not None:
+                    self._reader = shared_r
+                    return self._reader
+            except Exception:
+                pass
             try:
                 logger.info(f"Initializing EasyOCR reader (GPU={self.use_gpu})...")
                 self._reader = easyocr.Reader(['en'], gpu=self.use_gpu, download_enabled=False, verbose=False)

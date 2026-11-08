@@ -129,6 +129,7 @@ def enforce_authentication_and_session():
         or path == '/api/register'
         or path.startswith('/api/auth/')
         or path == '/api/company/preview_recognition'
+        or path.startswith('/video_feed/')
     ):
         return None
 
@@ -958,8 +959,10 @@ def checkout():
     if not gp:
         return jsonify({"success": False, "message": "Gate pass not found."})
         
-    # Security Check: Ensure the same vehicle is leaving
-    if gp.get('plate') != plate:
+    # Security Check: Ensure the same vehicle is leaving (normalized alphanumeric comparison so 'RJ09GA0165' matches 'RJ-09-GA-0165')
+    norm_expected = "".join(c for c in str(gp.get('plate') or '').upper() if c.isalnum())
+    norm_entered = "".join(c for c in str(plate or '').upper() if c.isalnum())
+    if norm_expected != norm_entered:
         return jsonify({"success": False, "message": f"Security Alert! Vehicle plate mismatch. Expected {gp.get('plate')} but got {plate}."})
         
     # Security Check: Driver Face Verification
@@ -3539,8 +3542,63 @@ def update_gate_pass(gp_id):
                 sms_response = {"success": False, "error": str(e)}
                 print("SMS Error:", e)
 
+    existing_before = db.get_gate_pass(gp_id)
+    if existing_before:
+        new_plate = (data.get('plate') or existing_before.get('plate') or '').strip().upper()
+        old_plate = (existing_before.get('plate') or '').strip().upper()
+        new_vtype = data.get('vehicle_type') or data.get('type') or existing_before.get('vehicle_type') or 'Heavy Commercial (HCV) • Commercial (Yellow)'
+        new_po = data.get('po_number') if 'po_number' in data else (existing_before.get('po_number') or '')
+        new_dock = data.get('dock') if 'dock' in data else (existing_before.get('dock') or 'Dock 1')
+        photo_to_stamp = data.get('photo') or existing_before.get('photo')
+        # Re-stamp evidence snapshot whenever plate, vehicle_type, PO, dock, or photo is updated!
+        if photo_to_stamp and (
+            new_plate != old_plate
+            or 'plate' in data
+            or 'vehicle_type' in data
+            or 'type' in data
+            or 'po_number' in data
+            or 'dock' in data
+            or 'photo' in data
+        ):
+            try:
+                from vision_runtime_service import restamp_gate_pass_snapshot
+                stamped_path = restamp_gate_pass_snapshot(
+                    rel_photo_path=photo_to_stamp,
+                    plate=new_plate,
+                    vehicle_type_str=new_vtype,
+                    po_number=new_po or '',
+                    dock=new_dock or 'Dock 1',
+                    is_manual_verified=True
+                )
+                if stamped_path:
+                    data['photo'] = stamped_path
+            except Exception as e_st:
+                print("Snapshot restamp warning:", e_st)
+
     gp = db.update_gate_pass(gp_id, data)
     if gp:
+        # Synchronize live Gate Camera HUD & Runtime Sessions so the corrected plate and snapshot show up on the live feed too!
+        try:
+            mgr = get_vision_runtime_manager()
+            for s_obj in mgr.sessions.values():
+                if s_obj.last_gate_pass_id == gp_id or s_obj.is_gate_camera or s_obj.location == 'Gate':
+                    s_obj.last_detected_plate = gp.get('plate') or s_obj.last_detected_plate
+                    s_obj.last_consensus_plate = gp.get('plate') or s_obj.last_consensus_plate
+                    s_obj.last_gate_pass_photo = gp.get('photo') or s_obj.last_gate_pass_photo
+                    if s_obj.events:
+                        for ev in s_obj.events:
+                            if ev.get('gate_pass_id') == gp_id:
+                                ev['plate'] = gp.get('plate')
+                                ev['photo'] = gp.get('photo')
+        except Exception:
+            pass
+        try:
+            for ac in active_cameras.values():
+                if getattr(ac, 'last_gate_pass_id', None) == gp_id or getattr(ac, 'is_gate_camera', False) or ac.location == 'Gate':
+                    ac.last_detected_plate = gp.get('plate') or ac.last_detected_plate
+                    ac.last_gate_pass_photo = gp.get('photo') or ac.last_gate_pass_photo
+        except Exception:
+            pass
         return jsonify({"success": True, "gate_pass": gp, "otp_generated": data.get('otp'), "sms_response": sms_response})
     return jsonify({"success": False, "message": "Gate pass not found"})
 
@@ -3697,12 +3755,11 @@ def get_cameras():
         for cdata in cameras_data:
             c_sess = _v_mgr.get_session(cdata.get('id', ''))
             if c_sess:
-                if not cdata.get('last_detected_plate') and c_sess.last_detected_plate:
-                    cdata['last_detected_plate'] = c_sess.last_detected_plate
-                if not cdata.get('last_gate_pass_id') and c_sess.last_gate_pass_id:
-                    cdata['last_gate_pass_id'] = c_sess.last_gate_pass_id
-                if not cdata.get('last_gate_pass_photo') and c_sess.last_gate_pass_photo:
-                    cdata['last_gate_pass_photo'] = c_sess.last_gate_pass_photo
+                # Authoritative real-time perception state from VisionRuntimeSession
+                cdata['last_detected_plate'] = c_sess.last_detected_plate or ""
+                cdata['last_gate_pass_id'] = c_sess.last_gate_pass_id or ""
+                cdata['last_gate_pass_photo'] = c_sess.last_gate_pass_photo or ""
+                cdata['plate_color'] = getattr(c_sess, 'last_plate_color', 'yellow').lower()
     except Exception:
         pass
 
@@ -3799,84 +3856,451 @@ def snap_camera(cam_id):
         
     return jsonify({"success": True, "photo": photo_filename})
 
-@app.route('/api/gate/simulate_arrival', methods=['POST'])
-def simulate_gate_arrival():
+@app.route('/api/gate/auto_dispatch', methods=['GET', 'POST'])
+def gate_auto_dispatch_toggle():
     try:
-        data = request.json or {}
-        plate = (data.get('plate') or "MH-12-PQ-9988").strip().upper()
-        vehicle_type = data.get('type') or "Heavy Commercial (HCV)"
-        
-        # 1. Locate Gate Camera
-        gate_cam = None
-        for cam in active_cameras.values():
-            if getattr(cam, 'is_gate_camera', False) or cam.location == 'Gate':
-                gate_cam = cam
-                break
+        from vision_runtime_service import get_gate_auto_dispatch, set_gate_auto_dispatch
+        if request.method == 'POST':
+            data = request.json or {}
+            enabled = bool(data.get('enabled', False))
+            state = set_gate_auto_dispatch(enabled)
+            return jsonify({"success": True, "auto_dispatch": state})
+        return jsonify({"success": True, "auto_dispatch": get_gate_auto_dispatch()})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
-        # 2. Check if pending gate pass already exists for this plate
-        existing_gp = db.get_pending_gate_pass_by_plate(plate)
-        if existing_gp:
-            gp = existing_gp
-            gp_id = gp.get('id', 'GP-PENDING')
-        else:
-            gp = db.create_gate_pass({
+
+@app.route('/api/gate/approve_all_matched', methods=['POST'])
+def approve_all_matched_passes():
+    try:
+        from vision_runtime_service import select_smart_balanced_dock, find_matching_delivery_for_plate
+        passes = db.get_all_gate_passes() or []
+        deliveries = db.get_all_deliveries() or []
+        dispatched_count = 0
+        dispatched_ids = []
+
+        for gp in passes:
+            if gp.get('status') != 'Pending':
+                continue
+            gp_id = gp.get('id')
+            plate = gp.get('plate') or ''
+            matched_deliv = find_matching_delivery_for_plate(plate, deliveries) if not gp.get('po_number') else None
+            po_num = gp.get('po_number') or (matched_deliv.get('po_number') if matched_deliv else '')
+            dock = gp.get('dock')
+            if not dock or dock == 'Not Assigned':
+                dock = select_smart_balanced_dock()
+
+            update_data = {
                 "plate": plate,
-                "type": vehicle_type,
-                "activity": "Unloading",
-                "status": "Pending",
-                "driver_name": "Verified Driver",
-                "dock": "Dock 1"
-            })
-            gp_id = gp.get('id', 'GP-AUTO')
-            db.create_vehicle_log(gp_id, plate, "Verified Driver")
-
-        # 3. Synchronize Gate Camera Live Stream HUD
-        if gate_cam:
-            with gate_cam.lock:
-                gate_cam.last_detected_plate = plate
-                gate_cam.last_gate_pass_id = gp_id
-                gate_cam.last_gate_pass_time = time.time()
-                gate_cam.last_plate_prob = 0.99
-                gate_cam.events.insert(0, {
-                    "time": time.strftime("%H:%M:%S"),
-                    "type": vehicle_type,
-                    "plate": plate,
-                    "gate_pass_id": gp_id,
-                    "status": "GATE PASS ISSUED (LIVE FEED)",
-                    "camera": gate_cam.name
-                })
+                "status": "Sent to Dock",
+                "dock": dock,
+                "driver_name": gp.get('driver_name') or (matched_deliv.get('driver_name') if matched_deliv else 'Verified Driver'),
+                "driver_phone": gp.get('driver_phone') or (matched_deliv.get('driver_phone') if matched_deliv else ''),
+                "vendor": gp.get('vendor') or (matched_deliv.get('vendor') if matched_deliv else ''),
+                "vendor_email": gp.get('vendor_email') or (matched_deliv.get('vendor_email') if matched_deliv else ''),
+                "load": gp.get('load') or (matched_deliv.get('load') if matched_deliv else 'Inbound Shipment'),
+                "activity": gp.get('activity') or (matched_deliv.get('activity') if matched_deliv else 'Unloading'),
+                "po_number": po_num,
+                "expected_date": gp.get('expected_date') or (matched_deliv.get('expected_date') if matched_deliv else time.strftime("%Y-%m-%d")),
+                "photo": gp.get('photo')
+            }
+            db.update_gate_pass(gp_id, update_data)
+            db.update_vehicle_log(gp_id, status="At Dock", dock=dock, driver_name=update_data["driver_name"])
+            dispatched_count += 1
+            dispatched_ids.append(gp_id)
 
         return jsonify({
             "success": True,
-            "gate_pass": gp,
-            "plate": plate,
-            "message": f"Gate Pass {gp_id} created from Live Gate Feed for plate {plate}!"
+            "dispatched_count": dispatched_count,
+            "dispatched_ids": dispatched_ids,
+            "message": f"Dispatched {dispatched_count} Gate Pass(es) to active Docks!"
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
+
+def _collect_live_gate_frames() -> List[Tuple[str, np.ndarray, List[Dict[str, Any]]]]:
+    """Collects latest frames from all active camera streams (RTMP, FrameBus, RuntimeManager, SmartCamera)."""
+    candidates = []
+    seen_shapes = set()
+    mgr = get_vision_runtime_manager()
+    bus = get_shared_frame_bus()
+
+    # 1. Check SharedFrameBus for cam_inbound_01 and all Gate cameras first
+    priority_ids = ["cam_inbound_01"]
+    for cid, sess in mgr.sessions.items():
+        if sess.is_gate_camera or sess.location == 'Gate':
+            if cid not in priority_ids:
+                priority_ids.insert(0, cid)
+        elif cid not in priority_ids:
+            priority_ids.append(cid)
+    for cid in active_cameras.keys():
+        if cid not in priority_ids:
+            priority_ids.append(cid)
+
+    for cid in priority_ids:
+        b_frame = bus.get_latest_frame(cid, copy=True, max_age_seconds=15.0)
+        if b_frame is not None and b_frame.size > 0:
+            sess = mgr.get_session(cid)
+            boxes = list(sess.latest_boxes) if sess and hasattr(sess, 'latest_boxes') else []
+            candidates.append((cid, b_frame, boxes))
+
+        sess = mgr.get_session(cid)
+        if sess and sess.latest_raw_frame is not None and sess.latest_raw_frame.size > 0:
+            candidates.append((cid, sess.latest_raw_frame.copy(), list(sess.latest_boxes)))
+
+        ac = active_cameras.get(cid)
+        if ac and getattr(ac, 'raw_frame', None) is not None:
+            candidates.append((cid, ac.raw_frame.copy(), list(getattr(ac, 'latest_boxes', []))))
+
+    # 2. Direct RTMP latest frame fallback
+    try:
+        from rtmp_service import get_rtmp_service
+        rtmp_srv = get_rtmp_service()
+        if rtmp_srv and rtmp_srv.latest_frame is not None:
+            candidates.insert(0, ("cam_inbound_01", rtmp_srv.latest_frame.copy(), []))
+    except Exception:
+        pass
+
+    return candidates
+
+
+@app.route('/api/gate/simulate_arrival', methods=['POST'])
+def simulate_gate_arrival():
+    try:
+        from vision_runtime_service import (
+            find_matching_delivery_for_plate,
+            select_smart_balanced_dock,
+            get_gate_auto_dispatch
+        )
+        data = request.json or {}
+        plate = (data.get('plate') or "MH-12-PQ-9988").strip().upper()
+        vehicle_type = data.get('type') or "Heavy Commercial (HCV) • Commercial (Yellow)"
+        force_admit = bool(data.get('auto_dispatch', False))
+
+        deliveries = db.get_all_deliveries() or []
+        matched_deliv = find_matching_delivery_for_plate(plate, deliveries)
+        matched_po = matched_deliv.get('po_number', '') if matched_deliv else (data.get('po_number') or '')
+        smart_dock = select_smart_balanced_dock()
+        auto_dispatched = force_admit or bool(get_gate_auto_dispatch() and matched_deliv)
+        pass_status = "Sent to Dock" if auto_dispatched else "Pending"
+
+        # Capture live frame if available for evidence snapshot
+        rel_photo_path = None
+        live_frames = _collect_live_gate_frames()
+        if live_frames:
+            _, snap_frame, _ = live_frames[0]
+        else:
+            snap_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            snap_frame[:] = (22, 30, 46)
+
+        sh, sw = snap_frame.shape[:2]
+        hud_w = min(sw - 16, 480)
+        cv2.rectangle(snap_frame, (12, 12), (12 + hud_w, 100), (15, 23, 42), -1)
+        cv2.rectangle(snap_frame, (12, 12), (12 + hud_w, 100), (16, 185, 129), 2)
+        cv2.rectangle(snap_frame, (20, 20), (min(sw - 20, 300), 58), (245, 225, 40), -1)
+        cv2.rectangle(snap_frame, (20, 20), (52, 58), (180, 50, 0), -1)
+        cv2.putText(snap_frame, "IND", (23, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
+        cv2.putText(snap_frame, plate, (58, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (10, 10, 10), 2)
+        po_tag = f" • PO: {matched_po}" if matched_po else ""
+        cv2.putText(snap_frame, f"COMMERCIAL • HCV{po_tag}", (20, 74), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (255, 220, 0), 1)
+        cv2.putText(snap_frame, f"INSTANT LOCK • {smart_dock.upper()} • {time.strftime('%H:%M:%S')}", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (0, 240, 255), 1)
+
+        clean_plate_id = "".join(c for c in plate if c.isalnum())
+        rel_photo_path = f"snapshots/anpr_{clean_plate_id}_{int(time.time())}.jpg"
+        full_photo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", rel_photo_path)
+        os.makedirs(os.path.dirname(full_photo_path), exist_ok=True)
+        cv2.imwrite(full_photo_path, snap_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+
+        existing_gp = db.get_pending_gate_pass_by_plate(plate)
+        if existing_gp:
+            gp = existing_gp
+            gp_id = gp.get('id', 'GP-PENDING')
+            conn = db.get_db()
+            conn.execute("UPDATE gate_passes SET photo = ?, dock = ?, status = ? WHERE id = ?", (rel_photo_path, smart_dock, pass_status, gp_id))
+            conn.commit()
+            conn.close()
+        else:
+            gp_payload = {
+                "plate": plate,
+                "type": vehicle_type,
+                "activity": (matched_deliv.get('activity') if matched_deliv else None) or "Unloading",
+                "status": pass_status,
+                "driver_name": (matched_deliv.get('driver_name') if matched_deliv else None) or "Verified Driver",
+                "driver_phone": (matched_deliv.get('driver_phone') if matched_deliv else None) or "",
+                "vendor": (matched_deliv.get('vendor') if matched_deliv else None) or "",
+                "vendor_email": (matched_deliv.get('vendor_email') if matched_deliv else None) or "",
+                "po_number": matched_po,
+                "expected_date": (matched_deliv.get('expected_date') if matched_deliv else None) or time.strftime("%Y-%m-%d"),
+                "load": (matched_deliv.get('load') if matched_deliv else None) or "Inbound Shipment",
+                "sku_details": (matched_deliv.get('sku_details') if matched_deliv else None) or "[]",
+                "dock": smart_dock,
+                "photo": rel_photo_path
+            }
+            gp = db.create_gate_pass(gp_payload)
+            gp_id = gp.get('id', 'GP-AUTO')
+            db.create_vehicle_log(gp_id, plate, gp_payload["driver_name"])
+            if auto_dispatched:
+                db.update_vehicle_log(gp_id, status="At Dock", dock=smart_dock, driver_name=gp_payload["driver_name"])
+
+        mgr = get_vision_runtime_manager()
+        for sess in mgr.sessions.values():
+            if sess.is_gate_camera or sess.location == 'Gate':
+                sess.last_detected_plate = plate
+                sess.last_gate_pass_id = gp_id
+                sess.last_gate_pass_photo = rel_photo_path
+                sess.last_gate_pass_time = time.time()
+
+        for cam in active_cameras.values():
+            if getattr(cam, 'is_gate_camera', False) or cam.location == 'Gate':
+                with cam.lock:
+                    cam.last_detected_plate = plate
+                    cam.last_gate_pass_id = gp_id
+                    cam.last_gate_pass_photo = rel_photo_path
+                    cam.last_gate_pass_time = time.time()
+
+        return jsonify({
+            "success": True,
+            "gate_pass": gp,
+            "gate_pass_id": gp_id,
+            "plate": plate,
+            "po_number": matched_po,
+            "dock": smart_dock,
+            "photo": rel_photo_path,
+            "auto_dispatched": auto_dispatched,
+            "message": f"Gate Pass {gp_id} issued for {plate} ({smart_dock})"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route('/api/gate/scan_now', methods=['POST'])
 def scan_gate_now():
     try:
-        gate_cam = None
-        for cam in active_cameras.values():
-            if getattr(cam, 'is_gate_camera', False) or cam.location == 'Gate':
-                gate_cam = cam
+        t0 = time.time()
+        live_frames = _collect_live_gate_frames()
+        if not live_frames:
+            return jsonify({"success": False, "message": "No active camera frame available yet. Ensure camera stream is active."}), 404
+
+        mgr = get_vision_runtime_manager()
+        detected_plate = None
+        gate_pass_id = None
+        gate_photo = None
+
+        # Run fast-path ANPR across available live camera frames (stops on first lock)
+        for cid, frame_copy, boxes_copy in live_frames[:2]:
+            sess = mgr.get_session(cid)
+            if not sess:
+                sess = mgr.get_or_create_session(camera_id=cid, name=f"Camera {cid}", location="Gate", configured_fps=15, test_mode=False)
+            sess._run_live_gate_anpr_worker(frame_copy, boxes_copy, force_scan=True)
+            if sess.last_detected_plate:
+                detected_plate = sess.last_detected_plate
+                gate_pass_id = sess.last_gate_pass_id
+                gate_photo = sess.last_gate_pass_photo
                 break
-        if not gate_cam:
-            return jsonify({"success": False, "message": "No active Gate camera found"}), 404
-            
-        with gate_cam.lock:
-            if gate_cam.raw_frame is None:
-                return jsonify({"success": False, "message": "Gate camera feed not ready"}), 400
-            frame_copy = gate_cam.raw_frame.copy()
-            boxes_copy = copy.deepcopy(gate_cam.latest_boxes)
-            
-        gate_cam._run_live_gate_anpr_worker(frame_copy, boxes_copy)
+
+        elapsed_ms = int((time.time() - t0) * 1000)
+        if detected_plate:
+            return jsonify({
+                "success": True,
+                "detected_plate": detected_plate,
+                "gate_pass_id": gate_pass_id,
+                "photo": gate_photo,
+                "latency_ms": elapsed_ms,
+                "message": f"Locked plate {detected_plate} in {elapsed_ms}ms (Gate Pass: {gate_pass_id})"
+            })
+        return jsonify({
+            "success": False,
+            "detected_plate": None,
+            "latency_ms": elapsed_ms,
+            "message": "No clear plate locked in current frame — use 1-Click Expected PO Queue or Snap + Auto-OCR."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/gate/snap_and_read', methods=['POST'])
+def snap_and_read_gate():
+    """1-Click Power Action: Captures live frame, runs fast ANPR, and creates/updates Gate Pass with photo."""
+    try:
+        t0 = time.time()
+        live_frames = _collect_live_gate_frames()
+        if not live_frames:
+            return jsonify({"success": False, "message": "No live camera frame available"}), 404
+
+        cid, frame_copy, boxes_copy = live_frames[0]
+        mgr = get_vision_runtime_manager()
+        sess = mgr.get_session(cid) or mgr.get_or_create_session(camera_id=cid, name=f"Camera {cid}", location="Gate", configured_fps=15, test_mode=False)
+        sess._run_live_gate_anpr_worker(frame_copy, boxes_copy, force_scan=True)
+
+        if sess.last_detected_plate and sess.last_gate_pass_id:
+            elapsed_ms = int((time.time() - t0) * 1000)
+            return jsonify({
+                "success": True,
+                "detected_plate": sess.last_detected_plate,
+                "gate_pass_id": sess.last_gate_pass_id,
+                "photo": sess.last_gate_pass_photo,
+                "latency_ms": elapsed_ms,
+                "message": f"Snapshot captured & Plate {sess.last_detected_plate} locked ({sess.last_gate_pass_id})!"
+            })
+
+        # If plate wasn't readable (e.g., truck has no front plate or mud-covered), still save snapshot & attach to latest Pending pass or expected PO
+        photo_filename = f"snapshots/gate_snap_{ int(time.time()) }.jpg".replace(" ", "")
+        capture_path = os.path.join(os.path.dirname(__file__), "static", photo_filename)
+        os.makedirs(os.path.dirname(capture_path), exist_ok=True)
+        cv2.imwrite(capture_path, frame_copy, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+
+        passes = db.get_all_gate_passes() or []
+        pending_passes = [p for p in passes if p.get('status') == 'Pending']
+        if pending_passes:
+            target_gp = pending_passes[0]
+            gp_id = target_gp['id']
+            conn = db.get_db()
+            conn.execute("UPDATE gate_passes SET photo = ? WHERE id = ?", (photo_filename, gp_id))
+            conn.commit()
+            conn.close()
+            sess.last_gate_pass_photo = photo_filename
+            return jsonify({
+                "success": True,
+                "detected_plate": target_gp.get('plate'),
+                "gate_pass_id": gp_id,
+                "photo": photo_filename,
+                "message": f"Snapshot captured & attached to Gate Pass {gp_id} ({target_gp.get('plate')})"
+            })
+
         return jsonify({
             "success": True,
-            "detected_plate": gate_cam.last_detected_plate,
-            "gate_pass_id": gate_cam.last_gate_pass_id
+            "detected_plate": None,
+            "gate_pass_id": None,
+            "photo": photo_filename,
+            "message": "High-res truck snapshot captured! Select an Expected PO below to admit in 1 click."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/gate/register_walkin_vehicle', methods=['POST'])
+def register_walkin_vehicle():
+    """
+    1-Click New / Unregistered Vehicle Registration & Ad-Hoc PO Creation:
+    - Registers a brand-new walk-in vehicle into Pre-Registration (expected_deliveries) with an auto-generated PO,
+    - Creates or updates the Gate Pass with live camera snapshot,
+    - Logs the vehicle in Vehicle Master (vehicle_logs),
+    - Optionally dispatches straight to a smart-balanced Dock.
+    """
+    try:
+        from vision_runtime_service import select_smart_balanced_dock
+        data = request.json or {}
+        gp_id = (data.get('gate_pass_id') or '').strip()
+        plate = (data.get('plate') or '').strip().upper()
+        vendor = (data.get('vendor') or 'Walk-In Supplier').strip()
+        vendor_email = (data.get('vendor_email') or '').strip()
+        driver_name = (data.get('driver_name') or 'Verified Driver').strip()
+        driver_phone = (data.get('driver_phone') or '').strip()
+        load_desc = (data.get('load') or 'Walk-In Inbound Shipment').strip()
+        activity = (data.get('activity') or 'Unloading').strip()
+        auto_dispatch = bool(data.get('auto_dispatch', False))
+        smart_dock = data.get('dock') if (data.get('dock') and data.get('dock') != 'Not Assigned') else select_smart_balanced_dock()
+
+        existing_gp = db.get_gate_pass(gp_id) if gp_id else None
+        if existing_gp and not plate:
+            plate = (existing_gp.get('plate') or '').strip().upper()
+
+        # If no plate provided yet, try live camera ANPR first
+        rel_photo_path = existing_gp.get('photo') if existing_gp else None
+        live_frames = _collect_live_gate_frames()
+        if not plate and live_frames:
+            cid, frame_copy, boxes_copy = live_frames[0]
+            mgr = get_vision_runtime_manager()
+            sess = mgr.get_session(cid) or mgr.get_or_create_session(camera_id=cid, name=f"Camera {cid}", location="Gate", configured_fps=15, test_mode=False)
+            sess._run_live_gate_anpr_worker(frame_copy, boxes_copy, force_scan=True)
+            if sess.last_detected_plate:
+                plate = sess.last_detected_plate
+                rel_photo_path = sess.last_gate_pass_photo or rel_photo_path
+
+        if not plate:
+            plate = f"WALKIN-{int(time.time()) % 10000}"
+
+        # Capture snapshot if we don't have one yet
+        if not rel_photo_path and live_frames:
+            _, snap_frame, _ = live_frames[0]
+            clean_plate_id = "".join(c for c in plate if c.isalnum())
+            rel_photo_path = f"snapshots/walkin_{clean_plate_id}_{int(time.time())}.jpg"
+            full_photo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", rel_photo_path)
+            os.makedirs(os.path.dirname(full_photo_path), exist_ok=True)
+            cv2.imwrite(full_photo_path, snap_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+
+        today_str = time.strftime("%Y-%m-%d")
+        po_number = (data.get('po_number') or '').strip()
+        if not po_number:
+            po_number = f"PO-WALKIN-{int(time.time()) % 100000}"
+
+        deliv_status = "Sent to Dock" if auto_dispatch else "Arrived"
+        new_deliv = db.create_delivery({
+            "po_number": po_number,
+            "expected_date": today_str,
+            "activity": activity,
+            "vendor": vendor,
+            "vendor_email": vendor_email,
+            "load": load_desc,
+            "plate": plate,
+            "driver_name": driver_name,
+            "driver_phone": driver_phone,
+            "status": deliv_status,
+            "unloading_sheet": data.get("unloading_sheet") or []
+        })
+
+        pass_status = "Sent to Dock" if auto_dispatch else "Pending"
+        if existing_gp:
+            updated_gp = db.update_gate_pass(gp_id, {
+                "plate": plate,
+                "po_number": po_number,
+                "vendor": vendor,
+                "vendor_email": vendor_email,
+                "driver_name": driver_name,
+                "driver_phone": driver_phone,
+                "load": load_desc,
+                "activity": activity,
+                "expected_date": today_str,
+                "dock": smart_dock,
+                "status": pass_status,
+                "photo": rel_photo_path or existing_gp.get('photo', '')
+            })
+            if auto_dispatch:
+                db.update_vehicle_log(gp_id, status="At Dock", dock=smart_dock, driver_name=driver_name)
+        else:
+            updated_gp = db.create_gate_pass({
+                "plate": plate,
+                "type": "Walk-In Commercial Vehicle • Auto-Registered",
+                "po_number": po_number,
+                "vendor": vendor,
+                "vendor_email": vendor_email,
+                "driver_name": driver_name,
+                "driver_phone": driver_phone,
+                "load": load_desc,
+                "activity": activity,
+                "expected_date": today_str,
+                "dock": smart_dock,
+                "status": pass_status,
+                "photo": rel_photo_path or ""
+            })
+            gp_id = updated_gp.get('id', 'GP-AUTO')
+            db.create_vehicle_log(gp_id, plate, driver_name)
+            if auto_dispatch:
+                db.update_vehicle_log(gp_id, status="At Dock", dock=smart_dock, driver_name=driver_name)
+                db.update_gate_pass(gp_id, {"status": "Sent to Dock", "dock": smart_dock})
+                updated_gp = db.get_gate_pass(gp_id)
+
+        return jsonify({
+            "success": True,
+            "po_number": po_number,
+            "plate": plate,
+            "gate_pass_id": gp_id,
+            "gate_pass": updated_gp,
+            "delivery": new_deliv,
+            "dock": smart_dock,
+            "auto_dispatched": auto_dispatch,
+            "message": f"Registered new vehicle {plate} with PO {po_number} & Gate Pass {gp_id} ({smart_dock})!"
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
