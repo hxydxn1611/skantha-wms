@@ -76,8 +76,8 @@ def main():
             channel_timeout=120,
             cleanup_interval=30
         )
-    except ImportError:
-        logger.warning("Waitress not installed. Falling back to native Flask server.")
+    except Exception as e:
+        logger.warning(f"Waitress notice: {e}. Running on threaded Flask engine.")
         flask_app_module.app.run(host=host, port=port, debug=False, threaded=True)
 
 if __name__ == "__main__":

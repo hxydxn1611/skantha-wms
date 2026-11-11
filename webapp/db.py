@@ -544,6 +544,9 @@ def init_db():
                 ('CAM-001', 'CAM-001', 'Gate 01 ANPR & Security Bay', 'Warehouse A', 'Gate 01', 'IP Camera', 'Hikvision', '', 'Online'),
                 ('CAM-002', 'CAM-002', 'Dock 01 Inbound Overhead', 'Warehouse A', 'Dock 1', 'IP Camera', 'CP Plus', '', 'Online'),
                 ('CAM-003', 'CAM-003', 'Dock 02 Storage & Staging', 'Warehouse A', 'Dock 2', 'IP Camera', 'Dahua', '', 'Online'),
+                ('CAM-004', 'CAM-004', 'Gate 02 Outbound Exit ANPR Bay', 'Warehouse A', 'Gate 02', 'IP Camera', 'Hikvision', '', 'Online'),
+                ('CAM-STAGE-01', 'CAM-STAGE-01', 'Staging Zone 01 - 360 Nadir Overhead', 'Warehouse A', 'Staging Zone 01', 'IP Camera', 'Axis', '', 'Online'),
+                ('CAM-STAGE-02', 'CAM-STAGE-02', 'Staging Zone 01 - 360 Oblique 45 Deg', 'Warehouse A', 'Staging Zone 01', 'IP Camera', 'Hanwha', '', 'Online'),
                 ('CAM-TRUEVIEW', 'CAM-TRUEVIEW', 'Trueview Wi-Fi Camera', 'Warehouse A', 'Warehouse Floor', 'Wi-Fi Camera', 'Trueview', 'rtmp://192.168.1.4:1935/live/cam', 'Online')
             ]
             cur.executemany(
@@ -555,6 +558,9 @@ def init_db():
                 ('CAM-001', 1, 1, 1, 10),
                 ('CAM-002', 1, 1, 1, 10),
                 ('CAM-003', 1, 1, 1, 10),
+                ('CAM-004', 1, 1, 1, 10),
+                ('CAM-STAGE-01', 1, 1, 1, 10),
+                ('CAM-STAGE-02', 1, 1, 1, 10),
                 ('CAM-TRUEVIEW', 1, 1, 1, 10)
             ]
             cur.executemany(
