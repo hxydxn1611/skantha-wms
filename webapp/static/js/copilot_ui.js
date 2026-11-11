@@ -645,6 +645,104 @@
                 </div>
             </div>
             `;
+        } else if (cType === 'sku_master_summary_card') {
+            const metricsHtml = (card.metrics || []).map(m => `
+                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); padding:8px; border-radius:8px; text-align:center;">
+                    <div style="font-size:0.62rem; color:#94a3b8; font-family:monospace; text-transform:uppercase;">${escapeHtml(m.label)}</div>
+                    <div style="font-size:0.85rem; font-weight:800; color:#38bdf8; margin-top:2px;">${escapeHtml(m.value)}</div>
+                </div>
+            `).join('');
+
+            const catsHtml = (card.categories || []).map(c => `
+                <span style="font-size:0.65rem; color:#cbd5e1; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:2px 8px; border-radius:12px;">
+                    ${escapeHtml(c.name)}: <strong style="color:#38bdf8;">${escapeHtml(c.count)}</strong>
+                </span>
+            `).join('');
+
+            const actionButtons = (card.actions || []).map(a => `
+                <button type="button" onclick="executeCopilotAction('${a.action}', ${escapeJson(a.params)})" 
+                    style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-size:0.70rem; font-weight:600; padding:4px 10px; border-radius:14px; cursor:pointer; transition:all 0.15s ease;">
+                    ${escapeHtml(a.label)}
+                </button>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(56,189,248,0.25); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span style="font-size:0.76rem; font-weight:bold; color:#f1f5f9;">📦 ${escapeHtml(card.title)}</span>
+                    <span style="font-size:0.65rem; color:#34d399; font-family:monospace; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:10px;">APP SYNCHRONIZED</span>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
+                    ${metricsHtml}
+                </div>
+                ${catsHtml ? `<div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;">${catsHtml}</div>` : ''}
+                ${actionButtons ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">${actionButtons}</div>` : ''}
+            </div>
+            `;
+        } else if (cType === 'web_intelligence_card') {
+            const takeawaysHtml = (card.takeaways || []).map(t => `
+                <li style="margin-bottom:4px; color:#cbd5e1; font-size:0.72rem; line-height:1.4;">${escapeHtml(t)}</li>
+            `).join('');
+
+            const sourcesHtml = (card.web_sources || []).map(s => {
+                let domain = 'Web Source';
+                try {
+                    domain = new URL(s.url).hostname.replace('www.', '');
+                } catch(e) {}
+                return `
+                <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" 
+                   style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; font-size:0.65rem; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; transition:all 0.15s ease;">
+                    <span>🌐</span>
+                    <strong>${escapeHtml(domain)}</strong>
+                    <span style="opacity:0.6;">↗</span>
+                </a>
+                `;
+            }).join('');
+
+            const internalHtml = (card.internal_profiles || []).map(p => `
+                <div style="font-size:0.68rem; color:#94a3b8; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); padding:4px 8px; border-radius:6px; margin-top:3px; display:flex; justify-content:space-between;">
+                    <span style="color:#f1f5f9; font-weight:600;">${escapeHtml(p.name)}</span>
+                    <span style="color:#f59e0b; font-family:monospace;">${escapeHtml(p.pkg)}</span>
+                </div>
+            `).join('');
+
+            const actionButtons = (card.actions || []).map(a => `
+                <button type="button" onclick="executeCopilotAction('${a.action}', ${escapeJson(a.params)})" 
+                    style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-size:0.70rem; font-weight:600; padding:4px 10px; border-radius:14px; cursor:pointer; transition:all 0.15s ease;">
+                    ${escapeHtml(a.label)}
+                </button>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.38); border:1px solid rgba(56,189,248,0.28); border-radius:12px; padding:12px; margin-top:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <span style="font-size:0.78rem; font-weight:bold; color:#38bdf8;">🌐 ${escapeHtml(card.title)}</span>
+                    <span style="font-size:0.65rem; color:#a78bfa; background:rgba(167,139,250,0.15); border:1px solid rgba(167,139,250,0.3); padding:2px 6px; border-radius:10px;">GLOBAL SEARCH</span>
+                </div>
+                ${card.subtitle ? `<div style="font-size:0.68rem; color:#94a3b8; margin-bottom:8px;">${escapeHtml(card.subtitle)}</div>` : ''}
+                
+                <div style="font-size:0.68rem; font-weight:700; color:#cbd5e1; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.5px;">Key Industrial Takeaways</div>
+                <ul style="padding-left:16px; margin:0 0 10px 0;">
+                    ${takeawaysHtml}
+                </ul>
+
+                ${internalHtml ? `
+                <div style="margin-bottom:8px;">
+                    <div style="font-size:0.66rem; font-weight:700; color:#fbbf24; text-transform:uppercase; margin-bottom:2px;">📦 Skantha WMS Active Stillages:</div>
+                    ${internalHtml}
+                </div>
+                ` : ''}
+
+                ${sourcesHtml ? `
+                <div style="margin-bottom:8px;">
+                    <div style="font-size:0.65rem; color:#64748b; margin-bottom:3px;">Authoritative Web Sources:</div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">${sourcesHtml}</div>
+                </div>
+                ` : ''}
+
+                ${actionButtons ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">${actionButtons}</div>` : ''}
+            </div>
+            `;
         }
         return '';
     }
@@ -652,6 +750,24 @@
     window.executeCopilotAction = async function (action, params) {
         if (action === 'open_po_studio') {
             if (typeof window.switchTab === 'function') window.switchTab('inbound-flow');
+            return;
+        }
+        if (action === 'open_sku_master') {
+            if (typeof window.switchTab === 'function') window.switchTab('palletization');
+            showToast('Navigating to SKU Master catalog...', 'info');
+            return;
+        }
+        if (action === 'open_pallet_workbench' || action === 'open_glass_profiles') {
+            if (typeof window.switchTab === 'function') window.switchTab('palletization');
+            showToast('Opening 3D Pallet & Stillage Workbench...', 'info');
+            return;
+        }
+        if (action === 'audit_low_stock') {
+            sendCopilotPreset('⚠️ Low Stock Audit');
+            return;
+        }
+        if (action === 'shift_summary') {
+            sendCopilotPreset('📊 Shift Summary');
             return;
         }
         if (action === 'open_3d_bin') {
