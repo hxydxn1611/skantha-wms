@@ -36,7 +36,8 @@
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     transcript += event.results[i][0].transcript;
                 }
-                const inputEl = document.getElementById('copilotInput');
+                updateVoiceMuteButtonUI();
+        const inputEl = document.getElementById('copilotInput');
                 if (inputEl) inputEl.value = transcript;
             };
 
@@ -79,6 +80,174 @@
         }
     }
 
+    // -------------------------------------------------------------
+    // Two-Way Voice: Text-to-Speech (TTS) & Audio Controls
+    // -------------------------------------------------------------
+    let copilotVoiceMuted = false;
+    try {
+        const saved = localStorage.getItem('warlog_copilot_voice_muted');
+        if (saved !== null) {
+            copilotVoiceMuted = (saved === 'true');
+        }
+    } catch (e) {}
+
+    window.toggleCopilotSpeechOutput = function () {
+        copilotVoiceMuted = !copilotVoiceMuted;
+        try {
+            localStorage.setItem('warlog_copilot_voice_muted', copilotVoiceMuted);
+        } catch (e) {}
+        updateVoiceMuteButtonUI();
+        if (copilotVoiceMuted && window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+            setSpeakingIndicator(false);
+        }
+        if (typeof showToast === 'function') {
+            showToast(copilotVoiceMuted ? 'Copilot voice replies muted' : 'Copilot voice replies active', 'info');
+        }
+    };
+
+    function updateVoiceMuteButtonUI() {
+        const btn = document.getElementById('copilotVoiceToggleBtn');
+        if (btn) {
+            btn.innerHTML = copilotVoiceMuted ? '🔇' : '🔊';
+            btn.title = copilotVoiceMuted ? 'Voice Muted (Click to Unmute)' : 'Voice Audio Enabled (Click to Mute)';
+            btn.style.color = copilotVoiceMuted ? '#94a3b8' : '#38bdf8';
+            btn.style.borderColor = copilotVoiceMuted ? 'rgba(255,255,255,0.08)' : 'rgba(56,189,248,0.4)';
+        }
+    }
+
+    function setSpeakingIndicator(speaking) {
+        isSpeaking = speaking;
+        const soundwaveEl = document.getElementById('copilotSoundwave');
+        const orbContainer = document.getElementById('copilotOrbContainer');
+        if (soundwaveEl) {
+            soundwaveEl.style.opacity = speaking ? '1' : (isVoiceActive ? '1' : '0.4');
+        }
+        if (orbContainer) {
+            if (speaking) {
+                orbContainer.classList.add('copilot-speaking-glow');
+            } else {
+                orbContainer.classList.remove('copilot-speaking-glow');
+            }
+        }
+    }
+
+    function cleanTextForSpeech(raw) {
+        if (!raw) return '';
+        let t = raw;
+        t = t.replace(/\*\*(.*?)\*\*/g, '$1');
+        t = t.replace(/\*(.*?)\*/g, '$1');
+        t = t.replace(/`([^`]+)`/g, '$1');
+        t = t.replace(/^#{1,6}\s+/gm, '');
+        t = t.replace(/<[^>]+>/g, ' ');
+        t = t.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '');
+        t = t.replace(/\s+/g, ' ').trim();
+
+        // Conversational voice: take first 1-2 punchy sentences (~35 words max)
+        const sentences = t.match(/[^.!?]+[.!?]+(\s|$)/g);
+        if (sentences && sentences.length > 0) {
+            let combined = sentences[0].trim();
+            if (sentences.length > 1 && combined.split(' ').length < 20) {
+                combined += ' ' + sentences[1].trim();
+            }
+            return combined;
+        }
+        const words = t.split(' ');
+        if (words.length > 35) {
+            return words.slice(0, 35).join(' ') + '...';
+        }
+        return t;
+    }
+
+    function speakAssistantReply(text) {
+        if (copilotVoiceMuted) return;
+        if (!window.speechSynthesis) return;
+
+        const clean = cleanTextForSpeech(text);
+        if (!clean) return;
+
+        try {
+            window.speechSynthesis.cancel();
+            const utter = new SpeechSynthesisUtterance(clean);
+            utter.rate = 1.05;
+            utter.pitch = 1.0;
+
+            const voices = window.speechSynthesis.getVoices();
+            if (voices && voices.length) {
+                const enVoice = voices.find(v => v.lang && (v.lang.startsWith('en-US') || v.lang.startsWith('en-GB') || v.lang.startsWith('en_US'))) || voices.find(v => v.lang && v.lang.startsWith('en'));
+                if (enVoice) utter.voice = enVoice;
+            }
+
+            utter.onstart = function () {
+                setSpeakingIndicator(true);
+            };
+
+            utter.onend = function () {
+                setSpeakingIndicator(false);
+            };
+
+            utter.onerror = function (e) {
+                console.warn('Speech synthesis notice:', e);
+                setSpeakingIndicator(false);
+            };
+
+            window.speechSynthesis.speak(utter);
+        } catch (err) {
+            console.warn('Speech synthesis error:', err);
+            setSpeakingIndicator(false);
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Direct Hands-Free Voice Navigation Parser
+    // -------------------------------------------------------------
+    function checkVoiceNavigation(text) {
+        const lower = text.toLowerCase().trim();
+        // Camera matrix
+        if (/^(?:go\s+to|open|show|navigate\s+to|switch\s+to)?\s*(?:cameras?|cctv|video|vision)\b/i.test(lower)) {
+            return { tab: 'cameras', label: 'Camera Vision Matrix', spoken: 'Opening Camera Vision Matrix' };
+        }
+        // Inbound Gate passes
+        if (/^(?:go\s+to|open|show|navigate\s+to|switch\s+to)?\s*(?:gate\s*passes?|passes|gate\s*queue)\b/i.test(lower)) {
+            return { tab: 'gate-passes', label: 'Inbound Gate Passes', spoken: 'Opening Inbound Gate Passes' };
+        }
+        // 3D Pallets / Workbench
+        if (/^(?:go\s+to|open|show|navigate\s+to|switch\s+to)?\s*(?:3d\s*pallets?|pallets?|palletization|workbench)\b/i.test(lower)) {
+            return { tab: 'palletization', label: '3D Palletization Digital Twin', spoken: 'Navigating to 3D Pallet Workbench' };
+        }
+        // Pre-Registration POs
+        if (/^(?:go\s+to|open|show|navigate\s+to|switch\s+to)?\s*(?:pre\s*-?\s*reg(?:istration)?|purchase\s*orders?|pos?)\b/i.test(lower)) {
+            return { tab: 'pre-registration', label: 'Inbound Pre-Registration Studio', spoken: 'Opening Pre-Registration Studio' };
+        }
+        // Operations Dashboard
+        if (/^(?:go\s+to|open|show|navigate\s+to|switch\s+to)?\s*(?:dashboard|overview|home)\b/i.test(lower)) {
+            return { tab: 'dashboard', label: 'Operations Dashboard', spoken: 'Switching to Operations Dashboard' };
+        }
+        // Dock management
+        if (/^(?:go\s+to|open|show|navigate\s+to|switch\s+to)?\s*(?:docks?|dock\s*management|bays?)\b/i.test(lower)) {
+            return { tab: 'dock-management', label: 'Dock Load Balancing', spoken: 'Opening Dock Management' };
+        }
+        return null;
+    }
+
+    function handleVoiceNavigation(target, originalQuery) {
+        if (typeof window.switchTab === 'function') {
+            window.switchTab(target.tab);
+        }
+        const confirmMsg = `Navigating to **${target.label}** as requested via voice.`;
+        appendAssistantMessage(confirmMsg, [{
+            type: 'knowledge_card',
+            title: `🚀 ${target.label}`,
+            subtitle: 'Voice Direct Navigation',
+            points: [
+                `Active Tab: ${target.tab}`,
+                `Voice Trigger: "${originalQuery}"`,
+                'Hands-free screen navigation completed'
+            ]
+        }]);
+        speakAssistantReply(target.spoken);
+    }
+
     window.toggleCopilot = function (forceState) {
         const panel = document.getElementById('warlogCopilotWindow');
         const launcher = document.getElementById('warlogCopilotLauncher');
@@ -107,6 +276,10 @@
                 if (launcher) launcher.style.display = 'flex';
             }, 200);
             if (isVoiceActive && recognition) recognition.stop();
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+                setSpeakingIndicator(false);
+            }
         }
     };
 
@@ -153,6 +326,13 @@
         if (inputEl) inputEl.value = '';
 
         appendUserMessage(queryText);
+
+        // Check for hands-free app navigation voice triggers
+        const navTarget = checkVoiceNavigation(queryText);
+        if (navTarget) {
+            handleVoiceNavigation(navTarget, queryText);
+            return;
+        }
         showTypingIndicator();
 
         try {
@@ -170,6 +350,8 @@
                 if (data.suggestions && data.suggestions.length) {
                     updatePromptPills(data.suggestions);
                 }
+                // Speak response out loud via Text-to-Speech (Two-Way Voice)
+                speakAssistantReply(data.reply);
             } else {
                 appendAssistantMessage("I encountered an error querying the warehouse matrix. Please try again.", []);
             }

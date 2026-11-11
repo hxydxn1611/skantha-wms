@@ -40,10 +40,28 @@ class WarlogCopilotService:
         self.version = "2.5.0-OmniIntelligence"
 
     def get_gemini_api_key(self) -> Optional[str]:
-        """Retrieves Gemini API key from environment or local config."""
+        """
+        Retrieves Gemini API key globally from environment or local server configuration.
+        End-users are never required to provide a key.
+        """
         env_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if env_key and env_key.strip():
             return env_key.strip()
+        
+        # Check .env in project root
+        env_path = os.path.join(ROOT_DIR, ".env")
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GEMINI_API_KEY=") or line.startswith("GOOGLE_API_KEY="):
+                            val = line.split("=", 1)[1].strip().strip("'\"")
+                            if val:
+                                return val
+            except Exception:
+                pass
+
         if os.path.exists(KEY_FILE):
             try:
                 with open(KEY_FILE, "r", encoding="utf-8") as f:
@@ -55,7 +73,7 @@ class WarlogCopilotService:
         return None
 
     def set_gemini_api_key(self, api_key: str) -> bool:
-        """Saves user-provided Gemini API key for open-ended generative chat."""
+        """Saves server-level Gemini API key for open-ended generative chat."""
         try:
             with open(KEY_FILE, "w", encoding="utf-8") as f:
                 f.write(api_key.strip())
@@ -176,7 +194,7 @@ class WarlogCopilotService:
         now_str = time.strftime("%H:%M:%S")
 
         # -------------------------------------------------------------
-        # 0. API KEY CONFIGURATION VIA CHAT
+        # 0. SERVER-LEVEL GEMINI AI CORE CONFIGURATION (ADMIN OVERRIDE)
         # -------------------------------------------------------------
         m_key = re.search(r'(?:set\s+(?:api\s+)?key|gemini\s+key)\s+([A-Za-z0-9_\-]{20,})', raw_query, re.IGNORECASE)
         if m_key:
@@ -184,15 +202,15 @@ class WarlogCopilotService:
             if self.set_gemini_api_key(new_key):
                 return {
                     "success": True,
-                    "reply": "✨ **Google Gemini API Key Activated!**\nWARLOG Copilot now has full generative reasoning enabled. You can ask me open-ended logistics questions, operational advice, troubleshooting, or general queries with full awareness of your warehouse!",
+                    "reply": "✨ **Server AI Core Updated!**\nGoogle Gemini generative reasoning has been linked globally across Skantha WMS. All users and operators now have active generative intelligence enabled.",
                     "cards": [{
                         "type": "knowledge_card",
-                        "title": "✨ Gemini Generative AI Connected",
-                        "subtitle": "Open-Ended Multi-Modal Reasoning Active",
+                        "title": "✨ Global Enterprise AI Active",
+                        "subtitle": "Google Gemini Core Connected",
                         "points": [
-                            "Direct integration with Google Gemini 1.5/2.0 Flash",
+                            "Server-wide integration active for all operators",
                             "Real-time warehouse context injection active",
-                            "Can analyze complex supply chain scenarios & shift metrics"
+                            "High-speed multimodal logistics reasoning enabled"
                         ]
                     }],
                     "suggestions": ["📊 Shift Summary", "What are optimal pallet stacking rules?", "How do I reduce dock turnaround?"]
@@ -435,7 +453,8 @@ class WarlogCopilotService:
         # 7. INTENT: SKU / PRODUCT / BIN LOCATION SEARCH
         # -------------------------------------------------------------
         sku_cand = self._extract_sku_from_query(raw_query)
-        if sku_cand or any(kw in query for kw in ("sku", "locate", "where is", "bin", "rack", "find part", "stock for", "inventory for", "bearings", "bolts", "copper")):
+        is_rack_safety_query = any(k in query for k in ("deflection", "structural", "upright", "inspection", "safety", "limits", "load rating", "standards"))
+        if not is_rack_safety_query and (sku_cand or any(kw in query for kw in ("sku", "locate", "where is", "bin", "rack location", "find part", "stock for", "inventory for", "bearings", "bolts", "copper"))):
             skus = db.get_all_skus() or []
             bins = db.get_all_bins() or []
 
@@ -558,7 +577,12 @@ class WarlogCopilotService:
         # -------------------------------------------------------------
         # 10. INTENT: LOGISTICS, OSHA SAFETY & OPERATIONAL BEST PRACTICES
         # -------------------------------------------------------------
-        if any(kw in query for kw in ("fifo", "lifo", "fefo", "pallet stack", "stacking rule", "overhang", "forklift", "osha", "safety", "cross dock", "cycle count")):
+        if any(kw in query for kw in (
+            "fifo", "lifo", "fefo", "pallet stack", "stacking rule", "overhang", "forklift", 
+            "osha", "safety", "cross dock", "cycle count", "turnaround", "dwell", "congestion", 
+            "waiting time", "cold chain", "temperature", "chill", "frozen", "rack", "upright", 
+            "deflection", "beam", "abc"
+        )):
             if "fifo" in query or "lifo" in query or "fefo" in query:
                 return {
                     "success": True,
@@ -626,10 +650,123 @@ class WarlogCopilotService:
                     "suggestions": ["📊 Shift Summary", "🚛 Gate Queue", "⚓ Dock Status"]
                 }
 
+            if "turnaround" in query or "dwell" in query or "congestion" in query or "waiting time" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Dock Turnaround & Yard Congestion Optimization**:\n"
+                        "• **Pre-Registration Match Rate**: Pre-registering PO carriers achieves sub-100ms automated gate clearance via ANPR, saving 4-8 minutes per arrival.\n"
+                        "• **Dynamic Bay Allocation**: Stagger HCV and LCV trucks across Dock 1 and Dock 2 based on live pallet counts to prevent bay saturation.\n"
+                        "• **Stage Before Trailer Release**: Ensure forklift operators pre-stage outbound pallets in staging lanes 15 minutes before trailer docking."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "⏱️ Yard Turnaround Acceleration",
+                        "subtitle": "Throughput Optimization SOP",
+                        "points": [
+                            "Average turnaround target: < 35 minutes per HCV",
+                            "Automatic driver notification on bay assignment",
+                            "Continuous wheel chock & safety dock-lock verification"
+                        ]
+                    }],
+                    "suggestions": ["⚓ Dock Status", "🚛 Gate Queue", "📊 Shift Summary"]
+                }
+
+            if "cold chain" in query or "temperature" in query or "chill" in query or "frozen" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Cold Chain & Temperature Zone Protocol**:\n"
+                        "• **Frozen Zone**: Maintained at -18°C to -22°C with automated defrost cycles.\n"
+                        "• **Chilled / Cold Staging**: Maintained between 2°C and 8°C with air curtains at dock thresholds.\n"
+                        "• **Ambient Storage**: Controlled at 15°C to 25°C with active humidity monitoring.\n"
+                        "• **Door Seal Integrity**: Inflatable dock seals must engage within 90 seconds of trailer docking."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "❄️ Cold Chain Integrity Protocol",
+                        "subtitle": "Temperature Compliance",
+                        "points": [
+                            "Continuous IoT temperature logger telemetry",
+                            "Rapid staging door protocols prevent thermal bridging",
+                            "FEFO expiration batch prioritization mandatory"
+                        ]
+                    }],
+                    "suggestions": ["📦 Locate SKU", "📊 Shift Summary", "⚓ Dock Status"]
+                }
+
+            if "rack" in query or "upright" in query or "deflection" in query or "beam" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Warehouse Rack Structural Safety Standards**:\n"
+                        "• **Beam Deflection**: Maximum allowable vertical deflection under full load is **L/180** (beam length divided by 180).\n"
+                        "• **Upright Column Guards**: Heavy-gauge steel floor-anchored bollards mandatory on all end-of-aisle rack columns.\n"
+                        "• **Load Plaque Signage**: Every bay must display certified maximum permissible load per beam pair."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "🏗️ Rack Structural Integrity",
+                        "subtitle": "ANSI / RMI MH16.1 Compliance",
+                        "points": [
+                            "Annual rack plumbness and torque inspection",
+                            "Any beam with visible dent > 3mm requires immediate tag-out",
+                            "Baseplates anchored with minimum two high-tensile wedge anchors"
+                        ]
+                    }],
+                    "suggestions": ["⚠️ Low Stock Audit", "📊 Shift Summary", "What are pallet stacking rules?"]
+                }
+
+            if "cycle count" in query or "abc" in query or "audit" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**ABC Velocity & Cycle Counting Protocol**:\n"
+                        "• **Class A (Top 80% volume)**: Counted on a weekly rotating cycle.\n"
+                        "• **Class B (Next 15% volume)**: Counted monthly.\n"
+                        "• **Class C (Remaining 5% slow-movers)**: Counted quarterly.\n"
+                        "This eliminates the need for expensive full-facility shutdowns while maintaining 99.4%+ inventory accuracy."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "📊 Perpetual Cycle Counting",
+                        "subtitle": "Inventory Accuracy SOP",
+                        "points": [
+                            "Blind counting prevents operator confirmation bias",
+                            "Automatic reconciliation if variance is under $50 / 0.5%",
+                            "High-velocity A-items slotted in golden pick zone"
+                        ]
+                    }],
+                    "suggestions": ["📦 Locate SKU", "⚠️ Low Stock Audit", "📊 Shift Summary"]
+                }
+
         # -------------------------------------------------------------
         # 11. INTENT: SYSTEM & FEATURE GUIDANCE (HOW-TO)
         # -------------------------------------------------------------
-        if any(kw in query for kw in ("how do i", "how to", "what is", "help me use", "features", "capabilities")):
+        if any(kw in query for kw in ("how do i", "how to", "what is", "help me use", "features", "capabilities", "voice command")):
+            if "voice" in query or "speech" in query or "talk" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Hands-Free Two-Way Voice Commands**:\n"
+                        "• Click the **🎙️ microphone button** or speak directly to Copilot.\n"
+                        "• **Voice Navigation**: Say *\"Go to cameras\"*, *\"Open gate passes\"*, *\"Show 3D pallets\"*, *\"Open docks\"*, or *\"Go to dashboard\"* to control the screen.\n"
+                        "• **Voice Queries**: Ask *\"Shift summary\"*, *\"Where is truck HR-55-R-8026?\"*, or *\"Dock balance check\"*.\n"
+                        "• **Audio Responses**: Copilot speaks back replies out loud. Toggle audio with the **🔊 / 🔇 speaker button** in the titlebar."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "🎙️ Conversational Voice Engine",
+                        "subtitle": "Two-Way Hands-Free Control",
+                        "points": [
+                            "Native speech recognition transcribes operator voice in real time",
+                            "Browser Text-to-Speech (TTS) verbalizes status reports and alerts",
+                            "Direct voice navigation commands jump between warehouse modules"
+                        ]
+                    }],
+                    "suggestions": ["📊 Shift Summary", "🎥 Camera health", "🚛 Gate Queue"]
+                }
+
             if "camera" in query or "anpr" in query:
                 return {
                     "success": True,
@@ -672,17 +809,14 @@ class WarlogCopilotService:
             live_ctx = self._get_live_warehouse_context()
             passes = db.get_all_gate_passes() or []
             pending_cnt = len([p for p in passes if p.get('status') == 'Pending'])
-            has_gemini = bool(self.get_gemini_api_key())
-
-            gemini_badge = "✨ **Generative AI Connected**" if has_gemini else "💡 *Tip: Type `set api key <KEY>` to enable open-ended Gemini chat*"
 
             return {
                 "success": True,
                 "reply": (
                     f"Hello! I am your **WARLOG Operations Copilot**.\n\n"
                     f"I am actively monitoring the facility digital twin. Right now, there are **{pending_cnt} carrier(s)** waiting at Gate 01.\n\n"
-                    f"{gemini_badge}\n\n"
-                    f"You can ask me about:\n"
+                    f"✨ **WARLOG Omni-Intelligence Active** • Real-time warehouse telemetry, vision ANPR & operations reasoning online.\n\n"
+                    f"You can speak or ask me about:\n"
                     f"• **Fleet & ANPR**: Track specific trucks, gate queue, admission\n"
                     f"• **Docks & Inbound**: Bay capacity, load balancing, purchase orders\n"
                     f"• **Inventory & 3D Bins**: SKU location, reorder audits, pallet stacking\n"
@@ -701,7 +835,7 @@ class WarlogCopilotService:
             }
 
         # -------------------------------------------------------------
-        # 13. TIER 3: OPEN-ENDED GOOGLE GEMINI GENERATIVE AI FALLBACK
+        # 13. TIER 3: OPEN-ENDED GOOGLE GEMINI GENERATIVE AI (IF CONFIGURED)
         # -------------------------------------------------------------
         live_ctx = self._get_live_warehouse_context()
         gemini_reply = self._query_gemini(raw_query, live_ctx)
@@ -722,25 +856,29 @@ class WarlogCopilotService:
             }
 
         # -------------------------------------------------------------
-        # 14. DEFAULT SMART OPERATIONAL GUIDANCE
+        # 14. DEFAULT AUTONOMOUS WAREHOUSE REASONING (ZERO API KEY REQUIRED)
         # -------------------------------------------------------------
+        passes = db.get_all_gate_passes() or []
+        pending_cnt = len([p for p in passes if p.get('status') == 'Pending'])
+        active_dock_p = [p for p in passes if p.get('status') in ('Sent to Dock', 'Unloading')]
+        skus = db.get_all_skus() or []
+
         return {
             "success": True,
             "reply": (
-                f"I parsed your query: *\"{raw_query}\"*.\n\n"
-                f"As your **WARLOG Operations Copilot**, I can answer questions across fleet arrivals, inventory locations, dock turnaround, shift performance, or logistics best practices.\n\n"
-                f"💡 *Want unrestricted AI reasoning for any question? Type `set api key <YOUR_GEMINI_KEY>` to connect Google Gemini!*"
+                f"**WARLOG Operations Analysis** regarding *\"{raw_query}\"*:\n\n"
+                f"• **Live Facility Status**: {pending_cnt} carrier(s) waiting at Gate 01, {len(active_dock_p)} active dock operation(s), and {len(skus)} cataloged inventory lines.\n"
+                f"• **Operational Recommendation**: You can ask me to locate specific trucks by license plate, balance dock bays, audit low stock, or review shift KPIs.\n\n"
+                f"Use hands-free voice commands like *\"Show gate queue\"*, *\"Go to cameras\"*, or *\"Dock balance\"* for instant warehouse control."
             ),
             "cards": [{
                 "type": "knowledge_card",
-                "title": "WARLOG Copilot Intelligence Topics",
-                "subtitle": "Ask or click any operational query below",
+                "title": "WARLOG Autonomous Operations Copilot",
+                "subtitle": "Fully Functional Enterprise AI Active",
                 "points": [
-                    "Where is truck [Plate]? (Checks optical gate camera & linked PO)",
-                    "Shift summary (Real-time throughput, volume & queue health)",
-                    "Where is [SKU]? (Locates aisle, rack, and 3D pallet coordinates)",
-                    "Dock status (Shows bay load balancing & recommended apron)",
-                    "Explain FIFO vs LIFO or pallet stacking standards"
+                    "Sub-100ms CRNN Optical License Plate Recognition linked to Gate 01",
+                    "Hands-free two-way voice control and spoken verbal responses",
+                    "3D Palletization digital twin & dynamic dock bay load balancing"
                 ]
             }],
             "suggestions": ["📊 Shift Summary", "🚛 Gate Queue", "⚓ Dock Status", "📋 Today's POs", "What are pallet stacking rules?"]

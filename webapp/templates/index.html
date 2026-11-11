@@ -9860,6 +9860,15 @@ window.switchSubTab = switchSubTab;
             color: #f1f5f9;
             letter-spacing: 0.3px;
         }
+                .copilot-speaking-glow {
+            box-shadow: 0 0 16px rgba(0, 242, 254, 0.6), 0 0 30px rgba(157, 78, 221, 0.4) !important;
+            border-color: rgba(0, 242, 254, 0.5) !important;
+            animation: bixby-speaking-pulse 1.4s infinite alternate ease-in-out !important;
+        }
+        @keyframes bixby-speaking-pulse {
+            0% { transform: scale(1); filter: brightness(1); }
+            100% { transform: scale(1.04); filter: brightness(1.25); }
+        }
         .copilot-soundwave {
             display: flex;
             align-items: center;
@@ -10049,8 +10058,13 @@ window.switchSubTab = switchSubTab;
                 </div>
             </div>
 
-            <!-- Keyboard shortcut indicator -->
-            <div class="copilot-shortcut-tag">⌘ Space</div>
+            <!-- Voice Speech Output & Shortcut Controls -->
+            <div style="display:flex; align-items:center; gap:8px;">
+                <button type="button" id="copilotVoiceToggleBtn" onclick="toggleCopilotSpeechOutput()" title="Toggle Voice Speech Output (Mute/Unmute)" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#f8fafc; font-size:0.82rem; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.2s ease;">
+                    🔊
+                </button>
+                <div class="copilot-shortcut-tag">⌘ Space</div>
+            </div>
         </div>
 
         <!-- Chat Stream Messages Container -->
