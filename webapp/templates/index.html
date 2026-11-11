@@ -10132,7 +10132,15 @@ window.switchSubTab = switchSubTab;
             border: 1px solid var(--copilot-msg-assistant-border);
             border-radius: 18px 18px 18px 4px;
             box-shadow: var(--copilot-msg-assistant-shadow);
-            color: var(--copilot-text-main);
+            color: var(--copilot-text-main) !important;
+        }
+        .copilot-assistant-bubble *,
+        .copilot-assistant-bubble div,
+        .copilot-assistant-bubble span,
+        .copilot-assistant-bubble strong,
+        .copilot-assistant-bubble b,
+        .copilot-assistant-bubble p {
+            color: var(--copilot-text-main) !important;
         }
         .copilot-user-bubble {
             background: linear-gradient(135deg, rgba(37,99,235,0.9), rgba(79,70,229,0.9));
@@ -10388,8 +10396,8 @@ window.switchSubTab = switchSubTab;
                     <div style="width:100%; height:100%; border-radius:50%; background:#090d16; display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:10px;">✦</div>
                 </div>
                 <div class="copilot-msg-bubble copilot-assistant-bubble">
-                    <div style="font-size:0.78rem; line-height:1.45;">
-                        👋 Hello! I am your <strong>WARLOG AI Copilot</strong>. I monitor real-time ANPR gate events, dock loads, inventory bins, and camera matrices. How can I assist warehouse operations today?
+                    <div style="color:var(--copilot-text-main); font-size:0.78rem; line-height:1.45;">
+                        👋 Hello! I am your <strong style="color:var(--copilot-text-main); font-weight:700;">WARLOG AI Copilot</strong>. I monitor real-time ANPR gate events, dock loads, inventory bins, and camera matrices. How can I assist warehouse operations today?
                     </div>
                 </div>
             </div>

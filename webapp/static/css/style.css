@@ -6762,6 +6762,151 @@ body {
 }
 
 /* ==========================================================================
+   W.A.R.L.O.G. DASHBOARD WELCOME HERO BANNER (4-THEME CONTRAST & LEGIBILITY)
+   ========================================================================== */
+
+/* 1. LIGHT THEME */
+[data-theme="light"] .swms-hero-banner {
+    background-color: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06) !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-banner-inner {
+    background: linear-gradient(90deg, #ffffff 0%, rgba(255, 255, 255, 0.95) 45%, rgba(255, 255, 255, 0.75) 75%, rgba(255, 255, 255, 0.25) 100%) !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-title,
+[data-theme="light"] .swms-hero-banner .hero-title *,
+[data-theme="light"] .swms-hero-banner #heroUserNameDisplay {
+    color: #0f172a !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-title-slash {
+    color: #0284c7 !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-desc {
+    color: #475569 !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-kicker {
+    color: #0284c7 !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-stat-pill {
+    background: rgba(248, 250, 252, 0.95) !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05) !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-stat-pill strong {
+    color: #0f172a !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-stat-pill span {
+    color: #64748b !important;
+}
+[data-theme="light"] .swms-hero-banner .hero-status-pill {
+    background: rgba(16, 185, 129, 0.12) !important;
+    border: 1px solid rgba(16, 185, 129, 0.35) !important;
+    color: #059669 !important;
+}
+
+/* 2. OCEAN THEME */
+[data-theme="ocean"] .swms-hero-banner {
+    background-color: #081d3d !important;
+    border: 1px solid rgba(0, 240, 255, 0.25) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-banner-inner {
+    background: linear-gradient(90deg, #06152d 0%, rgba(6, 21, 45, 0.94) 45%, rgba(6, 21, 45, 0.6) 75%, rgba(6, 21, 45, 0.15) 100%) !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-title,
+[data-theme="ocean"] .swms-hero-banner .hero-title *,
+[data-theme="ocean"] .swms-hero-banner #heroUserNameDisplay {
+    color: #f0fdfa !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-title-slash {
+    color: #00f0ff !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-desc {
+    color: #7dd3fc !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-kicker {
+    color: #00f0ff !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-stat-pill {
+    background: rgba(12, 35, 64, 0.85) !important;
+    border: 1px solid rgba(0, 240, 255, 0.22) !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-stat-pill strong {
+    color: #f0fdfa !important;
+}
+[data-theme="ocean"] .swms-hero-banner .hero-stat-pill span {
+    color: #7dd3fc !important;
+}
+
+/* 3. AMBER THEME */
+[data-theme="amber"] .swms-hero-banner {
+    background-color: #1a1611 !important;
+    border: 1px solid rgba(245, 158, 11, 0.25) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-banner-inner {
+    background: linear-gradient(90deg, #14120e 0%, rgba(20, 18, 14, 0.94) 45%, rgba(20, 18, 14, 0.6) 75%, rgba(20, 18, 14, 0.15) 100%) !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-title,
+[data-theme="amber"] .swms-hero-banner .hero-title *,
+[data-theme="amber"] .swms-hero-banner #heroUserNameDisplay {
+    color: #fef3c7 !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-title-slash {
+    color: #f59e0b !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-desc {
+    color: #fcd34d !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-kicker {
+    color: #fbbf24 !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-stat-pill {
+    background: rgba(28, 22, 17, 0.85) !important;
+    border: 1px solid rgba(245, 158, 11, 0.25) !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-stat-pill strong {
+    color: #fef3c7 !important;
+}
+[data-theme="amber"] .swms-hero-banner .hero-stat-pill span {
+    color: #fde68a !important;
+}
+
+/* 4. DARK THEME */
+[data-theme="dark"] .swms-hero-banner {
+    background-color: #0d172a !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-banner-inner {
+    background: linear-gradient(90deg, #091325 0%, rgba(9, 19, 37, 0.94) 45%, rgba(9, 19, 37, 0.6) 75%, rgba(9, 19, 37, 0.15) 100%) !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-title,
+[data-theme="dark"] .swms-hero-banner .hero-title *,
+[data-theme="dark"] .swms-hero-banner #heroUserNameDisplay {
+    color: #ffffff !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-title-slash {
+    color: #38bdf8 !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-desc {
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-kicker {
+    color: #38bdf8 !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-stat-pill {
+    background: rgba(15, 23, 42, 0.7) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-stat-pill strong {
+    color: #ffffff !important;
+}
+[data-theme="dark"] .swms-hero-banner .hero-stat-pill span {
+    color: #94a3b8 !important;
+}
+
+/* ==========================================================================
    W.A.R.L.O.G. PRE-REGISTRATION TWO-TAB ARCHITECTURE (MACOS STUDIO)
    ========================================================================== */
 
