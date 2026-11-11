@@ -7786,6 +7786,44 @@ def get_live_telemetry_endpoint():
 
 
 
+
+# ============================================================================
+# WARLOG AI COPILOT API ENDPOINTS (macOS x Bixby Operations Copilot)
+# ============================================================================
+
+@app.route('/api/copilot/chat', methods=['POST'])
+def api_copilot_chat():
+    try:
+        try:
+            from copilot_service import get_copilot_service
+        except ImportError:
+            from webapp.copilot_service import get_copilot_service
+        data = request.get_json(silent=True) or {}
+        message = data.get('message', '')
+        user = session.get('user')
+        result = get_copilot_service().handle_chat(message, user=user)
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Error in copilot chat endpoint")
+        return jsonify({"success": False, "reply": f"Copilot error: {e}", "cards": []}), 500
+
+@app.route('/api/copilot/action', methods=['POST'])
+def api_copilot_action():
+    try:
+        try:
+            from copilot_service import get_copilot_service
+        except ImportError:
+            from webapp.copilot_service import get_copilot_service
+        data = request.get_json(silent=True) or {}
+        action = data.get('action', '')
+        params = data.get('params', {})
+        user = session.get('user')
+        result = get_copilot_service().execute_action(action, params, user=user)
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Error in copilot action endpoint")
+        return jsonify({"success": False, "message": f"Action error: {e}"}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
 

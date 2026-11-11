@@ -1113,11 +1113,14 @@ def create_gate_pass(data):
 def update_gate_pass(gp_id, data):
     """Update gate pass details and propagate connection updates to pre-registration."""
     conn = get_db()
+    curr = conn.execute("SELECT * FROM gate_passes WHERE id = ?", (gp_id,)).fetchone()
+    if not curr:
+        curr = conn.execute("SELECT * FROM gate_passes WHERE id = ?", (str(gp_id),)).fetchone()
+    if not curr:
+        conn.close()
+        return None
+
     with conn:
-        curr = conn.execute("SELECT * FROM gate_passes WHERE id = ?", (gp_id,)).fetchone()
-        if not curr:
-            conn.close()
-            return None
 
         plate = (data.get('plate', curr['plate']) or '').strip().upper() or curr['plate']
         vehicle_type = data.get('vehicle_type') or data.get('type') or curr['vehicle_type']
@@ -1128,6 +1131,10 @@ def update_gate_pass(gp_id, data):
         dock = data.get('dock', curr['dock'])
         expected_date = data.get('expected_date', curr['expected_date'])
         po_number = data.get('po_number', curr['po_number'])
+        if po_number:
+            chk = conn.execute("SELECT 1 FROM expected_deliveries WHERE po_number = ?", (po_number,)).fetchone()
+            if not chk:
+                po_number = None
         unloaded_qty = data.get('unloaded_qty', curr['unloaded_qty'])
         activity = data.get('activity', curr['activity'])
         bin_allocation = data.get('bin_allocation', curr['bin_allocation'])
