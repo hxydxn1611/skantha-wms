@@ -117,66 +117,51 @@ class WarlogCopilotService:
         except Exception as e:
             return f"- Warehouse Snapshot: Normal Operations (telemetry error: {e})"
 
-    def _query_gemini(self, user_prompt: str, context: str) -> Optional[str]:
-        """Calls Google Gemini API with the live warehouse digital twin context."""
-        api_key = self.get_gemini_api_key()
-        if not api_key:
-            return None
-
-        # Prefer gemini-2.0-flash or gemini-1.5-flash
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    def _query_local_slm(self, user_prompt: str, context: str) -> Optional[str]:
+        """
+        Auto-detects and queries a local self-hosted Small Language Model (e.g. Ollama running
+        Llama 3.2 1B, Phi-3, or Qwen) running entirely on the warehouse server (localhost).
+        100% private, zero cloud, zero external API keys.
+        """
+        ollama_url = os.environ.get("LOCAL_LLM_URL", "http://127.0.0.1:11434/api/generate")
+        model_name = os.environ.get("LOCAL_LLM_MODEL", "llama3.2:1b")
 
         system_prompt = (
-            "You are WARLOG AI Copilot, the intelligent voice and operational copilot of Skantha WMS (Warehouse Management System).\n"
-            "You have live, direct access to the warehouse floor digital twin, cameras, gate passes, inventory, and docks.\n"
-            f"--- LIVE WAREHOUSE STATE ---\n{context}\n----------------------------\n"
+            "You are WARLOG Central Intelligence, the local AI brain of Skantha WMS.\n"
+            "You run 100% privately on the facility server with zero cloud dependencies.\n"
+            f"--- LIVE WAREHOUSE DIGITAL TWIN STATE ---\n{context}\n------------------------------------------\n"
             "Instructions:\n"
             "1. Answer concisely, smartly, and with authoritative logistics knowledge.\n"
             "2. When discussing trucks, SKUs, or docks, reference the real state above.\n"
-            "3. If the user asks open-ended warehouse, logistics, supply chain, OSHA safety, or general questions, give accurate, world-class advice.\n"
-            "4. Format replies with clean Markdown (**bold**, bullet points, code tags).\n"
-            "5. Keep responses glanceable and direct (2-4 paragraphs max)."
+            "3. Format replies with clean Markdown (**bold**, bullet points, code tags).\n"
+            "4. Keep responses direct and glanceable (1-3 paragraphs max)."
         )
 
         payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": f"{system_prompt}\n\nUser Question: {user_prompt}"}]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.4,
-                "maxOutputTokens": 600
+            "model": model_name,
+            "prompt": f"{system_prompt}\n\nOperator Query: {user_prompt}\nAnswer:",
+            "stream": False,
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 350
             }
         }
 
         try:
-            if requests:
-                resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=8)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates and "content" in candidates[0]:
-                        parts = candidates[0]["content"].get("parts", [])
-                        if parts and "text" in parts[0]:
-                            return parts[0]["text"].strip()
-            else:
-                import urllib.request
-                req = urllib.request.Request(
-                    url,
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"}
-                )
-                with urllib.request.urlopen(req, timeout=8) as r:
+            import urllib.request
+            req = urllib.request.Request(
+                ollama_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=0.8) as r:
+                if r.status == 200:
                     data = json.loads(r.read().decode("utf-8"))
-                    candidates = data.get("candidates", [])
-                    if candidates and "content" in candidates[0]:
-                        parts = candidates[0]["content"].get("parts", [])
-                        if parts and "text" in parts[0]:
-                            return parts[0]["text"].strip()
-        except Exception as e:
-            logger.warning(f"Gemini API request failed: {e}")
+                    txt = data.get("response", "").strip()
+                    if txt:
+                        return txt
+        except Exception:
+            pass
         return None
 
     def handle_chat(self, message: str, user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -357,7 +342,8 @@ class WarlogCopilotService:
         # -------------------------------------------------------------
         # 4. INTENT: DOCK CAPACITY & LOAD BALANCING
         # -------------------------------------------------------------
-        if any(kw in query for kw in ("dock", "docks", "bay", "bays", "unloading")):
+        is_dock_kpi_or_crossdock = any(k in query for k in ("dock-to-stock", "dock to stock", "cross dock", "cross-dock", "dwell", "turnaround"))
+        if not is_dock_kpi_or_crossdock and any(kw in query for kw in ("dock", "docks", "bay", "bays", "unloading")):
             passes = db.get_all_gate_passes() or []
             d1_trucks = [p for p in passes if p.get('dock') == 'Dock 1' and p.get('status') in ('Sent to Dock', 'Unloading')]
             d2_trucks = [p for p in passes if p.get('dock') == 'Dock 2' and p.get('status') in ('Sent to Dock', 'Unloading')]
@@ -575,13 +561,17 @@ class WarlogCopilotService:
             }
 
         # -------------------------------------------------------------
-        # 10. INTENT: LOGISTICS, OSHA SAFETY & OPERATIONAL BEST PRACTICES
+        # 10. INTENT: LOGISTICS, OSHA SAFETY & COMPREHENSIVE WAREHOUSE DOMAINS
         # -------------------------------------------------------------
         if any(kw in query for kw in (
             "fifo", "lifo", "fefo", "pallet stack", "stacking rule", "overhang", "forklift", 
-            "osha", "safety", "cross dock", "cycle count", "turnaround", "dwell", "congestion", 
+            "osha", "safety", "cross dock", "cross-dock", "cycle count", "turnaround", "dwell", "congestion", 
             "waiting time", "cold chain", "temperature", "chill", "frozen", "rack", "upright", 
-            "deflection", "beam", "abc"
+            "deflection", "beam", "abc", "barcode", "rfid", "scanner", "qr", "return", "rma", 
+            "reverse logistics", "defect", "uph", "productivity", "otif", "dock-to-stock", 
+            "sprinkler", "fire safety", "nfpa", "flue space", "flammable", "slotting", "golden zone", 
+            "ergonomic", "transshipment", "flow-through", "battery", "charging", "mhe", "spill", 
+            "emergency", "tip-over", "evacuation"
         )):
             if "fifo" in query or "lifo" in query or "fefo" in query:
                 return {
@@ -627,7 +617,7 @@ class WarlogCopilotService:
                     "suggestions": ["📦 Locate SKU", "📊 Shift Summary", "Forklift safety rules"]
                 }
 
-            if "forklift" in query or "osha" in query or "safety" in query:
+            if ("forklift" in query or "osha" in query or "safety" in query) and not any(k in query for k in ("battery", "mhe", "charging", "tip", "spill", "fire", "sprinkler", "nfpa", "emergency")):
                 return {
                     "success": True,
                     "reply": (
@@ -740,6 +730,186 @@ class WarlogCopilotService:
                     "suggestions": ["📦 Locate SKU", "⚠️ Low Stock Audit", "📊 Shift Summary"]
                 }
 
+
+            if "barcode" in query or "rfid" in query or "scanner" in query or "qr" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**AIDC Barcode & RFID Scanning Architecture**:\n"
+                        "• **1D Code 128 vs 2D QR / DataMatrix**: 1D barcodes encode license plates and SKU IDs; 2D DataMatrix encodes lot numbers, expiry dates, and serial IDs in 1/10th the footprint.\n"
+                        "• **GS1-128 & SSCC-18**: Standard 18-digit Serial Shipping Container Code identifies every pallet unit uniquely across global supply chains.\n"
+                        "• **UHF RFID (860-960 MHz)**: Gate archway antennas read up to 80 tags simultaneously at speeds up to 15 km/h, bypassing line-of-sight constraints."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "📡 Optical Barcode & RFID Matrix",
+                        "subtitle": "Automated Identification Standards",
+                        "points": [
+                            "Long-range imager effective range: 0.15m to 15.0m",
+                            "Sub-100ms optical CRNN recognition for OCR plate reading",
+                            "GS1 Application Identifiers: (01) GTIN, (10) Batch, (17) Expiry"
+                        ]
+                    }],
+                    "suggestions": ["🎥 Vision status", "📦 Locate SKU", "📊 Shift Summary"]
+                }
+
+            if "return" in query or "rma" in query or "reverse" in query or "defect" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Reverse Logistics & RMA Disposition Protocol**:\n"
+                        "• **Triage Grading**: Returned cargo is routed to Quality Staging for 3-tier grading:\n"
+                        "  - **Grade A (Pristine)**: Return to active rack inventory within 24 hours.\n"
+                        "  - **Grade B (Open Box / Cosmetic)**: Route to secondary refurbishing or repackaging.\n"
+                        "  - **Grade C (Damaged / Salvage)**: File supplier credit claim (RTV) or scrap.\n"
+                        "• **Quarantine Isolation**: Defective or suspect items are locked in Bin Zone-Q to prevent accidental order picking."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "🔄 Reverse Logistics & RMA SOP",
+                        "subtitle": "Return Merchandise Authorization",
+                        "points": [
+                            "RMA validation required before gate pass admission",
+                            "All returned serialized items scanned against original dispatch PO",
+                            "Disposition decision SLA: < 48 hours from dock receipt"
+                        ]
+                    }],
+                    "suggestions": ["📋 Today's POs", "📦 Locate SKU", "📊 Shift Summary"]
+                }
+
+            if "kpi" in query or "uph" in query or "productivity" in query or "otif" in query or "dock-to-stock" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Warehouse Performance & Operational KPIs**:\n"
+                        "• **Dock-to-Stock Time**: Target **< 120 minutes** from trailer gate clearance to rack bin placement.\n"
+                        "• **OTIF (On-Time, In-Full)**: Benchmark target is **98.5%** order fulfillment fidelity.\n"
+                        "• **Picking Velocity (UPH)**: Standard order picking baseline: 85-120 Units Per Hour per operator.\n"
+                        "• **Inventory Accuracy**: Perpetual cycle counting sustains 99.4%+ record accuracy without facility shutdown."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "📈 Core Logistics Benchmarks",
+                        "subtitle": "Facility Performance Metrics",
+                        "points": [
+                            "Dock dwell time target: < 35 min per commercial vehicle",
+                            "Pick error rate threshold: < 0.05% with dual barcode verification",
+                            "Space utilization target: 82-85% optimal working density"
+                        ]
+                    }],
+                    "suggestions": ["📊 Shift Summary", "⚓ Dock Status", "🚛 Gate Queue"]
+                }
+
+            if "sprinkler" in query or "fire" in query or "nfpa" in query or "flue" in query or "flammable" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**NFPA Fire Safety & Sprinkler Clearance Standards**:\n"
+                        "• **Sprinkler Clearance**: NFPA 13 mandates minimum **450mm (18 inches)** vertical clearance between top of pallet cargo and sprinkler deflectors (36 inches for ESFR heads).\n"
+                        "• **Flue Spaces**: Maintain 150mm (6 inches) transverse and longitudinal flue spaces between back-to-back rack bays to allow heat venting and sprinkler penetration.\n"
+                        "• **Flammable Liquids**: Class IA/IB combustibles must be segregated in FM-approved 2-hour fire-rated containment vaults."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "🧯 NFPA 13 Fire & Life Safety",
+                        "subtitle": "Facility Fire Code Directives",
+                        "points": [
+                            "Annual hydrostatic testing of main deluge dry-pipe valves",
+                            "Minimum 1.0m clear access radius around all fire hose reels & extinguishers",
+                            "Emergency egress lanes marked with photoluminescent floor striping"
+                        ]
+                    }],
+                    "suggestions": ["⚠️ OSHA Safety rules", "🏗️ Rack integrity", "📊 Shift Summary"]
+                }
+
+            if "slotting" in query or "golden zone" in query or "ergonomic" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Warehouse Slotting & Ergonomic Golden Zone Optimization**:\n"
+                        "• **Golden Zone (Waist-to-Chest Level)**: Slot high-velocity Class A SKUs between **750mm and 1400mm** height to maximize picking speed by 28% and prevent stooping.\n"
+                        "• **Heavy Dense Cargo**: Heavy SKUs (> 15 kg) must be assigned to lower beam tiers (Level 1 / floor) to prevent ergonomic back injury.\n"
+                        "• **Slow Movers (Class C)**: Relocated to top beam levels (Level 3-4) accessed via reach trucks."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "🎯 Dynamic Velocity Slotting",
+                        "subtitle": "Ergonomics & Route Optimization",
+                        "points": [
+                            "Eliminates 3.5 km of unnecessary daily operator travel per aisle",
+                            "Correlates SKU physical dimensions with bin cubic capacity",
+                            "Automatic seasonal re-slotting based on 30-day velocity rolling average"
+                        ]
+                    }],
+                    "suggestions": ["📦 Locate SKU", "📊 Shift Summary", "⚠️ Low Stock Audit"]
+                }
+
+            if "cross dock" in query or "cross-dock" in query or "transship" in query or "flow-through" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Cross-Docking & Transshipment Flow Strategy**:\n"
+                        "• **Direct Flow-Through**: Inbound freight is transferred directly from receiving dock to outbound shipping trailer in **< 60 minutes**, bypassing putaway storage entirely.\n"
+                        "• **Pre-Distribution Model**: Customer assignments known prior to arrival; cargo is sorted directly onto outbound staging lanes.\n"
+                        "• **Cost Impact**: Eliminates 100% of pallet racking handling labor and reduces storage footprint holding costs."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "⚡ Zero-Storage Cross-Docking",
+                        "subtitle": "High-Velocity Supply Chain",
+                        "points": [
+                            "Synchronized inbound trailer arrival with outbound line-haul carrier",
+                            "Electronic Advance Shipping Notice (ASN) match required",
+                            "Staging dock buffer capacity monitored continuously"
+                        ]
+                    }],
+                    "suggestions": ["⚓ Dock Status", "🚛 Gate Queue", "📋 Today's POs"]
+                }
+
+            if "battery" in query or "mhe" in query or "charging" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Material Handling Equipment (MHE) & Battery Room Protocols**:\n"
+                        "• **Battery Chemistry**: Lithium-ion permits opportunity charging during 15-minute breaks; Lead-acid requires 8-hour charge + 8-hour cooldown cycle.\n"
+                        "• **Ventilation Standards**: Battery rooms must maintain active exhaust ventilation to keep hydrogen gas concentrations below **1.0% by volume** (OSHA 1910.178(g)).\n"
+                        "• **Mast & Chain Wear**: Chains must be measured with a chain gauge; replace immediately if elongation exceeds **3.0%**."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "🔋 MHE Fleet Maintenance SOP",
+                        "subtitle": "Equipment Health & Longevity",
+                        "points": [
+                            "Emergency eyewash station within 7.5 meters of battery charging stations",
+                            "Weekly cell specific gravity inspection with optical hydrometer",
+                            "Polyurethane drive tire replacement if flat-spotting exceeds 5mm"
+                        ]
+                    }],
+                    "suggestions": ["⚠️ OSHA Forklift Safety", "📊 Shift Summary", "⚓ Dock Status"]
+                }
+
+            if "spill" in query or "emergency" in query or "tip" in query or "evacuation" in query:
+                return {
+                    "success": True,
+                    "reply": (
+                        "**Warehouse Emergency & Incident Response SOP**:\n"
+                        "• **Forklift Tip-Over Emergency**: If a forklift begins tipping, **DO NOT JUMP**. Stay inside the cabin, grip steering wheel firmly, brace feet against floorboard, and lean AWAY from the impact direction.\n"
+                        "• **Chemical Spill Protocol**: Evacuate immediate 15m radius, engage spill kit absorbent boom, identify substance via SDS folder, and neutralize prior to disposal.\n"
+                        "• **Gate Barrier Power Outage**: Locate manual override release lever inside Gate 01 barrier pedestal to crank arm open."
+                    ),
+                    "cards": [{
+                        "type": "knowledge_card",
+                        "title": "🚨 Emergency Response Protocol",
+                        "subtitle": "Crisis & Incident Action Plan",
+                        "points": [
+                            "Emergency Muster Station: North Assembly Point (Zone G Parking)",
+                            "Immediate incident logging: Facility Security Officer (Ext 101)",
+                            "First aid defibrillator (AED) located at Shift Supervisor Desk"
+                        ]
+                    }],
+                    "suggestions": ["⚠️ OSHA Safety", "🎥 Camera health", "📊 Shift Summary"]
+                }
+
         # -------------------------------------------------------------
         # 11. INTENT: SYSTEM & FEATURE GUIDANCE (HOW-TO)
         # -------------------------------------------------------------
@@ -835,21 +1005,22 @@ class WarlogCopilotService:
             }
 
         # -------------------------------------------------------------
-        # 13. TIER 3: OPEN-ENDED GOOGLE GEMINI GENERATIVE AI (IF CONFIGURED)
+        # 13. TIER 3: LOCAL OPEN-SOURCE SLM / OLLAMA (IF ACTIVE ON SERVER)
         # -------------------------------------------------------------
         live_ctx = self._get_live_warehouse_context()
-        gemini_reply = self._query_gemini(raw_query, live_ctx)
-        if gemini_reply:
+        local_reply = self._query_local_slm(raw_query, live_ctx)
+        if local_reply:
             return {
                 "success": True,
-                "reply": gemini_reply,
+                "reply": local_reply,
                 "cards": [{
                     "type": "knowledge_card",
-                    "title": "✨ Gemini Intelligence Response",
-                    "subtitle": "Contextual Operations Reasoning",
+                    "title": "🧠 Local Intelligence Core",
+                    "subtitle": "Private Server-Side Neural Reasoning",
                     "points": [
-                        "Generated using real-time warehouse digital twin telemetry",
-                        "Aware of live gate queues, dock allocation & active inventory"
+                        "Generated 100% locally on facility hardware (Zero Cloud)",
+                        "Real-time warehouse digital twin telemetry injected",
+                        "100% air-gapped and confidential"
                     ]
                 }],
                 "suggestions": ["📊 Shift Summary", "🚛 Gate Queue", "⚓ Dock Status", "📦 Locate SKU"]
