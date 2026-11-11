@@ -6218,6 +6218,12 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                 document.body.setAttribute('data-theme', themeName);
             }
 
+            // Sync theme attribute across all floating panels and modals
+            ['warlogCopilotWindow', 'warlogCopilotLauncher', 'modalDeliveryDetails', 'modalEditDelivery', 'modalTruckImageViewer'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.setAttribute('data-theme', themeName);
+            });
+
             try {
                 localStorage.setItem('warlog_theme', themeName);
                 localStorage.setItem('skantha_theme', themeName);
@@ -6255,6 +6261,9 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             if (typeof updateTelemetryChartTheme === 'function') {
                 updateTelemetryChartTheme(themeName);
             }
+
+            // Broadcast theme change event to all modules (Copilot, 3D Twin, Staging Perception)
+            window.dispatchEvent(new CustomEvent('warlog:theme-changed', { detail: { theme: themeName } }));
         }
         window.applyAppTheme = applyAppTheme;
         window.setTheme = applyAppTheme;
@@ -6285,6 +6294,10 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             const saved = localStorage.getItem('warlog_theme') || localStorage.getItem('skantha_theme') || 'dark';
             document.documentElement.setAttribute('data-theme', saved);
             if (document.body) document.body.setAttribute('data-theme', saved);
+            ['warlogCopilotWindow', 'warlogCopilotLauncher', 'modalDeliveryDetails', 'modalEditDelivery', 'modalTruckImageViewer'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.setAttribute('data-theme', saved);
+            });
             const labelEl = document.getElementById('activeThemeLabel');
             if (labelEl) labelEl.textContent = saved.charAt(0).toUpperCase() + saved.slice(1);
         })();

@@ -388,7 +388,7 @@
         row.style.cssText = 'display:flex; gap:10px; align-items:flex-start; margin-bottom:12px;';
         row.innerHTML = `
             <div class="copilot-bixby-orb-mini" style="width:26px; height:26px; border-radius:50%; padding:1.5px; flex-shrink:0; display:flex; align-items:center; justify-content:center; margin-top:2px;">
-                <div style="width:100%; height:100%; border-radius:50%; background:#090d16; display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:10px;">✦</div>
+                <div style="width:100%; height:100%; border-radius:50%; background:var(--copilot-card-bg, #090d16); display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:10px;">✦</div>
             </div>
             <div class="copilot-msg-bubble copilot-assistant-bubble" style="padding:10px 14px; display:flex; gap:4px; align-items:center;">
                 <span class="typing-dot" style="animation: typingBounce 1.2s infinite ease-in-out; width:5px; height:5px; background:#38bdf8; border-radius:50%;"></span>
@@ -419,7 +419,7 @@
 
         row.innerHTML = `
             <div class="copilot-bixby-orb-mini" style="width:26px; height:26px; border-radius:50%; padding:1.5px; flex-shrink:0; display:flex; align-items:center; justify-content:center; margin-top:2px;">
-                <div style="width:100%; height:100%; border-radius:50%; background:#090d16; display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:10px;">✦</div>
+                <div style="width:100%; height:100%; border-radius:50%; background:var(--copilot-card-bg, #090d16); display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:10px;">✦</div>
             </div>
             <div class="copilot-msg-bubble copilot-assistant-bubble">
                 <div style="color:var(--copilot-text-main, #f1f5f9); font-size:0.78rem; line-height:1.45; margin-bottom:${cardsHtml ? '10px' : '0'};">

@@ -7605,3 +7605,547 @@ body {
     color: #120e0a !important;
     box-shadow: 0 0 8px rgba(245, 158, 11, 0.5) !important;
 }
+
+
+/* ==========================================================================
+   WARLOG MASTER 4-THEME UNIVERSAL COMPATIBILITY ENGINE
+   Supports: Dark (Obsidian) | Light (Minimalist) | Ocean (Marine Aqua) | Amber (Titanium Gold)
+   100% Guaranteed Contrast, Color Adaptation, & Legibility Across Every Module
+   ========================================================================== */
+
+/* -------------------------------------------------------------
+   1. UNIVERSAL COMPONENT COLOR ADAPTATION ACROSS ALL 4 THEMES
+   ------------------------------------------------------------- */
+
+/* --- 1A. LIGHT THEME OVERRIDES --- */
+[data-theme="light"] {
+    --bg-main: #f8fafc !important;
+    --bg-page: #f8fafc !important;
+    --panel-bg: #ffffff !important;
+    --panel-subtle: #f1f5f9 !important;
+    --text-main: #0f172a !important;
+    --text-primary: #0f172a !important;
+    --text-muted: #64748b !important;
+    --text-secondary: #64748b !important;
+    --border-light: #e2e8f0 !important;
+    --card-shadow: 0 4px 20px rgba(15, 23, 42, 0.05) !important;
+    --accent: #0284c7 !important;
+}
+
+[data-theme="light"] body {
+    background: #f8fafc !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .dashboard-topbar {
+    background: #ffffff !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="light"] #main-header {
+    background: #ffffff !important;
+    border-right: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .topbar-warlog-title {
+    color: #0f172a !important;
+    text-shadow: none !important;
+}
+
+[data-theme="light"] .topbar-warlog-subtitle {
+    color: #64748b !important;
+}
+
+[data-theme="light"] .topbar-facility-selector {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] #activeFacilityNameDisplay {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .topbar-search-box input {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .topbar-search-box input::placeholder {
+    color: #94a3b8 !important;
+}
+
+[data-theme="light"] .topbar-search-box .search-icon {
+    color: #64748b !important;
+}
+
+[data-theme="light"] .search-kbd-shortcut {
+    background: #e2e8f0 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #475569 !important;
+}
+
+[data-theme="light"] .topbar-user-name {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .topbar-company-name {
+    color: #0284c7 !important;
+}
+
+[data-theme="light"] .topbar-theme-btn-compact {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .theme-palette-dropdown {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12) !important;
+}
+
+[data-theme="light"] .theme-palette-item {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .theme-palette-item:hover {
+    background: #f1f5f9 !important;
+    border-color: #0284c7 !important;
+}
+
+[data-theme="light"] .theme-palette-item strong {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .theme-palette-item span {
+    color: #64748b !important;
+}
+
+/* Light Theme: Hero Banner (100% Readable) */
+[data-theme="light"] .swms-hero-banner {
+    background-color: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06) !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-banner-inner {
+    background: linear-gradient(90deg, #ffffff 0%, rgba(255, 255, 255, 0.96) 50%, rgba(255, 255, 255, 0.85) 80%, rgba(255, 255, 255, 0.5) 100%) !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-title,
+[data-theme="light"] .swms-hero-banner .hero-title *,
+[data-theme="light"] .swms-hero-banner #heroUserNameDisplay {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-title-slash {
+    color: #0284c7 !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-desc {
+    color: #475569 !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-kicker {
+    color: #0284c7 !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-stat-pill {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05) !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-stat-pill strong {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .swms-hero-banner .hero-stat-pill span {
+    color: #64748b !important;
+}
+
+/* Light Theme: 4 KPI Cards & Intel Cards */
+[data-theme="light"] .swms-kpi-card {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="light"] .swms-kpi-card .kpi-label {
+    color: #64748b !important;
+}
+
+[data-theme="light"] .swms-kpi-card .kpi-value {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .swms-card,
+[data-theme="light"] .glass-panel {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04) !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .swms-card-header h3,
+[data-theme="light"] .card-header-title h3 {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .telemetry-time-select {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .donut-val-number {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .donut-ring-bg {
+    stroke: #e2e8f0 !important;
+}
+
+[data-theme="light"] .health-item {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .health-item-name {
+    color: #64748b !important;
+}
+
+[data-theme="light"] .health-item-val {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .timeline-row {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .timeline-title {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .timeline-meta {
+    color: #64748b !important;
+}
+
+/* Light Theme: Tables, Modals, Forms */
+[data-theme="light"] table th,
+[data-theme="light"] .table-styled th {
+    background: #f8fafc !important;
+    color: #475569 !important;
+    border-bottom: 2px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] table td,
+[data-theme="light"] .table-styled td {
+    color: #0f172a !important;
+    border-bottom: 1px solid #f1f5f9 !important;
+}
+
+[data-theme="light"] tbody tr:hover {
+    background-color: #f8fafc !important;
+}
+
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+    background: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+[data-theme="light"] label {
+    color: #334155 !important;
+}
+
+[data-theme="light"] .macos-modal-window {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    box-shadow: 0 25px 60px rgba(15, 23, 42, 0.2) !important;
+}
+
+[data-theme="light"] .macos-modal-header,
+[data-theme="light"] .macos-modal-footer {
+    background: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .btn-secondary {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #334155 !important;
+}
+
+[data-theme="light"] .btn-secondary:hover {
+    background: #e2e8f0 !important;
+    color: #0f172a !important;
+}
+
+
+/* --- 1B. OCEAN THEME OVERRIDES --- */
+[data-theme="ocean"] {
+    --bg-main: #040d1a !important;
+    --bg-page: #040d1a !important;
+    --panel-bg: #0c2340 !important;
+    --panel-subtle: #123055 !important;
+    --text-main: #f0fdfa !important;
+    --text-primary: #f0fdfa !important;
+    --text-muted: #7dd3fc !important;
+    --text-secondary: #7dd3fc !important;
+    --border-light: rgba(0, 240, 255, 0.22) !important;
+    --accent: #00f0ff !important;
+}
+
+[data-theme="ocean"] body {
+    background: #040d1a !important;
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] .swms-kpi-card {
+    background: rgba(12, 35, 64, 0.88) !important;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+    box-shadow: 0 4px 20px rgba(4, 13, 24, 0.4) !important;
+}
+
+[data-theme="ocean"] .swms-kpi-card .kpi-label {
+    color: #7dd3fc !important;
+}
+
+[data-theme="ocean"] .swms-kpi-card .kpi-value {
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] .swms-card,
+[data-theme="ocean"] .glass-panel {
+    background: rgba(12, 35, 64, 0.88) !important;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] .swms-card-header h3,
+[data-theme="ocean"] .card-header-title h3 {
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] .donut-val-number {
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] .donut-ring-bg {
+    stroke: rgba(0, 240, 255, 0.12) !important;
+}
+
+[data-theme="ocean"] .health-item {
+    background: rgba(0, 240, 255, 0.05) !important;
+    border: 1px solid rgba(0, 240, 255, 0.15) !important;
+}
+
+[data-theme="ocean"] .health-item-name {
+    color: #7dd3fc !important;
+}
+
+[data-theme="ocean"] .health-item-val {
+    color: #00f0ff !important;
+}
+
+[data-theme="ocean"] .timeline-row {
+    background: rgba(0, 240, 255, 0.05) !important;
+    border: 1px solid rgba(0, 240, 255, 0.12) !important;
+}
+
+[data-theme="ocean"] .timeline-title {
+    color: #f0fdfa !important;
+}
+
+[data-theme="ocean"] .timeline-meta {
+    color: #7dd3fc !important;
+}
+
+[data-theme="ocean"] .telemetry-time-select {
+    background: #0a1f3a !important;
+    border: 1px solid rgba(0, 240, 255, 0.25) !important;
+    color: #f0fdfa !important;
+}
+
+
+/* --- 1C. AMBER THEME OVERRIDES --- */
+[data-theme="amber"] {
+    --bg-main: #120e0a !important;
+    --bg-page: #120e0a !important;
+    --panel-bg: #1f1a14 !important;
+    --panel-subtle: #2d261d !important;
+    --text-main: #fef3c7 !important;
+    --text-primary: #fef3c7 !important;
+    --text-muted: #fbbf24 !important;
+    --text-secondary: #fbbf24 !important;
+    --border-light: rgba(245, 158, 11, 0.25) !important;
+    --accent: #f59e0b !important;
+}
+
+[data-theme="amber"] body {
+    background: #120e0a !important;
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] .swms-kpi-card {
+    background: rgba(31, 26, 20, 0.9) !important;
+    border: 1px solid rgba(245, 158, 11, 0.22) !important;
+    box-shadow: 0 4px 20px rgba(18, 14, 10, 0.4) !important;
+}
+
+[data-theme="amber"] .swms-kpi-card .kpi-label {
+    color: #fbbf24 !important;
+}
+
+[data-theme="amber"] .swms-kpi-card .kpi-value {
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] .swms-card,
+[data-theme="amber"] .glass-panel {
+    background: rgba(31, 26, 20, 0.9) !important;
+    border: 1px solid rgba(245, 158, 11, 0.22) !important;
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] .swms-card-header h3,
+[data-theme="amber"] .card-header-title h3 {
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] .donut-val-number {
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] .donut-ring-bg {
+    stroke: rgba(245, 158, 11, 0.12) !important;
+}
+
+[data-theme="amber"] .health-item {
+    background: rgba(245, 158, 11, 0.06) !important;
+    border: 1px solid rgba(245, 158, 11, 0.15) !important;
+}
+
+[data-theme="amber"] .health-item-name {
+    color: #fde68a !important;
+}
+
+[data-theme="amber"] .health-item-val {
+    color: #fbbf24 !important;
+}
+
+[data-theme="amber"] .timeline-row {
+    background: rgba(245, 158, 11, 0.06) !important;
+    border: 1px solid rgba(245, 158, 11, 0.15) !important;
+}
+
+[data-theme="amber"] .timeline-title {
+    color: #fef3c7 !important;
+}
+
+[data-theme="amber"] .timeline-meta {
+    color: #fbbf24 !important;
+}
+
+[data-theme="amber"] .telemetry-time-select {
+    background: #261f18 !important;
+    border: 1px solid rgba(245, 158, 11, 0.28) !important;
+    color: #fef3c7 !important;
+}
+
+
+/* --- 1D. DARK THEME OVERRIDES --- */
+[data-theme="dark"] {
+    --bg-main: #0a0e1a !important;
+    --bg-page: #0a0e1a !important;
+    --panel-bg: #111827 !important;
+    --panel-subtle: #1e293b !important;
+    --text-main: #f8fafc !important;
+    --text-primary: #f8fafc !important;
+    --text-muted: #94a3b8 !important;
+    --text-secondary: #94a3b8 !important;
+    --border-light: rgba(255, 255, 255, 0.08) !important;
+    --accent: #38bdf8 !important;
+}
+
+[data-theme="dark"] body {
+    background: #0a0e1a !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .swms-kpi-card {
+    background: rgba(17, 24, 39, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme="dark"] .swms-kpi-card .kpi-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .swms-kpi-card .kpi-value {
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .swms-card,
+[data-theme="dark"] .glass-panel {
+    background: rgba(17, 24, 39, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .swms-card-header h3,
+[data-theme="dark"] .card-header-title h3 {
+    color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] .donut-val-number {
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .donut-ring-bg {
+    stroke: rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="dark"] .health-item {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+[data-theme="dark"] .health-item-name {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .health-item-val {
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .timeline-row {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+[data-theme="dark"] .timeline-title {
+    color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] .timeline-meta {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .telemetry-time-select {
+    background: #1e293b !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #f8fafc !important;
+}
