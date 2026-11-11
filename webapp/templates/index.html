@@ -9648,6 +9648,190 @@ window.switchSubTab = switchSubTab;
     <!-- WARLOG AI COPILOT • MACOS X BIXBY HYBRID SYSTEM                -->
     <!-- ============================================================== -->
     <style id="warlog-copilot-styles">
+        /* ========================================================================= */
+        /* WARLOG COPILOT 4-THEME SYSTEM (LIGHT / DARK / OCEAN / AMBER)              */
+        /* ========================================================================= */
+        :root,
+        [data-theme="dark"],
+        html[data-theme="dark"],
+        body[data-theme="dark"] {
+            --copilot-window-bg: rgba(15, 23, 42, 0.88);
+            --copilot-window-border: rgba(255, 255, 255, 0.15);
+            --copilot-window-shadow: 0 35px 80px rgba(0, 0, 0, 0.65), 0 0 1px 1px rgba(255, 255, 255, 0.1) inset;
+            --copilot-launcher-bg: rgba(15, 23, 42, 0.92);
+            --copilot-launcher-border: rgba(255, 255, 255, 0.18);
+            --copilot-launcher-text: #f8fafc;
+            --copilot-launcher-sub: #94a3b8;
+            --copilot-titlebar-bg: rgba(15, 23, 42, 0.65);
+            --copilot-titlebar-border: rgba(255, 255, 255, 0.1);
+            --copilot-titlebar-text: #f1f5f9;
+            --copilot-capsule-bg: rgba(255, 255, 255, 0.06);
+            --copilot-capsule-border: rgba(255, 255, 255, 0.1);
+            --copilot-stream-bg: transparent;
+            --copilot-msg-assistant-bg: rgba(255, 255, 255, 0.04);
+            --copilot-msg-assistant-border: rgba(255, 255, 255, 0.08);
+            --copilot-msg-assistant-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+            --copilot-text-main: #f1f5f9;
+            --copilot-text-muted: #94a3b8;
+            --copilot-card-bg: rgba(0, 0, 0, 0.35);
+            --copilot-card-border: rgba(255, 255, 255, 0.07);
+            --copilot-card-sub-bg: rgba(255, 255, 255, 0.03);
+            --copilot-card-sub-border: rgba(255, 255, 255, 0.05);
+            --copilot-pills-row-bg: rgba(10, 15, 28, 0.55);
+            --copilot-pills-border: rgba(255, 255, 255, 0.06);
+            --copilot-pill-bg: rgba(255, 255, 255, 0.06);
+            --copilot-pill-border: rgba(255, 255, 255, 0.1);
+            --copilot-pill-text: #cbd5e1;
+            --copilot-pill-hover-bg: rgba(255, 255, 255, 0.12);
+            --copilot-input-bar-bg: rgba(10, 15, 28, 0.85);
+            --copilot-input-bar-border: rgba(255, 255, 255, 0.1);
+            --copilot-input-bg: rgba(255, 255, 255, 0.06);
+            --copilot-input-border: rgba(255, 255, 255, 0.14);
+            --copilot-input-text: #f8fafc;
+            --copilot-input-placeholder: #94a3b8;
+            --copilot-voice-btn-bg: rgba(255, 255, 255, 0.06);
+            --copilot-voice-btn-border: rgba(255, 255, 255, 0.12);
+            --copilot-voice-btn-color: #f8fafc;
+            --copilot-shortcut-bg: rgba(255, 255, 255, 0.05);
+            --copilot-shortcut-border: rgba(255, 255, 255, 0.08);
+            --copilot-shortcut-text: #94a3b8;
+        }
+
+        [data-theme="light"],
+        html[data-theme="light"],
+        body[data-theme="light"] {
+            --copilot-window-bg: rgba(255, 255, 255, 0.95);
+            --copilot-window-border: rgba(203, 213, 225, 0.9);
+            --copilot-window-shadow: 0 25px 60px rgba(15, 23, 42, 0.16), 0 4px 16px rgba(15, 23, 42, 0.06);
+            --copilot-launcher-bg: rgba(255, 255, 255, 0.96);
+            --copilot-launcher-border: rgba(203, 213, 225, 0.95);
+            --copilot-launcher-text: #0f172a;
+            --copilot-launcher-sub: #64748b;
+            --copilot-titlebar-bg: rgba(248, 250, 252, 0.95);
+            --copilot-titlebar-border: rgba(226, 232, 240, 0.95);
+            --copilot-titlebar-text: #0f172a;
+            --copilot-capsule-bg: rgba(241, 245, 249, 0.95);
+            --copilot-capsule-border: rgba(203, 213, 225, 0.85);
+            --copilot-stream-bg: rgba(248, 250, 252, 0.7);
+            --copilot-msg-assistant-bg: #ffffff;
+            --copilot-msg-assistant-border: rgba(226, 232, 240, 0.95);
+            --copilot-msg-assistant-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+            --copilot-text-main: #0f172a;
+            --copilot-text-muted: #64748b;
+            --copilot-card-bg: #f8fafc;
+            --copilot-card-border: rgba(226, 232, 240, 0.95);
+            --copilot-card-sub-bg: #ffffff;
+            --copilot-card-sub-border: #e2e8f0;
+            --copilot-pills-row-bg: rgba(241, 245, 249, 0.92);
+            --copilot-pills-border: rgba(226, 232, 240, 0.95);
+            --copilot-pill-bg: #ffffff;
+            --copilot-pill-border: #cbd5e1;
+            --copilot-pill-text: #334155;
+            --copilot-pill-hover-bg: #f1f5f9;
+            --copilot-input-bar-bg: rgba(255, 255, 255, 0.96);
+            --copilot-input-bar-border: rgba(226, 232, 240, 0.95);
+            --copilot-input-bg: #f1f5f9;
+            --copilot-input-border: #cbd5e1;
+            --copilot-input-text: #0f172a;
+            --copilot-input-placeholder: #94a3b8;
+            --copilot-voice-btn-bg: rgba(241, 245, 249, 0.95);
+            --copilot-voice-btn-border: #cbd5e1;
+            --copilot-voice-btn-color: #0f172a;
+            --copilot-shortcut-bg: #f1f5f9;
+            --copilot-shortcut-border: #e2e8f0;
+            --copilot-shortcut-text: #64748b;
+        }
+
+        [data-theme="ocean"],
+        html[data-theme="ocean"],
+        body[data-theme="ocean"] {
+            --copilot-window-bg: rgba(8, 23, 38, 0.92);
+            --copilot-window-border: rgba(6, 182, 212, 0.3);
+            --copilot-window-shadow: 0 35px 80px rgba(0, 0, 0, 0.7), 0 0 30px rgba(6, 182, 212, 0.15);
+            --copilot-launcher-bg: rgba(8, 23, 38, 0.95);
+            --copilot-launcher-border: rgba(6, 182, 212, 0.35);
+            --copilot-launcher-text: #e0f2fe;
+            --copilot-launcher-sub: #7dd3fc;
+            --copilot-titlebar-bg: rgba(11, 29, 48, 0.8);
+            --copilot-titlebar-border: rgba(6, 182, 212, 0.22);
+            --copilot-titlebar-text: #e0f2fe;
+            --copilot-capsule-bg: rgba(11, 29, 48, 0.65);
+            --copilot-capsule-border: rgba(6, 182, 212, 0.25);
+            --copilot-stream-bg: transparent;
+            --copilot-msg-assistant-bg: rgba(11, 29, 48, 0.75);
+            --copilot-msg-assistant-border: rgba(6, 182, 212, 0.22);
+            --copilot-msg-assistant-shadow: 0 4px 20px rgba(4, 13, 24, 0.4);
+            --copilot-text-main: #e0f2fe;
+            --copilot-text-muted: #7dd3fc;
+            --copilot-card-bg: rgba(6, 19, 33, 0.85);
+            --copilot-card-border: rgba(6, 182, 212, 0.25);
+            --copilot-card-sub-bg: rgba(11, 29, 48, 0.6);
+            --copilot-card-sub-border: rgba(6, 182, 212, 0.15);
+            --copilot-pills-row-bg: rgba(4, 13, 24, 0.75);
+            --copilot-pills-border: rgba(6, 182, 212, 0.18);
+            --copilot-pill-bg: rgba(11, 29, 48, 0.65);
+            --copilot-pill-border: rgba(6, 182, 212, 0.25);
+            --copilot-pill-text: #bae6fd;
+            --copilot-pill-hover-bg: rgba(6, 182, 212, 0.2);
+            --copilot-input-bar-bg: rgba(4, 13, 24, 0.85);
+            --copilot-input-bar-border: rgba(6, 182, 212, 0.25);
+            --copilot-input-bg: rgba(11, 29, 48, 0.65);
+            --copilot-input-border: rgba(6, 182, 212, 0.3);
+            --copilot-input-text: #e0f2fe;
+            --copilot-input-placeholder: #7dd3fc;
+            --copilot-voice-btn-bg: rgba(11, 29, 48, 0.7);
+            --copilot-voice-btn-border: rgba(6, 182, 212, 0.3);
+            --copilot-voice-btn-color: #e0f2fe;
+            --copilot-shortcut-bg: rgba(11, 29, 48, 0.6);
+            --copilot-shortcut-border: rgba(6, 182, 212, 0.2);
+            --copilot-shortcut-text: #7dd3fc;
+        }
+
+        [data-theme="amber"],
+        html[data-theme="amber"],
+        body[data-theme="amber"] {
+            --copilot-window-bg: rgba(18, 14, 10, 0.94);
+            --copilot-window-border: rgba(245, 158, 11, 0.35);
+            --copilot-window-shadow: 0 35px 80px rgba(0, 0, 0, 0.7), 0 0 30px rgba(245, 158, 11, 0.15);
+            --copilot-launcher-bg: rgba(18, 14, 10, 0.95);
+            --copilot-launcher-border: rgba(245, 158, 11, 0.4);
+            --copilot-launcher-text: #fef3c7;
+            --copilot-launcher-sub: #fde68a;
+            --copilot-titlebar-bg: rgba(28, 22, 17, 0.85);
+            --copilot-titlebar-border: rgba(245, 158, 11, 0.25);
+            --copilot-titlebar-text: #fef3c7;
+            --copilot-capsule-bg: rgba(28, 22, 17, 0.7);
+            --copilot-capsule-border: rgba(245, 158, 11, 0.3);
+            --copilot-stream-bg: transparent;
+            --copilot-msg-assistant-bg: rgba(28, 22, 17, 0.8);
+            --copilot-msg-assistant-border: rgba(245, 158, 11, 0.25);
+            --copilot-msg-assistant-shadow: 0 4px 20px rgba(15, 10, 5, 0.4);
+            --copilot-text-main: #fef3c7;
+            --copilot-text-muted: #fde68a;
+            --copilot-card-bg: rgba(18, 14, 10, 0.85);
+            --copilot-card-border: rgba(245, 158, 11, 0.3);
+            --copilot-card-sub-bg: rgba(28, 22, 17, 0.65);
+            --copilot-card-sub-border: rgba(245, 158, 11, 0.2);
+            --copilot-pills-row-bg: rgba(14, 10, 7, 0.75);
+            --copilot-pills-border: rgba(245, 158, 11, 0.2);
+            --copilot-pill-bg: rgba(28, 22, 17, 0.7);
+            --copilot-pill-border: rgba(245, 158, 11, 0.3);
+            --copilot-pill-text: #fef3c7;
+            --copilot-pill-hover-bg: rgba(245, 158, 11, 0.2);
+            --copilot-input-bar-bg: rgba(14, 10, 7, 0.85);
+            --copilot-input-bar-border: rgba(245, 158, 11, 0.28);
+            --copilot-input-bg: rgba(28, 22, 17, 0.7);
+            --copilot-input-border: rgba(245, 158, 11, 0.35);
+            --copilot-input-text: #fef3c7;
+            --copilot-input-placeholder: #fde68a;
+            --copilot-voice-btn-bg: rgba(28, 22, 17, 0.75);
+            --copilot-voice-btn-border: rgba(245, 158, 11, 0.35);
+            --copilot-voice-btn-color: #fef3c7;
+            --copilot-shortcut-bg: rgba(28, 22, 17, 0.65);
+            --copilot-shortcut-border: rgba(245, 158, 11, 0.25);
+            --copilot-shortcut-text: #fde68a;
+        }
+
         @keyframes bixby-rotate {
             0% { transform: rotate(0deg) scale(1); filter: drop-shadow(0 0 16px rgba(0, 242, 254, 0.7)); }
             50% { transform: rotate(180deg) scale(1.06); filter: drop-shadow(0 0 24px rgba(157, 78, 221, 0.85)); }
@@ -9668,11 +9852,12 @@ window.switchSubTab = switchSubTab;
         }
 
         .macos-glass-copilot {
-            background: rgba(15, 23, 42, 0.88);
+            background: var(--copilot-window-bg);
             backdrop-filter: blur(28px) saturate(190%);
             -webkit-backdrop-filter: blur(28px) saturate(190%);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            box-shadow: 0 35px 80px rgba(0, 0, 0, 0.65), 0 0 1px 1px rgba(255, 255, 255, 0.1) inset;
+            border: 1px solid var(--copilot-window-border);
+            box-shadow: var(--copilot-window-shadow);
+            transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
         }
 
         /* Floating Launcher Pill */
@@ -9686,19 +9871,19 @@ window.switchSubTab = switchSubTab;
             gap: 12px;
             padding: 8px 16px 8px 10px;
             border-radius: 999px;
-            background: rgba(15, 23, 42, 0.92);
+            background: var(--copilot-launcher-bg);
             backdrop-filter: blur(24px) saturate(190%);
             -webkit-backdrop-filter: blur(24px) saturate(190%);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 20px rgba(0, 242, 254, 0.25);
+            border: 1px solid var(--copilot-launcher-border);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35), 0 0 20px rgba(0, 242, 254, 0.25);
             cursor: pointer;
             transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
             user-select: none;
         }
         .copilot-floating-launcher:hover {
             transform: translateY(-2px) scale(1.02);
-            border-color: rgba(56, 189, 248, 0.5);
-            box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55), 0 0 28px rgba(157, 78, 221, 0.4);
+            border-color: rgba(56, 189, 248, 0.6);
+            box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45), 0 0 28px rgba(157, 78, 221, 0.4);
         }
         .copilot-launcher-orb {
             width: 32px;
@@ -9733,12 +9918,12 @@ window.switchSubTab = switchSubTab;
         .copilot-launcher-title {
             font-size: 0.82rem;
             font-weight: 700;
-            color: #f8fafc;
+            color: var(--copilot-launcher-text);
             letter-spacing: 0.3px;
         }
         .copilot-launcher-sub {
             font-size: 0.68rem;
-            color: #94a3b8;
+            color: var(--copilot-launcher-sub);
         }
         .copilot-launcher-shortcut {
             font-family: monospace;
@@ -9776,12 +9961,13 @@ window.switchSubTab = switchSubTab;
         /* Titlebar */
         .copilot-titlebar {
             padding: 12px 18px;
-            background: rgba(15, 23, 42, 0.6);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--copilot-titlebar-bg);
+            border-bottom: 1px solid var(--copilot-titlebar-border);
             display: flex;
             align-items: center;
             justify-content: space-between;
             user-select: none;
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
         .copilot-traffic-lights {
             display: flex;
@@ -9825,8 +10011,9 @@ window.switchSubTab = switchSubTab;
             gap: 8px;
             padding: 4px 12px;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--copilot-capsule-bg);
+            border: 1px solid var(--copilot-capsule-border);
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
         .copilot-bixby-orb {
             width: 20px;
@@ -9857,10 +10044,10 @@ window.switchSubTab = switchSubTab;
         .copilot-titlebar-label {
             font-size: 0.78rem;
             font-weight: 600;
-            color: #f1f5f9;
+            color: var(--copilot-titlebar-text);
             letter-spacing: 0.3px;
         }
-                .copilot-speaking-glow {
+        .copilot-speaking-glow {
             box-shadow: 0 0 16px rgba(0, 242, 254, 0.6), 0 0 30px rgba(157, 78, 221, 0.4) !important;
             border-color: rgba(0, 242, 254, 0.5) !important;
             animation: bixby-speaking-pulse 1.4s infinite alternate ease-in-out !important;
@@ -9889,11 +10076,25 @@ window.switchSubTab = switchSubTab;
         .copilot-shortcut-tag {
             font-family: monospace;
             font-size: 0.68rem;
-            color: #94a3b8;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--copilot-shortcut-text);
+            background: var(--copilot-shortcut-bg);
+            border: 1px solid var(--copilot-shortcut-border);
             border-radius: 6px;
             padding: 2px 6px;
+        }
+        .copilot-voice-toggle-btn {
+            background: var(--copilot-voice-btn-bg);
+            border: 1px solid var(--copilot-voice-btn-border);
+            color: var(--copilot-voice-btn-color);
+            font-size: 0.82rem;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
 
         /* Chat Stream */
@@ -9902,12 +10103,14 @@ window.switchSubTab = switchSubTab;
             overflow-y: auto;
             padding: 14px 16px;
             scroll-behavior: smooth;
+            background: var(--copilot-stream-bg);
+            transition: background 0.3s ease;
         }
         .copilot-chat-stream::-webkit-scrollbar {
             width: 5px;
         }
         .copilot-chat-stream::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
+            background: rgba(148, 163, 184, 0.25);
             border-radius: 10px;
         }
         .copilot-bixby-orb-mini {
@@ -9915,45 +10118,152 @@ window.switchSubTab = switchSubTab;
             animation: bixby-rotate 8s infinite linear;
         }
 
+        /* Bubble message styles */
+        .copilot-msg-bubble {
+            backdrop-filter: blur(14px);
+            padding: 12px 14px;
+            max-width: 88%;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+        }
+        .copilot-assistant-bubble {
+            background: var(--copilot-msg-assistant-bg);
+            border: 1px solid var(--copilot-msg-assistant-border);
+            border-radius: 18px 18px 18px 4px;
+            box-shadow: var(--copilot-msg-assistant-shadow);
+            color: var(--copilot-text-main);
+        }
+        .copilot-user-bubble {
+            background: linear-gradient(135deg, rgba(37,99,235,0.9), rgba(79,70,229,0.9));
+            color: #ffffff;
+            border-radius: 18px 18px 4px 18px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        /* Cards Design System */
+        .copilot-card-container {
+            background: var(--copilot-card-bg);
+            border: 1px solid var(--copilot-card-border);
+            border-radius: 12px;
+            padding: 10px;
+            margin-top: 8px;
+            color: var(--copilot-text-main);
+            transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+        }
+        .copilot-metric-chip {
+            background: var(--copilot-card-sub-bg);
+            border: 1px solid var(--copilot-card-sub-border);
+            border-radius: 8px;
+            padding: 8px;
+            text-align: center;
+            transition: background 0.25s ease, border-color 0.25s ease;
+        }
+        .copilot-metric-label {
+            font-size: 0.62rem;
+            color: var(--copilot-text-muted);
+            font-family: monospace;
+            text-transform: uppercase;
+        }
+        .copilot-metric-val {
+            font-size: 0.85rem;
+            font-weight: 800;
+            color: #38bdf8;
+            margin-top: 2px;
+        }
+        .copilot-list-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 8px;
+            border-bottom: 1px solid var(--copilot-card-sub-border);
+            font-size: 0.70rem;
+        }
+        .copilot-category-chip {
+            font-size: 0.65rem;
+            color: var(--copilot-text-muted);
+            background: var(--copilot-card-sub-bg);
+            border: 1px solid var(--copilot-card-sub-border);
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+        .copilot-card-btn {
+            background: rgba(56, 189, 248, 0.12);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            font-size: 0.70rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .copilot-card-btn:hover {
+            background: rgba(56, 189, 248, 0.22);
+            border-color: rgba(56, 189, 248, 0.5);
+            transform: translateY(-1px);
+        }
+        .copilot-source-chip {
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.65rem;
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            padding: 2px 8px;
+            border-radius: 12px;
+            transition: all 0.15s ease;
+        }
+        .copilot-source-chip:hover {
+            background: rgba(56, 189, 248, 0.2);
+            border-color: rgba(56, 189, 248, 0.5);
+            transform: translateY(-1px);
+        }
+
         /* Quick Pills */
         .copilot-pills-row {
             padding: 8px 14px;
-            background: rgba(10, 15, 28, 0.5);
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            background: var(--copilot-pills-row-bg);
+            border-top: 1px solid var(--copilot-pills-border);
             display: flex;
             align-items: center;
             gap: 6px;
             overflow-x: auto;
             white-space: nowrap;
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
         .copilot-pills-row::-webkit-scrollbar {
             display: none;
         }
         .copilot-pill {
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--copilot-pill-bg);
+            border: 1px solid var(--copilot-pill-border);
             border-radius: 20px;
             padding: 4px 10px;
             font-size: 0.70rem;
-            color: #cbd5e1;
+            color: var(--copilot-pill-text);
             cursor: pointer;
             transition: all 0.15s ease;
             user-select: none;
         }
         .copilot-pill:hover {
-            background: rgba(255, 255, 255, 0.12);
-            border-color: rgba(56, 189, 248, 0.4);
-            color: #f8fafc;
+            background: var(--copilot-pill-hover-bg);
+            border-color: rgba(56, 189, 248, 0.5);
+            color: var(--copilot-text-main);
         }
 
         /* Input Bar */
         .copilot-input-bar {
             padding: 12px 14px;
-            background: rgba(10, 15, 28, 0.75);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--copilot-input-bar-bg);
+            border-top: 1px solid var(--copilot-input-bar-border);
             display: flex;
             align-items: center;
             gap: 10px;
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
         .copilot-input-wrapper {
             flex: 1;
@@ -9961,14 +10271,17 @@ window.switchSubTab = switchSubTab;
         }
         .copilot-input-wrapper input {
             width: 100%;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: var(--copilot-input-bg);
+            border: 1px solid var(--copilot-input-border);
             border-radius: 999px;
             padding: 8px 16px;
             font-size: 0.78rem;
-            color: #f8fafc;
+            color: var(--copilot-input-text);
             outline: none;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.25s ease, color 0.25s ease;
+        }
+        .copilot-input-wrapper input::placeholder {
+            color: var(--copilot-input-placeholder);
         }
         .copilot-input-wrapper input:focus {
             border-color: rgba(56, 189, 248, 0.8);
@@ -10060,7 +10373,7 @@ window.switchSubTab = switchSubTab;
 
             <!-- Voice Speech Output & Shortcut Controls -->
             <div style="display:flex; align-items:center; gap:8px;">
-                <button type="button" id="copilotVoiceToggleBtn" onclick="toggleCopilotSpeechOutput()" title="Toggle Voice Speech Output (Mute/Unmute)" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#f8fafc; font-size:0.82rem; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.2s ease;">
+                <button type="button" id="copilotVoiceToggleBtn" class="copilot-voice-toggle-btn" onclick="toggleCopilotSpeechOutput()" title="Toggle Voice Speech Output (Mute/Unmute)">
                     🔊
                 </button>
                 <div class="copilot-shortcut-tag">⌘ Space</div>
@@ -10074,8 +10387,8 @@ window.switchSubTab = switchSubTab;
                 <div class="copilot-bixby-orb-mini" style="width:26px; height:26px; border-radius:50%; padding:1.5px; flex-shrink:0; display:flex; align-items:center; justify-content:center; margin-top:2px;">
                     <div style="width:100%; height:100%; border-radius:50%; background:#090d16; display:flex; align-items:center; justify-content:center; color:#38bdf8; font-size:10px;">✦</div>
                 </div>
-                <div style="background:rgba(255,255,255,0.04); backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,0.08); border-radius:18px 18px 18px 4px; padding:12px 14px; max-width:88%; box-shadow:0 4px 20px rgba(0,0,0,0.25);">
-                    <div style="color:var(--text-main, #f1f5f9); font-size:0.78rem; line-height:1.45;">
+                <div class="copilot-msg-bubble copilot-assistant-bubble">
+                    <div style="font-size:0.78rem; line-height:1.45;">
                         👋 Hello! I am your <strong>WARLOG AI Copilot</strong>. I monitor real-time ANPR gate events, dock loads, inventory bins, and camera matrices. How can I assist warehouse operations today?
                     </div>
                 </div>
