@@ -322,10 +322,146 @@
             </div>
             `;
         }
+        } else if (cType === 'operations_summary_card') {
+            const metricsHtml = (card.metrics || []).map(m => `
+                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); padding:8px; border-radius:8px; text-align:center;">
+                    <div style="font-size:0.62rem; color:#94a3b8; font-family:monospace; text-transform:uppercase;">${escapeHtml(m.label)}</div>
+                    <div style="font-size:0.85rem; font-weight:800; color:#38bdf8; margin-top:2px;">${escapeHtml(m.value)}</div>
+                </div>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="font-size:0.74rem; font-weight:bold; color:#cbd5e1; margin-bottom:8px;">📊 ${escapeHtml(card.title)}</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                    ${metricsHtml}
+                </div>
+            </div>
+            `;
+        } else if (cType === 'po_list_card') {
+            const itemsHtml = (card.items || []).map(it => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.72rem;">
+                    <div>
+                        <strong style="color:#c084fc; font-family:monospace;">${escapeHtml(it.po_number)}</strong>
+                        <div style="color:#94a3b8; font-size:0.65rem;">${escapeHtml(it.vendor)} • Plate: ${escapeHtml(it.plate)}</div>
+                    </div>
+                    <span style="font-size:0.65rem; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); padding:2px 6px; border-radius:10px;">${escapeHtml(it.status)}</span>
+                </div>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="font-size:0.74rem; font-weight:bold; color:#cbd5e1; margin-bottom:6px;">📋 ${escapeHtml(card.title)}</div>
+                ${itemsHtml}
+            </div>
+            `;
+        } else if (cType === 'vendor_summary_card') {
+            const itemsHtml = (card.items || []).map(it => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.72rem;">
+                    <span style="color:#f1f5f9;">🏢 ${escapeHtml(it.name)}</span>
+                    <span style="color:#34d399; font-weight:700; font-family:monospace;">${escapeHtml(it.shipments)} shipments</span>
+                </div>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="font-size:0.74rem; font-weight:bold; color:#cbd5e1; margin-bottom:6px;">👥 ${escapeHtml(card.title)}</div>
+                ${itemsHtml}
+            </div>
+            `;
+        } else if (cType === 'knowledge_card') {
+            const pointsHtml = (card.points || []).map(p => `
+                <li style="margin-bottom:3px; color:#cbd5e1;">${escapeHtml(p)}</li>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(56,189,248,0.2); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="font-size:0.76rem; font-weight:bold; color:#38bdf8; margin-bottom:2px;">${escapeHtml(card.title)}</div>
+                ${card.subtitle ? `<div style="font-size:0.65rem; color:#94a3b8; margin-bottom:6px;">${escapeHtml(card.subtitle)}</div>` : ''}
+                <ul style="font-size:0.70rem; padding-left:14px; margin:0;">
+                    ${pointsHtml}
+                </ul>
+            </div>
+            `;
+        } else if (cType === 'dock_balance_card') {
+            const docksHtml = (card.docks || []).map(d => `
+                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); padding:8px; border-radius:8px; text-align:center;">
+                    <div style="font-size:0.68rem; font-weight:bold; color:#f59e0b;">${escapeHtml(d.name)}</div>
+                    <div style="font-size:0.78rem; font-weight:800; color:#ffffff; margin-top:2px;">${escapeHtml(d.status)}</div>
+                    <div style="font-size:0.65rem; color:#94a3b8; margin-top:2px;">${escapeHtml(d.active_trucks)} active</div>
+                </div>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span style="font-size:0.74rem; font-weight:bold; color:#cbd5e1;">⚓ ${escapeHtml(card.title)}</span>
+                    <span style="font-size:0.68rem; color:#34d399;">Recommended: ${escapeHtml(card.suggested_dock)}</span>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                    ${docksHtml}
+                </div>
+            </div>
+            `;
+        } else if (cType === 'camera_matrix_card') {
+            const camsHtml = (card.cameras || []).map(c => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.70rem;">
+                    <div>
+                        <strong style="color:#f1f5f9;">${escapeHtml(c.name)}</strong>
+                        <span style="color:#64748b; font-size:0.65rem;"> (${escapeHtml(c.loc || c.id)})</span>
+                    </div>
+                    <span style="font-size:0.65rem; color:#34d399; font-weight:bold;">● ${escapeHtml(c.status)}</span>
+                </div>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="font-size:0.74rem; font-weight:bold; color:#cbd5e1; margin-bottom:6px;">🎥 ${escapeHtml(card.title)}</div>
+                ${camsHtml}
+            </div>
+            `;
+        } else if (cType === 'low_stock_audit_card') {
+            const itemsHtml = (card.items || []).map(it => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.70rem;">
+                    <div>
+                        <strong style="color:#f87171;">⚠️ ${escapeHtml(it.name)}</strong>
+                        <div style="font-family:monospace; color:#64748b; font-size:0.65rem;">${escapeHtml(it.code)}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="color:#ef4444; font-weight:bold;">${escapeHtml(it.stock)} ${escapeHtml(it.uom)}</span>
+                        <div style="font-size:0.62rem; color:#94a3b8;">Min: ${escapeHtml(it.reorder)}</div>
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(239,68,68,0.25); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="font-size:0.74rem; font-weight:bold; color:#fca5a5; margin-bottom:6px;">${escapeHtml(card.title)}</div>
+                ${itemsHtml}
+            </div>
+            `;
+        } else if (cType === 'delivery_card') {
+            return `
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px; margin-top:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <strong style="color:#facc15; font-family:monospace; font-size:0.78rem;">🚛 ${escapeHtml(card.plate)}</strong>
+                    <span style="font-size:0.65rem; color:#38bdf8; background:rgba(56,189,248,0.15); padding:2px 6px; border-radius:10px;">${escapeHtml(card.status)}</span>
+                </div>
+                <div style="font-size:0.70rem; color:#94a3b8; margin-bottom:6px;">
+                    <div>PO: <strong style="color:#c084fc;">${escapeHtml(card.po_number)}</strong> • ${escapeHtml(card.vendor)}</div>
+                    <div>Expected: <span style="color:#cbd5e1;">${escapeHtml(card.expected_date)}</span></div>
+                </div>
+            </div>
+            `;
+        }
         return '';
     }
 
     window.executeCopilotAction = async function (action, params) {
+        if (action === 'open_po_studio') {
+            if (typeof window.switchTab === 'function') window.switchTab('inbound-flow');
+            return;
+        }
         if (action === 'open_3d_bin') {
             if (typeof window.switchTab === 'function') window.switchTab('palletization');
             showToast(`Navigating to 3D Pallet & Rack Map for ${params.bin_code || 'Bin'}...`, 'info');
