@@ -79,12 +79,15 @@
         }
     }
 
-    window.toggleCopilot = function () {
+    window.toggleCopilot = function (forceState) {
         const panel = document.getElementById('warlogCopilotWindow');
         const launcher = document.getElementById('warlogCopilotLauncher');
         if (!panel) return;
 
-        isCopilotOpen = !isCopilotOpen;
+        const isCurrentlyVisible = panel.style.display === 'flex' || (typeof window.getComputedStyle === 'function' && getComputedStyle(panel).display !== 'none');
+        const nextState = (typeof forceState === 'boolean') ? forceState : !isCurrentlyVisible;
+        isCopilotOpen = nextState;
+
         if (isCopilotOpen) {
             panel.style.display = 'flex';
             panel.style.opacity = '0';
@@ -105,6 +108,14 @@
             }, 200);
             if (isVoiceActive && recognition) recognition.stop();
         }
+    };
+
+    window.openCopilot = function () {
+        window.toggleCopilot(true);
+    };
+
+    window.closeCopilot = function () {
+        window.toggleCopilot(false);
     };
 
     window.toggleCopilotExpand = function () {
@@ -321,7 +332,6 @@
                 ${listItems}
             </div>
             `;
-        }
         } else if (cType === 'operations_summary_card') {
             const metricsHtml = (card.metrics || []).map(m => `
                 <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); padding:8px; border-radius:8px; text-align:center;">
