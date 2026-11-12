@@ -6219,7 +6219,7 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             }
 
             // Sync theme attribute across all floating panels and modals
-            ['warlogCopilotWindow', 'warlogCopilotLauncher', 'modalDeliveryDetails', 'modalEditDelivery', 'modalTruckImageViewer'].forEach(id => {
+            ['warlogCopilotWindow', 'warlogCopilotLauncher', 'modalDeliveryDetails', 'modalEditDelivery', 'modalTruckImageViewer', 'industryBlueprintModal', 'addFacilityModal', 'addBinModal', 'editBinModal'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.setAttribute('data-theme', themeName);
             });
@@ -6294,7 +6294,7 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             const saved = localStorage.getItem('warlog_theme') || localStorage.getItem('skantha_theme') || 'dark';
             document.documentElement.setAttribute('data-theme', saved);
             if (document.body) document.body.setAttribute('data-theme', saved);
-            ['warlogCopilotWindow', 'warlogCopilotLauncher', 'modalDeliveryDetails', 'modalEditDelivery', 'modalTruckImageViewer'].forEach(id => {
+            ['warlogCopilotWindow', 'warlogCopilotLauncher', 'modalDeliveryDetails', 'modalEditDelivery', 'modalTruckImageViewer', 'industryBlueprintModal', 'addFacilityModal', 'addBinModal', 'editBinModal'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.setAttribute('data-theme', saved);
             });
