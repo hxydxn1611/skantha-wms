@@ -7,7 +7,7 @@
  * 4. Multi-Gate Network (Entry Gate 01 vs Exit Gate 02) with Yard Dwell-Time Computation
  */
 
-(function(window, document) {
+(function (window, document) {
     'use strict';
 
     // State Variables
@@ -26,7 +26,7 @@
      * Supported: 'CAM-STAGE-01' (Nadir 90°), 'CAM-STAGE-02' (Oblique 45°),
      *            'CAM-STAGE-03' (Profile 0°), '360_FUSED' (Quad Matrix)
      */
-    window.switchStagingCameraAngle = function(camId) {
+    window.switchStagingCameraAngle = function (camId) {
         currentActiveAngle = camId;
         const imgEl = document.getElementById('stagingFeedImg');
         if (imgEl) {
@@ -75,7 +75,7 @@
      * @param {string} actorType 'HUMAN_WORKER' or 'FORKLIFT_MHE'
      * @param {number} qty Units to add
      */
-    window.recordStagingPlacement = async function(actorType, qty) {
+    window.recordStagingPlacement = async function (actorType, qty) {
         if (isStagingSubmitting) return;
         isStagingSubmitting = true;
 
@@ -111,7 +111,7 @@
     /**
      * Resets the staging buffer count to 0 and clears settled items.
      */
-    window.resetStagingZone = async function() {
+    window.resetStagingZone = async function () {
         if (!confirm('Reset Staging Area zone buffer to 0 units?')) return;
         try {
             const res = await fetch('/api/staging/reset', { method: 'POST' });
@@ -125,7 +125,7 @@
     /**
      * Updates target quota limit or SKU configuration.
      */
-    window.configureStagingQuota = async function() {
+    window.configureStagingQuota = async function () {
         const quotaInput = document.getElementById('stgTargetQuotaInput');
         const targetQ = quotaInput ? parseInt(quotaInput.value, 10) : 30;
         const skuSelect = document.getElementById('stgTargetSkuSelect');
@@ -157,7 +157,7 @@
     /**
      * Executes rapid burst test (+10 units) to demonstrate sub-10ms processing.
      */
-    window.runStagingBurstTest = async function() {
+    window.runStagingBurstTest = async function () {
         for (let i = 0; i < 5; i++) {
             await window.recordStagingPlacement('HUMAN_WORKER', 1);
             await new Promise(r => setTimeout(r, 60));
@@ -250,7 +250,7 @@
             const isForklift = actor.actor_type === 'FORKLIFT_MHE';
             const iconHtml = isForklift ? '<i class="fas fa-truck-ramp-box text-amber"></i>' : '<i class="fas fa-person-digging text-cyan"></i>';
             const roleLabel = isForklift ? 'MHE FORKLIFT' : 'HUMAN WORKER';
-            
+
             document.getElementById('stgActorIconWrap').innerHTML = iconHtml;
             document.getElementById('stgActorRole').textContent = roleLabel;
             document.getElementById('stgActorName').textContent = actor.actor_name || actor.actor_id;
@@ -266,7 +266,7 @@
                 const actorBadge = isForklift
                     ? `<span class="badge" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:0.7rem;"><i class="fas fa-truck-ramp-box"></i> ${evt.equipment || 'FL-01'}</span>`
                     : `<span class="badge" style="background:rgba(14,165,233,0.15); color:#38bdf8; font-size:0.7rem;"><i class="fas fa-hard-hat"></i> ${evt.actor_name || 'Worker'}</span>`;
-                
+
                 return `
                     <tr>
                         <td style="font-family:monospace; font-size:0.75rem; color:#94a3b8;">${evt.timestamp.split(' ')[1] || evt.timestamp}</td>
@@ -311,7 +311,7 @@
      * Switches between Gate 01 (Entry), Gate 02 (Exit), and Dual Split Matrix.
      * @param {string} gateId 'GATE-01' | 'GATE-02' | 'DUAL-GATE'
      */
-    window.switchGateLane = function(gateId) {
+    window.switchGateLane = function (gateId) {
         currentActiveGate = gateId;
 
         document.querySelectorAll('.gate-lane-btn').forEach(btn => {
@@ -339,7 +339,7 @@
             if (imgSingle) imgSingle.src = '/video_feed/CAM-004';
             if (checkOutBtn) checkOutBtn.style.display = 'inline-flex';
             if (laneTitle) laneTitle.innerHTML = '🚚 GATE 02 • OUTBOUND EXIT &amp; DWELL-TIME CLEARANCE';
-            
+
             // Switch reticle to exit clearance mode
             const targetText = document.getElementById('gateCamTargetText');
             if (targetText) targetText.textContent = 'EXIT BARRIER OCR ARMED';
@@ -362,7 +362,7 @@
      * Checks out vehicle at Gate 02 (Exit), records exit timestamp, calculates dwell time,
      * and raises the exit barrier arm.
      */
-    window.checkoutVehicleGate02 = async function(plateOrPassId) {
+    window.checkoutVehicleGate02 = async function (plateOrPassId) {
         try {
             const res = await fetch('/api/gate/checkout', {
                 method: 'POST',
@@ -423,7 +423,7 @@
             const res = await fetch('/api/gate/multi_status');
             if (!res.ok) return;
             const data = await res.json();
-            
+
             const yardBadge = document.getElementById('gateYardVehiclesBadge');
             if (yardBadge) yardBadge.textContent = `${data.yard_count || 0} In Yard`;
 

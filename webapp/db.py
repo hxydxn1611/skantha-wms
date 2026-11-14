@@ -1649,6 +1649,8 @@ def save_vision_camera_config(identifier, data):
     with conn:
         if 'bin_id' in data:
             conn.execute("UPDATE cameras SET bin_id = ? WHERE camera_id = ?", (data.get('bin_id'), camera_id))
+        if 'location' in data and str(data.get('location') or '').strip():
+            conn.execute("UPDATE cameras SET location = ? WHERE camera_id = ?", (str(data.get('location')).strip(), camera_id))
             
         conn.execute("""
             INSERT INTO vision_camera_configs (camera_id, ai_enabled, detection_enabled, tracking_enabled, processing_fps, created_at, updated_at)

@@ -443,14 +443,15 @@
 
                     <!-- Bin Assignment Fields -->
                     <h4 style="margin:0 0 0.85rem 0; font-size:0.95rem; color:var(--primary-navy); border-bottom:1px solid var(--border-light); padding-bottom:6px;">
-                        Bin Assignment
+                        Bin &amp; Staging Zone Assignment
                     </h4>
                     <div style="margin-bottom:1.25rem;">
-                        <label for="cfgModalBinId">Assign Camera to Bin</label>
+                        <label for="cfgModalBinId">Assign Camera to Bin or Staging Area</label>
                         <select id="cfgModalBinId" style="margin-bottom:0;">
                             <option value="">-- None (General Area) --</option>
+                            <option value="STAGING:ZONE-STAGE-01">🎯 Staging Area Hub A (ZONE-STAGE-01 • Live Counting)</option>
                         </select>
-                        <p style="font-size:0.75rem; color:var(--text-muted); margin:4px 0 0 0;">Link this camera directly to a physical storage Bin to track inventory changes automatically.</p>
+                        <p style="font-size:0.75rem; color:var(--text-muted); margin:4px 0 0 0;">Link this camera directly to a physical storage Bin or the Staging Area to track inventory changes automatically.</p>
                     </div>
 
                     <!-- AI Configuration Fields -->
@@ -3443,6 +3444,7 @@
                         <label>Name</label> <input type="text" id="camName" placeholder="Pallet Area Cam" required>
                         <label>Location / Zone</label> 
                         <select id="camLocation">
+                            <option value="Staging Zone 01">📦 Staging Area (Live Pick &amp; Place Counting)</option>
                             <option value="Bin Location">Bin / Pallet Hub Area</option>
                             <option value="Dock">Loading Dock</option>
                             <option value="Gate">Gate Entry</option>
@@ -3468,7 +3470,7 @@
                                     const bins = await res.json();
                                     const sel = document.getElementById('camBinId');
                                     if(!sel) return;
-                                    sel.innerHTML = '<option value="">-- No Bin Assigned --</option>' + bins.map(b => `<option value="${b.bin_id}">📦 ${b.bin_id} (Zone: ${b.zone} | Current Stock: ${b.stock_count || 0})</option>`).join('');
+                                    sel.innerHTML = '<option value="">-- No Bin / Staging Assigned --</option><option value="STAGING:ZONE-STAGE-01">🎯 Staging Area Hub A (ZONE-STAGE-01 • Live Counting)</option>' + bins.map(b => `<option value="${b.bin_id}">📦 ${b.bin_id} (Zone: ${b.zone} | Current Stock: ${b.stock_count || 0})</option>`).join('');
                                 } catch(e){}
                             }
                             fetchCamBins();

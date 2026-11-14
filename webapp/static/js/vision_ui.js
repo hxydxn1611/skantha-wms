@@ -694,10 +694,10 @@
                             statusBadge.innerText = cam.camera_status || 'Unknown';
                         }
                         
-                        // Populate Bin Dropdown
+                        // Populate Bin & Staging Dropdown
                         const binSelect = document.getElementById('cfgModalBinId');
                         if (binSelect) {
-                            binSelect.innerHTML = '<option value="">-- None (General Area) --</option>';
+                            binSelect.innerHTML = '<option value="">-- None (General Area) --</option><option value="STAGING:ZONE-STAGE-01">🎯 Staging Area Hub A (ZONE-STAGE-01 • Live Counting)</option>';
                             try {
                                 const binRes = await fetch('/api/bins');
                                 if (binRes.ok) {
@@ -710,7 +710,11 @@
                                     });
                                 }
                             } catch(e) { console.error("Error fetching bins:", e); }
-                            binSelect.value = cam.bin_id || '';
+                            if ((cam.location || '').toLowerCase().includes('staging')) {
+                                binSelect.value = 'STAGING:ZONE-STAGE-01';
+                            } else {
+                                binSelect.value = cam.bin_id || '';
+                            }
                         }
 
                         // Populate AI Configuration
@@ -819,14 +823,19 @@
                             return;
                         }
 
+                        const rawBinVal = document.getElementById('cfgModalBinId')?.value || '';
+                        const isStagingAssign = rawBinVal === 'STAGING:ZONE-STAGE-01';
                         const payload = {
-                            bin_id: document.getElementById('cfgModalBinId')?.value,
+                            bin_id: isStagingAssign ? null : (rawBinVal || null),
                             ai_enabled: aiEnabled,
                             detection_enabled: detectionEnabled,
                             tracking_enabled: trackingEnabled,
                             processing_fps: fps,
                             object_classes: selectedClasses
                         };
+                        if (isStagingAssign) {
+                            payload.location = 'Staging Zone 01';
+                        }
 
                         try {
                             const res = await fetch(`/api/vision/cameras/${camId}/config`, {
@@ -836,6 +845,27 @@
                             });
                             const data = await res.json();
                             if (res.ok && data.success) {
+                                if (isStagingAssign) {
+                                    try {
+                                        await fetch('/api/staging/configure', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ camera_id: camId })
+                                        });
+                                        const stgSel = document.getElementById('stgCameraAssignSelect');
+                                        if (stgSel) {
+                                            if (!Array.from(stgSel.options).some(o => o.value === camId)) {
+                                                const opt = document.createElement('option');
+                                                opt.value = camId;
+                                                opt.textContent = `🎥 ${camId} (Staging Zone 01)`;
+                                                stgSel.appendChild(opt);
+                                            }
+                                            stgSel.value = camId;
+                                        }
+                                    } catch (stgErr) {
+                                        console.warn('Staging camera configure failed:', stgErr);
+                                    }
+                                }
                                 closeConfigureCameraModal();
                                 showVisionCamAlert(data.message || `AI configuration saved successfully.`);
                                 fetchVisionCameras();

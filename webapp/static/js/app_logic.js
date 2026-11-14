@@ -3319,8 +3319,10 @@
             const camType = document.getElementById('camType').value;
             const name = document.getElementById('camName').value;
             const rawLoc = document.getElementById('camLocation').value;
-            const binId = document.getElementById('camBinId') ? document.getElementById('camBinId').value : null;
-            let location = rawLoc;
+            const rawBinVal = document.getElementById('camBinId') ? document.getElementById('camBinId').value : null;
+            const isStagingAssignment = (rawBinVal === 'STAGING:ZONE-STAGE-01') || (rawLoc === 'Staging Zone 01');
+            const binId = (rawBinVal && !rawBinVal.startsWith('STAGING:')) ? rawBinVal : null;
+            let location = isStagingAssignment ? 'Staging Zone 01' : rawLoc;
             if(binId) {
                 location = `Bin: ${binId}`;
             }
@@ -3389,6 +3391,22 @@
                     });
                     const camData = await res.json();
                     const camId = camData.id;
+                    if (isStagingAssignment) {
+                        const stgKey = camData.camera_code || camData.camera_id || `CAM-${camId}`;
+                        fetch('/api/staging/configure', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ camera_id: stgKey })
+                        }).catch(() => {});
+                        const stgSel = document.getElementById('stgCameraAssignSelect');
+                        if (stgSel && !Array.from(stgSel.options).some(o => o.value === stgKey)) {
+                            const opt = document.createElement('option');
+                            opt.value = stgKey;
+                            opt.textContent = `${name} (${stgKey})`;
+                            stgSel.appendChild(opt);
+                            stgSel.value = stgKey;
+                        }
+                    }
 
                     // Create offscreen video element to capture frames
                     const videoEl = document.createElement('video');
@@ -3500,6 +3518,23 @@
                     if (!res.ok) {
                         const errData = await res.json().catch(() => ({}));
                         throw new Error(errData.message || 'Server error adding camera');
+                    }
+                    const createdCam = await res.json().catch(() => ({}));
+                    if (isStagingAssignment) {
+                        const stgKey = createdCam.camera_code || createdCam.camera_id || (createdCam.id ? `CAM-${createdCam.id}` : camTitle);
+                        fetch('/api/staging/configure', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ camera_id: stgKey })
+                        }).catch(() => {});
+                        const stgSel = document.getElementById('stgCameraAssignSelect');
+                        if (stgSel && !Array.from(stgSel.options).some(o => o.value === stgKey)) {
+                            const opt = document.createElement('option');
+                            opt.value = stgKey;
+                            opt.textContent = `${camTitle} (${stgKey})`;
+                            stgSel.appendChild(opt);
+                            stgSel.value = stgKey;
+                        }
                     }
                     e.target.reset();
                     handleCamTypeChange();
