@@ -2296,22 +2296,38 @@
                 </div>
 
                 <!-- 360 MULTI-CAMERA CALIBRATION ANGLE SELECTOR -->
-                <div class="stg-angles-bar">
-                    <span style="font-size:0.72rem; text-transform:uppercase; font-weight:800; color:#94a3b8; letter-spacing:0.5px; margin-right:4px;">
-                        <i class="fas fa-camera-rotate text-sky"></i> 360° Perspective Matrix:
-                    </span>
-                    <button type="button" class="stg-angle-btn active" data-cam="CAM-STAGE-01" onclick="switchStagingCameraAngle('CAM-STAGE-01')">
-                        <i class="fas fa-arrows-down-to-line text-emerald"></i> Angle 1: Nadir 90° Overhead
-                    </button>
-                    <button type="button" class="stg-angle-btn" data-cam="CAM-STAGE-02" onclick="switchStagingCameraAngle('CAM-STAGE-02')">
-                        <i class="fas fa-cubes-stacked text-amber"></i> Angle 2: Oblique 45° Isometric
-                    </button>
-                    <button type="button" class="stg-angle-btn" data-cam="CAM-STAGE-03" onclick="switchStagingCameraAngle('CAM-STAGE-03')">
-                        <i class="fas fa-id-badge text-cyan"></i> Angle 3: Profile 0° Eye-Level
-                    </button>
-                    <button type="button" class="stg-angle-btn" data-cam="360_FUSED" onclick="switchStagingCameraAngle('360_FUSED')">
-                        <i class="fas fa-table-cells-large text-purple"></i> 360° Fused Matrix (Quad Sync)
-                    </button>
+                <div class="stg-angles-bar" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+                        <span style="font-size:0.72rem; text-transform:uppercase; font-weight:800; color:#94a3b8; letter-spacing:0.5px; margin-right:4px;">
+                            <i class="fas fa-camera-rotate text-sky"></i> 360° Perspective Matrix:
+                        </span>
+                        <button type="button" class="stg-angle-btn active" data-cam="CAM-STAGE-01" onclick="switchStagingCameraAngle('CAM-STAGE-01')">
+                            <i class="fas fa-arrows-down-to-line text-emerald"></i> Angle 1: Nadir 90° Overhead
+                        </button>
+                        <button type="button" class="stg-angle-btn" data-cam="CAM-STAGE-02" onclick="switchStagingCameraAngle('CAM-STAGE-02')">
+                            <i class="fas fa-cubes-stacked text-amber"></i> Angle 2: Oblique 45° Isometric
+                        </button>
+                        <button type="button" class="stg-angle-btn" data-cam="CAM-STAGE-03" onclick="switchStagingCameraAngle('CAM-STAGE-03')">
+                            <i class="fas fa-id-badge text-cyan"></i> Angle 3: Profile 0° Eye-Level
+                        </button>
+                        <button type="button" class="stg-angle-btn" data-cam="360_FUSED" onclick="switchStagingCameraAngle('360_FUSED')">
+                            <i class="fas fa-table-cells-large text-purple"></i> 360° Fused Matrix (Quad Sync)
+                        </button>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:0.70rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">
+                            <i class="fas fa-video text-emerald"></i> Staging Camera:
+                        </span>
+                        <select id="stgCameraAssignSelect" onchange="switchStagingCameraAngle(this.value)" style="padding:4px 10px; font-size:0.78rem; font-weight:700; background:var(--panel-bg); color:var(--text-main); border:1px solid var(--border-light); border-radius:6px; cursor:pointer;" title="Assign any camera stream to Staging Area">
+                            <option value="CAM-STAGE-01">Angle 1: Nadir 90° Overhead (CAM-STAGE-01)</option>
+                            <option value="CAM-STAGE-02">Angle 2: Oblique 45° Isometric (CAM-STAGE-02)</option>
+                            <option value="CAM-STAGE-03">Angle 3: Profile 0° Eye-Level (CAM-STAGE-03)</option>
+                            <option value="360_FUSED">360° Fused Matrix (Quad Sync)</option>
+                            <option value="CAM-TRUEVIEW">Trueview Wi-Fi Camera (CAM-TRUEVIEW)</option>
+                            <option value="CAM-002">Dock 02 Storage &amp; Staging (CAM-002)</option>
+                            <option value="CAM-001">Dock 01 Inbound Overhead (CAM-001)</option>
+                        </select>
+                    </div>
                 </div>
 
                 <!-- 2-COLUMN HERO WORKBENCH -->

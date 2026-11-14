@@ -56,6 +56,9 @@ class StagingZoneConfig:
     # Cameras calibrated for this zone
     calibrated_cameras: List[str] = field(default_factory=lambda: [
         "CAM-STAGE-01",
+        "CAM-STAGE-02",
+        "CAM-STAGE-03",
+        "360_FUSED",
         "CAM-002",
         "CAM-TRUEVIEW"
     ])
@@ -169,8 +172,10 @@ class StagingPerceptionService:
                 self.config.default_sku = sku_id
             if sku_name:
                 self.config.default_sku_name = sku_name
-            if camera_id and camera_id in self.config.calibrated_cameras:
+            if camera_id:
                 self.active_camera_id = camera_id
+                if camera_id not in self.config.calibrated_cameras:
+                    self.config.calibrated_cameras.append(camera_id)
             return self.get_status()
 
     def reset(self) -> Dict[str, Any]:
@@ -424,9 +429,15 @@ class StagingPerceptionService:
                 (0.08, 0.88)
             ]
             cam_label = "CAM-STAGE-03 • 360° PROFILE (0° EYE-LEVEL)"
+        elif active_cam in ("CAM-TRUEVIEW", "TRUEVIEW"):
+            poly_pts = self.config.polygon
+            cam_label = "CAM-TRUEVIEW • WI-FI HD STAGING FEED"
+        elif active_cam in ("CAM-002", "DOCK-02"):
+            poly_pts = self.config.polygon
+            cam_label = "CAM-002 • DOCK 02 STAGING OVERHEAD"
         else: # CAM-STAGE-02 or default: Oblique 45°
             poly_pts = self.config.polygon
-            cam_label = "CAM-STAGE-02 • 360° OBLIQUE (45° ISOMETRIC)"
+            cam_label = f"{active_cam} • 360° STAGING PERSPECTIVE"
 
         pts = np.array([[int(px * w), int(py * h)] for px, py in poly_pts], np.int32).reshape((-1, 1, 2))
 

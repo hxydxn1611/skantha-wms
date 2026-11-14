@@ -42,16 +42,32 @@
             }
         });
 
+        // Sync dropdown if present
+        const selectEl = document.getElementById('stgCameraAssignSelect');
+        if (selectEl && selectEl.value !== camId) {
+            selectEl.value = camId;
+        }
+
         const angleBadge = document.getElementById('stgActiveAngleBadge');
         if (angleBadge) {
             const labels = {
                 'CAM-STAGE-01': 'Nadir 90° Overhead',
                 'CAM-STAGE-02': 'Oblique 45° Isometric',
                 'CAM-STAGE-03': 'Profile 0° Eye-Level',
-                '360_FUSED': '360° Fused Matrix (Quad Sync)'
+                '360_FUSED': '360° Fused Matrix (Quad Sync)',
+                'CAM-TRUEVIEW': 'Trueview Wi-Fi Camera',
+                'CAM-002': 'Dock 02 Storage & Staging',
+                'CAM-001': 'Dock 01 Inbound Overhead'
             };
             angleBadge.textContent = labels[camId] || camId;
         }
+
+        // Persist camera assignment to server
+        fetch('/api/staging/configure', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ camera_id: camId })
+        }).catch(err => console.warn('[Staging] Camera assignment sync error:', err));
     };
 
     /**
@@ -154,6 +170,12 @@
      */
     function renderStagingStatus(status, clientLatencyMs) {
         if (!status) return;
+
+        const activeCam = status.active_camera_id || currentActiveAngle;
+        const selectEl = document.getElementById('stgCameraAssignSelect');
+        if (selectEl && selectEl.value !== activeCam && Array.from(selectEl.options).some(o => o.value === activeCam)) {
+            selectEl.value = activeCam;
+        }
 
         const count = status.current_count !== undefined ? status.current_count : (status.count || 0);
         const target = status.target_quota || 30;
