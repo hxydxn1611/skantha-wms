@@ -718,8 +718,38 @@
                     window.palletModule.loadPalletCameras();
                 }
             }
+            if (typeof window.syncVisibleStreams === 'function') {
+                window.syncVisibleStreams();
+            }
         }
         window.switchTab = switchTab;
+
+        // Prevent HTTP/1.1 6-connection pool exhaustion by pausing MJPEG streams in hidden tabs/containers
+        window.syncVisibleStreams = function() {
+            const imgs = document.querySelectorAll('img[src*="/video_feed/"], img[src*="/api/staging/feed.mjpg"], img[data-stream-src]');
+            imgs.forEach(img => {
+                const rawSrc = img.getAttribute('src') || '';
+                if (rawSrc && (rawSrc.includes('/video_feed/') || rawSrc.includes('/api/staging/feed.mjpg'))) {
+                    img.dataset.streamSrc = rawSrc;
+                }
+                const targetSrc = img.dataset.streamSrc;
+                if (!targetSrc) return;
+                const viewSection = img.closest('.view-section');
+                const inActiveTab = !viewSection || viewSection.classList.contains('active');
+                const hiddenParent = img.closest('[style*="display:none"], [style*="display: none"]');
+                const isVisible = inActiveTab && !hiddenParent;
+                if (isVisible) {
+                    if (img.getAttribute('src') !== targetSrc) {
+                        img.setAttribute('src', targetSrc);
+                    }
+                } else {
+                    if (img.hasAttribute('src')) {
+                        img.removeAttribute('src');
+                    }
+                }
+            });
+        };
+        document.addEventListener('DOMContentLoaded', () => setTimeout(() => window.syncVisibleStreams && window.syncVisibleStreams(), 150));
 
         // Global Command Bar Search (Ctrl+K or '/')
         function handleGlobalSearch(e) {
@@ -996,7 +1026,7 @@
                 if (window.autoSyncCameras && window.autoSyncCameras.size > 0) {
                     const now = Date.now();
                     window.lastSyncTimes = window.lastSyncTimes || {};
-                    cameras.forEach(cam => {
+                    cameras.forEach((cam, camIdx) => {
                         if (!cam.is_gate_camera && window.autoSyncCameras.has(cam.id) && cam.bin_id && ((cam.net_stock_count !== undefined && cam.net_stock_count > 0) || cam.clustered_bundle_count > 0 || cam.visible_packages > 0)) {
                             const last = window.lastSyncTimes[cam.id] || 0;
                             if (now - last > 3500) {
@@ -1016,7 +1046,7 @@
                 }
 
                 // Auto-create Passes and Sync Gate ANPR Evidence
-                cameras.forEach(cam => {
+                cameras.forEach((cam, camIdx) => {
                     const isGate = cam.is_gate_camera || cam.location === 'Gate' || cam.location === 'Dock' || !!cam.last_detected_plate;
                     if(isGate) {
                         // Reflect recognized plate in Gate Vision Evidence box
@@ -3353,7 +3383,8 @@
                         video: {
                             facingMode: { ideal: facingMode },
                             width: { ideal: 640 },
-                            height: { ideal: 480 }
+                            height: { ideal: 480 },
+                            frameRate: { ideal: 120, min: 30 }
                         },
                         audio: false
                     };
@@ -3422,9 +3453,14 @@
                     const ctx = canvasEl.getContext('2d');
 
                     let isSending = false;
-                    const intervalId = setInterval(() => {
-                        if (isSending) return;
-                        if (videoEl.readyState < 2) return;
+                    let lastFrameSentAt = 0;
+                    let streamStopped = false;
+                    const pushNextFrame = (ts) => {
+                        if (streamStopped || !activeDeviceStreams[camId]) return;
+                        requestAnimationFrame(pushNextFrame);
+                        if (isSending || videoEl.readyState < 2) return;
+                        if (ts - lastFrameSentAt < 8.0) return; // ~120 FPS target cadence
+                        lastFrameSentAt = ts;
                         ctx.drawImage(videoEl, 0, 0, 640, 480);
                         canvasEl.toBlob((blob) => {
                             if (!blob) return;
@@ -3436,8 +3472,9 @@
                             })
                             .catch(() => {})
                             .finally(() => { isSending = false; });
-                        }, 'image/jpeg', 0.65);
-                    }, 125); // ~8 FPS streaming rate
+                        }, 'image/jpeg', 0.72);
+                    };
+                    const intervalId = requestAnimationFrame(pushNextFrame);
 
                     activeDeviceStreams[camId] = {
                         stream: stream,
@@ -3715,7 +3752,7 @@
                 });
             }
 
-            cameras.forEach(cam => {
+            cameras.forEach((cam, camIdx) => {
                 const isLocalDevice = !!activeDeviceStreams[cam.id];
                 const pileCount = cam.clustered_bundle_count !== undefined ? cam.clustered_bundle_count : (cam.visible_packages || 0);
                 const hasBin = !!cam.bin_id;
@@ -3822,13 +3859,17 @@
 
                     let hdrEl = document.getElementById(`cam-hdr-${cam.id}`);
                     let ftrEl = document.getElementById(`cam-ftr-${cam.id}`);
+                    const useLiveMjpeg = (camIdx < 4 || isLocalDevice);
+                    const camImgAttr = useLiveMjpeg
+                        ? `data-stream-src="/video_feed/${cam.id}" src="/video_feed/${cam.id}"`
+                        : `src="/api/vision/runtime/cameras/${cam.id}/preview.jpg?t=${Date.now()}" data-preview-cam="${cam.id}"`;
                     if (!hdrEl || !ftrEl) {
                         card.innerHTML = `
                             <div id="cam-hdr-${cam.id}" class="macos-cam-window-bar">
                                 ${headerHtml}
                             </div>
                             <div class="macos-cam-stage video-container" onclick="openFullscreen('/video_feed/${cam.id}', '${cam.id}')">
-                                <img src="/video_feed/${cam.id}" alt="Live Feed" class="macos-cam-img">
+                                <img ${camImgAttr} alt="Live Feed" class="macos-cam-img">
                                 <div class="macos-stage-floating-top">
                                     <div class="macos-rec-pill">
                                         <span class="rec-red-dot"></span>
@@ -3847,7 +3888,7 @@
                                     </div>
                                 </div>
                                 <div class="macos-stage-floating-bottom">
-                                    <span class="macos-fps-pill"><i class="fas fa-bolt"></i> ${isOnline ? '60-100 FPS' : '0 FPS'}</span>
+                                    <span class="macos-fps-pill"><i class="fas fa-bolt"></i> ${isOnline ? '120 FPS' : '0 FPS'}</span>
                                 </div>
                             </div>
                             <div id="cam-ftr-${cam.id}" class="macos-cam-footer-wrap">
@@ -3857,6 +3898,10 @@
                     } else {
                         hdrEl.innerHTML = headerHtml;
                         ftrEl.innerHTML = footerHtml;
+                        const snapImg = card.querySelector('img[data-preview-cam]');
+                        if (snapImg && document.getElementById('cameras-view')?.classList.contains('active')) {
+                            snapImg.src = `/api/vision/runtime/cameras/${cam.id}/preview.jpg?t=${Date.now()}`;
+                        }
                     }
                 }
 

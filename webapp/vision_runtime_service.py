@@ -797,6 +797,7 @@ class OpenCVStreamFrameSource(BaseFrameSource):
                     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;1500000|stimeout;1500000|rtsp_transport;tcp|max_delay;500000|buffer_size;102400"
                 self.cap = cv2.VideoCapture(self.device_id)
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self.cap.set(cv2.CAP_PROP_FPS, 120)
                 self.is_connected = self.cap.isOpened()
                 if self.is_connected:
                     logger.info(f"[{self.camera_id}] OpenCV stream connected in < 1.5s: {self.stream_url}")
@@ -1460,7 +1461,7 @@ class CameraRuntimeSession:
         name: str,
         location: str,
         stream_url: str = "",
-        configured_fps: int = 25,
+        configured_fps: int = 120,
         test_mode: bool = False
     ):
         self.camera_id = camera_id
@@ -1468,7 +1469,7 @@ class CameraRuntimeSession:
         self.name = name
         self.location = location
         self.stream_url = stream_url.strip() if stream_url else ""
-        self.configured_fps = max(1, min(30, configured_fps))
+        self.configured_fps = max(1, min(120, configured_fps))
         self.test_mode = test_mode
 
         # State management
@@ -1689,7 +1690,7 @@ class CameraRuntimeSession:
 
     def _capture_loop(self):
         """Producer loop: captures frames and enqueues into bounded queue."""
-        sleep_interval = 1.0 / max(10, self.configured_fps * 2)
+        sleep_interval = 1.0 / max(120, self.configured_fps * 2)
         while not self.stop_event.is_set():
             if self.frame_source is None:
                 break
@@ -2360,7 +2361,7 @@ class CameraRuntimeSession:
 
     def _worker_loop(self):
         """Consumer loop: executes canonical W.A.R.L.O.G. pipeline at target FPS."""
-        frame_interval = 1.0 / max(15, self.configured_fps)
+        frame_interval = 1.0 / max(30, self.configured_fps)
         last_process_time = 0.0
         fps_tracker_times: List[float] = []
 
@@ -2404,7 +2405,7 @@ class CameraRuntimeSession:
 
             # Rate limit to configured processing FPS
             if elapsed_since_last < frame_interval:
-                time.sleep(max(0.005, frame_interval - elapsed_since_last))
+                time.sleep(max(0.002, frame_interval - elapsed_since_last))
                 continue
 
             frame = self.frame_queue.get_frame(timeout=0.05)
@@ -2877,7 +2878,7 @@ class VisionRuntimeManager:
         name: Optional[str] = None,
         location: Optional[str] = None,
         stream_url: str = "",
-        configured_fps: int = 25,
+        configured_fps: int = 120,
         test_mode: Optional[bool] = None
     ) -> CameraRuntimeSession:
         """Retrieves existing session or dynamically initializes a session for requested camera."""
@@ -2960,7 +2961,7 @@ class VisionRuntimeManager:
                 camera_id=camera_id,
                 name=f"Camera {camera_id}",
                 location="Gate" if is_gate else "General",
-                configured_fps=15,
+                configured_fps=120,
                 test_mode=False
             )
             sess.start()

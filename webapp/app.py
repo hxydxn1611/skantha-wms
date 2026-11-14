@@ -4516,7 +4516,7 @@ def generate_frames(camera_id):
                     name=getattr(cam_obj, 'name', f"Camera {camera_id}"),
                     location=getattr(cam_obj, 'location', 'General'),
                     stream_url=getattr(cam_obj, 'url', ''),
-                    configured_fps=12,
+                    configured_fps=120,
                     test_mode=(os.environ.get("WARLOG_TEST_MODE") == "1" or not bool(getattr(cam_obj, 'url', '')))
                 )
             else:
@@ -4533,7 +4533,7 @@ def generate_frames(camera_id):
                     last_send_time = now
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
-                time.sleep(0.015)  # ~60 FPS capable ultra-smooth pipeline
+                time.sleep(0.008)  # 120 FPS ultra-smooth MJPEG pipeline
                 continue
 
         # 2. Camera instance
@@ -4545,7 +4545,7 @@ def generate_frames(camera_id):
                     last_send_time = now
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-                time.sleep(0.015)
+                time.sleep(0.008)
                 continue
 
         # 3. Frame bus (recent frame from detection / upload)
@@ -4555,7 +4555,7 @@ def generate_frames(camera_id):
             if ret:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
-                time.sleep(0.010)
+                time.sleep(0.008)
                 continue
 
         # 3b. Direct RTMP ingest frame bypass (STRICTLY for Wi-Fi / RTMP cameras, NEVER for IP/RTSP/Webcam)
@@ -6145,7 +6145,7 @@ def api_staging_feed_mjpg():
             jpeg_bytes = service.encode_frame_jpeg(frame_bgr)
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + jpeg_bytes + b'\r\n')
-            time.sleep(0.033)  # ~30 FPS
+            time.sleep(0.008)  # 120 FPS ultra-smooth staging stream
 
     return Response(generate_staging_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')

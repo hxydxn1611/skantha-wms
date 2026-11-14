@@ -355,6 +355,9 @@
             if (targetText) targetText.textContent = 'OPTICAL RETICLE ACTIVE';
         }
 
+        if (typeof window.syncVisibleStreams === 'function') {
+            window.syncVisibleStreams();
+        }
         refreshMultiGateTelemetry();
     };
 
