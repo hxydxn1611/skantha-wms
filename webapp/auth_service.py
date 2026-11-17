@@ -107,6 +107,22 @@ def user_company_id(user_id: int, conn: Optional[sqlite3.Connection] = None) -> 
             c.close()
 
 
+def company_suspended(user_id: int, conn: Optional[sqlite3.Connection] = None) -> bool:
+    """RBAC Phase 4: members of a suspended company can't sign in, and their sessions end."""
+    own = conn is None
+    c = conn or db.get_db()
+    try:
+        row = c.execute("""
+            SELECT c.status FROM user_company_access a JOIN companies c ON c.id = a.company_id
+            WHERE a.user_id = ? AND a.status = 'Active' ORDER BY a.id LIMIT 1""", (user_id,)).fetchone()
+        return bool(row) and row[0] != "Active"
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        if own:
+            c.close()
+
+
 # ----------------------------------------------------------------------------- users
 def find_user(identifier: str) -> Optional[Dict[str, Any]]:
     """By username or email (case-insensitive), as the login form has always accepted."""
@@ -195,6 +211,8 @@ def authenticate(identifier: str, password: str, ip: Optional[str] = None,
     ok = verify_user_password(user, password) if user else (check_password_hash(_DUMMY_HASH, password or "x") and False)
     if ok and not user.get("is_active", 1):
         ok = False
+    if ok and not user.get("is_platform_admin") and company_suspended(user["id"]):
+        ok = False
 
     conn = db.get_db()
     try:
@@ -282,6 +300,8 @@ def load_session_user(session_user: Any) -> Optional[Dict[str, Any]]:
     finally:
         conn.close()
     if not row or not row["is_active"] or int(row["session_version"]) != sv:
+        return None
+    if not row["is_platform_admin"] and company_suspended(uid):
         return None
     return dict(row)
 

@@ -120,7 +120,9 @@ class TestCoverage(Phase2Base):
     def test_platform_permissions_only_on_platform_routes(self):
         plat = {e for e, v in self.routes.ROUTE_PERMISSIONS.items()
                 if any(k.startswith("platform.") for k in ([v] if isinstance(v, str) else v.values()))}
-        self.assertEqual(plat, {"api_company_auto_setup", "api_platform_companies"})
+        self.assertEqual(plat, {"api_company_auto_setup", "api_platform_companies",
+                                "iam.api_platform_create_company", "iam.api_platform_suspend_company",
+                                "iam.api_platform_activate_company"})
 
 
 class TestEnforcement(Phase2Base):

@@ -70,6 +70,10 @@ app.json = SafeNumpyJSONProvider(app)
 app.secret_key = _FLASK_SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # RBAC Phase 3A (H25): no request over 50 MB
+
+# RBAC Phase 4: users, invitations, passwords and companies
+from iam_routes import bp as iam_blueprint  # noqa: E402
+app.register_blueprint(iam_blueprint)
 app.jinja_env.auto_reload = True
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -154,6 +158,10 @@ PUBLIC_EXACT_PATHS = frozenset({
     '/favicon.ico', '/login', '/logout', '/api/login', '/api/logout',
     '/api/auth/send_otp', '/api/auth/verify_otp_and_register',
     '/api/company/preview_recognition',
+    # RBAC Phase 4: invitation and password links (single-use tokens)
+    '/accept-invite', '/forgot-password', '/reset-password',
+    '/api/auth/invite_info', '/api/auth/accept_invite', '/api/auth/forgot_password',
+    '/api/auth/reset_password', '/api/auth/reset_link_status',
 })
 PUBLIC_PREFIXES = ('/static/',)  # RBAC Phase 2 (H6): /video_feed needs a session + cameras.stream.view
 # RBAC Phase 3A (H5): uploaded and generated files need a session (and, where the file
@@ -382,7 +390,9 @@ def index():
                   'role_label': auth_service.role_label(user.get('id'), bool(user.get('is_platform_admin')))}
     return render_template('index.html', current_user=shown_user,
                            warehouse_scope=rbac_service.current_warehouse_id() or '',
-                           is_platform_admin=bool(user.get('is_platform_admin')))
+                           is_platform_admin=bool(user.get('is_platform_admin')),
+                           can_manage_users=bool(user.get('is_platform_admin'))
+                           or 'users.view' in rbac_service.effective_permissions())
 
 @app.route('/login', methods=['GET'])
 def login_page():

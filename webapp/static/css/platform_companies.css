@@ -38,3 +38,5 @@
 .pco-btn:hover { background: var(--accent); color: #fff; }
 .pco-empty { padding: 24px; text-align: center; color: var(--text-muted); }
 .pco-error { color: var(--danger); }
+.pco-btn-danger { border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.08); color: var(--danger); }
+.pco-btn-danger:hover { background: var(--danger); color: #fff; }

@@ -691,6 +691,9 @@
             if (tabId === 'platform-companies') {
                 if (typeof loadPlatformCompanies === 'function') loadPlatformCompanies();
             }
+            if (tabId === 'users-access') {
+                if (typeof loadUsersAccess === 'function') loadUsersAccess();
+            }
             if (tabId === 'dashboard') {
                 if (typeof initWarlogTelemetryChart === 'function' && !window.telemetryChartInstance) initWarlogTelemetryChart();
             } else if (tabId === 'deliveries') {

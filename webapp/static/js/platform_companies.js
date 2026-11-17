@@ -36,6 +36,8 @@
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
             pcoData = data;
+            window.__pcoNames = {};
+            data.companies.forEach(c => { window.__pcoNames[c.id] = c.name; });
             const badge = document.getElementById('nav-platform-companies-count');
             if (badge) { badge.textContent = data.totals.companies; badge.style.display = ''; }
             renderPlatformCompanies();
@@ -119,6 +121,11 @@
                             ${c.is_platform_owner ? '<span class="pco-pill pco-pill-owner">Platform owner</span>' : ''}
                             ${statusPill(c.status)}</div>
                         <div class="pco-muted">${c.locations.length} location(s) · ${c.users.length} user(s) · ${c.skus} SKU(s) · since ${when(c.created_at)}</div>
+                    </div>
+                    <div>
+                        ${c.is_platform_owner ? '' : (String(c.status).toLowerCase() === 'active'
+                            ? `<button class="pco-btn pco-btn-danger" onclick="pcoSetCompanyStatus(${c.id}, false)"><i class="fas fa-ban"></i> Suspend</button>`
+                            : `<button class="pco-btn" onclick="pcoSetCompanyStatus(${c.id}, true)"><i class="fas fa-rotate-left"></i> Reactivate</button>`)}
                     </div>
                 </div>
                 <div class="pco-grid">

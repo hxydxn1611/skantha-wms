@@ -63,7 +63,11 @@ def prepare_test_db(db_path: str) -> str:
     conn = sqlite3.connect(db_path)
     try:
         with conn:
-            conn.execute("UPDATE users SET must_reset_password = 0 WHERE LOWER(username) = 'admin'")
+            # The live admin has its own password now; the TEST COPY gets the old fixture
+            # password back so the existing suite can keep signing in as admin/admin.
+            from werkzeug.security import generate_password_hash
+            conn.execute("UPDATE users SET must_reset_password = 0, password_hash = ? WHERE LOWER(username) = 'admin'",
+                         (generate_password_hash("admin"),))
             conn.execute("DELETE FROM login_attempts")
     finally:
         conn.close()

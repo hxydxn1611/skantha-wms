@@ -22,6 +22,9 @@ PermSpec = Union[str, Dict[str, str]]
 PUBLIC_ENDPOINTS = frozenset({
     "static", "login_page", "logout", "api_logout", "api_login",
     "api_company_preview_recognition", "api_send_otp", "api_verify_otp_and_register",
+    # Phase 4: invitation / password links (each needs a valid single-use token)
+    "iam.accept_invite_page", "iam.forgot_password_page", "iam.reset_link_page", "iam.api_invite_info",
+    "iam.api_accept_invite", "iam.api_forgot_password", "iam.api_reset_password", "iam.api_reset_link_status",
 })
 
 AUTHENTICATED_ENDPOINTS = frozenset({
@@ -29,6 +32,7 @@ AUTHENTICATED_ENDPOINTS = frozenset({
     # Warehouse picker. Phase 3 limits these to the user's assigned warehouses.
     "api_get_warehouses", "api_get_active_warehouse", "api_switch_warehouse",
     "api_auth_me",
+    "iam.api_change_password",   # Phase 4: own password, needs the current one
 })
 
 
@@ -44,6 +48,20 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     # ------------------------------------------------------------ company setup / templates
     "api_company_auto_setup": "platform.companies.manage",   # creates a new company + facility
     "api_platform_companies": "platform.companies.manage",   # Companies & Owners overview (read-only)
+    # Phase 4: users, invitations, assignments, companies (also enforced inside the handlers)
+    "iam.api_iam_overview": "users.view",
+    "iam.api_create_invitation": "users.invite",
+    "iam.api_revoke_invitation": "users.invite",
+    "iam.api_resend_invitation": "users.invite",
+    "iam.api_edit_user": "users.edit",
+    "iam.api_deactivate_user": "users.deactivate",
+    "iam.api_activate_user": "users.deactivate",
+    "iam.api_user_reset_link": "users.edit",
+    "iam.api_add_assignment": "assignments.manage",
+    "iam.api_revoke_assignment": "assignments.manage",
+    "iam.api_platform_create_company": "platform.companies.manage",
+    "iam.api_platform_suspend_company": "platform.companies.manage",
+    "iam.api_platform_activate_company": "platform.companies.manage",
     "api_get_industry_blueprints": "sku.view",
     "api_apply_industry_blueprint": "masterdata.blueprint.apply",
     "api_create_warehouse": "warehouses.manage",

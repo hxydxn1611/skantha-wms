@@ -1066,6 +1066,13 @@
                     </div>
 
                     <div class="dropdown-divider"></div>
+                    <div class="dropdown-section-title">ACCOUNT</div>
+                    <button type="button" class="dropdown-item" onclick="openChangePasswordModal(); closeUserDropdown();">
+                        <i class="fas fa-key" style="color:#f59e0b;"></i>
+                        <span>Change Password</span>
+                    </button>
+
+                    <div class="dropdown-divider"></div>
                     <button type="button" class="dropdown-item dropdown-logout-item btn-logout" onclick="doLogout(); closeUserDropdown();">
                         <i class="fas fa-arrow-right-from-bracket"></i>
                         <span>Sign Out</span>
@@ -1577,6 +1584,38 @@
                         <div class="dock-floating-tooltip">
                             <span class="tooltip-title">Companies &amp; Owners</span>
                             <span class="tooltip-desc">Every company, owner &amp; location</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if can_manage_users %}
+                    <!-- 10c. Users & Access (users.view) -->
+                    <div class="macos-dock-item" data-module="users-access">
+                        <button class="tab-btn dock-btn" onclick="switchTab('users-access')" role="tab" aria-selected="false" aria-label="Users &amp; Access" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="uac-a" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="uac-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="18" cy="16" r="7" fill="url(#uac-b)" stroke="#bfdbfe" stroke-width="0.8"/>
+  <path d="M5,38 C5,29 11,25 18,25 C25,25 31,29 31,38 Z" fill="url(#uac-b)" stroke="#bfdbfe" stroke-width="0.8"/>
+  <circle cx="32" cy="19" r="5.5" fill="url(#uac-a)" stroke="#a7f3d0" stroke-width="0.8"/>
+  <path d="M24,39 C24,32 28,28.5 32,28.5 C37,28.5 43,32 43,39 Z" fill="url(#uac-a)" stroke="#a7f3d0" stroke-width="0.8"/>
+  <circle cx="38" cy="10" r="5" fill="#f59e0b" stroke="#fff" stroke-width="1"/>
+  <path d="M36.3,10 l1.2,1.2 l2.4,-2.6" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Users &amp; Access</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Users &amp; Access</span>
+                            <span class="tooltip-desc">Invite people &amp; manage access</span>
                         </div>
                     </div>
                     {% endif %}
@@ -4198,11 +4237,47 @@
                         <button class="btn-primary" onclick="loadPlatformCompanies()" style="display:flex; align-items:center; gap:6px;">
                             <i class="fas fa-rotate"></i> Refresh
                         </button>
+                        <button class="btn-primary" onclick="openCreateCompanyModal()" style="display:flex; align-items:center; gap:6px; background:linear-gradient(135deg, #7c3aed, #4f46e5);">
+                            <i class="fas fa-building-circle-arrow-right"></i> New Company
+                        </button>
                     </div>
                 </div>
                 <div id="pcoTotals" class="pco-totals"></div>
             </div>
             <div id="pcoList" class="pco-list"><div class="pco-empty">Loading companies...</div></div>
+        </div>
+        {% endif %}
+
+        {% if can_manage_users %}
+        <!-- USERS & ACCESS VIEW (users.view) -->
+        <div id="users-access-view" class="view-section">
+            <div class="glass-panel" style="margin-bottom: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h2 style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-users-gear" style="color:#10b981;"></i>
+                            <span>Users &amp; Access</span>
+                        </h2>
+                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">
+                            Invite people, choose what they can do and where, and switch access off when they leave. Nothing is ever deleted.
+                        </p>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <select id="uacCompany" class="uac-input" style="display:none;" onchange="loadUsersAccess()"></select>
+                        <button class="btn-primary" id="uacInviteBtn" onclick="openInviteModal()" style="display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-user-plus"></i> Invite User
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-panel" style="margin-bottom: 1.5rem;">
+                <div class="uac-subhead">People</div>
+                <div id="uacUsers" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+            </div>
+            <div class="glass-panel">
+                <div class="uac-subhead">Invitations</div>
+                <div id="uacInvites" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+            </div>
         </div>
         {% endif %}
 
@@ -11162,6 +11237,8 @@ window.switchSubTab = switchSubTab;
 
     <!-- AI Industry Blueprint & Multi-Facility Switcher UI Logic -->
     <script src="{{ url_for('static', filename='js/industry_blueprint_ui.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/users_access.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/users_access.js') }}?v={{ range(1000, 99999) | random }}"></script>
     {% if is_platform_admin %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/platform_companies.css') }}?v={{ range(1000, 99999) | random }}">
     <script src="{{ url_for('static', filename='js/platform_companies.js') }}?v={{ range(1000, 99999) | random }}"></script>

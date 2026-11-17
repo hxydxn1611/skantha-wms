@@ -1,0 +1,48 @@
+/* Users & Access, Change Password, company dialogs (RBAC Phase 4) */
+.uac-subhead { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; }
+.uac-table-wrap { overflow-x: auto; }
+.uac-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.uac-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+    padding: 8px 10px; background: var(--panel-subtle); white-space: nowrap; }
+.uac-table td { padding: 10px; border-top: 1px solid var(--border-light); color: var(--text-main); vertical-align: middle; }
+.uac-row-off td { opacity: 0.6; }
+.uac-name { font-weight: 700; }
+.uac-muted { color: var(--text-muted); font-size: 0.78rem; }
+.uac-empty { padding: 20px; text-align: center; color: var(--text-muted); }
+.uac-error { color: var(--danger); }
+.uac-actions { white-space: nowrap; text-align: right; }
+.uac-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; padding: 3px 8px; margin: 2px 4px 2px 0;
+    border-radius: 6px; background: var(--accent-light); border: 1px solid var(--accent-border); color: var(--text-main); }
+.uac-chip-x { border: none; background: transparent; color: var(--danger); cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 0 2px; }
+.uac-pill { display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.uac-pill.ok { background: rgba(16, 185, 129, 0.12); color: #059669; }
+.uac-pill.warn { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+.uac-pill.off { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+.uac-btn-sm { font-size: 0.74rem; padding: 4px 9px; margin-left: 4px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--accent-border); background: var(--accent-light); color: var(--accent); }
+.uac-btn-sm:hover { background: var(--accent); color: #fff; }
+.uac-btn-sm.danger { border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.08); color: var(--danger); }
+.uac-btn-sm.danger:hover { background: var(--danger); color: #fff; }
+.uac-input { width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border-light);
+    background: var(--panel-bg); color: var(--text-main); font-size: 0.88rem; font-family: inherit; }
+#uacCompany.uac-input { width: auto; min-width: 200px; }
+.uac-label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin: 12px 0 5px; }
+.uac-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 5px; }
+.uac-p { font-size: 0.86rem; line-height: 1.5; color: var(--text-main); margin: 8px 0; }
+.uac-link-box { margin: 10px 0; }
+.uac-modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 10000;
+    display: flex; align-items: center; justify-content: center; padding: 16px; }
+.uac-modal { width: 100%; max-width: 460px; background: var(--panel-bg); color: var(--text-main); border-radius: 14px;
+    border: 1px solid var(--border-light); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); max-height: 90vh; overflow: auto; }
+.uac-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px 0; }
+.uac-modal-head h3 { margin: 0; font-size: 1.05rem; }
+.uac-x { border: none; background: transparent; font-size: 1.4rem; cursor: pointer; color: var(--text-muted); }
+.uac-modal-body { padding: 4px 20px 0; }
+.uac-modal-msg { display: none; margin: 12px 20px 0; padding: 9px 11px; border-radius: 8px; font-size: 0.84rem; }
+.uac-modal-msg.error { display: block; background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+.uac-modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px 18px; }
+.uac-btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border-light); background: var(--panel-subtle);
+    color: var(--text-main); cursor: pointer; font-weight: 600; font-size: 0.84rem; }
+.uac-btn:disabled { opacity: 0.6; cursor: wait; }
+.uac-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.uac-btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
