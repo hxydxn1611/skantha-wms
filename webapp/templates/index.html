@@ -1543,6 +1543,44 @@
                         </div>
                     </div>
 
+                    {% if is_platform_admin %}
+                    <!-- 10b. Companies & Owners (Platform Admin only) -->
+                    <div class="macos-dock-item" data-module="platform-companies">
+                        <button class="tab-btn dock-btn" onclick="switchTab('platform-companies')" role="tab" aria-selected="false" aria-label="Companies &amp; Owners" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="pco-a" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#4c1d95"/>
+    </linearGradient>
+    <linearGradient id="pco-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0c4a6e"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="16" width="16" height="24" rx="2" fill="url(#pco-b)" stroke="#7dd3fc" stroke-width="0.8"/>
+  <rect x="24" y="8" width="18" height="32" rx="2" fill="url(#pco-a)" stroke="#c4b5fd" stroke-width="0.8"/>
+  <g fill="#e0f2fe" opacity="0.85">
+    <rect x="9" y="20" width="4" height="3"/><rect x="15" y="20" width="4" height="3"/>
+    <rect x="9" y="26" width="4" height="3"/><rect x="15" y="26" width="4" height="3"/>
+    <rect x="28" y="13" width="4" height="3"/><rect x="34" y="13" width="4" height="3"/>
+    <rect x="28" y="19" width="4" height="3"/><rect x="34" y="19" width="4" height="3"/>
+    <rect x="28" y="25" width="4" height="3"/><rect x="34" y="25" width="4" height="3"/>
+  </g>
+  <circle cx="36" cy="36" r="6" fill="#f59e0b" stroke="#fff" stroke-width="1.2"/>
+  <path d="M33.5,36 l1.8,1.8 l3.4,-3.6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Companies &amp; Owners</span>
+                            <span id="nav-platform-companies-count" class="dock-badge-counter" style="display:none;">0</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Companies &amp; Owners</span>
+                            <span class="tooltip-desc">Every company, owner &amp; location</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
                     <!-- 11. Master Data Hub -->
                     <div class="macos-dock-item" data-module="master-hub">
                         <button class="tab-btn dock-btn" onclick="switchTab('master-hub')" role="tab" aria-selected="false" aria-label="Master Data Hub" tabindex="0">
@@ -4139,6 +4177,34 @@
                 <!-- Cards dynamically populated by JavaScript -->
             </div>
         </div>
+
+        {% if is_platform_admin %}
+        <!-- COMPANIES & OWNERS VIEW (Platform Admin only) -->
+        <div id="platform-companies-view" class="view-section">
+            <div class="glass-panel" style="margin-bottom: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h2 style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-building-user" style="color:#8b5cf6;"></i>
+                            <span>Companies &amp; Owners</span>
+                        </h2>
+                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">
+                            Every company on WARLOG, who owns it, and its warehouse locations. Visible to the Platform Admin only.
+                        </p>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input id="pcoSearch" type="search" placeholder="Search company, owner, location..." oninput="renderPlatformCompanies()"
+                               style="padding:8px 12px; border-radius:8px; border:1px solid var(--border-light); background:var(--panel-bg); color:var(--text-main); min-width:240px; font-size:0.85rem;">
+                        <button class="btn-primary" onclick="loadPlatformCompanies()" style="display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-rotate"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div id="pcoTotals" class="pco-totals"></div>
+            </div>
+            <div id="pcoList" class="pco-list"><div class="pco-empty">Loading companies...</div></div>
+        </div>
+        {% endif %}
 
         <!-- MASTER HUB VIEW -->
         <div id="master-hub-view" class="view-section">
@@ -10124,6 +10190,9 @@ window.switchSubTab = switchSubTab;
                         <option value="CURRENT">Current Active Facility</option>
                         <option value="NEW">Create New Industry Facility</option>
                     </select>
+                    <label for="blueprintIncludeSamples" title="Adds a few sample deliveries, stock and pallets, marked as sample data (never matched to real ANPR plate reads)" style="font-size:0.8rem; color: var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer; margin-left:8px;">
+                        <input type="checkbox" id="blueprintIncludeSamples"> Include sample data
+                    </label>
                 </div>
             </div>
 
@@ -11093,6 +11162,10 @@ window.switchSubTab = switchSubTab;
 
     <!-- AI Industry Blueprint & Multi-Facility Switcher UI Logic -->
     <script src="{{ url_for('static', filename='js/industry_blueprint_ui.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    {% if is_platform_admin %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/platform_companies.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/platform_companies.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    {% endif %}
 
 
     <!-- WARLOG AI Copilot Engine (macOS x Bixby) -->

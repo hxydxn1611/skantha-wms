@@ -213,10 +213,41 @@ class TestScopesAndTabs(Phase3ABase):
     def test_tabs_work_in_different_warehouses(self):
         wid, _ = self.glass_wh
         glass_tab, main_tab = self.client("admin", wid), self.client("admin", self.main_wh)
-        self.assertTrue(any(s["sku_id"] == GLASS_SKU for s in self.get(glass_tab, "/api/skus").get_json()))
-        self.assertFalse(any(s["sku_id"] == GLASS_SKU for s in self.get(main_tab, "/api/skus").get_json()))
         self.assertEqual(self.get(main_tab, "/api/warehouses/active").get_json()["active_warehouse"]["code"], "WH-MAIN")
         self.assertEqual(self.get(glass_tab, "/api/warehouses/active").get_json()["active_warehouse"]["code"], "WH-GLASS-COI")
+
+    def test_platform_admin_keeps_full_access_everywhere(self):
+        for wh in (None, self.main_wh, self.glass_wh[0], self.leak_wh, "*"):
+            c = self.client("admin", wh)
+            self.assertTrue(any(s["sku_id"] == GLASS_SKU for s in self.get(c, "/api/skus").get_json()), wh)
+            self.assertIn(MARK, self.get(c, "/api/skus").get_data(as_text=True), wh)
+            self.assertIn(MARK, self.get(c, "/api/gate_passes").get_data(as_text=True), wh)
+        c = self.client("admin", self.glass_wh[0])
+        r = self.send(c, "POST", "/api/deliveries", {"po_number": "PO-ADMIN-FULL", "expected_date": "2026-12-01"})
+        self.assertLess(r.status_code, 400, r.get_data(as_text=True))
+        self.assertEqual(self.sql("SELECT company_id, warehouse_id FROM expected_deliveries WHERE po_number = 'PO-ADMIN-FULL'"),
+                         [(self.glass_wh[1], self.glass_wh[0])])
+        self.assertEqual(self.get(c, f"/api/gate_passes/{self.leak_gp}").status_code != 404, True)
+
+    def test_a_new_location_starts_empty(self):
+        david = self.client("david")
+        r = self.send(david, "POST", "/api/warehouses/create",
+                      {"name": "Empty Test Location", "city": "Salem", "set_active": False})
+        new_id = r.get_json()["warehouse"]["id"]
+        glass, fresh = self.client("david", self.glass_wh[0]), self.client("david", new_id)
+        for path in ("/api/cameras", "/api/vision/cameras", "/api/deliveries", "/api/gate_passes", "/api/bins"):
+            g, f = self.get(glass, path), self.get(fresh, path)
+            self.assertEqual(f.status_code, 200, path)
+            body = f.get_json()
+            items = body if isinstance(body, list) else next((v for v in body.values() if isinstance(v, list)), [])
+            self.assertEqual(items, [], f"{path} must be empty in a new location: {items[:2]}")
+        self.assertIn("CAM-001", self.get(glass, "/api/cameras").get_data(as_text=True))
+        for path in ("/api/vehicle_log", "/api/invoices", "/api/outbound", "/api/telemetry/live"):
+            body = self.get(fresh, path).get_data(as_text=True)
+            for cam in ("CAM-001", "CAM-002", "CAM-TRUEVIEW"):
+                self.assertNotIn(cam, body, f"{path} shows {cam} in a new location")
+        stats = self.get(fresh, "/api/stats").get_json()
+        self.assertEqual({k: v for k, v in stats.items() if v}, {}, stats)
 
     def test_switch_is_per_session_and_global_flag_untouched(self):
         before = self.sql("SELECT code, is_active FROM warehouses ORDER BY id")
@@ -233,8 +264,8 @@ class TestScopesAndTabs(Phase3ABase):
         self.assertEqual(r.get_json()["error_code"], "warehouse_scope_invalid")
         self.assertEqual(self.get(self.client("david", "*"), "/api/skus").status_code, 403)
 
-    def test_all_warehouse_views_are_read_only(self):
-        for user, wh in (("david", "all"), ("admin", "*")):
+    def test_company_wide_view_is_read_only(self):
+        for user, wh in (("david", "all"),):
             c = self.client(user, wh)
             self.assertEqual(self.get(c, "/api/skus").status_code, 200)
             before = self.sql("SELECT COUNT(*) FROM expected_deliveries")
@@ -285,6 +316,27 @@ class TestBackgroundAndSettings(Phase3ABase):
             self.assertIn(MARK, self.get(self.client("david"), "/api/skus").get_data(as_text=True))
         finally:
             self.cfg.RBAC_MODE = "audit"
+
+
+class TestCompaniesAndOwners(Phase3ABase):
+    def test_platform_admin_sees_every_company_owner_and_location(self):
+        r = self.get(self.client("admin"), "/api/platform/companies")
+        self.assertEqual(r.status_code, 200)
+        data = r.get_json()
+        by_name = {c["name"]: c for c in data["companies"]}
+        glass = by_name["glass and brass"]
+        self.assertIn("david", [o["username"] for o in glass["owners"]])
+        self.assertIn("WH-GLASS-COI", [l["code"] for l in glass["locations"]])
+        self.assertEqual(next(l for l in glass["locations"] if l["code"] == "WH-GLASS-COI")["cameras"], 4)
+        self.assertIn("leakadmin", [o["username"] for o in by_name["Leak Test Co"]["owners"]])
+        self.assertIn("admin", [u["username"] for u in data["platform_admins"]])
+        self.assertNotIn("password", r.get_data(as_text=True))
+
+    def test_only_the_platform_admin_can_open_it(self):
+        for user in ("david", "leakadmin"):
+            self.assertEqual(self.get(self.client(user), "/api/platform/companies").status_code, 403, user)
+            self.assertNotIn("platform-companies-view", self.get(self.client(user), "/").get_data(as_text=True))
+        self.assertIn("platform-companies-view", self.get(self.client("admin"), "/").get_data(as_text=True))
 
 
 if __name__ == "__main__":

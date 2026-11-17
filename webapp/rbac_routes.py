@@ -43,6 +43,7 @@ def _rw(read: str, write: str, *write_methods: str) -> Dict[str, str]:
 ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     # ------------------------------------------------------------ company setup / templates
     "api_company_auto_setup": "platform.companies.manage",   # creates a new company + facility
+    "api_platform_companies": "platform.companies.manage",   # Companies & Owners overview (read-only)
     "api_get_industry_blueprints": "sku.view",
     "api_apply_industry_blueprint": "masterdata.blueprint.apply",
     "api_create_warehouse": "warehouses.manage",

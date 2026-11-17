@@ -24,6 +24,7 @@ Key Invariants:
 """
 
 import os
+import rbac_scope
 import sys
 import json
 import re
@@ -658,7 +659,8 @@ class WmsVisionIntegrationService:
                     break
                 else:
                     # Check vision zones
-                    vz = conn.execute("SELECT * FROM vision_zones WHERE UPPER(zone_code) = ? OR UPPER(zone_name) = ? OR zone_code = 'BIN-AREA'", (b_cand.upper(), b_cand.upper())).fetchone()
+                    _zf, _zp = rbac_scope.home_filter("vision_zones")
+                    vz = conn.execute(f"SELECT * FROM vision_zones WHERE (UPPER(zone_code) = ? OR UPPER(zone_name) = ? OR zone_code = 'BIN-AREA'){_zf}", (b_cand.upper(), b_cand.upper()) + _zp).fetchone()
                     if vz or b_cand.upper().startswith("BIN-"):
                         bin_info = {
                             "bin_id": b_cand.upper(),
@@ -821,7 +823,8 @@ class WmsVisionIntegrationService:
                 bin_data = dict(bin_row)
             else:
                 # Check if this bin is observed in vision traceability or vision_zones
-                vz_row = conn.execute("SELECT * FROM vision_zones WHERE UPPER(zone_code) = ? OR UPPER(zone_name) = ? OR zone_code = 'BIN-AREA'", (bin_id.upper(), bin_id.upper())).fetchone()
+                _zf, _zp = rbac_scope.home_filter("vision_zones")
+                vz_row = conn.execute(f"SELECT * FROM vision_zones WHERE (UPPER(zone_code) = ? OR UPPER(zone_name) = ? OR zone_code = 'BIN-AREA'){_zf}", (bin_id.upper(), bin_id.upper()) + _zp).fetchone()
                 
                 # Check if bin is referenced in any material trace
                 is_observed_bin = False
@@ -851,7 +854,8 @@ class WmsVisionIntegrationService:
 
             # Find matching vision zone
             zone_code = bin_data.get("zone", "General")
-            vz_row = conn.execute("SELECT * FROM vision_zones WHERE UPPER(zone_code) = ? OR UPPER(zone_name) = ?", (zone_code.upper(), zone_code.upper())).fetchone()
+            _zf, _zp = rbac_scope.home_filter("vision_zones")
+            vz_row = conn.execute(f"SELECT * FROM vision_zones WHERE (UPPER(zone_code) = ? OR UPPER(zone_name) = ?){_zf}", (zone_code.upper(), zone_code.upper()) + _zp).fetchone()
             vision_zone = dict(vz_row) if vz_row else None
             cameras = self.get_cameras_for_zone(vision_zone["id"]) if vision_zone else []
 

@@ -685,6 +685,9 @@
             const targetMobileBtn = document.querySelector(`.mobile-nav-item[data-tab="${tabId}"]`);
             if (targetMobileBtn) targetMobileBtn.classList.add('active');
 
+            if (tabId === 'platform-companies') {
+                if (typeof loadPlatformCompanies === 'function') loadPlatformCompanies();
+            }
             if (tabId === 'dashboard') {
                 if (typeof initWarlogTelemetryChart === 'function' && !window.telemetryChartInstance) initWarlogTelemetryChart();
             } else if (tabId === 'deliveries') {

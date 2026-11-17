@@ -6,6 +6,9 @@ A *scope* says whose data a piece of code may see and change:
   Scope.warehouse(company_id, warehouse_id)  one warehouse (the normal case)
   Scope.company_all(company_id)              every warehouse of one company - READ-ONLY (D13)
   Scope.platform_all()                       every company - READ-ONLY (D13)
+  Scope.platform_full(company_id, wh_id)     Platform Admin: every company, read AND write.
+                                             New rows without an owner go to the selected
+                                             warehouse; nothing else is fenced.
   no scope (None)                            system code: startup, migrations, console tools
 
 The scope lives in a thread-local. Requests set it in before_request and clear it on
@@ -54,13 +57,18 @@ ISOLATION_STEP = "007_ownership_backfill"
 
 @dataclass(frozen=True)
 class Scope:
-    kind: str                      # 'warehouse' | 'company_all' | 'platform_all'
+    kind: str                      # 'warehouse' | 'company_all' | 'platform_all' | 'platform_full'
     company_id: Optional[int] = None
     warehouse_id: Optional[int] = None
 
     @property
     def read_only(self) -> bool:
-        return self.kind != "warehouse"
+        return self.kind in ("company_all", "platform_all")
+
+    @property
+    def unrestricted(self) -> bool:
+        """Sees every company's data (no read filters, no record checks)."""
+        return self.kind in ("platform_all", "platform_full")
 
     @staticmethod
     def warehouse(company_id: int, warehouse_id: int) -> "Scope":
@@ -73,6 +81,12 @@ class Scope:
     @staticmethod
     def platform_all() -> "Scope":
         return Scope("platform_all", None, None)
+
+    @staticmethod
+    def platform_full(company_id: Optional[int], warehouse_id: Optional[int]) -> "Scope":
+        return Scope("platform_full",
+                     int(company_id) if company_id is not None else None,
+                     int(warehouse_id) if warehouse_id is not None else None)
 
 
 # ----------------------------------------------------------------------------- thread-local scope
@@ -280,7 +294,7 @@ def filter(table: str, alias: Optional[str] = None, scope: Optional[Scope] = Non
     """SQL condition (starting with ' AND ') and params limiting `table` to the scope.
     Empty when there is no scope, for the platform-wide view, or before isolation is on."""
     scope = scope if scope is not None else get_scope()
-    if scope is None or scope.kind == "platform_all" or not isolation_enabled():
+    if scope is None or scope.unrestricted or not isolation_enabled():
         return "", ()
     a = f"{alias}." if alias else ""
     if table in COMPANY_TABLES or scope.kind == "company_all":
@@ -296,11 +310,24 @@ def filter(table: str, alias: Optional[str] = None, scope: Optional[Scope] = Non
     return "", ()
 
 
+def home_filter(table: str, alias: Optional[str] = None, scope: Optional[Scope] = None) -> Tuple[str, tuple]:
+    """Like filter(), but the Platform Admin's full-access scope is narrowed to the
+    selected warehouse (and its company). Used for 'is this code already taken here?'
+    checks and for looking a record up by its code, where codes are unique per company
+    (classes) or per warehouse (zones) since Phase 3B."""
+    scope = scope if scope is not None else get_scope()
+    if scope is not None and scope.kind == "platform_full" and isolation_enabled():
+        if scope.company_id is None or scope.warehouse_id is None:
+            return "", ()
+        return filter(table, alias, Scope.warehouse(scope.company_id, scope.warehouse_id))
+    return filter(table, alias, scope)
+
+
 def owned_or_absent(conn: sqlite3.Connection, table: str, column: str, value) -> bool:
     """False when the record named by `value` exists but belongs to another scope.
     True when it is in scope or does not exist at all (the handler reports 'not found')."""
     scope = get_scope()
-    if scope is None or scope.kind == "platform_all" or not isolation_enabled():
+    if scope is None or scope.unrestricted or not isolation_enabled():
         return True
     if table not in SCOPED_TABLES and table not in CHILD_TABLES:
         return True
@@ -345,7 +372,7 @@ def camera_visible(camera_id: str, scope: Optional[Scope] = None) -> bool:
     """Whether a camera may be shown in the current scope. Cameras with no owner are shown
     only to unscoped code and the Platform Admin's all-companies view (fail closed)."""
     scope = scope if scope is not None else get_scope()
-    if scope is None or scope.kind == "platform_all" or not isolation_enabled():
+    if scope is None or scope.unrestricted or not isolation_enabled():
         return True
     comp, wh = _camera_map.get(str(camera_id), (None, None))
     if scope.kind == "company_all":

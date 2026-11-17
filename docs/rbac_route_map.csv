@@ -109,6 +109,7 @@ rule,method,endpoint,access,permission,module,scope,sensitive,reason_required
 /api/pallets/resolve-strategy,POST,api_resolve_counting_strategy,permission,vision.counting.execute,AI vision,warehouse,,
 /api/pallets/transfer-inventory,POST,api_transfer_vision_inventory,permission,inventory.transfer,Inventory,warehouse,,
 /api/pallets/vision-skus,GET,api_get_vision_skus,permission,sku.view,Master data,company,,
+/api/platform/companies,GET,api_platform_companies,permission,platform.companies.manage,Platform,platform,,
 /api/sku_master,GET,api_get_sku_master,permission,sku.view,Master data,company,,
 /api/sku_master,POST,api_save_sku,permission,sku.edit,Master data,company,,
 /api/sku_master/<sku_id>,DELETE,api_delete_sku,permission,sku.delete,Master data,company,,

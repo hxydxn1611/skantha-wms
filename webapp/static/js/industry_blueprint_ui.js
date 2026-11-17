@@ -365,13 +365,64 @@
     // 3. APPLY BLUEPRINT ACTION (PRESET OR CUSTOM)
     // =========================================================================
 
-    async function applyIndustryBlueprint(key, customPrompt = '') {
+    async function applyIndustryBlueprint(key, customPrompt = '', confirmed = false) {
         const banner = document.getElementById('blueprintFeedbackBanner');
         const targetMode = document.getElementById('blueprintApplyTargetSelect')?.value || 'CURRENT';
-        
-        let targetWhCode = (activeWarehouse && activeWarehouse.code) ? activeWarehouse.code : 'WH-MAIN';
+        const includeSamples = !!document.getElementById('blueprintIncludeSamples')?.checked;
+
+        // RBAC Phase 3B: 'CURRENT' = this tab's warehouse; 'NEW' = a new facility for your own company
+        let targetWhCode = (activeWarehouse && activeWarehouse.code) ? activeWarehouse.code : 'CURRENT';
         if (targetMode === 'NEW') {
-            targetWhCode = ''; // Service will create a dedicated new facility
+            targetWhCode = 'NEW';
+        }
+
+        // Step 1: preview what would be added (nothing is changed yet)
+        if (!confirmed) {
+            window.__warlogBlueprintPending = { key: key, customPrompt: customPrompt };
+            try {
+                const pres = await fetch('/api/industry_blueprints/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ blueprint_key: key || '', warehouse_code: targetWhCode,
+                                           custom_prompt: customPrompt || '', include_samples: includeSamples, preview: true })
+                });
+                const pv = await pres.json();
+                if (!pv.success) {
+                    showBlueprintToast(`Error: ${pv.error || 'Preview failed'}`, 'error');
+                    return;
+                }
+                const renamed = Object.entries(pv.codes_renamed || {});
+                const renamedHtml = renamed.length
+                    ? `<div style="font-size:0.75rem; margin-top:6px;">${renamed.length} SKU code(s) are already used by another company, so yours get your tag, e.g. <b>${escapeHtml(renamed[0][0])}</b> &rarr; <b>${escapeHtml(renamed[0][1])}</b>.</div>`
+                    : '';
+                const where = targetMode === 'NEW' ? 'a new facility' : `<b>${escapeHtml((pv.warehouse && pv.warehouse.code) || targetWhCode)}</b>`;
+                if (banner) {
+                    banner.style.display = 'block';
+                    banner.style.background = 'rgba(56, 189, 248, 0.12)';
+                    banner.style.border = '1px solid rgba(56, 189, 248, 0.35)';
+                    banner.style.color = 'var(--text-main)';
+                    banner.innerHTML = `
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                            <div>
+                                <div><i class="fas fa-eye" style="color:#38bdf8; margin-right:6px;"></i><b>Preview</b> for ${where} (${escapeHtml(pv.company_name || '')}):</div>
+                                <div style="font-size:0.8rem; margin-top:4px;">
+                                    ${pv.skus_created || 0} new SKUs${pv.skus_skipped_existing ? ` (${pv.skus_skipped_existing} already there)` : ''},
+                                    ${pv.classes_created || 0} AI classes, ${pv.zones_created || 0} zones${includeSamples ? `, ${pv.deliveries_created || 0} sample deliveries, ${pv.stock_rows_created || 0} sample stock rows` : ', no sample data'}.
+                                    Nothing existing is changed.
+                                </div>
+                                ${renamedHtml}
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <button type="button" onclick="document.getElementById('blueprintFeedbackBanner').style.display='none'" style="background:transparent; border:1px solid var(--border-light); color:var(--text-main); padding:5px 12px; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.78rem;">Cancel</button>
+                                <button type="button" onclick="applyIndustryBlueprint(window.__warlogBlueprintPending.key, window.__warlogBlueprintPending.customPrompt, true)" style="background:#0284c7; border:none; color:#ffffff; padding:5px 12px; border-radius:6px; font-weight:700; cursor:pointer; font-size:0.78rem;">Apply now</button>
+                            </div>
+                        </div>`;
+                }
+            } catch (err) {
+                console.error('[Industry Blueprint] Preview error:', err);
+                showBlueprintToast('Network communication error', 'error');
+            }
+            return;
         }
 
         if (banner) {
@@ -391,7 +442,8 @@
             const payload = {
                 blueprint_key: key || '',
                 warehouse_code: targetWhCode,
-                custom_prompt: customPrompt || ''
+                custom_prompt: customPrompt || '',
+                include_samples: includeSamples
             };
 
             const res = await fetch('/api/industry_blueprints/apply', {
@@ -480,8 +532,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    company_name: comp,
-                    username: window.currentUser ? window.currentUser.username : 'admin'
+                    company_name: comp
                 })
             });
             const data = await res.json();

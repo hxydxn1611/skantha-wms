@@ -127,6 +127,20 @@ def resolve_scope():
     whs = {w["id"]: w for w in accessible_warehouses(user)}
     own_company = auth_service.user_company_id(user["id"])
     scope = None
+    if user.get("is_platform_admin"):
+        # Platform Admin keeps full access to everything (read and write, every company).
+        # The selected warehouse only decides where new, ownerless records are filed.
+        wid = int(requested) if requested.isdigit() and int(requested) in whs else None
+        if wid is None:
+            wid = default_warehouse_id(user, (session.get("user") or {}).get("assigned_warehouse_code"))
+        home = whs.get(wid) if wid else None
+        if home is not None:
+            session["warehouse_id"] = wid
+        scope = rbac_scope.Scope.platform_full(home["company_id"] if home else None, wid if home else None)
+        g.rbac_scope = scope
+        g.rbac_warehouse_id = scope.warehouse_id
+        rbac_scope.set_scope(scope)
+        return None
     if requested == "*":
         if user.get("is_platform_admin"):
             scope = rbac_scope.Scope.platform_all()
@@ -347,6 +361,14 @@ _ID_FIELDS = {
     "profile_id": [("glass_measurement_profiles", "id")],
     "zone_id": [("vision_zones", "id")],
 }
+# (endpoint, method, field) of "create" requests: a code that belongs to someone else is
+# answered with 409 "already in use" instead of 404 (it never says whose it is).
+_CREATE_CODE_FIELDS = {
+    ("api_add_sku", "POST", "sku_id"): "SKU code",
+    ("api_add_bin", "POST", "bin_id"): "Bin",
+    ("handle_deliveries", "POST", "po_number"): "PO number",
+    ("add_camera", "POST", "camera_id"): "Camera ID",
+}
 _ENDPOINT_ARGS = {
     "handle_single_object_class": {"identifier": [("object_classes", "id"), ("object_classes", "code")]},
     "handle_single_vision_zone": {"identifier": [("vision_zones", "id"), ("vision_zones", "zone_code")]},
@@ -375,7 +397,7 @@ def check_record_scope():
     Runs before the handler, so single-record reads and writes can't cross scopes (Phase 3A)."""
     import rbac_scope
     scope = current_scope()
-    if scope is None or scope.kind == "platform_all" or not rbac_scope.isolation_enabled():
+    if scope is None or scope.unrestricted or not rbac_scope.isolation_enabled():
         return None
     pairs = _named_records()
     if not pairs:
@@ -389,6 +411,11 @@ def check_record_scope():
             for table, column in special.get(name) or _ID_FIELDS.get(name, []):
                 if not rbac_scope.owned_or_absent(conn, table, column, value):
                     _log_decision("access.out_of_scope", None, f"{name}={value}", "denied")
+                    label = _CREATE_CODE_FIELDS.get((request.endpoint, request.method, name))
+                    if label:
+                        # Phase 3B: creating a record with a code someone else uses
+                        return _deny(409, "code_in_use",
+                                     f"{label} '{value}' is already in use. Please choose a different code.")
                     return _deny(404, "not_found", "Not found.")
     finally:
         conn.close()
@@ -407,7 +434,7 @@ def check_file_scope(path: str):
     import os
     import rbac_scope
     scope = current_scope()
-    if scope is None or scope.kind == "platform_all" or not rbac_scope.isolation_enabled():
+    if scope is None or scope.unrestricted or not rbac_scope.isolation_enabled():
         return None
     name = os.path.basename(path)
     checks = [(t, c, v) for t, c in _FILE_OWNER_COLUMNS for v in (path, path.lstrip("/"), name)]

@@ -16,6 +16,9 @@ Steps
                       plain-text column, flag default passwords for reset, company
                       membership + Company Admin assignment, Platform Admin flag,
                       purge plain-text email OTPs
+  006/007             ownership columns; approved ownership backfill (Phase 3A)
+  008_per_company_codes  object class codes unique per company, zone codes unique per
+                      warehouse (table rebuild, every row/id/link kept) (Phase 3B)
 
 The permission catalogue is synced on every run (idempotent upsert; removed keys retired).
 """
@@ -472,6 +475,117 @@ def _step_ownership_backfill(conn: sqlite3.Connection) -> None:
     logger.info(f"[RBAC] ownership backfill: {counts}")
 
 
+# ----------------------------------------------------------------------------- 008 (Phase 3B)
+_NEW_OBJECT_CLASSES = """
+    CREATE TABLE object_classes__new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        status TEXT DEFAULT 'Active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        company_id INTEGER REFERENCES companies(id),
+        UNIQUE(company_id, code)
+    )"""
+_NEW_CAMERA_CLASSES = """
+    CREATE TABLE vision_camera_object_classes__new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        camera_id TEXT NOT NULL,
+        class_code TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(camera_id, class_code),
+        FOREIGN KEY (camera_id) REFERENCES cameras(camera_id) ON DELETE CASCADE
+    )"""
+_NEW_VISION_ZONES = """
+    CREATE TABLE vision_zones__new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        zone_code TEXT NOT NULL,
+        zone_name TEXT NOT NULL,
+        zone_type TEXT NOT NULL,
+        warehouse TEXT NOT NULL DEFAULT 'Warehouse A',
+        description TEXT,
+        status TEXT DEFAULT 'Active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        company_id INTEGER REFERENCES companies(id),
+        warehouse_id INTEGER REFERENCES warehouses(id),
+        UNIQUE(warehouse_id, zone_code)
+    )"""
+# A camera's class links follow its company's class: renaming or deleting a class
+# (which a camera link used to do through ON UPDATE/DELETE CASCADE on the global code)
+# now applies to that company's cameras only.
+_CLASS_LINK_TRIGGERS = """
+CREATE TRIGGER IF NOT EXISTS trg_object_classes_code_rename AFTER UPDATE OF code ON object_classes
+WHEN NEW.code IS NOT OLD.code
+BEGIN
+    UPDATE vision_camera_object_classes SET class_code = NEW.code
+    WHERE class_code = OLD.code
+      AND camera_id IN (SELECT camera_id FROM cameras WHERE company_id IS NEW.company_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_object_classes_delete_links AFTER DELETE ON object_classes
+BEGIN
+    DELETE FROM vision_camera_object_classes
+    WHERE class_code = OLD.code
+      AND camera_id IN (SELECT camera_id FROM cameras WHERE company_id IS OLD.company_id);
+END;
+"""
+
+
+def _rebuild(conn: sqlite3.Connection, table: str, create_sql: str, indexes: List[str]) -> None:
+    """SQLite 12-step table rebuild (foreign keys are off for the whole step)."""
+    old_cols = _columns(conn, table)
+    conn.execute(create_sql)
+    new_cols = _columns(conn, f"{table}__new")
+    cols = ", ".join(f'"{c}"' for c in old_cols if c in new_cols)
+    before = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+    conn.execute(f'INSERT INTO "{table}__new" ({cols}) SELECT {cols} FROM "{table}"')
+    after = conn.execute(f'SELECT COUNT(*) FROM "{table}__new"').fetchone()[0]
+    if before != after:
+        raise RuntimeError(f"rebuild of {table} changed row count {before} -> {after}")
+    conn.execute(f'DROP TABLE "{table}"')
+    conn.execute(f'ALTER TABLE "{table}__new" RENAME TO "{table}"')
+    for ix in indexes:
+        conn.execute(ix)
+
+
+def _step_per_company_codes(conn: sqlite3.Connection) -> None:
+    """Phase 3B: object class codes are unique per company (BOX, WORKER ... stay the
+    detector's names for every company) and zone codes unique per warehouse.
+    Only the uniqueness rule changes; every row, id and link is kept."""
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        _rebuild(conn, "object_classes", _NEW_OBJECT_CLASSES, [
+            "CREATE INDEX IF NOT EXISTS idx_object_classes_code ON object_classes(code)",
+            "CREATE INDEX IF NOT EXISTS idx_object_classes_status ON object_classes(status)",
+            "CREATE INDEX IF NOT EXISTS ix_object_classes_company_id ON object_classes(company_id)",
+        ])
+        _rebuild(conn, "vision_camera_object_classes", _NEW_CAMERA_CLASSES, [
+            "CREATE INDEX IF NOT EXISTS idx_vision_cam_obj_cam ON vision_camera_object_classes(camera_id)",
+            "CREATE INDEX IF NOT EXISTS idx_vision_cam_obj_class ON vision_camera_object_classes(class_code)",
+        ])
+        _rebuild(conn, "vision_zones", _NEW_VISION_ZONES, [
+            "CREATE INDEX IF NOT EXISTS idx_vision_zones_code ON vision_zones(zone_code)",
+            "CREATE INDEX IF NOT EXISTS idx_vision_zones_type ON vision_zones(zone_type)",
+            "CREATE INDEX IF NOT EXISTS idx_vision_zones_warehouse ON vision_zones(warehouse)",
+            "CREATE INDEX IF NOT EXISTS idx_vision_zones_status ON vision_zones(status)",
+            "CREATE INDEX IF NOT EXISTS ix_vision_zones_warehouse_id ON vision_zones(warehouse_id)",
+            "CREATE INDEX IF NOT EXISTS ix_vision_zones_company_id ON vision_zones(company_id)",
+        ])
+        for stmt in _CLASS_LINK_TRIGGERS.split("END;"):
+            if stmt.strip():
+                conn.execute(stmt + "END;")
+        bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if bad:
+            raise RuntimeError(f"foreign key check failed after rebuild: {bad[:5]}")
+    except Exception:
+        conn.rollback()
+        conn.execute("PRAGMA foreign_keys = ON")
+        raise
+
+
 STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("001_schema", _step_schema),
     ("002_companies", _step_companies),
@@ -480,6 +594,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("005_users", _step_users),
     ("006_ownership_columns", _step_ownership_columns),
     ("007_ownership_backfill", _step_ownership_backfill),
+    ("008_per_company_codes", _step_per_company_codes),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {
@@ -586,6 +701,7 @@ def migrate(db_path: str) -> Dict[str, object]:
                     fn(conn)
                     conn.execute("INSERT INTO schema_migrations (migration_set, step) VALUES (?, ?)",
                                  (MIGRATION_SET, name))
+                conn.execute("PRAGMA foreign_keys = ON")
                 logger.info(f"[RBAC] Migration step {MIGRATION_SET}/{name} applied")
             with conn:
                 sync_catalog(conn)

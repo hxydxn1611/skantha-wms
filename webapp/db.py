@@ -930,6 +930,27 @@ def get_delivery(po_number):
     conn.close()
     return _row_to_delivery(row)
 
+class CodeInUseError(ValueError):
+    """RBAC Phase 3B: a code (SKU, bin, PO, camera) that another company or warehouse
+    already uses. Codes are unique across WARLOG; the message never says whose it is."""
+
+
+def ensure_code_free(conn, table: str, column: str, value, label: str) -> None:
+    """Raises CodeInUseError when `value` exists outside the current company/warehouse
+    (for the Platform Admin: outside the selected warehouse), so an upsert can never
+    silently do nothing or change another company's record."""
+    if value is None or str(value).strip() == "" or rbac_scope.get_scope() is None \
+            or not rbac_scope.isolation_enabled():
+        return
+    if not conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ? LIMIT 1", (value,)).fetchone():
+        return
+    _hf, _hp = rbac_scope.home_filter(table)
+    if not _hf:
+        return
+    if not conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ?{_hf} LIMIT 1", (value,) + _hp).fetchone():
+        raise CodeInUseError(f"{label} '{value}' is already in use. Please choose a different code.")
+
+
 def create_delivery(data):
     """Store pre-registration input in the database."""
     conn = get_db()
@@ -938,6 +959,10 @@ def create_delivery(data):
         if not po_number:
             count = conn.execute("SELECT COUNT(*) FROM expected_deliveries").fetchone()[0]
             po_number = f"PO-{count + 1000}"
+            while conn.execute("SELECT 1 FROM expected_deliveries WHERE po_number = ?", (po_number,)).fetchone():
+                count += 1
+                po_number = f"PO-{count + 1000}"
+        ensure_code_free(conn, "expected_deliveries", "po_number", po_number, "PO number")
 
         expected_date = data.get("expected_date") or time.strftime("%Y-%m-%d")
         plate = (data.get("plate") or "").strip().upper()
@@ -1388,11 +1413,18 @@ def get_all_object_classes(search_term=None, status=None):
     return [dict(r) for r in rows]
 
 def get_object_class(identifier):
+    # Phase 3B: class codes are unique per company, so a code lookup is narrowed to the
+    # current company (the Platform Admin: the selected warehouse's company first).
     conn = get_db()
     if isinstance(identifier, int) or (isinstance(identifier, str) and identifier.isdigit()):
-        row = conn.execute("SELECT * FROM object_classes WHERE id = ? OR code = ?", (identifier, str(identifier))).fetchone()
+        where, params = "(id = ? OR code = ?)", (identifier, str(identifier))
     else:
-        row = conn.execute("SELECT * FROM object_classes WHERE code = ?", (str(identifier).upper(),)).fetchone()
+        where, params = "code = ?", (str(identifier).upper(),)
+    _hf, _hp = rbac_scope.home_filter("object_classes")
+    row = conn.execute(f"SELECT * FROM object_classes WHERE {where}{_hf} ORDER BY id LIMIT 1", params + _hp).fetchone()
+    if row is None and _hf:
+        _sf, _sp = rbac_scope.filter("object_classes")
+        row = conn.execute(f"SELECT * FROM object_classes WHERE {where}{_sf} ORDER BY id LIMIT 1", params + _sp).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -1407,7 +1439,8 @@ def create_object_class(data):
         return None, "Class Code and Class Name are required."
         
     conn = get_db()
-    existing = conn.execute("SELECT id FROM object_classes WHERE code = ?", (code,)).fetchone()
+    _hf, _hp = rbac_scope.home_filter("object_classes")
+    existing = conn.execute(f"SELECT id FROM object_classes WHERE code = ?{_hf}", (code,) + _hp).fetchone()
     if existing:
         conn.close()
         return None, f"Class Code '{code}' already exists."
@@ -1437,7 +1470,9 @@ def update_object_class(identifier, data):
     
     conn = get_db()
     if code != existing['code']:
-        duplicate = conn.execute("SELECT id FROM object_classes WHERE code = ? AND id != ?", (code, target_id)).fetchone()
+        duplicate = conn.execute(
+            "SELECT id FROM object_classes WHERE code = ? AND id != ? AND company_id IS ?",
+            (code, target_id, existing.get('company_id'))).fetchone()
         if duplicate:
             conn.close()
             return None, f"Class Code '{code}' is already used by another class."
@@ -1500,6 +1535,11 @@ def create_or_update_camera(data):
     conn = get_db()
     from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        ensure_code_free(conn, "cameras", "camera_id", camera_id, "Camera ID")
+    except CodeInUseError:
+        conn.close()
+        raise
     with conn:
         conn.execute("""
             INSERT INTO cameras (camera_id, camera_code, name, warehouse, location, bin_id, camera_type, vendor, stream_url, status, created_at, updated_at)
@@ -1697,9 +1737,10 @@ def save_vision_camera_config(identifier, data):
     # Verify that the selected classes exist in Object Classes Master
     if cleaned_classes:
         placeholders = ','.join(['?'] * len(cleaned_classes))
+        _sf, _sp = rbac_scope.filter("object_classes")
         existing_classes = conn.execute(
-            f"SELECT code FROM object_classes WHERE code IN ({placeholders})",
-            tuple(cleaned_classes)
+            f"SELECT code FROM object_classes WHERE code IN ({placeholders}){_sf}",
+            tuple(cleaned_classes) + _sp
         ).fetchall()
         existing_codes = set(r['code'] for r in existing_classes)
         invalid_codes = set(cleaned_classes) - existing_codes
@@ -1849,10 +1890,18 @@ def get_all_vision_zones(search_term=None, zone_type=None, warehouse=None, statu
 
 def get_vision_zone(identifier):
     conn = get_db()
-    row = conn.execute("""
+    # Phase 3B: zone codes are unique per warehouse; look the code up in this warehouse
+    _hf, _hp = rbac_scope.home_filter("vision_zones")
+    row = conn.execute(f"""
         SELECT * FROM vision_zones
-        WHERE id = ? OR zone_code = ?
-    """, (str(identifier), str(identifier))).fetchone()
+        WHERE (id = ? OR zone_code = ?){_hf} ORDER BY id LIMIT 1
+    """, (str(identifier), str(identifier)) + _hp).fetchone()
+    if row is None and _hf:
+        _sf, _sp = rbac_scope.filter("vision_zones")
+        row = conn.execute(f"""
+            SELECT * FROM vision_zones
+            WHERE (id = ? OR zone_code = ?){_sf} ORDER BY id LIMIT 1
+        """, (str(identifier), str(identifier)) + _sp).fetchone()
 
     if not row:
         conn.close()
@@ -1939,7 +1988,8 @@ def create_vision_zone(data):
         return None, f"Invalid Zone Type '{zone_type}'. Valid types are: {', '.join(ZONE_TYPES.keys())}."
 
     conn = get_db()
-    existing = conn.execute("SELECT id FROM vision_zones WHERE zone_code = ?", (zone_code,)).fetchone()
+    _hf, _hp = rbac_scope.home_filter("vision_zones")
+    existing = conn.execute(f"SELECT id FROM vision_zones WHERE zone_code = ?{_hf}", (zone_code,) + _hp).fetchone()
     if existing:
         conn.close()
         return None, f"Zone with code '{zone_code}' already exists."
@@ -2009,7 +2059,9 @@ def update_vision_zone(identifier, data):
         return None, f"Invalid Zone Type '{zone_type}'. Valid types are: {', '.join(ZONE_TYPES.keys())}."
 
     conn = get_db()
-    duplicate = conn.execute("SELECT id FROM vision_zones WHERE zone_code = ? AND id != ?", (zone_code, zone_id)).fetchone()
+    duplicate = conn.execute(
+        "SELECT id FROM vision_zones WHERE zone_code = ? AND id != ? AND warehouse_id IS ?",
+        (zone_code, zone_id, zone.get('warehouse_id'))).fetchone()
     if duplicate:
         conn.close()
         return None, f"Zone code '{zone_code}' is already in use by another zone."
@@ -2379,6 +2431,11 @@ def get_bin_inventory(bin_id):
 
 def add_bin(bin_id, zone, max_volume, max_weight):
     conn = get_db()
+    try:
+        ensure_code_free(conn, "bins", "bin_id", bin_id, "Bin")
+    except CodeInUseError:
+        conn.close()
+        raise
     with conn:
         conn.execute('''
             INSERT INTO bins (bin_id, zone, max_volume, max_weight, status, last_updated)
@@ -2427,6 +2484,11 @@ def add_sku(sku_id, name, description, category, unit_weight=0.0, unit_volume=0.
     tbp_val = max(1, int(target_bundles_per_pallet or 10))
     wt_val = float(unit_weight or 0.0)
     vol_val = float(unit_volume or 0.0)
+    try:
+        ensure_code_free(conn, "skus", "sku_id", sku_code, "SKU code")
+    except CodeInUseError:
+        conn.close()
+        raise
     with conn:
         conn.execute('''
             INSERT INTO skus (sku_id, name, description, category, uom, unit_weight, unit_volume, units_per_bundle, bundle_name, target_bundles_per_pallet, status, created_at, updated_at)

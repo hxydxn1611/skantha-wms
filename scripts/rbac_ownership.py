@@ -70,7 +70,7 @@ def cmd_approve(args) -> int:
     try:
         with conn:
             rbac_migration.migrate(db.DB_PATH)  # makes sure the ownership columns exist
-            proposal = rbac_ownership.approve(conn, approved_by=args.by)
+            proposal = rbac_ownership.approve(conn, approved_by=args.by, mark_demo=not args.keep_live)
     finally:
         conn.close()
     print("Approved. The next server start applies this ownership and switches data isolation on:")
@@ -85,6 +85,8 @@ def main() -> int:
     sub.add_parser("propose")
     a = sub.add_parser("approve")
     a.add_argument("--by", required=True)
+    a.add_argument("--keep-live", action="store_true",
+                   help="do not mark existing deliveries/pallets as sample data (ANPR keeps matching them)")
     args = ap.parse_args()
     return {"propose": cmd_propose, "approve": cmd_approve}[args.cmd](args)
 

@@ -102,6 +102,7 @@ from staging_perception_service import get_staging_service, ActorType, QuotaStat
 
 import auth_service
 import rbac_service
+import rbac_scope
 from rbac_config import get_rbac_mode
 logger.info(f"[RBAC] RBAC_MODE={get_rbac_mode()}")
 
@@ -270,6 +271,12 @@ def rbac_after_request(response):
     return response
 
 
+@app.errorhandler(db.CodeInUseError)
+def handle_code_in_use(e):
+    """RBAC Phase 3B: a code another company/warehouse already uses (never says whose)."""
+    return jsonify({'success': False, 'error': str(e), 'message': str(e), 'error_code': 'code_in_use'}), 409
+
+
 @app.errorhandler(Exception)
 def handle_unexpected_error(e):
     """Unhandled errors: JSON with a reference id for API calls, never the exception text (H18)."""
@@ -302,10 +309,78 @@ def api_auth_me():
         'rbac_mode': get_rbac_mode(),
     })
 
+@app.route('/api/platform/companies', methods=['GET'])
+def api_platform_companies():
+    """Companies & Owners (Platform Admin): every company, its owners (Company Admins),
+    its users and its locations with a few live counts. Read-only.
+    Platform Admin only in every RBAC mode (audit mode would otherwise only log a denial)."""
+    if not (g.get('current_user') or {}).get('is_platform_admin'):
+        return jsonify({"success": False, "error": "Platform Admin only.", "error_code": "permission_denied"}), 403
+    conn = db.get_db()
+    try:
+        def rows(sql, params=()):
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+        def counts(table, col):
+            return {r[0]: r[1] for r in conn.execute(
+                f"SELECT {col}, COUNT(*) FROM {table} WHERE {col} IS NOT NULL GROUP BY {col}").fetchall()}
+
+        companies = rows("SELECT id, name, status, is_platform_owner, created_at FROM companies ORDER BY is_platform_owner DESC, name")
+        warehouses = rows("""SELECT id, code, name, city, state, industry, operating_mode, status, created_at, company_id
+                             FROM warehouses ORDER BY code""")
+        access = rows("""
+            SELECT a.user_id, a.company_id, a.warehouse_id, a.status AS access_status,
+                   r.name AS role_name, r.builtin_code,
+                   u.username, u.email, u.is_active, u.last_login_at, u.is_platform_admin
+            FROM user_warehouse_access a
+            JOIN users u ON u.id = a.user_id
+            JOIN roles r ON r.id = a.role_id
+            ORDER BY u.username""")
+        platform_admins = rows("""SELECT id AS user_id, username, email, is_active, last_login_at, company_name
+                                  FROM users WHERE is_platform_admin = 1 ORDER BY username""")
+        cams, deliveries, gps, bins = (counts("cameras", "warehouse_id"), counts("expected_deliveries", "warehouse_id"),
+                                       counts("gate_passes", "warehouse_id"), counts("bins", "warehouse_id"))
+        skus = counts("skus", "company_id")
+    finally:
+        conn.close()
+
+    wh_by_id = {w["id"]: w for w in warehouses}
+    out = []
+    for c in companies:
+        mine = [a for a in access if a["company_id"] == c["id"]]
+        people = {}
+        for a in mine:
+            p = people.setdefault(a["user_id"], {
+                "username": a["username"], "email": a["email"] or "", "is_active": bool(a["is_active"]),
+                "last_login_at": a["last_login_at"], "roles": [], "is_owner": False})
+            where = "All locations" if a["warehouse_id"] is None else (wh_by_id.get(a["warehouse_id"], {}).get("code") or "?")
+            p["roles"].append({"role": a["role_name"], "where": where, "status": a["access_status"]})
+            if a["builtin_code"] == "company_admin" and a["access_status"] == "Active":
+                p["is_owner"] = True
+        locs = [{**w, "cameras": cams.get(w["id"], 0), "deliveries": deliveries.get(w["id"], 0),
+                 "gate_passes": gps.get(w["id"], 0), "bins": bins.get(w["id"], 0)}
+                for w in warehouses if w["company_id"] == c["id"]]
+        out.append({**c, "is_platform_owner": bool(c["is_platform_owner"]),
+                    "owners": [p for p in people.values() if p["is_owner"]],
+                    "users": list(people.values()), "locations": locs, "skus": skus.get(c["id"], 0)})
+    unlinked = [w for w in warehouses if w["company_id"] is None]
+    return jsonify({
+        "success": True,
+        "companies": out,
+        "platform_admins": platform_admins,
+        "unlinked_locations": unlinked,
+        "totals": {"companies": len(out), "locations": len(warehouses),
+                   "owners": sum(len(c["owners"]) for c in out),
+                   "users": len({a["user_id"] for a in access} | {p["user_id"] for p in platform_admins})},
+    })
+
+
 @app.route('/')
 def index():
+    user = g.get('current_user') or {}
     return render_template('index.html', current_user=session['user'],
-                           warehouse_scope=rbac_service.current_warehouse_id() or '')
+                           warehouse_scope=rbac_service.current_warehouse_id() or '',
+                           is_platform_admin=bool(user.get('is_platform_admin')))
 
 @app.route('/login', methods=['GET'])
 def login_page():
@@ -712,29 +787,43 @@ def api_company_auto_setup():
         data = request.json or {}
         company_name = (data.get('company_name') or '').strip()
         description = (data.get('description') or '').strip()
-        username = data.get('username')
-        
+
         if not company_name:
             return jsonify({'success': False, 'error': 'Company name is required'}), 400
-            
+
+        user = g.get('current_user') or {}
         detected = auto_detect_company_industry(company_name, description)
-        res = apply_industry_blueprint(
-            blueprint_key=detected['detected_key'],
-            warehouse_code='', # will generate dedicated facility
-            custom_company_name=company_name,
-            custom_prompt=description
-        )
-        
+        if user.get('is_platform_admin'):
+            # Platform Admin: sets up a new company with its own facility (as before).
+            # RBAC Phase 3B: no user's assignment is changed any more (the browser used
+            # to send any username here); only this session opens the new facility.
+            res = apply_industry_blueprint(
+                blueprint_key=detected['detected_key'],
+                warehouse_code='',  # will generate dedicated facility
+                custom_company_name=company_name,
+                custom_prompt=description
+            )
+        else:
+            # Everyone else: detect the industry, then fill THEIR current location
+            # with their own company's copy of the template. Never creates a company.
+            wid = rbac_service.current_warehouse_id()
+            if not wid:
+                return jsonify({'success': False, 'error': 'Choose a warehouse first.'}), 400
+            res = apply_industry_blueprint(
+                blueprint_key=detected['detected_key'],
+                warehouse_id=wid,
+                custom_prompt=description
+            )
+
         if res.get('success') and res.get('warehouse'):
             wh_code = res['warehouse']['code']
             # Templates no longer change the active warehouse themselves (Phase 0);
-            # this explicit "set up my company" action still opens the new facility
+            # this explicit "set up my company" action still opens the facility
             # (for this session only, RBAC Phase 3A).
             new_wh = db.get_warehouse_by_code(wh_code)
             if new_wh:
                 session['warehouse_id'] = new_wh['id']
-            if username:
-                db.update_user_warehouse(username, wh_code, company_name)
+            rbac_scope.refresh_camera_map()
             try:
                 mgr = get_vision_runtime_manager()
                 mgr.refresh_cameras()
@@ -783,6 +872,8 @@ def api_add_bin():
             return jsonify({'success': False, 'error': 'bin_id is required'}), 400
         db.add_bin(bin_id, data.get('zone', 'General'), float(data.get('max_volume', 100.0)), float(data.get('max_weight', 1000.0)))
         return jsonify({'success': True})
+    except db.CodeInUseError:
+        raise
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -824,6 +915,8 @@ def api_add_sku():
             target_bundles_per_pallet=data.get('target_bundles_per_pallet', 10)
         )
         return jsonify({'success': True, 'sku': db.get_sku_by_id(data['sku_id'])})
+    except db.CodeInUseError:
+        raise
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -989,17 +1082,56 @@ def api_apply_industry_blueprint():
     try:
         data = request.json or {}
         key = data.get('key') or data.get('blueprint_key')
-        warehouse_code = data.get('warehouse_code')
+        warehouse_code = (data.get('warehouse_code') or '').strip().upper()
         custom_industry_name = data.get('custom_industry_name')
         custom_prompt = data.get('custom_prompt')
-        
+        preview = bool(data.get('preview'))
+        include_samples = bool(data.get('include_samples'))
+
+        # RBAC Phase 3B: the template always goes into a warehouse this user may use,
+        # for that warehouse's own company. 'NEW' creates a facility for the user's own
+        # company. Enforced in every RBAC mode (a template writes a lot of data).
+        user = g.get('current_user') or {}
+        allowed = {w['code'].upper(): w for w in rbac_service.accessible_warehouses(user) if w.get('code')}
+        target_id = None
+        if warehouse_code in ('', 'CURRENT'):
+            target_id = rbac_service.current_warehouse_id()
+            if not target_id:
+                return jsonify({"success": False, "error": "Choose a warehouse first."}), 400
+        elif warehouse_code == 'NEW':
+            custom_industry_name = None
+        elif warehouse_code in allowed:
+            target_id = allowed[warehouse_code]['id']
+        else:
+            return jsonify({"success": False, "error": "Warehouse not found.", "error_code": "not_found"}), 404
+        company_for_new = None
+        if warehouse_code == 'NEW':
+            own_company = auth_service.user_company_id(user.get('id'))
+            row = None
+            if own_company:
+                _c = db.get_db()
+                try:
+                    row = _c.execute("SELECT name FROM companies WHERE id = ?", (own_company,)).fetchone()
+                finally:
+                    _c.close()
+            company_for_new = row[0] if row else (user.get('company_name') or None)
+            if not company_for_new:
+                return jsonify({"success": False, "error": "Your account has no company to add a location to."}), 400
+
         result = apply_industry_blueprint(
             blueprint_key=key,
-            warehouse_code=warehouse_code,
+            warehouse_code='' if warehouse_code == 'NEW' else None,
+            warehouse_id=target_id,
+            custom_company_name=company_for_new,
             custom_industry_name=custom_industry_name,
-            custom_prompt=custom_prompt
+            custom_prompt=custom_prompt,
+            include_samples=include_samples,
+            preview=preview,
         )
-        
+        if preview:
+            return jsonify(result)
+        rbac_scope.refresh_camera_map()
+                
         # Refresh active cameras runtime to pick up new classes and zones
         try:
             mgr = get_vision_runtime_manager()
@@ -3753,6 +3885,8 @@ def update_gate_pass(gp_id):
             pass
         try:
             for ac in active_cameras.values():
+                if not rbac_scope.camera_visible(getattr(ac, 'camera_id', '')):
+                    continue
                 if getattr(ac, 'last_gate_pass_id', None) == gp_id or getattr(ac, 'is_gate_camera', False) or ac.location == 'Gate':
                     ac.last_detected_plate = gp.get('plate') or ac.last_detected_plate
                     ac.last_gate_pass_photo = gp.get('photo') or ac.last_gate_pass_photo
@@ -3937,7 +4071,7 @@ def get_cameras():
 
     # Fallback/merge for any active in-memory cameras not found in DB
     for cam_id, cam in active_cameras.items():
-        if cam_id not in seen_ids:
+        if cam_id not in seen_ids and rbac_scope.camera_visible(cam_id):
             is_gate = getattr(cam, 'is_gate_camera', False)
             if is_gate:
                 visible_packages = 0
@@ -4217,6 +4351,8 @@ def simulate_gate_arrival():
 
         mgr = get_vision_runtime_manager()
         for sess in mgr.sessions.values():
+            if not rbac_scope.camera_visible(getattr(sess, 'camera_id', '')):
+                continue
             if sess.is_gate_camera or sess.location == 'Gate':
                 sess.last_detected_plate = plate
                 sess.last_gate_pass_id = gp_id
@@ -4224,6 +4360,8 @@ def simulate_gate_arrival():
                 sess.last_gate_pass_time = time.time()
 
         for cam in active_cameras.values():
+            if not rbac_scope.camera_visible(getattr(cam, 'camera_id', '')):
+                continue
             if getattr(cam, 'is_gate_camera', False) or cam.location == 'Gate':
                 with cam.lock:
                     cam.last_detected_plate = plate

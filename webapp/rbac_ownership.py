@@ -262,8 +262,11 @@ def _sha(proposal) -> str:
     return hashlib.sha256(json.dumps(proposal, sort_keys=True).encode()).hexdigest()
 
 
-def approve(conn: sqlite3.Connection, approved_by: str) -> Dict[str, Any]:
+def approve(conn: sqlite3.Connection, approved_by: str, mark_demo: bool = True) -> Dict[str, Any]:
+    """mark_demo=False keeps existing deliveries/pallets as live data (no is_demo flag),
+    so ANPR keeps matching them exactly as before."""
     proposal = propose(conn)
+    proposal["mark_demo"] = bool(mark_demo)
     conn.execute(APPROVAL_TABLE)
     conn.execute("INSERT INTO rbac_ownership_approval (proposal_json, proposal_sha256, approved_by) VALUES (?, ?, ?)",
                  (json.dumps(proposal, sort_keys=True), _sha(proposal), approved_by))
@@ -279,6 +282,7 @@ def approved_proposal(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
 def apply(conn: sqlite3.Connection, proposal: Dict[str, Any]) -> Dict[str, int]:
     """Writes the approved assignments. Rows that appeared after approval get the same rules."""
     current = propose(conn)
+    mark_demo = proposal.get("mark_demo", True)
     counts = {"assigned": 0, "unassigned": 0, "added_after_approval": 0}
     for table, cur_rows in current["tables"].items():
         approved = {r["rowid"]: r for r in proposal["tables"].get(table, [])}
@@ -294,6 +298,8 @@ def apply(conn: sqlite3.Connection, proposal: Dict[str, Any]) -> Dict[str, int]:
             if table in rbac_scope.WAREHOUSE_TABLES and r.get("warehouse_id") is not None:
                 sets.append("warehouse_id = ?"); params.append(r["warehouse_id"])
             for flag in ("is_demo", "legacy_test"):
+                if flag == "is_demo" and not mark_demo:
+                    continue
                 if r.get(flag) and flag in cols:
                     sets.append(f"{flag} = 1")
             if sets:
