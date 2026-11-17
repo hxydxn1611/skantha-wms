@@ -180,6 +180,22 @@ def run_api_snapshot_inprocess(db_path: str) -> Dict[str, Any]:
     os.chdir(WEBAPP_DIR)
     import db  # noqa: E402  (older code has no env support: pin the path explicitly)
     db.DB_PATH = db_path
+    scope_headers = {}
+    try:  # RBAC Phase 3A+: apply the approved ownership on this private copy
+        import rbac_migration  # noqa: E402
+        import rbac_ownership  # noqa: E402
+        import sqlite3 as _sq
+        rbac_migration.migrate(db_path)
+        _c = _sq.connect(db_path)
+        with _c:
+            if rbac_ownership.approved_proposal(_c) is None:
+                rbac_ownership.approve(_c, approved_by="parity snapshot")
+        _c.close()
+        rbac_migration.migrate(db_path)
+        # admin sees everything through the Platform Admin's read-only all-companies view
+        scope_headers = {"X-Warehouse-Id": "*"}
+    except ImportError:
+        pass
     import app as app_module  # noqa: E402
     client = app_module.app.test_client()
     session_user = dict(ADMIN_SESSION)
@@ -201,7 +217,7 @@ def run_api_snapshot_inprocess(db_path: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for path in API_ENDPOINTS:
         try:
-            r = client.get(path)
+            r = client.get(path, headers=scope_headers)
             body: Any
             try:
                 body = r.get_json(silent=True)
@@ -232,6 +248,7 @@ def api_snapshot(db_path: str, out_file: str) -> Dict[str, Any]:
 # UI, so they are not treated as a change to what admin sees.
 RBAC_ADDED_KEYS = frozenset({
     "is_demo", "company_id", "state",      # columns added by RBAC migrations
+    "warehouse_id", "legacy_test",         # ownership columns (Phase 3A)
     "otp", "otp_generated",                # deliberately removed from responses in Phase 2 (H17)
 })
 
@@ -250,11 +267,22 @@ def _strip_keys(value: Any, keys: frozenset) -> Any:
     return value
 
 
+# Phase 3A: the active warehouse is per session (and per tab) instead of one global flag,
+# so these two endpoints legitimately report a different "active" warehouse.
+SESSION_STATE_KEYS = {"/api/warehouses": frozenset({"is_active", "active_warehouse"}),
+                      "/api/warehouses/active": frozenset({"is_active", "active_warehouse"})}
+
+
+SUPERSET_LIST_ENDPOINTS = {"/api/warehouses": ("code", "warehouses")}
+
+
 def compare_api(baseline: Dict[str, Any], current: Dict[str, Any],
                 allowed_new_keys: frozenset = RBAC_ADDED_KEYS) -> List[str]:
     """Returns human-readable differences (empty list = parity)."""
-    baseline = {p: {**v, "body": _strip_keys(v["body"], allowed_new_keys)} for p, v in baseline.items()}
-    current = {p: {**v, "body": _strip_keys(v["body"], allowed_new_keys)} for p, v in current.items()}
+    def keys_for(p):
+        return allowed_new_keys | SESSION_STATE_KEYS.get(p, frozenset())
+    baseline = {p: {**v, "body": _strip_keys(v["body"], keys_for(p))} for p, v in baseline.items()}
+    current = {p: {**v, "body": _strip_keys(v["body"], keys_for(p))} for p, v in current.items()}
     diffs: List[str] = []
     for path, base in baseline.items():
         cur = current.get(path)
@@ -265,6 +293,19 @@ def compare_api(baseline: Dict[str, Any], current: Dict[str, Any],
             diffs.append(f"{path}: status {base['status']} -> {cur['status']}")
             continue
         so = is_shape_only(path)
+        if path in SUPERSET_LIST_ENDPOINTS:
+            # Platform Admin may now pick any company's warehouse: every warehouse listed
+            # before must still be listed, unchanged; extra ones are expected.
+            key, field = SUPERSET_LIST_ENDPOINTS[path]
+            now = {w[key]: normalize(w, so) for w in (cur["body"] or {}).get(field, [])}
+            for w in (base["body"] or {}).get(field, []):
+                if now.get(w[key]) != normalize(w, so):
+                    diffs.append(f"{path}: {w[key]} missing or changed")
+            rest_b = {k: v for k, v in (base["body"] or {}).items() if k != field}
+            rest_c = {k: v for k, v in (cur["body"] or {}).items() if k != field}
+            if normalize(rest_b, so) != normalize(rest_c, so):
+                diffs.append(f"{path}: response body differs")
+            continue
         if normalize(base["body"], so) != normalize(cur["body"], so):
             diffs.append(f"{path}: response body differs")
     return diffs

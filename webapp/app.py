@@ -69,6 +69,7 @@ app.json_provider_class = SafeNumpyJSONProvider
 app.json = SafeNumpyJSONProvider(app)
 app.secret_key = _FLASK_SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # RBAC Phase 3A (H25): no request over 50 MB
 app.jinja_env.auto_reload = True
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -154,6 +155,9 @@ PUBLIC_EXACT_PATHS = frozenset({
     '/api/company/preview_recognition',
 })
 PUBLIC_PREFIXES = ('/static/',)  # RBAC Phase 2 (H6): /video_feed needs a session + cameras.stream.view
+# RBAC Phase 3A (H5): uploaded and generated files need a session (and, where the file
+# belongs to a record, that record must be in the user's scope). CSS/JS/images stay public.
+PROTECTED_STATIC_PREFIXES = ('/static/uploads/', '/static/invoices/', '/static/manifests/', '/static/captures/')
 # While a password reset is pending, only these paths work.
 RESET_ALLOWED_PATHS = frozenset({
     '/account/reset-password', '/api/auth/force_reset_password', '/logout', '/api/logout',
@@ -168,7 +172,8 @@ def _client_ip() -> str:
 @app.before_request
 def enforce_authentication_and_session():
     path = request.path
-    if path in PUBLIC_EXACT_PATHS or path.startswith(PUBLIC_PREFIXES):
+    protected_file = path.startswith(PROTECTED_STATIC_PREFIXES)
+    if path in PUBLIC_EXACT_PATHS or (path.startswith(PUBLIC_PREFIXES) and not protected_file):
         return None
 
     # RBAC Phase 1 (D10, H20): the session must name a current, active user whose
@@ -196,13 +201,31 @@ def enforce_authentication_and_session():
             }), 403
         return redirect(RESET_PAGE)
 
+    # RBAC Phase 3A: which company/warehouse this request works in (tab header, session
+    # default, assigned warehouse). Data isolation applies once ownership is approved.
+    blocked = rbac_service.resolve_scope()
+    if blocked is not None:
+        return blocked
+
     # RBAC Phase 2: CSRF token (H9) and the route permission map. Both follow RBAC_MODE
     # (off / audit = log only / enforce = block).
     rbac_service.csrf_token()
     blocked = rbac_service.check_csrf()
     if blocked is not None:
         return blocked
-    return rbac_service.authorize_request()
+    blocked = rbac_service.authorize_request()
+    if blocked is not None:
+        return blocked
+    # RBAC Phase 3A (H13/H14): records named in the URL or body must be in scope.
+    if protected_file:
+        return rbac_service.check_file_scope(path)
+    return rbac_service.check_record_scope()
+
+
+@app.teardown_request
+def _clear_request_scope(_exc=None):
+    import rbac_scope
+    rbac_scope.clear_scope()
 
 
 _OTP_RESPONSE_KEYS = frozenset({'otp', 'otp_generated'})
@@ -281,7 +304,8 @@ def api_auth_me():
 
 @app.route('/')
 def index():
-    return render_template('index.html', current_user=session['user'])
+    return render_template('index.html', current_user=session['user'],
+                           warehouse_scope=rbac_service.current_warehouse_id() or '')
 
 @app.route('/login', methods=['GET'])
 def login_page():
@@ -318,12 +342,14 @@ def api_login():
     if status != 'ok' or not user:
         return jsonify({'success': False, 'message': auth_service.GENERIC_LOGIN_ERROR}), 401
 
-    # Existing behaviour kept until RBAC Phase 3 (per-session warehouse):
-    # switch the active facility to the user's assigned warehouse.
+    # RBAC Phase 3A: the working warehouse belongs to this session only (no global flag).
     wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
-    switched = db.set_active_warehouse(wh_code)
     session.clear()  # fresh session at every login
     session.permanent = True
+    g.current_user = auth_service.load_session_user({'uid': user['id'], 'sv': int(user.get('session_version') or 1)}) or user
+    wid = rbac_service.default_warehouse_id(g.current_user, wh_code)
+    switched = db.get_warehouse_by_id(wid) if wid else None
+    session['warehouse_id'] = wid
     session['user'] = auth_service.session_payload(user, {'assigned_warehouse_code': wh_code,
                                                           'active_warehouse': switched})
     rbac_service.csrf_token()
@@ -702,8 +728,11 @@ def api_company_auto_setup():
         if res.get('success') and res.get('warehouse'):
             wh_code = res['warehouse']['code']
             # Templates no longer change the active warehouse themselves (Phase 0);
-            # this explicit "set up my company" action still opens the new facility.
-            db.set_active_warehouse(wh_code)
+            # this explicit "set up my company" action still opens the new facility
+            # (for this session only, RBAC Phase 3A).
+            new_wh = db.get_warehouse_by_code(wh_code)
+            if new_wh:
+                session['warehouse_id'] = new_wh['id']
             if username:
                 db.update_user_warehouse(username, wh_code, company_name)
             try:
@@ -831,13 +860,15 @@ def api_update_sku_bundle_config(sku_id):
 @app.route('/api/warehouses', methods=['GET'])
 def api_get_warehouses():
     try:
-        company_name = request.args.get('company_name') or request.headers.get('X-Company-Name')
-        if not company_name and session.get('user'):
-            company_name = session['user'].get('company_name')
-        
-        whs = db.get_all_warehouses(company_name=company_name)
-        active = db.get_active_warehouse(company_name=company_name)
-        return jsonify({"success": True, "warehouses": whs, "active_warehouse": active, "scoped_company": company_name})
+        # RBAC Phase 3A: only the warehouses this user may work in (the old company_name
+        # parameter could list every company's warehouses). is_active marks this session's
+        # working warehouse, not a global flag.
+        active_id = rbac_service.current_warehouse_id()
+        whs = [{**w, 'is_active': 1 if w['id'] == active_id else 0}
+               for w in rbac_service.accessible_warehouses()]
+        active = next((w for w in whs if w['id'] == active_id), None) or db.get_active_warehouse()
+        return jsonify({"success": True, "warehouses": whs, "active_warehouse": active,
+                        "scoped_company": (session.get('user') or {}).get('company_name')})
     except Exception as e:
         logger.error(f"Error fetching warehouses: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -845,11 +876,8 @@ def api_get_warehouses():
 @app.route('/api/warehouses/active', methods=['GET'])
 def api_get_active_warehouse():
     try:
-        company_name = request.args.get('company_name') or request.headers.get('X-Company-Name')
-        if not company_name and session.get('user'):
-            company_name = session['user'].get('company_name')
-        active = db.get_active_warehouse(company_name=company_name)
-        return jsonify({"success": True, "active_warehouse": active})
+        active = db.get_warehouse_by_id(rbac_service.current_warehouse_id()) or db.get_active_warehouse()
+        return jsonify({"success": True, "active_warehouse": {**active, 'is_active': 1} if active else active})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -860,12 +888,18 @@ def api_switch_warehouse():
         code = data.get('code')
         if not code:
             return jsonify({"success": False, "error": "Warehouse code is required"}), 400
-        # RBAC Phase 0 (H1): switching only changes the active warehouse. It no longer
-        # re-applies an industry template, which used to delete every company's SKUs,
-        # stock, deliveries, zones and pallets.
-        switched = db.set_active_warehouse(code)
-        if not switched:
+        # RBAC Phase 0 (H1): switching never applies an industry template.
+        # RBAC Phase 3A (H11): it changes this session's working warehouse only, and only to
+        # a warehouse the user may use. Each browser tab also sends X-Warehouse-Id.
+        target = next((w for w in rbac_service.accessible_warehouses()
+                       if (w['code'] or '').upper() == str(code).strip().upper() or str(w['id']) == str(code)), None)
+        if not target:
             return jsonify({"success": False, "error": f"Warehouse '{code}' not found"}), 404
+        session['warehouse_id'] = target['id']
+        auth_service.audit('warehouse.switched', actor=g.current_user, company_id=target.get('company_id'),
+                           warehouse_id=target['id'], resource_type='warehouse', resource_id=target['code'],
+                           ip=_client_ip())
+        switched = {**target, 'is_active': 1}
         return jsonify({"success": True, "warehouse": switched, "message": f"Switched to {switched['name']} ({switched['code']})"})
     except Exception as e:
         logger.error(f"Error switching warehouse: {e}")
@@ -881,8 +915,10 @@ def api_create_warehouse():
         company_name = (data.get('company_name') or '').strip()
         description = (data.get('description') or '').strip()
 
-        if not company_name and session.get('user'):
-            company_name = session['user'].get('company_name')
+        # RBAC Phase 3A: a Company Admin always creates warehouses for their own company;
+        # only the Platform Admin may name another company.
+        if not g.current_user.get('is_platform_admin') or not company_name:
+            company_name = (session.get('user') or {}).get('company_name') or company_name
         if not company_name:
             company_name = 'WARLOG Intelligence Systems'
 
@@ -931,7 +967,7 @@ def api_create_warehouse():
 
         # Set active if requested or first
         if data.get('set_active', True):
-            db.set_active_warehouse(wh['code'])
+            session['warehouse_id'] = wh.get('id')  # RBAC Phase 3A: this session only
             wh['is_active'] = 1
 
         return jsonify({"success": True, "warehouse": wh, "message": f"Warehouse {wh['name']} ({wh['code']}) created successfully."})
@@ -5240,12 +5276,15 @@ def checkout_gate_pass(gp_id):
 def get_inventory():
     conn = db.get_db()
     cursor = conn.cursor()
-    items = cursor.execute('''
+    import rbac_scope
+    _sf, _sp = rbac_scope.filter("inventory", "i")  # RBAC Phase 3A: this warehouse's stock only
+    items = cursor.execute(f'''
         SELECT i.*, s.name as sku_name, s.category, b.zone
         FROM inventory i
         LEFT JOIN skus s ON i.sku_id = s.sku_id
         LEFT JOIN bins b ON i.bin_id = b.bin_id
-    ''').fetchall()
+        WHERE 1=1{_sf}
+    ''', _sp).fetchall()
     conn.close()
     return jsonify([dict(row) for row in items])
 

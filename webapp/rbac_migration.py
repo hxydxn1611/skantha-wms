@@ -420,13 +420,71 @@ def _step_users(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM email_otps")
 
 
+def _step_ownership_columns(conn: sqlite3.Connection) -> None:
+    """Phase 3A: nullable ownership columns, no defaults (a row without an owner is
+    visible to the Platform Admin only - fail closed, never silently WH-MAIN)."""
+    import rbac_scope
+    # Created lazily by worker_recognition_service; same definition, so its own
+    # CREATE TABLE IF NOT EXISTS stays a no-op (fresh installs).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trained_workers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            worker_code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT DEFAULT 'Operator',
+            photo_path TEXT,
+            signature_json TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+    for t in rbac_scope.COMPANY_TABLES:
+        if "company_id" not in _columns(conn, t):
+            conn.execute(f'ALTER TABLE "{t}" ADD COLUMN company_id INTEGER REFERENCES companies(id)')
+        conn.execute(f"CREATE INDEX IF NOT EXISTS ix_{t}_company_id ON {t}(company_id)")
+    for t in rbac_scope.WAREHOUSE_TABLES:
+        if "company_id" not in _columns(conn, t):
+            conn.execute(f'ALTER TABLE "{t}" ADD COLUMN company_id INTEGER REFERENCES companies(id)')
+        if "warehouse_id" not in _columns(conn, t):
+            conn.execute(f'ALTER TABLE "{t}" ADD COLUMN warehouse_id INTEGER REFERENCES warehouses(id)')
+        conn.execute(f"CREATE INDEX IF NOT EXISTS ix_{t}_warehouse_id ON {t}(warehouse_id)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS ix_{t}_company_id ON {t}(company_id)")
+    for t in ("gate_passes", "vehicle_log"):
+        if "legacy_test" not in _columns(conn, t):
+            conn.execute(f'ALTER TABLE "{t}" ADD COLUMN legacy_test INTEGER NOT NULL DEFAULT 0')
+
+
+def _ownership_approved(conn: sqlite3.Connection) -> bool:
+    import rbac_ownership
+    return rbac_ownership.approved_proposal(conn) is not None
+
+
+def _step_ownership_backfill(conn: sqlite3.Connection) -> None:
+    """Writes the ownership the owner approved (scripts/rbac_ownership.py approve).
+    Row counts of every scoped table must be identical before and after."""
+    import rbac_ownership
+    import rbac_scope
+    before = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+              for t in rbac_scope.SCOPED_TABLES + tuple(rbac_scope.CHILD_TABLES)}
+    counts = rbac_ownership.apply(conn, rbac_ownership.approved_proposal(conn))
+    after = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in before}
+    if before != after:
+        raise RuntimeError(f"ownership backfill changed row counts: {before} -> {after}")
+    logger.info(f"[RBAC] ownership backfill: {counts}")
+
+
 STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("001_schema", _step_schema),
     ("002_companies", _step_companies),
     ("003_link_warehouses", _step_link_warehouses),
     ("004_builtin_roles", _step_builtin_roles),
     ("005_users", _step_users),
+    ("006_ownership_columns", _step_ownership_columns),
+    ("007_ownership_backfill", _step_ownership_backfill),
 ]
+# Steps that wait for something (they stay pending, and trigger no backup, until ready).
+STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {
+    "007_ownership_backfill": _ownership_approved,
+}
 
 
 def sync_catalog(conn: sqlite3.Connection) -> None:
@@ -511,12 +569,18 @@ def migrate(db_path: str) -> Dict[str, object]:
             conn.execute("PRAGMA foreign_keys = ON")
             with conn:
                 done = applied_steps(conn)
-            pending = [name for name, _ in STEPS if name not in done]
+            pending = []
+            for name, _ in STEPS:
+                if name in done:
+                    continue
+                if name in STEP_READY and not STEP_READY[name](conn):
+                    break  # waits (e.g. for the owner's approval); later steps wait too
+                pending.append(name)
             backup = None
             if pending and os.environ.get("WARLOG_SKIP_MIGRATION_BACKUP") != "1":
                 backup = backup_database(db_path)
             for name, fn in STEPS:
-                if name in done:
+                if name not in pending:
                     continue
                 with conn:
                     fn(conn)
@@ -525,6 +589,9 @@ def migrate(db_path: str) -> Dict[str, object]:
                 logger.info(f"[RBAC] Migration step {MIGRATION_SET}/{name} applied")
             with conn:
                 sync_catalog(conn)
+            if pending:
+                import rbac_scope
+                rbac_scope.reset_isolation_cache()
             return {"applied": pending, "backup": backup}
         finally:
             conn.close()

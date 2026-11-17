@@ -50,6 +50,15 @@ def prepare_test_db(db_path: str) -> str:
     replaced its default password, so the existing suite can keep signing in as
     admin/admin. Phase 1 tests that check the forced reset use their own fresh copy."""
     import rbac_migration
+    import rbac_ownership
+    rbac_migration.migrate(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        with conn:  # RBAC Phase 3A: test copies approve the evidence-based ownership proposal
+            if rbac_ownership.approved_proposal(conn) is None:
+                rbac_ownership.approve(conn, approved_by="test fixture")
+    finally:
+        conn.close()
     rbac_migration.migrate(db_path)
     conn = sqlite3.connect(db_path)
     try:
@@ -72,6 +81,19 @@ def session_for(username: str, db_path: str = None) -> dict:
         conn.close()
     return {"username": username, "company_name": company, "assigned_warehouse_code": wh or "WH-MAIN",
             "role": "Admin", "uid": uid, "sv": sv, "must_reset_password": False}
+
+
+def scope_for(username: str, db_path: str = None):
+    """The warehouse scope a request by `username` works in by default (its assigned warehouse)."""
+    import rbac_scope
+    conn = sqlite3.connect(db_path or os.environ["WARLOG_DB_PATH"])
+    try:
+        row = conn.execute("""SELECT w.company_id, w.id FROM users u
+                              JOIN warehouses w ON UPPER(w.code) = UPPER(u.assigned_warehouse_code)
+                              WHERE LOWER(u.username) = LOWER(?)""", (username,)).fetchone()
+    finally:
+        conn.close()
+    return rbac_scope.Scope.warehouse(row[0], row[1])
 
 
 def admin_session(db_path: str = None) -> dict:

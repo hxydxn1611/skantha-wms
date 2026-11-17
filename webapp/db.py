@@ -10,12 +10,19 @@ from typing import Optional, Dict, Any, List, Tuple
 logger = logging.getLogger(__name__)
 _GATE_PASS_CREATE_LOCK = threading.Lock()
 
+import rbac_scope  # RBAC Phase 3A: company/warehouse filters for list queries
+
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
 # WARLOG_DB_PATH lets tests and tooling run against a copy instead of the live database.
 DB_PATH = os.environ.get('WARLOG_DB_PATH') or DEFAULT_DB_PATH
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=15.0)
+    # RBAC Phase 3A: connections opened inside a company/warehouse scope fence their own
+    # writes to that scope (see rbac_scope.ScopedConnection). Outside a scope, or before
+    # data isolation is switched on, this is an ordinary connection.
+    import rbac_scope
+    conn = sqlite3.connect(DB_PATH, timeout=15.0, factory=rbac_scope.ScopedConnection)
+    conn._rbac_scope = rbac_scope.connection_scope()
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -898,12 +905,14 @@ def _row_to_gate_pass(row):
 def get_all_deliveries():
     """Retrieve all expected deliveries along with any linked Gate Pass ID."""
     conn = get_db()
-    cursor = conn.execute("""
+    _sf, _sp = rbac_scope.filter("expected_deliveries", "ed")
+    cursor = conn.execute(f"""
         SELECT ed.*, gp.id AS linked_gate_pass_id
         FROM expected_deliveries ed
         LEFT JOIN gate_passes gp ON gp.po_number = ed.po_number
+        WHERE 1=1{_sf}
         ORDER BY ed.created_at DESC
-    """)
+    """, _sp)
     rows = cursor.fetchall()
     deliveries = [_row_to_delivery(r) for r in rows]
     conn.close()
@@ -1017,7 +1026,8 @@ def delete_delivery(po_number):
 
 def has_pending_gate_pass():
     conn = get_db()
-    row = conn.execute("SELECT 1 FROM gate_passes WHERE status = 'Pending' LIMIT 1").fetchone()
+    _sf, _sp = rbac_scope.filter("gate_passes")
+    row = conn.execute(f"SELECT 1 FROM gate_passes WHERE status = 'Pending'{_sf} LIMIT 1", _sp).fetchone()
     conn.close()
     return row is not None
 
@@ -1026,8 +1036,9 @@ def get_pending_gate_pass_by_plate(plate):
         return None
     conn = get_db()
     clean_p = _clean_plate(plate)
+    _sf, _sp = rbac_scope.filter("gate_passes")
     rows = conn.execute(
-        "SELECT * FROM gate_passes WHERE status IN ('Pending', 'Arrived at Gate', 'Sent to Dock') ORDER BY created_at DESC"
+        f"SELECT * FROM gate_passes WHERE status IN ('Pending', 'Arrived at Gate', 'Sent to Dock'){_sf} ORDER BY created_at DESC", _sp
     ).fetchall()
     conn.close()
     for r in rows:
@@ -1038,7 +1049,8 @@ def get_pending_gate_pass_by_plate(plate):
 def get_all_gate_passes():
     """Retrieve all gate passes ordered chronologically (newest first)."""
     conn = get_db()
-    cursor = conn.execute("SELECT * FROM gate_passes ORDER BY created_at DESC")
+    _sf, _sp = rbac_scope.filter("gate_passes")
+    cursor = conn.execute(f"SELECT * FROM gate_passes WHERE 1=1{_sf} ORDER BY created_at DESC", _sp)
     passes = [_row_to_gate_pass(r) for r in cursor.fetchall()]
     conn.close()
     return passes
@@ -1287,10 +1299,12 @@ def add_unload_qty(gp_id, add_count):
 
 def get_stats():
     conn = get_db()
-    total_expected = conn.execute("SELECT COUNT(*) FROM expected_deliveries").fetchone()[0]
-    total_arrived = conn.execute("SELECT COUNT(*) FROM gate_passes").fetchone()[0]
-    pending_dock = conn.execute("SELECT COUNT(*) FROM gate_passes WHERE status = 'Pending'").fetchone()[0]
-    at_dock = conn.execute("SELECT COUNT(*) FROM gate_passes WHERE status IN ('Sent to Dock', 'Unloading')").fetchone()[0]
+    _df, _dp = rbac_scope.filter("expected_deliveries")
+    _gf, _gp = rbac_scope.filter("gate_passes")
+    total_expected = conn.execute(f"SELECT COUNT(*) FROM expected_deliveries WHERE 1=1{_df}", _dp).fetchone()[0]
+    total_arrived = conn.execute(f"SELECT COUNT(*) FROM gate_passes WHERE 1=1{_gf}", _gp).fetchone()[0]
+    pending_dock = conn.execute(f"SELECT COUNT(*) FROM gate_passes WHERE status = 'Pending'{_gf}", _gp).fetchone()[0]
+    at_dock = conn.execute(f"SELECT COUNT(*) FROM gate_passes WHERE status IN ('Sent to Dock', 'Unloading'){_gf}", _gp).fetchone()[0]
     conn.close()
     return {
         "total_expected": total_expected,
@@ -1303,7 +1317,8 @@ def get_stats():
 
 def get_all_vehicle_logs():
     conn = get_db()
-    logs = conn.execute("SELECT * FROM vehicle_log ORDER BY entry_time DESC").fetchall()
+    _sf, _sp = rbac_scope.filter("vehicle_log")
+    logs = conn.execute(f"SELECT * FROM vehicle_log WHERE 1=1{_sf} ORDER BY entry_time DESC", _sp).fetchall()
     conn.close()
     return [dict(r) for r in logs]
 
@@ -1338,7 +1353,8 @@ def checkout_vehicle_log(gp_id):
 
 def get_all_invoices():
     conn = get_db()
-    invs = conn.execute("SELECT * FROM invoices ORDER BY generated_at DESC").fetchall()
+    _sf, _sp = rbac_scope.filter("invoices")
+    invs = conn.execute(f"SELECT * FROM invoices WHERE 1=1{_sf} ORDER BY generated_at DESC", _sp).fetchall()
     conn.close()
     return [dict(r) for r in invs]
 
@@ -1353,8 +1369,9 @@ def create_invoice(gp_id, po_number, vendor, vendor_email, pdf_path):
 
 def get_all_object_classes(search_term=None, status=None):
     conn = get_db()
-    query = "SELECT * FROM object_classes WHERE 1=1"
-    params = []
+    _sf, _sp = rbac_scope.filter("object_classes")
+    query = "SELECT * FROM object_classes WHERE 1=1" + _sf
+    params = list(_sp)
     
     if status and status.upper() != 'ALL':
         query += " AND status = ?"
@@ -1448,7 +1465,8 @@ def delete_object_class(identifier):
 
 def get_all_cameras():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM cameras ORDER BY camera_code ASC").fetchall()
+    _sf, _sp = rbac_scope.filter("cameras")
+    rows = conn.execute(f"SELECT * FROM cameras WHERE 1=1{_sf} ORDER BY camera_code ASC", _sp).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -1529,7 +1547,9 @@ def get_all_vision_cameras(search_term=None, ai_status=None, cam_status=None):
         LEFT JOIN vision_camera_configs cfg ON c.camera_id = cfg.camera_id
         WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("cameras", "c")
+    query += _sf
+    params = list(_sp)
     if cam_status and cam_status.upper() != 'ALL':
         query += " AND c.status = ?"
         params.append(cam_status)
@@ -1742,7 +1762,9 @@ def get_all_vision_zones(search_term=None, zone_type=None, warehouse=None, statu
         FROM vision_zones z
         WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("vision_zones", "z")
+    query += _sf
+    params = list(_sp)
 
     if status and status.upper() != 'ALL':
         query += " AND UPPER(z.status) = ?"
@@ -2325,15 +2347,17 @@ def get_zone_rois(zone_identifier):
 
 def get_all_bins():
     conn = get_db()
-    cursor = conn.execute('''
+    _sf, _sp = rbac_scope.filter("bins", "b")
+    cursor = conn.execute(f'''
         SELECT b.bin_id, b.zone, b.max_volume, b.current_volume, b.max_weight, b.current_weight, b.status, 
                COALESCE(SUM(i.quantity), 0) as stock_count,
                GROUP_CONCAT(DISTINCT i.vendor) as vendor
         FROM bins b
         LEFT JOIN inventory i ON b.bin_id = i.bin_id
+        WHERE 1=1{_sf}
         GROUP BY b.bin_id
         ORDER BY b.bin_id ASC
-    ''')
+    ''', _sp)
     bins = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return bins
@@ -2388,7 +2412,8 @@ def update_bin(bin_id, zone=None, max_volume=None, max_weight=None, status=None)
 
 def get_all_skus():
     conn = get_db()
-    cursor = conn.execute("SELECT * FROM skus ORDER BY sku_id ASC")
+    _sf, _sp = rbac_scope.filter("skus")
+    cursor = conn.execute(f"SELECT * FROM skus WHERE 1=1{_sf} ORDER BY sku_id ASC", _sp)
     skus = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return skus
@@ -2647,7 +2672,9 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
         LEFT JOIN sku_images si ON s.sku_id = si.sku_id
         WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("skus", "s")  # RBAC Phase 3A: this company's SKUs only
+    query += _sf
+    params = list(_sp)
     if search and str(search).strip():
         term = f"%{str(search).strip()}%"
         query += " AND (s.sku_id LIKE ? OR s.name LIKE ? OR s.description LIKE ?)"
@@ -3125,10 +3152,13 @@ def get_all_pallets(status: Optional[str] = None, limit: int = 100) -> List[Dict
                (SELECT file_path FROM sku_images WHERE sku_id = p.sku_id AND is_primary = 1 LIMIT 1) as primary_image
         FROM pallets p
         LEFT JOIN skus s ON p.sku_id = s.sku_id
+        WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("pallets", "p")
+    query += _sf
+    params = list(_sp)
     if status and status.upper() != 'ALL':
-        query += " WHERE p.status = ?"
+        query += " AND p.status = ?"
         params.append(status.upper())
     query += " ORDER BY p.created_at DESC LIMIT ?"
     params.append(int(limit))
@@ -3282,10 +3312,11 @@ def log_violation(
 def get_all_violations(status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
     """Retrieve violations ledger entries optionally filtered by status."""
     conn = get_db()
-    query = "SELECT * FROM violations_log"
-    params = []
+    _sf, _sp = rbac_scope.filter("violations_log")
+    query = "SELECT * FROM violations_log WHERE 1=1" + _sf
+    params = list(_sp)
     if status and status.upper() != 'ALL':
-        query += " WHERE status = ?"
+        query += " AND status = ?"
         params.append(status.upper())
     query += " ORDER BY created_at DESC LIMIT ?"
     params.append(int(limit))
@@ -3306,7 +3337,8 @@ def get_violation_by_id(violation_id: int) -> Optional[Dict[str, Any]]:
 def get_open_violations_count() -> int:
     """Return count of unresolved active violations."""
     conn = get_db()
-    row = conn.execute("SELECT COUNT(*) FROM violations_log WHERE status = 'OPEN'").fetchone()
+    _sf, _sp = rbac_scope.filter("violations_log")
+    row = conn.execute(f"SELECT COUNT(*) FROM violations_log WHERE status = 'OPEN'{_sf}", _sp).fetchone()
     conn.close()
     return int(row[0]) if row else 0
 
@@ -3404,6 +3436,17 @@ def check_bin_putaway_compatibility(
 # MULTI-WAREHOUSE FACILITY MANAGEMENT HELPERS
 # ==============================================================================
 
+def get_warehouse_by_id(warehouse_id) -> Optional[Dict[str, Any]]:
+    if not warehouse_id:
+        return None
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM warehouses WHERE id = ?", (int(warehouse_id),)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def get_all_warehouses(company_name: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Returns registered warehouses ordered by active status and code.
@@ -3443,7 +3486,15 @@ def get_active_warehouse(company_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Returns the currently active warehouse context.
     If company_name is supplied, defaults to the active facility of that specific company.
+
+    RBAC Phase 3A: inside a warehouse scope (a request or a camera thread) the scope's own
+    warehouse is the active one; the global is_active flag only applies to unscoped code.
     """
+    scope = rbac_scope.get_scope()
+    if scope is not None and scope.warehouse_id:
+        wh = get_warehouse_by_id(scope.warehouse_id)
+        if wh:
+            return wh
     conn = get_db()
     row = None
     if company_name and company_name.strip() and company_name.strip().lower() not in ('all', 'admin'):
@@ -3638,12 +3689,14 @@ def get_glass_measurement_profiles() -> List[Dict[str, Any]]:
     """Retrieves all saved glass measurement profiles."""
     conn = get_db()
     seed_default_glass_profiles()
-    rows = conn.execute("""
+    _sf, _sp = rbac_scope.filter("glass_measurement_profiles")
+    rows = conn.execute(f"""
         SELECT id, name, sku_id, length, width, thickness, unit, packaging_type,
                pieces_per_bundle, notes, created_at, updated_at
         FROM glass_measurement_profiles
+        WHERE 1=1{_sf}
         ORDER BY updated_at DESC, name ASC
-    """).fetchall()
+    """, _sp).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

@@ -109,7 +109,8 @@ class Phase1Base(unittest.TestCase):
 
 class TestMigration(Phase1Base):
     def test_migration_applies_all_steps_and_second_run_changes_nothing(self):
-        self.assertEqual(self.first_run["applied"], [name for name, _ in self.mig.STEPS])
+        waiting = set(self.mig.STEP_READY)  # e.g. 007 waits for the owner's approval
+        self.assertEqual(self.first_run["applied"], [name for name, _ in self.mig.STEPS if name not in waiting])
         before = rbac_snapshot.table_fingerprints(self.db_path)
         again = self.mig.migrate(self.db_path)
         self.assertEqual(again["applied"], [])

@@ -215,6 +215,10 @@
             const data = await res.json();
             if (data.success) {
                 activeWarehouse = data.warehouse;
+                // RBAC Phase 3A: this tab now works in the chosen warehouse
+                if (typeof window.warlogSetTabWarehouse === 'function' && data.warehouse) {
+                    window.warlogSetTabWarehouse(data.warehouse.id);
+                }
                 updateFacilityBadge();
                 updateModalFacilityTarget();
                 if (!silent) {

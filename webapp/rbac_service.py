@@ -51,6 +51,109 @@ def current_identity() -> Optional[Dict[str, Any]]:
     return getattr(g, "current_user", None)
 
 
+def accessible_warehouses(user: Optional[Dict[str, Any]] = None) -> list:
+    """Warehouses this user may work in: every warehouse for the Platform Admin; otherwise all
+    warehouses of companies where the user has a company-wide assignment, plus warehouses with a
+    warehouse-level assignment. Suspended companies are excluded."""
+    user = user or current_identity()
+    if not user:
+        return []
+    cache_key = ("rbac_accessible", user["id"])
+    cached = getattr(g, "rbac_accessible_cache", None)
+    if cached is not None and cached[0] == cache_key:
+        return cached[1]
+    conn = db.get_db()
+    try:
+        cols = "w.*"
+        if user.get("is_platform_admin"):
+            rows = conn.execute(f"""
+                SELECT {cols} FROM warehouses w LEFT JOIN companies c ON c.id = w.company_id
+                ORDER BY w.company_name, w.code""").fetchall()
+        else:
+            rows = conn.execute(f"""
+                SELECT DISTINCT {cols} FROM warehouses w
+                JOIN companies c ON c.id = w.company_id AND c.status = 'Active'
+                JOIN user_warehouse_access a ON a.company_id = w.company_id AND a.user_id = ? AND a.status = 'Active'
+                     AND (a.warehouse_id IS NULL OR a.warehouse_id = w.id)
+                JOIN roles r ON r.id = a.role_id AND r.is_active = 1
+                ORDER BY w.code""", (user["id"],)).fetchall()
+    finally:
+        conn.close()
+    result = [dict(r) for r in rows]
+    g.rbac_accessible_cache = (cache_key, result)
+    return result
+
+
+def has_company_wide_access(user: Dict[str, Any], company_id: Optional[int]) -> bool:
+    if user.get("is_platform_admin"):
+        return True
+    conn = db.get_db()
+    try:
+        return conn.execute("""
+            SELECT 1 FROM user_warehouse_access a JOIN roles r ON r.id = a.role_id AND r.is_active = 1
+            WHERE a.user_id = ? AND a.company_id = ? AND a.status = 'Active' AND a.warehouse_id IS NULL
+        """, (user["id"], company_id)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def default_warehouse_id(user: Dict[str, Any], assigned_code: Optional[str] = None) -> Optional[int]:
+    """The assigned warehouse if the user may use it, otherwise the first one they may use."""
+    whs = accessible_warehouses(user)
+    if assigned_code:
+        for w in whs:
+            if (w["code"] or "").upper() == assigned_code.upper():
+                return w["id"]
+    if user.get("is_platform_admin"):
+        own = auth_service.user_company_id(user["id"])
+        for w in whs:
+            if w["company_id"] == own:
+                return w["id"]
+    return whs[0]["id"] if whs else None
+
+
+def resolve_scope():
+    """Decides which company/warehouse this request works in (RBAC Phase 3A, H11).
+
+    Order: the tab's X-Warehouse-Id header (validated), then the session default, then the
+    user's assigned warehouse. 'all' = this company's warehouses, read-only (D13);
+    '*' = every company, Platform Admin only, read-only. Returns an error response or None."""
+    import rbac_scope
+    user = current_identity()
+    if not user:
+        return None
+    header = (request.headers.get("X-Warehouse-Id") or "").strip()
+    requested = header or str(session.get("warehouse_id") or "")
+    whs = {w["id"]: w for w in accessible_warehouses(user)}
+    own_company = auth_service.user_company_id(user["id"])
+    scope = None
+    if requested == "*":
+        if user.get("is_platform_admin"):
+            scope = rbac_scope.Scope.platform_all()
+    elif requested == "all":
+        if own_company and has_company_wide_access(user, own_company):
+            scope = rbac_scope.Scope.company_all(own_company)
+    elif requested.isdigit() and int(requested) in whs:
+        w = whs[int(requested)]
+        if w["company_id"] is not None:
+            scope = rbac_scope.Scope.warehouse(w["company_id"], w["id"])
+    if scope is None and header:
+        return _deny(403, "warehouse_scope_invalid", "You don't have access to that warehouse.")
+    if scope is None:
+        wid = default_warehouse_id(user, (session.get("user") or {}).get("assigned_warehouse_code"))
+        if wid and whs.get(wid, {}).get("company_id") is not None:
+            scope = rbac_scope.Scope.warehouse(whs[wid]["company_id"], wid)
+            session["warehouse_id"] = wid
+    g.rbac_scope = scope
+    g.rbac_warehouse_id = scope.warehouse_id if scope else None
+    rbac_scope.set_scope(scope)
+    return None
+
+
+def current_scope():
+    return getattr(g, "rbac_scope", None)
+
+
 def current_warehouse_id() -> Optional[int]:
     if "rbac_warehouse_id" in g:
         return g.rbac_warehouse_id
@@ -223,6 +326,106 @@ def require_permission(key: str, *, reason_required: bool = False):
             return denied if denied is not None else fn(*args, **kwargs)
         return inner
     return wrap
+
+
+# ----------------------------------------------------------------------------- record ownership (H13, H14)
+_ID_FIELDS = {
+    # URL parameter or body field -> (table, column) alternatives that identify a record
+    "gp_id": [("gate_passes", "id")], "pass_id": [("gate_passes", "id")], "gate_pass_id": [("gate_passes", "id")],
+    "po_number": [("expected_deliveries", "po_number")],
+    "bin_id": [("bins", "bin_id")], "source_bin": [("bins", "bin_id")], "target_bin": [("bins", "bin_id")],
+    "from_bin": [("bins", "bin_id")], "to_bin": [("bins", "bin_id")], "assigned_bin_id": [("bins", "bin_id")],
+    "sku_id": [("skus", "sku_id")],
+    "pallet_id": [("pallets", "pallet_id")],
+    "camera_id": [("cameras", "camera_id"), ("cameras", "camera_code")],
+    "cam_id": [("cameras", "camera_id"), ("cameras", "camera_code")],
+    "order_id": [("outbound_orders", "id")],
+    "violation_id": [("violations_log", "id")],
+    "inv_id": [("inventory", "id")],
+    "worker_code": [("trained_workers", "worker_code")],
+    "image_id": [("sku_images", "id")],
+    "profile_id": [("glass_measurement_profiles", "id")],
+    "zone_id": [("vision_zones", "id")],
+}
+_ENDPOINT_ARGS = {
+    "handle_single_object_class": {"identifier": [("object_classes", "id"), ("object_classes", "code")]},
+    "handle_single_vision_zone": {"identifier": [("vision_zones", "id"), ("vision_zones", "zone_code")]},
+    "handle_vision_zone_cameras": {"identifier": [("vision_zones", "id"), ("vision_zones", "zone_code")]},
+}
+
+
+def _named_records():
+    """(name, value) pairs for every record a request names in its URL, JSON body or form."""
+    pairs = list((request.view_args or {}).items())
+    body = request.get_json(silent=True) if request.is_json else None
+    if isinstance(body, dict):
+        pairs += [(k, v) for k, v in body.items() if k in _ID_FIELDS]
+        params = body.get("params")
+        if isinstance(params, dict):
+            pairs += [(k, v) for k, v in params.items() if k in _ID_FIELDS]
+            if request.endpoint == "api_copilot_action" and params.get("id"):
+                pairs.append(("gp_id", params.get("id")))
+    if request.form:
+        pairs += [(k, v) for k, v in request.form.items() if k in _ID_FIELDS]
+    return pairs
+
+
+def check_record_scope():
+    """404 when the request names a record that exists but belongs to another company/warehouse.
+    Runs before the handler, so single-record reads and writes can't cross scopes (Phase 3A)."""
+    import rbac_scope
+    scope = current_scope()
+    if scope is None or scope.kind == "platform_all" or not rbac_scope.isolation_enabled():
+        return None
+    pairs = _named_records()
+    if not pairs:
+        return None
+    special = _ENDPOINT_ARGS.get(request.endpoint, {})
+    conn = db.get_db()
+    try:
+        for name, value in pairs:
+            if value in (None, "") or isinstance(value, (dict, list)):
+                continue
+            for table, column in special.get(name) or _ID_FIELDS.get(name, []):
+                if not rbac_scope.owned_or_absent(conn, table, column, value):
+                    _log_decision("access.out_of_scope", None, f"{name}={value}", "denied")
+                    return _deny(404, "not_found", "Not found.")
+    finally:
+        conn.close()
+    return None
+
+
+_FILE_OWNER_COLUMNS = [
+    ("sku_images", "file_path"), ("gate_passes", "photo"), ("gate_passes", "driver_photo"),
+]
+
+
+def check_file_scope(path: str):
+    """RBAC Phase 3A (H5): a file that belongs to a record (SKU image, gate pass photo,
+    invoice, pallet label) is served only within that record's scope. Files no record
+    points to (temporary previews, snapshots) need only a signed-in session."""
+    import os
+    import rbac_scope
+    scope = current_scope()
+    if scope is None or scope.kind == "platform_all" or not rbac_scope.isolation_enabled():
+        return None
+    name = os.path.basename(path)
+    checks = [(t, c, v) for t, c in _FILE_OWNER_COLUMNS for v in (path, path.lstrip("/"), name)]
+    if path.startswith("/static/invoices/"):
+        checks.append(("invoices", "pdf_path", name))
+        if name.startswith("Pallet_Label_") and name.endswith(".pdf"):
+            checks.append(("pallets", "pallet_id", name[len("Pallet_Label_"):-4]))
+        if name.startswith("invoice_") and name.endswith(".pdf"):
+            checks.append(("gate_passes", "id", name[len("invoice_"):-4]))
+    conn = db.get_db()
+    try:
+        for table, column, value in checks:
+            if not rbac_scope.owned_or_absent(conn, table, column, value):
+                _log_decision("access.out_of_scope", None, f"file {path}", "denied")
+                return _deny(404, "not_found", "Not found.")
+    finally:
+        conn.close()
+    return None
 
 
 # ----------------------------------------------------------------------------- CSRF (H9)

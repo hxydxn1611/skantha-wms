@@ -13,7 +13,8 @@ import sys
 import tempfile
 import unittest
 
-from tests import copy_live_db, prepare_test_db
+from tests import copy_live_db, prepare_test_db, scope_for
+import rbac_scope  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEBAPP = os.path.join(ROOT, "webapp")
@@ -26,6 +27,8 @@ ADMIN = {"username": "admin", "company_name": "Skantha Industrial Solutions",
          "assigned_warehouse_code": "WH-MAIN", "role": "Admin"}
 # Columns that legitimately change on a warehouse switch or template apply.
 VOLATILE = {"warehouses": ("is_active", "updated_at")}
+# Security records, not warehouse data (a switch is audited since Phase 3A).
+NOT_DATA = ("audit_logs", "login_attempts")
 
 
 def rows_by_table(db_path):
@@ -35,7 +38,7 @@ def rows_by_table(db_path):
     try:
         tables = [r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
-        for t in tables:
+        for t in [t for t in tables if t not in NOT_DATA]:
             cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')
                     if r[1] not in VOLATILE.get(t, ())]
             col_sql = ", ".join(f'"{c}"' for c in cols)
@@ -93,7 +96,8 @@ class Phase0Base(unittest.TestCase):
         return c
 
     def fingerprint(self):
-        return rbac_snapshot.table_fingerprints(self.db_path, ignore_columns=VOLATILE)
+        fp = rbac_snapshot.table_fingerprints(self.db_path, ignore_columns=VOLATILE)
+        return {t: v for t, v in fp.items() if t not in NOT_DATA}
 
     def assert_only_added(self, before, after):
         """Every row that existed before still exists, unchanged."""
@@ -230,8 +234,9 @@ class TestGateFixes(Phase0Base):
         self.assertEqual(len(rules), 1)
 
     def test_gate02_plate_checkout_works_and_never_picks_another_vehicle(self):
-        gp = self.db.create_gate_pass({"plate": "TN38ZZ0042", "status": "Sent to Dock",
-                                       "dock": "Dock 1", "driver_name": "Phase0 Driver"})
+        with rbac_scope.using(scope_for("admin", self.db_path)):
+            gp = self.db.create_gate_pass({"plate": "TN38ZZ0042", "status": "Sent to Dock",
+                                           "dock": "Dock 1", "driver_name": "Phase0 Driver"})
         other_before = {p["id"]: p["status"] for p in self.db.get_all_gate_passes()}
         c = self.client()
         r = c.post("/api/gate/checkout", json={"gate_id": "GATE-02", "plate": "NO-SUCH-PLATE"})
@@ -243,8 +248,9 @@ class TestGateFixes(Phase0Base):
         self.assertEqual(self.db.get_gate_pass(gp["id"])["status"], "Completed")
 
     def test_form_checkout_still_checks_the_plate(self):
-        gp = self.db.create_gate_pass({"plate": "TN38ZZ0043", "status": "Sent to Dock",
-                                       "dock": "Dock 1", "driver_name": "Phase0 Driver"})
+        with rbac_scope.using(scope_for("admin", self.db_path)):
+            gp = self.db.create_gate_pass({"plate": "TN38ZZ0043", "status": "Sent to Dock",
+                                           "dock": "Dock 1", "driver_name": "Phase0 Driver"})
         c = self.client()
         r = c.post("/api/gate/checkout", json={"gp_id": gp["id"], "plate": "WRONG1"})
         self.assertFalse(r.get_json()["success"])

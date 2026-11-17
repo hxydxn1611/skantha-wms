@@ -56,10 +56,14 @@ class Phase2Base(unittest.TestCase):
             conn.execute("INSERT INTO user_company_access (user_id, company_id) VALUES (?, ?)", (uid, company_id))
             conn.execute("INSERT INTO user_warehouse_access (user_id, company_id, warehouse_id, role_id) VALUES (?, ?, ?, ?)",
                          (uid, company_id, wh_id, role_id))
-            # a gate pass with a driver OTP
-            conn.execute("UPDATE gate_passes SET otp = '4321', otp_verified = 0 WHERE id = (SELECT id FROM gate_passes LIMIT 1)")
+            # a gate pass with a driver OTP (in admin's warehouse) and one in the glass warehouse
+            conn.execute("UPDATE gate_passes SET otp = '4321', otp_verified = 0 WHERE id = (SELECT id FROM gate_passes ORDER BY id LIMIT 1)")
+            conn.execute("UPDATE gate_passes SET warehouse_id = ?, company_id = ? WHERE id = (SELECT id FROM gate_passes ORDER BY id DESC LIMIT 1)",
+                         (wh_id, company_id))
         conn.close()
         cls.gp_id = sqlite3.connect(cls.db_path).execute("SELECT id FROM gate_passes WHERE otp = '4321'").fetchone()[0]
+        cls.glass_gp_id = sqlite3.connect(cls.db_path).execute(
+            "SELECT id FROM gate_passes ORDER BY id DESC LIMIT 1").fetchone()[0]
 
     @classmethod
     def tearDownClass(cls):
@@ -208,7 +212,7 @@ class TestCsrfAndReasons(Phase2Base):
         conn.close()
         r = self.post(c, "/api/copilot/action", {"action": "manual_admit", "params": {"plate": "KA01ZZ9999"}})
         self.assertEqual(r.status_code, 403)
-        r = self.post(c, "/api/copilot/action", {"action": "admit_dock", "params": {"id": self.gp_id}})
+        r = self.post(c, "/api/copilot/action", {"action": "admit_dock", "params": {"id": self.glass_gp_id}})
         self.assertEqual(r.status_code, 403)
         admin = self.client("admin")
         r = self.post(admin, "/api/copilot/action", {"action": "manual_admit", "params": {"plate": "KA01ZZ9999"}})
