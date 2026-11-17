@@ -428,15 +428,15 @@
                 const title = !p.grantable ? 'You can only grant permissions you have yourself' : p.key;
                 return `<label class="rb-perm ${p.grantable ? '' : 'rb-locked'}" title="${esc(title)}" data-text="${esc((p.label + ' ' + p.key + ' ' + group.module).toLowerCase())}">
                     <input type="checkbox" value="${esc(p.key)}" ${checked} ${disabled}>
-                    <span>${esc(p.label)}</span>
+                    <span class="rb-text">${esc(p.label)}</span>
                     ${p.sensitive ? '<span class="rb-sensitive" title="Sensitive: every use is audited">Sensitive</span>' : ''}
                     <span class="rb-action">${esc(p.action)}</span>
                 </label>`;
             }).join('');
-            return `<fieldset class="rb-group" data-module="${esc(group.module)}">
-                <legend><label><input type="checkbox" class="rb-all" ${readOnly ? 'disabled' : ''}> ${esc(group.module)}</label>
-                <span class="rb-count"></span></legend>
-                <div class="rb-items">${items}</div></fieldset>`;
+            return `<div class="rb-group" data-module="${esc(group.module)}">
+                <div class="rb-head"><label class="rb-head-label"><input type="checkbox" class="rb-all" ${readOnly ? 'disabled' : ''}>
+                    <span>${esc(group.module)}</span></label><span class="rb-count"></span></div>
+                <div class="rb-items">${items}</div></div>`;
         }).join('');
     }
 
