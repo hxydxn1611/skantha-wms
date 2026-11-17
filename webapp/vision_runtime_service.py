@@ -602,6 +602,10 @@ def find_matching_delivery_for_plate(target_plate: str, expected_deliveries: lis
     clean_t = re.sub(r'[^A-Z0-9]', '', target_plate.upper())
     t_digits = "".join(c for c in clean_t if c.isdigit())
     for deliv in expected_deliveries:
+        # RBAC Phase 0 (H32): template sample deliveries carry realistic plates;
+        # never let a real truck match one of them.
+        if deliv.get('is_demo'):
+            continue
         st_status = str(deliv.get('status', '')).lower()
         if st_status in ('completed', 'rejected', 'cancelled'):
             continue

@@ -1,5 +1,31 @@
 from flask import Flask, render_template, Response, request, jsonify, send_file, session, redirect, url_for, make_response
 from typing import Optional, Union, Tuple, Dict, Any, List
+import os as _os
+
+
+def _load_env_and_require_secret_key() -> str:
+    """RBAC Phase 0 (H2): secrets come only from the environment or the git-ignored
+    repo-root .env file. There is no built-in fallback; the app refuses to start
+    without FLASK_SECRET_KEY, so sessions are never signed with a public key."""
+    if _os.environ.get('WARLOG_SKIP_DOTENV') != '1':
+        try:
+            from dotenv import load_dotenv
+            _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            load_dotenv(_os.path.join(_root, '.env'), override=False)
+        except ImportError:
+            pass
+    key = _os.environ.get('FLASK_SECRET_KEY') or _os.environ.get('SECRET_KEY') or ''
+    if len(key) < 16:
+        raise RuntimeError(
+            "FLASK_SECRET_KEY is not set (or shorter than 16 characters). "
+            "Add it to the .env file in the repository root, e.g. "
+            "FLASK_SECRET_KEY=<output of: py -c \"import secrets;print(secrets.token_hex(32))\">"
+        )
+    return key
+
+
+_FLASK_SECRET_KEY = _load_env_and_require_secret_key()
+
 from werkzeug.utils import secure_filename
 from ai_engine import SmartCamera
 import logging
@@ -41,7 +67,7 @@ class SafeNumpyJSONProvider(DefaultJSONProvider):
 app = Flask(__name__)
 app.json_provider_class = SafeNumpyJSONProvider
 app.json = SafeNumpyJSONProvider(app)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'skantha-wms-secret-key-2026')
+app.secret_key = _FLASK_SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 app.config.update(
@@ -72,6 +98,9 @@ from cycle_count_service import get_cycle_count_service
 from pallet_service import get_pallet_service
 from industry_blueprint_service import get_blueprint_catalog, apply_industry_blueprint
 from staging_perception_service import get_staging_service, ActorType, QuotaStatus
+
+from rbac_config import get_rbac_mode
+logger.info(f"[RBAC] RBAC_MODE={get_rbac_mode()}")
 
 # Initialize SQLite database schema
 db.init_db()
@@ -231,6 +260,16 @@ def api_company_preview_recognition():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _smtp_settings() -> tuple:
+    """SMTP settings from the environment / .env only (H2: no credentials in code)."""
+    return (
+        os.environ.get('SMTP_HOST', 'smtp.gmail.com'),
+        int(os.environ.get('SMTP_PORT', 465)),
+        os.environ.get('SMTP_USER', ''),
+        os.environ.get('SMTP_PASSWORD', ''),
+    )
+
+
 def send_verification_email(recipient_email: str, otp_code: str, username: str | None = None) -> tuple:
     """Dispatches a real 6-digit OTP verification email via SMTP to any requested user email."""
     try:
@@ -238,10 +277,10 @@ def send_verification_email(recipient_email: str, otp_code: str, username: str |
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
 
-        smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
-        smtp_port = int(os.environ.get('SMTP_PORT', 465))
-        smtp_user = os.environ.get('SMTP_USER', 'hayd161103@gmail.com')
-        smtp_password = os.environ.get('SMTP_PASSWORD', 'hwflfuagdsqglxkp')
+        smtp_host, smtp_port, smtp_user, smtp_password = _smtp_settings()
+        if not smtp_user or not smtp_password:
+            logger.error("[AUTH SECURITY] SMTP is not configured (SMTP_USER / SMTP_PASSWORD missing in .env)")
+            return False, "Email delivery is not configured on this server. Ask the administrator to set SMTP_USER and SMTP_PASSWORD."
 
         msg = MIMEMultipart('alternative')
         msg['Subject'] = f'Your WARLOG Verification Code: {otp_code}'
@@ -365,6 +404,41 @@ def api_send_otp():
         return jsonify({'success': False, 'message': f'Internal error sending OTP: {str(e)}'}), 500
 
 
+def _industry_name_for(blueprint_key: str, company_name: str, prompt: str) -> str:
+    """Display name of the industry template a warehouse is recorded under."""
+    from industry_blueprint_service import INDUSTRY_BLUEPRINTS, _synthesize_custom_blueprint
+    bp = INDUSTRY_BLUEPRINTS.get((blueprint_key or '').strip().lower())
+    if bp:
+        return bp['name']
+    try:
+        return _synthesize_custom_blueprint(prompt or company_name, company_name).get('name') or 'General Industrial Logistics'
+    except Exception:
+        return 'General Industrial Logistics'
+
+
+def _provision_registration_warehouse(company_name: str, warehouse_name: str, city: str,
+                                      description: str, blueprint_key: str) -> str:
+    """RBAC Phase 0 (H1, H30): signup creates the company's first warehouse and records
+    its industry. It no longer applies an industry template (which used to wipe every
+    company's SKUs, stock and pallets), and it never reuses another company's code."""
+    owner = company_name or warehouse_name
+    # Same company the new user account is created under.
+    owner_company = company_name or 'WARLOG Intelligence Systems'
+    slug_comp = re.sub(r'[^A-Z0-9]', '', owner.upper())[:5] or "WH"
+    slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
+    code = db.unique_warehouse_code(f"WH-{slug_comp}-{slug_city}", owner_company)
+    prompt = f"{company_name} {warehouse_name} {description} in {city}".strip()
+    wh = db.create_or_update_warehouse(
+        code=code,
+        name=warehouse_name or f"{company_name} Main Facility",
+        city=city,
+        operating_mode='DEDICATED',
+        industry=_industry_name_for(blueprint_key, owner, prompt),
+        company_name=owner_company
+    )
+    return (wh or {}).get('code') or code
+
+
 @app.route('/api/auth/verify_otp_and_register', methods=['POST'])
 def api_verify_otp_and_register():
     """Verifies email OTP, provisions dedicated enterprise warehouse environment, and completes user registration."""
@@ -405,32 +479,12 @@ def api_verify_otp_and_register():
         assigned_wh_code = 'WH-MAIN'
         if company_name or warehouse_name:
             try:
-                slug_comp = re.sub(r'[^A-Z0-9]', '', (company_name or warehouse_name).upper())[:5] or "WH"
-                slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
-                wh_code_custom = f"WH-{slug_comp}-{slug_city}"
-
-                res = apply_industry_blueprint(
-                    blueprint_key=detected_key,
-                    warehouse_code=wh_code_custom,
-                    custom_company_name=company_name or warehouse_name,
-                    custom_prompt=f"{company_name} {warehouse_name} {description} in {city}".strip()
+                assigned_wh_code = _provision_registration_warehouse(
+                    company_name=company_name, warehouse_name=warehouse_name,
+                    city=city, description=description, blueprint_key=detected_key
                 )
-                if res.get('success') and res.get('warehouse'):
-                    assigned_wh_code = res['warehouse']['code']
-                    db.create_or_update_warehouse(
-                        code=assigned_wh_code,
-                        name=warehouse_name or f"{company_name} Main Facility",
-                        city=city,
-                        operating_mode=res.get('warehouse', {}).get('operating_mode', 'DEDICATED'),
-                        industry=res.get('blueprint_name', 'General'),
-                        company_name=company_name
-                    )
-                    try:
-                        get_vision_runtime_manager().refresh_cameras()
-                    except Exception:
-                        pass
             except Exception as e_ind:
-                logger.warning(f"Error provisioning industry blueprint: {e_ind}")
+                logger.warning(f"Error provisioning registration warehouse: {e_ind}")
 
         user_created = db.create_user(
             username=username,
@@ -494,31 +548,10 @@ def api_register():
                 detected_info = detected
                 detected_key = detected['detected_key']
             
-            slug_comp = re.sub(r'[^A-Z0-9]', '', (company_name or warehouse_name).upper())[:5] or "WH"
-            slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
-            wh_code_custom = f"WH-{slug_comp}-{slug_city}"
-            
-            # Auto-create warehouse and apply tailored ecosystem
-            res = apply_industry_blueprint(
-                blueprint_key=detected_key,
-                warehouse_code=wh_code_custom,
-                custom_company_name=company_name or warehouse_name,
-                custom_prompt=f"{company_name} {warehouse_name} {description} in {city}".strip()
+            assigned_wh_code = _provision_registration_warehouse(
+                company_name=company_name, warehouse_name=warehouse_name,
+                city=city, description=description, blueprint_key=detected_key
             )
-            if res.get('success') and res.get('warehouse'):
-                assigned_wh_code = res['warehouse']['code']
-                db.create_or_update_warehouse(
-                    code=assigned_wh_code,
-                    name=warehouse_name or f"{company_name} Main Facility",
-                    city=city,
-                    operating_mode=res.get('warehouse', {}).get('operating_mode', 'DEDICATED'),
-                    industry=res.get('blueprint_name', 'General'),
-                    company_name=company_name
-                )
-                try:
-                    get_vision_runtime_manager().refresh_cameras()
-                except Exception:
-                    pass
         except Exception as e_ind:
             logger.warning(f"Auto-industry setup on registration notice: {e_ind}")
     
@@ -569,6 +602,9 @@ def api_company_auto_setup():
         
         if res.get('success') and res.get('warehouse'):
             wh_code = res['warehouse']['code']
+            # Templates no longer change the active warehouse themselves (Phase 0);
+            # this explicit "set up my company" action still opens the new facility.
+            db.set_active_warehouse(wh_code)
             if username:
                 db.update_user_warehouse(username, wh_code, company_name)
             try:
@@ -725,39 +761,12 @@ def api_switch_warehouse():
         code = data.get('code')
         if not code:
             return jsonify({"success": False, "error": "Warehouse code is required"}), 400
+        # RBAC Phase 0 (H1): switching only changes the active warehouse. It no longer
+        # re-applies an industry template, which used to delete every company's SKUs,
+        # stock, deliveries, zones and pallets.
         switched = db.set_active_warehouse(code)
         if not switched:
             return jsonify({"success": False, "error": f"Warehouse '{code}' not found"}), 404
-        try:
-            from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-            wh_name = switched.get('name') or ''
-            wh_city = switched.get('city') or 'Bengaluru'
-            wh_comp = switched.get('company_name') or ''
-            wh_ind = switched.get('industry') or ''
-            det = auto_detect_company_industry(f"{wh_comp} {wh_name}", wh_ind)
-            bp_key = det.get('detected_key', 'custom')
-            res = apply_industry_blueprint(
-                blueprint_key=bp_key,
-                warehouse_code=code,
-                custom_company_name=wh_comp or wh_name,
-                custom_prompt=f"{wh_comp} {wh_ind}"
-            )
-            if res.get('success'):
-                switched = db.create_or_update_warehouse(
-                    code=code,
-                    name=wh_name,
-                    city=wh_city,
-                    operating_mode=switched.get('operating_mode', 'DEDICATED'),
-                    industry=wh_ind or res.get('blueprint_name', 'General'),
-                    company_name=wh_comp
-                )
-                db.set_active_warehouse(code)
-                try:
-                    get_vision_runtime_manager().refresh_cameras()
-                except Exception:
-                    pass
-        except Exception as e_sync:
-            logger.warning(f"Switch warehouse blueprint sync notice: {e_sync}")
         return jsonify({"success": True, "warehouse": switched, "message": f"Switched to {switched['name']} ({switched['code']})"})
     except Exception as e:
         logger.error(f"Error switching warehouse: {e}")
@@ -792,41 +801,34 @@ def api_create_warehouse():
             except Exception:
                 industry = 'General Industrial Logistics'
 
+        # An explicitly chosen industry template is recorded on the warehouse.
+        env_blueprint = (data.get('environment_blueprint') or data.get('blueprint') or '').strip().lower()
+        if env_blueprint and env_blueprint not in ('auto', 'custom') and (not data.get('industry') or data.get('industry') == 'General'):
+            industry = _industry_name_for(env_blueprint, company_name, f"{name} in {city} {description}")
+
         code = (data.get('code') or '').strip().upper()
         if not code:
             slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:5] or "WH"
             slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "LOC"
             rnd = uuid.uuid4().hex[:3].upper()
-            code = f"WH-{slug_comp}-{slug_city}-{rnd}"
+            code = db.unique_warehouse_code(f"WH-{slug_comp}-{slug_city}-{rnd}", company_name)
 
-        wh = db.create_or_update_warehouse(
-            code=code,
-            name=name,
-            city=city,
-            operating_mode=data.get('operating_mode', 'DEDICATED'),
-            industry=industry,
-            address=data.get('address', ''),
-            status=data.get('status', 'Active'),
-            company_name=company_name
-        )
-        # Apply industry blueprint so creating a warehouse populates SKUs, palletization, and taxonomy
+        # RBAC Phase 0 (H1, H30): creating a warehouse no longer applies an industry
+        # template (which wiped every company's SKUs, stock and pallets), and a code
+        # owned by another company is refused instead of being taken over.
         try:
-            from industry_blueprint_service import apply_industry_blueprint, auto_detect_company_industry
-            env_blueprint = data.get('environment_blueprint') or data.get('blueprint')
-            if not env_blueprint or env_blueprint == 'auto' or env_blueprint == 'custom':
-                det = auto_detect_company_industry(f"{company_name} {name}", description)
-                env_blueprint = det.get('detected_key', 'custom')
-
-            res_bp = apply_industry_blueprint(
-                blueprint_key=env_blueprint,
-                warehouse_code=wh['code'],
-                custom_company_name=company_name,
-                custom_prompt=f"{name} in {city} {description}"
+            wh = db.create_or_update_warehouse(
+                code=code,
+                name=name,
+                city=city,
+                operating_mode=data.get('operating_mode', 'DEDICATED'),
+                industry=industry,
+                address=data.get('address', ''),
+                status=data.get('status', 'Active'),
+                company_name=company_name
             )
-            if res_bp.get('success') and res_bp.get('warehouse'):
-                wh = res_bp['warehouse']
-        except Exception as e_bp:
-            logger.warning(f"Could not apply blueprint on warehouse creation: {e_bp}")
+        except db.WarehouseOwnershipError as e_own:
+            return jsonify({"success": False, "error": str(e_own)}), 409
 
         # Set active if requested or first
         if data.get('set_active', True):
@@ -951,7 +953,16 @@ def verify_otp():
 
 @app.route('/api/gate/checkout', methods=['POST'])
 def checkout():
-    data = request.json
+    """Single checkout endpoint (RBAC Phase 0 merged the duplicate route).
+
+    * With `gp_id` (gate-pass form): plate and optional face check, as before.
+    * Without `gp_id` (Gate-02 exit camera sends `plate` or `pass_id`): exit
+      checkout with dwell time; this call used to be swallowed by this route
+      and always failed with "Gate pass not found".
+    """
+    data = request.get_json(silent=True) or {}
+    if not data.get('gp_id'):
+        return _gate02_exit_checkout(data)
     gp_id = data.get('gp_id')
     plate = data.get('plate')
     face_check = data.get('face_check', False) # UI will send this if face check is active
@@ -1071,14 +1082,17 @@ def generate_invoice():
     db.create_invoice(gp_id, po_num, gp.get('vendor'), vendor_email, pdf_filename)
     
     email_status = "Not sent (No vendor email provided)"
-    if vendor_email and vendor_email != 'N/A':
+    smtp_host, smtp_port, smtp_user, smtp_password = _smtp_settings()
+    if vendor_email and vendor_email != 'N/A' and not (smtp_user and smtp_password):
+        email_status = "Not sent (email delivery is not configured on this server)"
+    elif vendor_email and vendor_email != 'N/A':
         try:
             import smtplib
             from email.message import EmailMessage
-            
+
             msg = EmailMessage()
             msg['Subject'] = f'Invoice for Gate Pass {gp_id}'
-            msg['From'] = 'hayd161103@gmail.com'
+            msg['From'] = smtp_user
             msg['To'] = vendor_email
             msg.set_content(f"Hello {gp.get('vendor')},\n\nPlease find attached the invoice for Gate Pass {gp_id}.\nTotal Items Unloaded: {qty}\nStored in Location: {bin_alloc}\n\nThank you.")
             
@@ -1086,9 +1100,15 @@ def generate_invoice():
                 pdf_data = f.read()
             msg.add_attachment(pdf_data, maintype='application', subtype='pdf', filename=pdf_filename)
             
-            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login('hayd161103@gmail.com', 'hwflfuagdsqglxkp')
-                smtp.send_message(msg)
+            if smtp_port == 465:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as smtp:
+                    smtp.login(smtp_user, smtp_password)
+                    smtp.send_message(msg)
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as smtp:
+                    smtp.starttls()
+                    smtp.login(smtp_user, smtp_password)
+                    smtp.send_message(msg)
             
             email_status = "Real Email successfully sent!"
         except Exception as e:
@@ -6235,16 +6255,15 @@ def api_gate_multi_status():
         "yard_vehicles": yard_vehicles
     })
 
-@app.route('/api/gate/checkout', methods=['POST'])
-def api_gate_checkout():
+def _gate02_exit_checkout(data: Dict[str, Any]):
     """
-    Processes vehicle checkout at Exit Gate 02:
+    Processes vehicle checkout at Exit Gate 02 (called from POST /api/gate/checkout
+    when no gp_id is sent):
     - Verifies license plate at Gate 02 exit camera
     - Records exit timestamp
     - Calculates yard dwell time (arrival -> departure)
     - Marks gate pass Completed and opens exit barrier arm
     """
-    data = request.get_json(silent=True) or {}
     plate = (data.get('plate') or '').strip().upper()
     pass_id = data.get('pass_id')
     gate_id = data.get('gate_id', 'GATE-02')
@@ -6259,15 +6278,15 @@ def api_gate_checkout():
     elif plate:
         target_pass = db.get_pending_gate_pass_by_plate(plate)
 
-    if not target_pass:
+    if not target_pass and plate:
         passes = db.get_all_gate_passes() or []
         for p in passes:
             if p.get('status') in ('Sent to Dock', 'Unloading', 'Arrived at Gate', 'Pending'):
-                if plate and plate in (p.get('plate') or ''):
+                if plate in (p.get('plate') or ''):
                     target_pass = p
                     break
-        if not target_pass and passes:
-            target_pass = passes[0]
+        # Security: never fall back to an unrelated gate pass. Previously any
+        # unmatched plate checked out the first pass in the list.
 
     if not target_pass:
         return jsonify({"success": False, "error": "No active vehicle found for exit checkout."}), 404

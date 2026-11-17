@@ -10,7 +10,9 @@ from typing import Optional, Dict, Any, List, Tuple
 logger = logging.getLogger(__name__)
 _GATE_PASS_CREATE_LOCK = threading.Lock()
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
+# WARLOG_DB_PATH lets tests and tooling run against a copy instead of the live database.
+DB_PATH = os.environ.get('WARLOG_DB_PATH') or DEFAULT_DB_PATH
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=15.0)
@@ -476,6 +478,14 @@ def init_db():
             conn.execute("CREATE INDEX IF NOT EXISTS idx_email_otps ON email_otps(email, purpose, verified)")
         except sqlite3.OperationalError:
             pass
+
+        # RBAC Phase 0: mark rows created as industry-template sample data (H32).
+        # Sample rows are never matched against real ANPR plate reads. Existing rows stay 0.
+        for demo_table in ("expected_deliveries", "inventory", "pallets"):
+            try:
+                conn.execute(f"ALTER TABLE {demo_table} ADD COLUMN is_demo INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
 
         # Multi-tenant scoping for warehouses
         try:
@@ -3451,6 +3461,34 @@ def set_active_warehouse(code: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+class WarehouseOwnershipError(ValueError):
+    """Raised when an operation would move a warehouse to a different company (H30)."""
+
+
+def normalize_company_name(name: Optional[str]) -> str:
+    """Case- and whitespace-insensitive company key ('  Lion ' == 'lion')."""
+    return " ".join(str(name or "").split()).casefold()
+
+
+def same_company(a: Optional[str], b: Optional[str]) -> bool:
+    return normalize_company_name(a) == normalize_company_name(b)
+
+
+def unique_warehouse_code(base_code: str, company_name: Optional[str]) -> str:
+    """Returns `base_code` if it is free or already owned by `company_name`;
+    otherwise the first free `base_code-2`, `-3`, ... so another company's
+    warehouse is never reused (H30)."""
+    base = str(base_code).strip().upper()
+    candidate = base
+    n = 1
+    while True:
+        existing = get_warehouse_by_code(candidate)
+        if not existing or same_company(existing.get('company_name'), company_name):
+            return candidate
+        n += 1
+        candidate = f"{base}-{n}"
+
+
 def create_or_update_warehouse(
     code: str,
     name: str,
@@ -3461,9 +3499,18 @@ def create_or_update_warehouse(
     status: str = "Active",
     company_name: str = "Skantha Industrial Solutions"
 ) -> Dict[str, Any]:
-    """Creates a new warehouse facility or updates an existing record scoped to a company."""
+    """Creates a new warehouse facility or updates an existing record scoped to a company.
+
+    RBAC Phase 0 (H30): a warehouse code that already belongs to another company is never
+    taken over. Raises WarehouseOwnershipError instead of silently rewriting its company.
+    """
     code_clean = str(code).strip().upper()
     comp_clean = str(company_name).strip() if company_name else "Skantha Industrial Solutions"
+    existing = get_warehouse_by_code(code_clean)
+    if existing and not same_company(existing.get('company_name'), comp_clean):
+        raise WarehouseOwnershipError(
+            f"Warehouse code {code_clean} is already used by another company. Choose a different code."
+        )
     conn = get_db()
     with conn:
         conn.execute("""

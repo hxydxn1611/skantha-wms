@@ -864,6 +864,32 @@ def get_blueprint_catalog() -> List[Dict[str, Any]]:
     return catalog
 
 
+def _same_company(a: Optional[str], b: Optional[str]) -> bool:
+    return " ".join(str(a or "").split()).casefold() == " ".join(str(b or "").split()).casefold()
+
+
+def _free_warehouse_code(cur: sqlite3.Cursor, base_code: str, company_name: str) -> str:
+    """First code from base, base-2, base-3 ... that is unused or already owned by
+    `company_name`, so another company's warehouse is never taken over (H30)."""
+    base = base_code.strip().upper()
+    candidate, n = base, 1
+    while True:
+        row = cur.execute("SELECT company_name FROM warehouses WHERE UPPER(code) = UPPER(?)", (candidate,)).fetchone()
+        if row is None or _same_company(row[0], company_name):
+            return candidate
+        n += 1
+        candidate = f"{base}-{n}"
+
+
+def _free_pallet_id(cur: sqlite3.Cursor) -> str:
+    """Next unused PLT-<yymmdd>-<n> id; existing pallets are never overwritten."""
+    prefix = f"PLT-{datetime.now().strftime('%y%m%d')}-"
+    n = 1001
+    while cur.execute("SELECT 1 FROM pallets WHERE pallet_id = ?", (f"{prefix}{n}",)).fetchone():
+        n += 1
+    return f"{prefix}{n}"
+
+
 def apply_industry_blueprint(
     blueprint_key: str,
     warehouse_code: Optional[str] = None,
@@ -882,7 +908,7 @@ def apply_industry_blueprint(
     6. Slots initial inventory across storage bins.
     """
     if db_path is None:
-        db_path = os.path.join(os.path.dirname(__file__), "skandha_wms.db")
+        db_path = os.environ.get("WARLOG_DB_PATH") or os.path.join(os.path.dirname(__file__), "skandha_wms.db")
 
     c_name = custom_company_name or custom_industry_name
     bp_key = (blueprint_key or "").strip().lower()
@@ -901,40 +927,44 @@ def apply_industry_blueprint(
     company_name = c_name.strip() if c_name and c_name.strip() else bp["company_example"]
     operating_mode = bp.get("operating_mode", "DEDICATED")
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=15.0)
     cur = conn.cursor()
 
+    # RBAC Phase 0 (H1, H30, H32): applying a template only ADDS what is missing.
+    # It never deletes rows, never overwrites an existing SKU, image file, class, zone,
+    # delivery, stock row or pallet, never moves a warehouse to another company and
+    # never changes the active warehouse.
+    def _exists(sql: str, params: tuple) -> bool:
+        return cur.execute(sql, params).fetchone() is not None
+
+    for _demo_table in ("expected_deliveries", "inventory", "pallets"):
+        try:
+            cur.execute(f"ALTER TABLE {_demo_table} ADD COLUMN is_demo INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
     try:
-        # 1. Update Company & Warehouse Facility Master
+        # 1. Warehouse record
         target_wh_code = (warehouse_code or "").strip().upper()
-        
+
         if not target_wh_code or target_wh_code == "NEW":
-            # Generate a new facility code from company name or key
             slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:6] or bp.get("key", "WH")[:4].upper()
-            target_wh_code = f"WH-{slug_comp}"
-            cur.execute("""
-                INSERT INTO warehouses (code, name, city, operating_mode, industry, status, is_active, company_name)
-                VALUES (?, ?, 'Bengaluru Facility', ?, ?, 'Active', 1, ?)
-                ON CONFLICT(code) DO UPDATE SET
-                    name = excluded.name,
-                    operating_mode = excluded.operating_mode,
-                    industry = excluded.industry,
-                    company_name = excluded.company_name,
-                    is_active = 1,
-                    updated_at = CURRENT_TIMESTAMP
-            """, (target_wh_code, company_name, operating_mode, bp["name"], company_name))
-        else:
-            cur.execute("""
-                UPDATE warehouses
-                SET name = ?, operating_mode = ?, industry = ?, company_name = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE UPPER(code) = UPPER(?)
-            """, (company_name, operating_mode, bp["name"], company_name, target_wh_code))
+            target_wh_code = _free_warehouse_code(cur, f"WH-{slug_comp}", company_name)
+            if not _exists("SELECT 1 FROM warehouses WHERE UPPER(code) = UPPER(?)", (target_wh_code,)):
+                cur.execute("""
+                    INSERT INTO warehouses (code, name, city, operating_mode, industry, status, is_active, company_name)
+                    VALUES (?, ?, 'Bengaluru Facility', ?, ?, 'Active', 0, ?)
+                """, (target_wh_code, company_name, operating_mode, bp["name"], company_name))
 
-        # Synchronize active facility flag
-        cur.execute("UPDATE warehouses SET is_active = 0")
-        cur.execute("UPDATE warehouses SET is_active = 1 WHERE UPPER(code) = UPPER(?)", (target_wh_code,))
+        # Record the industry only where none is set yet; an existing label, the name,
+        # the company and the operating mode are never overwritten.
+        cur.execute("""
+            UPDATE warehouses
+            SET industry = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE UPPER(code) = UPPER(?)
+              AND TRIM(COALESCE(industry, '')) IN ('', 'General', 'General Industrial Logistics')
+        """, (bp["name"], target_wh_code))
 
-        # Fetch active warehouse details
         cur.execute("SELECT code, name, city, operating_mode, industry FROM warehouses WHERE UPPER(code) = UPPER(?)", (target_wh_code,))
         wh_row = cur.fetchone()
         wh_dict = {
@@ -945,24 +975,29 @@ def apply_industry_blueprint(
             "industry": wh_row[4] if wh_row else bp["name"]
         }
 
-        # 2. Reset and Populate SKU Master & SKU Images Master
-        cur.execute("DELETE FROM sku_images")
-        cur.execute("DELETE FROM skus")
+        # 2. SKUs and SKU images: add the template SKUs the catalogue does not have yet
         created_skus = []
-
+        skipped_skus = 0
         for item in bp["skus"]:
             sku_id = item["sku_id"]
-            img_rel_url = generate_sku_thumbnail(
-                sku_id=sku_id,
-                sku_name=item["name"],
-                category=item["category"],
-                bg_color=item.get("visual_color", (50, 80, 110)),
-                icon_shape=item.get("icon_shape", "box")
-            )
+            if _exists("SELECT 1 FROM skus WHERE sku_id = ?", (sku_id,)):
+                skipped_skus += 1
+                continue
+
             abs_img_path = os.path.join(UPLOAD_DIR, f"{sku_id}.png")
+            if os.path.exists(abs_img_path):
+                # Never overwrite an image file that is already on disk
+                img_rel_url = f"/static/uploads/sku_images/{sku_id}.png"
+            else:
+                img_rel_url = generate_sku_thumbnail(
+                    sku_id=sku_id,
+                    sku_name=item["name"],
+                    category=item["category"],
+                    bg_color=item.get("visual_color", (50, 80, 110)),
+                    icon_shape=item.get("icon_shape", "box")
+                )
             file_size = os.path.getsize(abs_img_path) if os.path.exists(abs_img_path) else 18000
 
-            # Insert into skus
             cur.execute("""
                 INSERT INTO skus (
                     sku_id, name, category, description, unit_weight, unit_volume,
@@ -981,48 +1016,44 @@ def apply_industry_blueprint(
                 item["bundle_name"]
             ))
 
-            # MAP INTO sku_images TABLE WITH is_primary = 1
-            cur.execute("""
-                INSERT INTO sku_images (sku_id, filename, original_filename, file_path, file_size, mime_type, is_primary)
-                VALUES (?, ?, ?, ?, ?, 'image/png', 1)
-            """, (sku_id, f"{sku_id}.png", f"{sku_id}.png", img_rel_url, file_size))
+            if not _exists("SELECT 1 FROM sku_images WHERE sku_id = ?", (sku_id,)):
+                cur.execute("""
+                    INSERT INTO sku_images (sku_id, filename, original_filename, file_path, file_size, mime_type, is_primary)
+                    VALUES (?, ?, ?, ?, ?, 'image/png', 1)
+                """, (sku_id, f"{sku_id}.png", f"{sku_id}.png", img_rel_url, file_size))
 
             created_skus.append({**item, "image_url": img_rel_url})
 
-        # 3. Synchronize AI Vision Object Classes for YOLO-World (Strictly scoped to active warehouse industry)
-        cur.execute("DELETE FROM vision_camera_object_classes")
-        cur.execute("DELETE FROM object_classes")
+        # 3. AI vision object classes: add missing classes, keep existing ones as they are
+        classes_created = 0
         for cls_code, cls_name, cls_desc in bp["vision_classes"]:
             cur.execute("""
-                INSERT INTO object_classes (code, name, description, status)
+                INSERT OR IGNORE INTO object_classes (code, name, description, status)
                 VALUES (?, ?, ?, 'Active')
-                ON CONFLICT(code) DO UPDATE SET
-                    name = excluded.name,
-                    description = excluded.description,
-                    status = 'Active'
             """, (cls_code, cls_name, cls_desc))
+            classes_created += cur.rowcount
 
-        # Associate vision classes with all active cameras
+        # Link the template classes to cameras (existing links are never removed).
+        # Cameras have no warehouse ownership until RBAC Phase 3, which narrows this
+        # to the target warehouse's cameras.
         cur.execute("SELECT camera_id FROM cameras")
-        cam_rows = cur.fetchall()
-        for cam_row in cam_rows:
-            cid = cam_row[0]
+        for (cid,) in cur.fetchall():
             for cls_code, _, _ in bp["vision_classes"]:
                 cur.execute("""
                     INSERT OR IGNORE INTO vision_camera_object_classes (camera_id, class_code)
                     VALUES (?, ?)
                 """, (cid, cls_code))
 
-        # 4. Reconfigure Warehouse Zones for this Industry
-        cur.execute("DELETE FROM vision_zones")
+        # 4. Zones: add missing zone codes only
+        zones_created = 0
         for z_code, z_name, z_type, z_desc in bp["zones"]:
             cur.execute("""
-                INSERT INTO vision_zones (zone_code, zone_name, zone_type, warehouse, description, status)
+                INSERT OR IGNORE INTO vision_zones (zone_code, zone_name, zone_type, warehouse, description, status)
                 VALUES (?, ?, ?, 'Warehouse A', ?, 'Active')
             """, (z_code, z_name, z_type, z_desc))
+            zones_created += cur.rowcount
 
-        # 5. Populate Authentic Inbound Deliveries for ANPR testing
-        cur.execute("DELETE FROM expected_deliveries")
+        # 5. Sample inbound deliveries (is_demo = 1: never matched to a real ANPR plate read)
         created_deliveries = []
         for d in bp["deliveries"]:
             sheet_json = json.dumps([{
@@ -1032,10 +1063,10 @@ def apply_industry_blueprint(
                 "counted": 0
             }])
             cur.execute("""
-                INSERT INTO expected_deliveries (
+                INSERT OR IGNORE INTO expected_deliveries (
                     po_number, expected_date, activity, vendor, vendor_email,
-                    load_description, plate, driver_name, driver_phone, status, unloading_sheet
-                ) VALUES (?, ?, 'Unloading', ?, 'logistics@supplier.com', ?, ?, 'Verified Carrier Driver', '9876543210', 'Expected', ?)
+                    load_description, plate, driver_name, driver_phone, status, unloading_sheet, is_demo
+                ) VALUES (?, ?, 'Unloading', ?, 'logistics@supplier.com', ?, ?, 'Verified Carrier Driver', '9876543210', 'Expected', ?, 1)
             """, (
                 d["po_number"],
                 datetime.now().strftime("%Y-%m-%d"),
@@ -1044,40 +1075,43 @@ def apply_industry_blueprint(
                 d["plate"],
                 sheet_json
             ))
-            created_deliveries.append(d)
+            if cur.rowcount:
+                created_deliveries.append(d)
 
-        # 6. Slot Initial Inventory into Storage Bins
-        cur.execute("DELETE FROM inventory")
-        cur.execute("SELECT bin_id FROM bins LIMIT 20")
-        bin_rows = cur.fetchall()
-        for i, bin_row in enumerate(bin_rows):
-            if i < len(bp["skus"]):
-                target_sku = bp["skus"][i]
-                cur.execute("""
-                    INSERT INTO inventory (bin_id, sku_id, quantity, batch_number, vendor)
-                    VALUES (?, ?, ?, 'BATCH-2026-A1', ?)
-                """, (bin_row[0], target_sku["sku_id"], target_sku["units_per_bundle"] * 10, company_name))
+        # 6. Sample stock: only into bins that hold no stock at all, so real stock is never altered
+        new_sku_ids = [s["sku_id"] for s in created_skus]
+        cur.execute("""
+            SELECT b.bin_id FROM bins b
+            WHERE NOT EXISTS (SELECT 1 FROM inventory i WHERE i.bin_id = b.bin_id)
+            ORDER BY b.bin_id LIMIT 20
+        """)
+        empty_bins = [r[0] for r in cur.fetchall()]
+        for bin_id, sku_id in zip(empty_bins, new_sku_ids):
+            target_sku = next(s for s in created_skus if s["sku_id"] == sku_id)
+            cur.execute("""
+                INSERT INTO inventory (bin_id, sku_id, quantity, batch_number, vendor, is_demo)
+                VALUES (?, ?, ?, 'BATCH-2026-A1', ?, 1)
+            """, (bin_id, sku_id, target_sku["units_per_bundle"] * 10, company_name))
 
-        # 6.5. Clear previous pallets and initialize active pallets for the new warehouse
-        cur.execute("DELETE FROM pallet_items")
-        cur.execute("DELETE FROM pallets")
-        if len(created_skus) > 0:
-            for idx, p_sku in enumerate(created_skus[:2]):
-                p_id = f"PLT-{datetime.now().strftime('%y%m%d')}-{1001 + idx}"
-                u_per_bundle = p_sku.get("units_per_bundle") or 10
-                tgt_bundles = p_sku.get("target_bundles_per_pallet") or 20
-                cur.execute("""
-                    INSERT INTO pallets (
-                        pallet_id, sku_id, name, units_per_bundle, target_bundles,
-                        counted_bundles, total_units, status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, 0, 0, 'STACKING', CURRENT_TIMESTAMP)
-                """, (
-                    p_id,
-                    p_sku["sku_id"],
-                    f"Pallet {p_id} ({p_sku['name']})",
-                    u_per_bundle,
-                    tgt_bundles
-                ))
+        # 6.5. Sample pallets for up to two newly added SKUs (existing pallets are never touched)
+        for p_sku in created_skus[:2]:
+            if _exists("SELECT 1 FROM pallets WHERE sku_id = ?", (p_sku["sku_id"],)):
+                continue
+            p_id = _free_pallet_id(cur)
+            u_per_bundle = p_sku.get("units_per_bundle") or 10
+            tgt_bundles = p_sku.get("target_bundles_per_pallet") or 20
+            cur.execute("""
+                INSERT INTO pallets (
+                    pallet_id, sku_id, name, units_per_bundle, target_bundles,
+                    counted_bundles, total_units, status, created_at, is_demo
+                ) VALUES (?, ?, ?, ?, ?, 0, 0, 'STACKING', CURRENT_TIMESTAMP, 1)
+            """, (
+                p_id,
+                p_sku["sku_id"],
+                f"Pallet {p_id} ({p_sku['name']})",
+                u_per_bundle,
+                tgt_bundles
+            ))
 
         conn.commit()
 
@@ -1095,11 +1129,18 @@ def apply_industry_blueprint(
         except Exception as det_err:
             logger.warning(f"Could not dynamic-update YOLO-World classes: {det_err}")
 
-        logger.info(f"Successfully applied '{bp['name']}' blueprint ({len(created_skus)} SKUs) for '{company_name}'.")
+        logger.info(
+            f"Applied '{bp['name']}' template to {wh_dict['code']} (add-only): "
+            f"{len(created_skus)} SKUs added, {skipped_skus} already present."
+        )
 
         return {
             "success": True,
-            "message": f"Successfully applied '{bp['name']}' blueprint for {company_name}.",
+            "message": (
+                f"Applied '{bp['name']}' template to {wh_dict['code']}: added {len(created_skus)} SKUs"
+                + (f", kept {skipped_skus} existing" if skipped_skus else "") + "."
+            ),
+            "mode": "add_only",
             "blueprint": bp["key"],
             "blueprint_name": bp["name"],
             "company_name": company_name,
@@ -1107,10 +1148,11 @@ def apply_industry_blueprint(
             "warehouse": wh_dict,
             "skus_created": len(created_skus),
             "skus_count": len(created_skus),
+            "skus_skipped_existing": skipped_skus,
             "skus": created_skus,
-            "classes_created": len(bp["vision_classes"]),
+            "classes_created": classes_created,
             "vision_classes_count": len(bp["vision_classes"]),
-            "zones_created": len(bp["zones"]),
+            "zones_created": zones_created,
             "zones_count": len(bp["zones"]),
             "deliveries_created": len(created_deliveries),
             "deliveries_count": len(created_deliveries),
