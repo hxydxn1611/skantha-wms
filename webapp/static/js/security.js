@@ -61,7 +61,23 @@
                 }
             }
         } catch (e) { /* never block a request because of this helper */ }
+        var reqMethod = 'GET', reqUrl = '';
+        try {
+            reqMethod = String((init && init.method) || ((typeof Request !== 'undefined' && input instanceof Request) ? input.method : 'GET')).toUpperCase();
+            reqUrl = (typeof Request !== 'undefined' && input instanceof Request) ? input.url : String(input);
+        } catch (e) {}
         return originalFetch.call(this, input, init).then(function (response) {
+            // RBAC Phase 6: an action the server refused gets a short, plain message.
+            // Background reads stay quiet; the Users & Access screens show their own messages.
+            if (response.status === 403 && !SAFE_METHODS.test(reqMethod) && reqUrl.indexOf('/api/iam/') === -1
+                    && reqUrl.indexOf('/api/platform/') === -1) {
+                response.clone().json().then(function (body) {
+                    var code = body && body.error_code;
+                    if ((code === 'permission_denied' || code === 'read_only_view') && typeof window.warlogToast === 'function') {
+                        window.warlogToast(body.message || body.error || "You don't have permission for that.", 'warning');
+                    }
+                }).catch(function () {});
+            }
             // The tab's warehouse is no longer available to this user: fall back to the default.
             if (response.status === 403 && !window.__warlogWarehouseReset) {
                 response.clone().json().then(function (body) {

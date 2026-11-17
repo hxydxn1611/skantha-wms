@@ -291,6 +291,8 @@
     }
 
     async function pollStagingStatus() {
+        // RBAC Phase 6: only for people who can see the staging area
+        if (typeof window.hasPerm === 'function' && !window.hasPerm('inbound.staging.view|inbound.view')) return;
         try {
             const res = await fetch('/api/staging/status');
             if (res.ok) {

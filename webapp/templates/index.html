@@ -17,6 +17,7 @@
     <script>
         {% if current_user %}
         window.currentUser = {{ current_user | tojson }};
+        window.WARLOG_ACCESS = {{ warlog_access | tojson }};
         {% endif %}
         (function() {
             try {
@@ -11251,6 +11252,8 @@ window.switchSubTab = switchSubTab;
     <script src="{{ url_for('static', filename='js/industry_blueprint_ui.js') }}?v={{ range(1000, 99999) | random }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/users_access.css') }}?v={{ range(1000, 99999) | random }}">
     <script src="{{ url_for('static', filename='js/users_access.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/permissions.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/permissions.js') }}?v={{ range(1000, 99999) | random }}"></script>
     {% if is_platform_admin %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/platform_companies.css') }}?v={{ range(1000, 99999) | random }}">
     <script src="{{ url_for('static', filename='js/platform_companies.js') }}?v={{ range(1000, 99999) | random }}"></script>

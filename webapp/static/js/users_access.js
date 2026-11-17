@@ -22,7 +22,8 @@
     }
 
     function toast(text, kind) {
-        if (typeof window.showToast === 'function') window.showToast(text, kind || 'info');
+        if (typeof window.warlogToast === 'function') window.warlogToast(text, kind || 'info');
+        else if (typeof window.showToast === 'function') window.showToast(text, kind || 'info');
         else alert(text);
     }
 

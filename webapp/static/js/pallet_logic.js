@@ -353,8 +353,10 @@
         if (img) img.src = `/video_feed/${camId}`;
         if (camLabel) camLabel.textContent = `CAM: ${camId}`;
 
-        // Also bind this camera to current pallet if active
-        if (activePalletId && camId) {
+        // Also bind this camera to current pallet if active (only a real camera, and only for
+        // someone allowed to work on pallets - viewing a pallet never writes, RBAC Phase 6)
+        const canBind = typeof window.hasPerm !== 'function' || window.hasPerm('pallet.create');
+        if (activePalletId && camId && camId !== 'undefined' && camId !== 'null' && canBind) {
             fetch(`/api/pallets/camera/${camId}/bind`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -374,7 +376,8 @@
 
             // Bind current camera
             const camSelect = document.getElementById('palletCameraSelect');
-            if (camSelect && camSelect.value) {
+            const canBind = typeof window.hasPerm !== 'function' || window.hasPerm('pallet.create');
+            if (camSelect && camSelect.value && camSelect.value !== 'undefined' && canBind) {
                 fetch(`/api/pallets/camera/${camSelect.value}/bind`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

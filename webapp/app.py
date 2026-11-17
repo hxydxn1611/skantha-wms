@@ -107,6 +107,7 @@ from staging_perception_service import get_staging_service, ActorType, QuotaStat
 import auth_service
 import rbac_service
 import rbac_scope
+import sqlite3
 from rbac_config import get_rbac_mode
 logger.info(f"[RBAC] RBAC_MODE={get_rbac_mode()}")
 
@@ -279,6 +280,19 @@ def rbac_after_request(response):
     return response
 
 
+@app.errorhandler(sqlite3.IntegrityError)
+def handle_scope_fence(e):
+    """RBAC Phase 6: the database fences (Phase 3A) refuse writes in a view-only scope
+    ('All locations') or into another company's data. Say so plainly instead of a 500."""
+    msg = str(e)
+    if 'rbac_read_only_scope' in msg:
+        text = 'You are viewing all locations, which is read-only. Pick one location to make changes.'
+        return jsonify({'success': False, 'error': text, 'message': text, 'error_code': 'read_only_view'}), 403
+    if 'rbac_scope_violation' in msg:
+        return jsonify({'success': False, 'error': 'Not found.', 'message': 'Not found.', 'error_code': 'not_found'}), 404
+    return handle_unexpected_error(e)
+
+
 @app.errorhandler(db.CodeInUseError)
 def handle_code_in_use(e):
     """RBAC Phase 3B: a code another company/warehouse already uses (never says whose)."""
@@ -315,6 +329,7 @@ def api_auth_me():
         'warehouse_id': wid,
         'permissions': perms,
         'rbac_mode': get_rbac_mode(),
+        'access': rbac_service.client_access(current),
     })
 
 @app.route('/api/platform/companies', methods=['GET'])
@@ -392,7 +407,8 @@ def index():
                            warehouse_scope=rbac_service.current_warehouse_id() or '',
                            is_platform_admin=bool(user.get('is_platform_admin')),
                            can_manage_users=bool(user.get('is_platform_admin'))
-                           or 'users.view' in rbac_service.effective_permissions())
+                           or 'users.view' in rbac_service.effective_permissions(),
+                           warlog_access=rbac_service.client_access(user))
 
 @app.route('/login', methods=['GET'])
 def login_page():

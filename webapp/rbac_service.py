@@ -164,6 +164,26 @@ def resolve_scope():
     return None
 
 
+def client_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """What the page needs to hide controls (RBAC Phase 6). Only a convenience for the UI:
+    every API still checks permissions itself."""
+    if not user:
+        return {"permissions": [], "all": False, "is_platform_admin": False, "scope": None,
+                "company_wide": False}
+    perms = effective_permissions()
+    company_perms = {k for k, p in rbac_catalog.PERMISSIONS_BY_KEY.items() if p.scope_level != "platform"}
+    scope = current_scope()
+    own_company = auth_service.user_company_id(user["id"])
+    return {
+        "permissions": sorted(perms),
+        # everything inside the company: nothing in the UI needs hiding
+        "all": bool(user.get("is_platform_admin")) or company_perms <= set(perms),
+        "is_platform_admin": bool(user.get("is_platform_admin")),
+        "scope": scope.kind if scope else None,
+        "company_wide": bool(own_company) and has_company_wide_access(user, own_company),
+    }
+
+
 def current_scope():
     return getattr(g, "rbac_scope", None)
 
@@ -278,7 +298,12 @@ def decide(endpoint: Optional[str], method: str):
     key = rbac_routes.permission_for(endpoint, method)
     if key is None:
         return False, None, "unmapped_route"
-    return (key in effective_permissions()), key, None if key in effective_permissions() else "permission_denied"
+    held = effective_permissions()
+    keys = rbac_routes.permission_keys(key)
+    granted = next((k for k in keys if k in held), None)
+    if granted:
+        return True, granted, None
+    return False, keys[0], "permission_denied"
 
 
 def authorize_request():

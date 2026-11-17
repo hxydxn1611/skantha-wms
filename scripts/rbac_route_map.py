@@ -30,7 +30,7 @@ def build_rows(url_map):
             else:
                 key = rbac_routes.permission_for(rule.endpoint, method) or "UNMAPPED"
                 access = "permission"
-            spec = rbac_catalog.PERMISSIONS_BY_KEY.get(key)
+            spec = rbac_catalog.PERMISSIONS_BY_KEY.get(rbac_routes.permission_keys(key)[0] if key else key)
             rows.append({
                 "rule": rule.rule, "method": method, "endpoint": rule.endpoint, "access": access,
                 "permission": key, "module": spec.module if spec else "",

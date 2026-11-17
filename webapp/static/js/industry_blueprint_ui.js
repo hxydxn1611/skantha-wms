@@ -63,8 +63,11 @@
         
         // If logged in as a specific client company, hide generic blueprint transformer
         if (bpBtn) {
-            const isSuperAdmin = !userComp || userComp.toLowerCase() === 'skantha industrial solutions';
-            bpBtn.style.display = isSuperAdmin ? 'inline-flex' : 'none';
+            // RBAC Phase 6: shown to whoever may apply industry templates (no hard-coded company name)
+            const allowed = typeof window.hasPerm === 'function'
+                ? window.hasPerm('masterdata.blueprint.apply')
+                : (!userComp || userComp.toLowerCase() === 'skantha industrial solutions');
+            bpBtn.style.display = allowed ? 'inline-flex' : 'none';
         }
         
         // Show "Add Facility" button

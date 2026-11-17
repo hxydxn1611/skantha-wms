@@ -15,7 +15,7 @@ REASON_REQUIRED_ENDPOINTS: exceptional operations that must carry a written reas
 ("reason" in the JSON body or the X-Action-Reason header). Audit mode logs a missing
 reason; enforce mode rejects it with 400.
 """
-from typing import Dict, Union
+from typing import List, Optional, Dict, Union
 
 PermSpec = Union[str, Dict[str, str]]
 
@@ -75,15 +75,15 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     # ------------------------------------------------------------ dashboard
     "get_stats": "dashboard.view",
     "get_live_telemetry_endpoint": "dashboard.view",
-    "get_alerts": "violations.view",
+    "get_alerts": "violations.view|gate.violation.view|dashboard.view",
 
     # ------------------------------------------------------------ pre-registration
-    "handle_deliveries": {"GET": "deliveries.view", "HEAD": "deliveries.view", "POST": "deliveries.create"},
+    "handle_deliveries": {"GET": "deliveries.view|inbound.view|dock.view|gate.pass.view", "HEAD": "deliveries.view|inbound.view|dock.view|gate.pass.view", "POST": "deliveries.create"},
     "handle_single_delivery": {"GET": "deliveries.view", "HEAD": "deliveries.view", "PUT": "deliveries.edit",
                                "PATCH": "deliveries.edit", "DELETE": "deliveries.delete"},
 
     # ------------------------------------------------------------ gate
-    "get_gate_passes": "gate.pass.view",
+    "get_gate_passes": "gate.pass.view|inbound.view|dock.view|gate.dashboard.view",
     "create_gate_pass": "gate.vehicle.register",
     "register_walkin_vehicle": "gate.vehicle.register",
     "update_gate_pass": {"GET": "gate.pass.view", "HEAD": "gate.pass.view", "PUT": "gate.vehicle.edit",
@@ -103,7 +103,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "get_invoices": "gate.documents.export",
     "get_gate_manifest": "gate.documents.export",
     "get_vehicle_logs": "gate.vehicle_log.view",
-    "api_gate_multi_status": "gate.dashboard.view",
+    "api_gate_multi_status": "gate.dashboard.view|gate.pass.view|dock.view|dashboard.view",
 
     # ------------------------------------------------------------ dock
     "unload_step": "dock.unload.execute",
@@ -115,16 +115,16 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     # ------------------------------------------------------------ inbound and staging
     "api_inbound_simulate": "inbound.receipt.complete",
     "api_inbound_complete_receipt": "inbound.receipt.complete",
-    "api_staging_status": "inbound.staging.view",
+    "api_staging_status": "inbound.staging.view|inbound.view",
     "api_staging_cameras": "inbound.staging.view",
-    "api_staging_feed_mjpg": "inbound.staging.view",
+    "api_staging_feed_mjpg": "inbound.staging.view|inbound.view",
     "api_staging_frame_jpg": "inbound.staging.view",
     "api_staging_configure": "inbound.staging.configure",
     "api_staging_reset": "inbound.staging.reset",
     "api_staging_placement": "inbound.receipt.complete",
 
     # ------------------------------------------------------------ bins and inventory
-    "api_get_bins": "bins.view",
+    "api_get_bins": "bins.view|inventory.view|deliveries.view|pallet.view|dock.view|sku.view|inbound.view|outbound.view",
     "api_add_bin": "bins.create",
     "api_update_bin": "bins.edit",
     "api_get_bin_inventory": "inventory.view",
@@ -146,10 +146,10 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "get_outbound_manifest": "outbound.view",
 
     # ------------------------------------------------------------ SKU and master data
-    "api_get_skus": "sku.view",
+    "api_get_skus": "sku.view|pallet.view|deliveries.view|inventory.view|vision.view|dock.view|inbound.view|outbound.view|bins.view",
     "api_add_sku": "sku.create",
     "api_update_sku_bundle_config": "sku.edit",
-    "api_get_sku_master": "sku.view",
+    "api_get_sku_master": "sku.view|pallet.view|deliveries.view|inventory.view|vision.view|dock.view|inbound.view|outbound.view|bins.view",
     "api_get_sku_detail": "sku.view",
     "api_save_sku": "sku.edit",
     "api_delete_sku": "sku.delete",
@@ -160,11 +160,11 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "api_upload_sku_images": "sku.edit",
     "api_delete_sku_image": "sku.edit",
     "api_set_sku_primary_image": "sku.edit",
-    "api_get_vision_skus": "sku.view",
+    "api_get_vision_skus": "sku.view|pallet.view|deliveries.view|inventory.view|vision.view|dock.view|inbound.view|outbound.view|bins.view",
     "api_get_glass_profiles": "sku.view",
     "api_save_glass_profile": "sku.edit",
     "api_delete_glass_profile": "sku.edit",
-    "handle_object_classes": _rw("vision.view", "vision.classes.manage", "POST"),
+    "handle_object_classes": _rw("vision.view|cameras.view|dashboard.view", "vision.classes.manage", "POST"),
     "handle_single_object_class": _rw("vision.view", "vision.classes.manage", "PUT", "PATCH", "DELETE"),
 
     # ------------------------------------------------------------ pallets and counting
@@ -186,17 +186,17 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "api_review_pallet_multiview": "vision.counting.review",
 
     # ------------------------------------------------------------ violations
-    "api_get_violations": "violations.view",
-    "api_get_violations_summary": "violations.view",
+    "api_get_violations": "violations.view|gate.violation.view|dashboard.view",
+    "api_get_violations_summary": "violations.view|gate.violation.view|dashboard.view",
     "api_log_violation": "violations.manage",
     "api_resolve_violation": "violations.manage",
     "api_resolve_all_violations": "violations.manage",
 
     # ------------------------------------------------------------ cameras and streams
-    "get_cameras": "cameras.view",
-    "get_vision_cameras": "cameras.view",
+    "get_cameras": "cameras.view|dashboard.view|vision.view",
+    "get_vision_cameras": "cameras.view|dashboard.view|vision.view",
     "get_single_vision_camera": "cameras.view",
-    "api_system_rtmp_status": "cameras.view",
+    "api_system_rtmp_status": "cameras.view|dashboard.view|vision.view",
     "handle_vision_camera_config": _rw("cameras.view", "cameras.configure", "PUT", "POST"),
     "add_camera": "cameras.create",
     "delete_camera": "cameras.delete",
@@ -214,7 +214,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     # ------------------------------------------------------------ vision zones
     "get_zone_types": "vision.view",
     "get_zone_all_rois": "vision.view",
-    "handle_vision_zones": _rw("vision.view", "vision.zones.manage", "POST"),
+    "handle_vision_zones": _rw("vision.view|cameras.view|dashboard.view", "vision.zones.manage", "POST"),
     "handle_single_vision_zone": _rw("vision.view", "vision.zones.manage", "PUT", "PATCH", "DELETE"),
     "handle_vision_zone_cameras": _rw("vision.view", "vision.zones.manage", "PUT"),
     "handle_zone_camera_roi": _rw("vision.view", "vision.zones.manage", "POST", "PUT", "DELETE"),
@@ -223,7 +223,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "api_vision_runtime_status": "vision.view",
     "api_vision_runtime_cameras": "vision.view",
     "api_vision_runtime_camera_detail": "vision.view",
-    "api_vision_dashboard_live": "vision.view",
+    "api_vision_dashboard_live": "vision.view|dashboard.view|cameras.view",
     "api_vision_runtime_camera_start": "vision.runtime.configure",
     "api_vision_runtime_camera_stop": "vision.runtime.configure",
     "api_vision_runtime_camera_restart": "vision.runtime.configure",
@@ -278,7 +278,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "api_delete_trained_worker": "workers.delete",
 
     # ------------------------------------------------------------ integration and controlled actions
-    "api_integration_overview": "integration.view",
+    "api_integration_overview": "integration.view|dashboard.view",
     "api_integration_delivery": "integration.view",
     "api_integration_gate_pass": "integration.view",
     "api_integration_material": "integration.view",
@@ -313,8 +313,14 @@ REASON_REQUIRED_ENDPOINTS = frozenset({
 })
 
 
+def permission_keys(spec_key: Optional[str]) -> List[str]:
+    """'a|b' (any one of several permissions, used for shared lookup reads) -> ['a', 'b']."""
+    return [k for k in str(spec_key or "").split("|") if k]
+
+
 def permission_for(endpoint: str, method: str):
-    """The permission key for this endpoint and method, or None when unmapped."""
+    """The permission key for this endpoint and method, or None when unmapped.
+    A key may be 'a|b': any one of those permissions opens the route (RBAC Phase 6)."""
     spec = ROUTE_PERMISSIONS.get(endpoint)
     if spec is None:
         return None

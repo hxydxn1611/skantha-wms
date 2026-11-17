@@ -109,7 +109,9 @@ class TestCoverage(Phase2Base):
                 continue
             for m in rule.methods - {"HEAD", "OPTIONS"}:
                 key = self.routes.permission_for(rule.endpoint, m)
-                self.assertIn(key, self.catalog.PERMISSIONS_BY_KEY, f"{m} {rule.rule}")
+                self.assertTrue(key, f"{m} {rule.rule} is unmapped")
+                for k in self.routes.permission_keys(key):   # 'a|b' = any one of them (Phase 6)
+                    self.assertIn(k, self.catalog.PERMISSIONS_BY_KEY, f"{m} {rule.rule}")
 
     def test_route_map_document_is_current(self):
         import rbac_route_map
@@ -137,7 +139,9 @@ class TestEnforcement(Phase2Base):
     def test_custom_role_gets_exactly_its_permission(self):
         c = self.client("gateviewer")
         self.assertEqual(c.get("/api/gate_passes").status_code, 200)
-        for path in ("/api/stats", "/api/skus", "/api/cameras", "/api/deliveries", f"/api/gate_passes/{self.gp_id}/otp"):
+        # Phase 6: the PO list is a shared lookup read that gate staff need (gate passes link to POs)
+        self.assertEqual(c.get("/api/deliveries").status_code, 200)
+        for path in ("/api/stats", "/api/skus", "/api/cameras", "/api/inventory", f"/api/gate_passes/{self.gp_id}/otp"):
             r = c.get(path)
             self.assertEqual(r.status_code, 403, path)
             self.assertEqual(r.get_json()["error_code"], "permission_denied")
