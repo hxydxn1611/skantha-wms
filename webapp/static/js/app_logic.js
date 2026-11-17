@@ -6572,12 +6572,15 @@ function initMacosDockMagnification() {
     const dockList = document.querySelector('.macos-dock-list');
     if (!dockList) return;
 
+    const sidebar = dockList.closest('.macos-floating-dock-sidebar');
     const items = dockList.querySelectorAll('.macos-dock-item');
     const baseScale = 1.0;
-    const maxScale = 1.28;
-    const effectRadius = 90; // Pixels radius of magnification curve
 
     dockList.addEventListener('mousemove', function(e) {
+        const isCollapsed = sidebar && sidebar.classList.contains('collapsed');
+        // Scaled subtly to provide organic tactile magnification without blur or overflowing the sidebar panel
+        const maxScale = isCollapsed ? 1.08 : 1.04;
+        const effectRadius = isCollapsed ? 70 : 55;
         const mouseClientY = e.clientY;
 
         items.forEach(item => {
@@ -6589,10 +6592,10 @@ function initMacosDockMagnification() {
                 // Cosine interpolation for organic macOS fish-eye wave
                 const factor = Math.cos((distance / effectRadius) * (Math.PI / 2));
                 const scale = baseScale + (maxScale - baseScale) * factor;
-                item.style.transform = `scale(${scale.toFixed(3)}) translateX(${((scale - 1) * 8).toFixed(1)}px)`;
+                item.style.transform = `scale(${scale.toFixed(3)})`;
                 item.style.zIndex = '15';
             } else {
-                item.style.transform = 'scale(1.0) translateX(0px)';
+                item.style.transform = 'scale(1.0)';
                 item.style.zIndex = '1';
             }
         });
@@ -6600,7 +6603,7 @@ function initMacosDockMagnification() {
 
     dockList.addEventListener('mouseleave', function() {
         items.forEach(item => {
-            item.style.transform = 'scale(1.0) translateX(0px)';
+            item.style.transform = 'scale(1.0)';
             item.style.zIndex = '1';
         });
     });

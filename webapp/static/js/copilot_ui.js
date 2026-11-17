@@ -335,14 +335,17 @@
         }
         showTypingIndicator();
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+
         try {
             const res = await fetch('/api/copilot/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: queryText })
+                body: JSON.stringify({ message: queryText }),
+                signal: controller.signal
             });
-
-            removeTypingIndicator();
+            clearTimeout(timeoutId);
 
             if (res.ok) {
                 const data = await res.json();
@@ -352,12 +355,20 @@
                 }
                 // Speak response out loud via Text-to-Speech (Two-Way Voice)
                 speakAssistantReply(data.reply);
+            } else if (res.status === 401) {
+                appendAssistantMessage("⚠️ **Session Expired or Unauthenticated.** Please refresh the page or log in to continue chatting with WARLOG Copilot.", []);
             } else {
                 appendAssistantMessage("I encountered an error querying the warehouse matrix. Please try again.", []);
             }
         } catch (err) {
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') {
+                appendAssistantMessage("⏱️ **Request Timed Out.** The network connection was busy or delayed. Please send your query again.", []);
+            } else {
+                appendAssistantMessage(`Connection notice: ${err.message}. Please check server connectivity.`, []);
+            }
+        } finally {
             removeTypingIndicator();
-            appendAssistantMessage(`Connection failure: ${err.message}`, []);
         }
     };
 

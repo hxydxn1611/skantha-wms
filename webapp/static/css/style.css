@@ -3849,6 +3849,8 @@ body {
     transform-origin: center center;
     transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1.2);
     will-change: transform;
+    backface-visibility: hidden;
+    -webkit-font-smoothing: antialiased;
 }
 
 .dock-btn {
@@ -4136,6 +4138,9 @@ body {
     justify-content: stretch !important;
     width: 100% !important;
     margin: 1px 0 !important;
+    transform-origin: center center !important;
+    backface-visibility: hidden !important;
+    -webkit-font-smoothing: antialiased !important;
 }
 .dock-btn {
     width: 100% !important;
@@ -4194,9 +4199,10 @@ body {
     background: rgba(148, 163, 184, 0.12) !important;
     border-color: rgba(148, 163, 184, 0.22) !important;
 }
-.dock-btn:hover .dock-3d-svg {
-    transform: scale(1.15) translateY(-1px) !important;
-    filter: drop-shadow(0 4px 8px rgba(2, 132, 199, 0.25)) !important;
+.dock-btn:hover .dock-3d-svg,
+.dock-btn:hover .copilot-bixby-orb-dock {
+    transform: scale(1.05) translateY(-1px) !important;
+    filter: drop-shadow(0 3px 6px rgba(2, 132, 199, 0.2)) !important;
 }
 
 .dock-btn.active {
