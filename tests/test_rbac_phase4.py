@@ -34,6 +34,11 @@ class Phase4Base(Phase3ABase):
         return self.get(self.client(user), "/api/iam/overview" + q)
 
     def role_id(self, code):
+        if code == "user":
+            # an ordinary non-admin role: the glass company's "Executive (view-only)" starter role
+            # (the built-in "User" role grants nothing and is no longer assignable)
+            return self.sql("SELECT id FROM roles WHERE company_id = ? AND template_key = 'executive'",
+                            (self.glass_wh[1],))[0][0]
         return self.sql("SELECT id FROM roles WHERE builtin_code = ?", (code,))[0][0]
 
     def invite(self, by, email, role="user", warehouse_id=None, company_id=None):
@@ -113,6 +118,18 @@ class TestInvitations(Phase4Base):
         self.assertEqual(self.accept(token, "p4weak", "short").status_code, 400)
         self.assertEqual(self.accept(token, "david").status_code, 409)
         self.assertEqual(self.accept(token, "p4weak").status_code, 200)
+
+
+class TestBuiltinUserRoleHidden(Phase4Base):
+    def test_empty_user_role_is_hidden_and_refused(self):
+        builtin_user = self.sql("SELECT id FROM roles WHERE builtin_code = 'user'")[0][0]
+        ov = self.overview("david").get_json()
+        self.assertNotIn(builtin_user, [r["id"] for r in ov["roles"]])
+        roles = self.get(self.client("david"), "/api/iam/roles").get_json()["roles"]
+        self.assertNotIn(builtin_user, [r["id"] for r in roles])
+        r = self.send(self.client("david"), "POST", "/api/iam/invitations",
+                      {"email": "p4.empty@example.com", "role_id": builtin_user})
+        self.assertEqual((r.status_code, r.get_json()["error_code"]), (403, "role_not_assignable"))
 
 
 class TestUsersAndAccess(Phase4Base):

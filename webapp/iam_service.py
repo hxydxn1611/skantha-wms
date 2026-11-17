@@ -35,7 +35,9 @@ INVITE_HOURS = 72
 RESET_MINUTES = 30
 RESET_PER_ACCOUNT = 3          # reset emails per account per 30 min
 RESET_PER_IP = 10              # forgot-password requests per IP per 15 min
-ASSIGNABLE_BUILTINS = ("company_admin", "user")
+# The built-in "User" role grants nothing, so it is hidden and no longer handed out
+# (existing assignments keep working and stay visible until removed).
+ASSIGNABLE_BUILTINS = ("company_admin",)
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +169,7 @@ def list_roles(company_id: int) -> List[Dict[str, Any]]:
     try:
         rows = conn.execute("""
             SELECT id, name, description, is_builtin, builtin_code, company_id FROM roles
-            WHERE is_active = 1 AND ((is_builtin = 1 AND builtin_code IN ('company_admin', 'user'))
+            WHERE is_active = 1 AND ((is_builtin = 1 AND builtin_code = 'company_admin')
                                      OR (is_builtin = 0 AND company_id = ?))
             ORDER BY is_builtin DESC, CASE builtin_code WHEN 'company_admin' THEN 0 ELSE 1 END, name
         """, (company_id,)).fetchall()
@@ -777,9 +779,12 @@ def list_roles_detailed(company_id: int) -> List[Dict[str, Any]]:
     try:
         rows = [dict(r) for r in conn.execute("""
             SELECT * FROM roles
-            WHERE (is_builtin = 1 AND builtin_code IN ('company_admin', 'user')) OR (is_builtin = 0 AND company_id = ?)
+            WHERE (is_builtin = 1 AND builtin_code = 'company_admin') OR (is_builtin = 0 AND company_id = ?)
+               OR (is_builtin = 1 AND builtin_code = 'user' AND EXISTS (
+                   SELECT 1 FROM user_warehouse_access a WHERE a.role_id = roles.id AND a.company_id = ?
+                   AND a.status = 'Active'))
             ORDER BY is_builtin DESC, CASE builtin_code WHEN 'company_admin' THEN 0 ELSE 1 END, is_active DESC,
-                     name COLLATE NOCASE""", (company_id,))]
+                     name COLLATE NOCASE""", (company_id, company_id))]
         out = []
         for r in rows:
             out.append({"id": r["id"], "name": r["name"], "description": r["description"] or "",
