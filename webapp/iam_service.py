@@ -754,7 +754,8 @@ def permission_catalog(actor: Dict[str, Any], company_id: int) -> List[Dict[str,
             continue
         groups.setdefault(p.module, []).append({
             "key": p.key, "label": p.label, "action": p.action, "scope_level": p.scope_level,
-            "sensitive": bool(p.sensitive), "grantable": p.key in held})
+            "sensitive": bool(p.sensitive), "grantable": p.key in held,
+            "section": rbac_catalog.PERMISSION_SECTIONS.get(p.key, "")})
     return [{"module": m, "permissions": perms} for m, perms in groups.items()]
 
 
@@ -784,7 +785,10 @@ def list_roles_detailed(company_id: int) -> List[Dict[str, Any]]:
             out.append({"id": r["id"], "name": r["name"], "description": r["description"] or "",
                         "is_builtin": bool(r["is_builtin"]), "builtin_code": r["builtin_code"],
                         "is_active": bool(r["is_active"]), "permissions": sorted(role_permission_set(conn, r)),
-                        "users": _role_users(conn, r["id"], company_id), "updated_at": r.get("updated_at")})
+                        "users": _role_users(conn, r["id"], company_id), "updated_at": r.get("updated_at"),
+                        "template_key": r.get("template_key"),
+                        "template_permissions": sorted(set(rbac_catalog.STARTER_ROLES_BY_KEY[r["template_key"]][3]))
+                        if r.get("template_key") in rbac_catalog.STARTER_ROLES_BY_KEY else None})
         return out
     finally:
         conn.close()

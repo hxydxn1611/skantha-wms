@@ -19,6 +19,7 @@ Steps
   006/007             ownership columns; approved ownership backfill (Phase 3A)
   008_per_company_codes  object class codes unique per company, zone codes unique per
                       warehouse (table rebuild, every row/id/link kept) (Phase 3B)
+  009_starter_roles   starter roles for every company (editable custom roles) (Phase 5)
 
 The permission catalogue is synced on every run (idempotent upsert; removed keys retired).
 """
@@ -336,7 +337,40 @@ def ensure_company(conn: sqlite3.Connection, name: str) -> int:
     slug = slug if n == 1 else f"{slug}-{n}"
     cur = conn.execute("INSERT INTO companies (name, name_key, slug) VALUES (?, ?, ?)",
                        (" ".join(str(name).split()), key, slug))
+    ensure_starter_roles(conn, cur.lastrowid)
     return cur.lastrowid
+
+
+def ensure_starter_roles(conn: sqlite3.Connection, company_id: int) -> int:
+    """Creates the starter roles (rbac_catalog.STARTER_ROLES) a company doesn't have yet,
+    as ordinary custom roles. A starter role the admin renamed, edited or deactivated is
+    never recreated or reset; a role the admin already named the same way is left alone.
+    No-op until migration 009 has added roles.template_key. Returns how many were created."""
+    if "template_key" not in _columns(conn, "roles"):
+        return 0
+    if not conn.execute("SELECT 1 FROM permissions LIMIT 1").fetchone():
+        return 0  # catalogue not synced yet (fresh install mid-migration); step 009 seeds later
+    created = 0
+    for tkey, name, desc, perms in rbac_catalog.STARTER_ROLES:
+        if conn.execute("SELECT 1 FROM roles WHERE company_id = ? AND template_key = ?", (company_id, tkey)).fetchone():
+            continue
+        if conn.execute("SELECT 1 FROM roles WHERE company_id = ? AND LOWER(name) = LOWER(?)", (company_id, name)).fetchone():
+            continue
+        rid = conn.execute("""INSERT INTO roles (company_id, name, description, is_builtin, builtin_code, is_active,
+                              template_key) VALUES (?, ?, ?, 0, NULL, 1, ?)""", (company_id, name, desc, tkey)).lastrowid
+        conn.executemany("INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (?, ?)",
+                         [(rid, k) for k in sorted(set(perms))])
+        created += 1
+    return created
+
+
+def _step_starter_roles(conn: sqlite3.Connection) -> None:
+    """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
+    if "template_key" not in _columns(conn, "roles"):
+        conn.execute("ALTER TABLE roles ADD COLUMN template_key TEXT")
+    sync_catalog(conn)
+    for (cid,) in conn.execute("SELECT id FROM companies ORDER BY id").fetchall():
+        ensure_starter_roles(conn, cid)
 
 
 def _step_companies(conn: sqlite3.Connection) -> None:
@@ -595,6 +629,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("006_ownership_columns", _step_ownership_columns),
     ("007_ownership_backfill", _step_ownership_backfill),
     ("008_per_company_codes", _step_per_company_codes),
+    ("009_starter_roles", _step_starter_roles),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {

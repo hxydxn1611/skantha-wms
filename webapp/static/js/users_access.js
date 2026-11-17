@@ -42,7 +42,7 @@
     }
 
     // ------------------------------------------------------------------ modal helper
-    function modal(title, bodyHtml, actions, wide) {
+    function modal(title, bodyHtml, actions, wide, footerLeft, subtitle) {
         closeModal();
         const wrap = document.createElement('div');
         wrap.id = 'uacModal';
@@ -50,13 +50,14 @@
         wrap.innerHTML = `
             <div class="uac-modal ${wide ? 'uac-modal-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="uacModalTitle">
                 <div class="uac-modal-head">
-                    <h3 id="uacModalTitle">${esc(title)}</h3>
+                    <div><h3 id="uacModalTitle">${esc(title)}</h3>${subtitle ? `<div class="uac-modal-sub">${esc(subtitle)}</div>` : ''}</div>
                     <button type="button" class="uac-x" aria-label="Close" onclick="window.__uacClose()">&times;</button>
                 </div>
                 <div class="uac-modal-body">${bodyHtml}</div>
                 <div class="uac-modal-msg" id="uacModalMsg" role="alert"></div>
                 <div class="uac-modal-actions">
-                    <button type="button" class="uac-btn" onclick="window.__uacClose()">Cancel</button>
+                    <div class="uac-foot-left">${footerLeft || ''}</div>
+                    <button type="button" class="uac-btn" onclick="window.__uacClose()">${actions.length ? 'Cancel' : 'Close'}</button>
                     ${actions.map((a, i) => `<button type="button" class="uac-btn ${a.primary ? 'uac-btn-primary' : ''} ${a.danger ? 'uac-btn-danger' : ''}" data-i="${i}">${esc(a.label)}</button>`).join('')}
                 </div>
             </div>`;
@@ -397,7 +398,8 @@
         document.getElementById('uacNewRoleBtn').style.display = roles.can_manage ? 'inline-flex' : 'none';
         const rows = roles.roles.map(r => {
             const badge = r.is_builtin ? '<span class="uac-pill warn">Built-in</span>'
-                : (r.is_active ? '<span class="uac-pill ok">Active</span>' : '<span class="uac-pill off">Deactivated</span>');
+                : (r.is_active ? (r.template_key ? '<span class="uac-pill starter">Starter</span> ' : '') + '<span class="uac-pill ok">Active</span>'
+                               : '<span class="uac-pill off">Deactivated</span>');
             const people = r.users.length
                 ? r.users.slice(0, 4).map(u => `<span class="uac-chip">${esc(u.username)} &middot; ${esc(u.warehouse_code)}</span>`).join('')
                   + (r.users.length > 4 ? ` <span class="uac-muted">+${r.users.length - 4} more</span>` : '')
@@ -420,92 +422,229 @@
 
     function roleById(id) { return (roles && roles.roles.find(r => r.id === id)) || null; }
 
-    function permissionGrid(selected, readOnly) {
-        return roles.catalog.map(group => {
-            const items = group.permissions.map(p => {
-                const checked = selected.has(p.key) ? 'checked' : '';
-                const disabled = readOnly || (!p.grantable && !selected.has(p.key)) ? 'disabled' : '';
-                const title = !p.grantable ? 'You can only grant permissions you have yourself' : p.key;
-                return `<label class="rb-perm ${p.grantable ? '' : 'rb-locked'}" title="${esc(title)}" data-text="${esc((p.label + ' ' + p.key + ' ' + group.module).toLowerCase())}">
-                    <input type="checkbox" value="${esc(p.key)}" ${checked} ${disabled}>
-                    <span class="rb-text">${esc(p.label)}</span>
-                    ${p.sensitive ? '<span class="rb-sensitive" title="Sensitive: every use is audited">Sensitive</span>' : ''}
-                    <span class="rb-action">${esc(p.action)}</span>
-                </label>`;
-            }).join('');
-            return `<div class="rb-group" data-module="${esc(group.module)}">
-                <div class="rb-head"><label class="rb-head-label"><input type="checkbox" class="rb-all" ${readOnly ? 'disabled' : ''}>
-                    <span>${esc(group.module)}</span></label><span class="rb-count"></span></div>
-                <div class="rb-items">${items}</div></div>`;
+    const MODULE_ICONS = {
+        'Gate': 'fa-torii-gate', 'Dashboard': 'fa-gauge-high', 'Pre-registration': 'fa-clipboard-list',
+        'Dock': 'fa-truck-ramp-box', 'Inbound': 'fa-arrow-right-to-bracket', 'Locations': 'fa-location-dot',
+        'Master data': 'fa-barcode', 'Inventory': 'fa-boxes-stacked', 'Cycle count': 'fa-list-check',
+        'Outbound': 'fa-truck-fast', 'Pallets': 'fa-pallet', 'AI vision': 'fa-eye',
+        'Vision configuration': 'fa-sliders', 'Cameras': 'fa-video', 'Workers': 'fa-id-badge',
+        'Violations': 'fa-triangle-exclamation', 'Copilot': 'fa-wand-magic-sparkles',
+        'Controlled actions': 'fa-shield-halved', 'Integration': 'fa-plug', 'Administration': 'fa-user-gear'
+    };
+
+    // Role editor state (one editor open at a time)
+    const ed = { role: null, readOnly: false, selected: new Set(), module: null, query: '' };
+
+    function allPerms() {
+        const out = [];
+        roles.catalog.forEach(g => g.permissions.forEach(p => out.push({ ...p, module: g.module })));
+        return out;
+    }
+
+    function canToggle(p) {
+        return !ed.readOnly && (p.grantable || ed.selected.has(p.key));
+    }
+
+    function permRow(p, showModule) {
+        const on = ed.selected.has(p.key);
+        const locked = !p.grantable;
+        const tip = locked ? 'You can only grant permissions you have yourself' : p.key;
+        return `<label class="rb-row ${on ? 'is-on' : ''} ${canToggle(p) ? '' : 'is-locked'}" title="${esc(tip)}">
+            <span class="rb-row-main">
+                <span class="rb-row-label">${esc(p.label)}</span>
+                <span class="rb-row-meta">
+                    ${showModule ? `<span class="rb-tag rb-tag-module">${esc(p.module)}</span>` : ''}
+                    <span class="rb-tag">${esc(p.action)}</span>
+                    ${p.sensitive ? '<span class="rb-tag rb-tag-sensitive"><i class="fas fa-shield-halved"></i> Sensitive</span>' : ''}
+                    ${locked ? '<span class="rb-tag rb-tag-lock"><i class="fas fa-lock"></i> Not yours to grant</span>' : ''}
+                </span>
+            </span>
+            <span class="rb-switch">
+                <input type="checkbox" data-key="${esc(p.key)}" ${on ? 'checked' : ''} ${canToggle(p) ? '' : 'disabled'}>
+                <span class="rb-slider" aria-hidden="true"></span>
+            </span>
+        </label>`;
+    }
+
+    function groupStats(g) {
+        const total = g.permissions.length;
+        const on = g.permissions.filter(p => ed.selected.has(p.key)).length;
+        return { on, total };
+    }
+
+    function renderNav() {
+        const q = ed.query;
+        const html = roles.catalog.map(g => {
+            const { on, total } = groupStats(g);
+            const hits = q ? g.permissions.filter(p => matchQuery(p, g.module)).length : total;
+            const icon = MODULE_ICONS[g.module] || 'fa-circle';
+            return `<button type="button" class="rb-nav-item ${g.module === ed.module && !q ? 'is-active' : ''} ${q && !hits ? 'is-dim' : ''}"
+                        data-module="${esc(g.module)}">
+                <i class="fas ${icon} rb-nav-icon"></i>
+                <span class="rb-nav-name">${esc(g.module)}</span>
+                <span class="rb-nav-count ${on ? 'has-on' : ''}">${on}/${total}</span>
+                <span class="rb-nav-bar"><span style="width:${total ? Math.round(on * 100 / total) : 0}%"></span></span>
+            </button>`;
         }).join('');
+        document.getElementById('rbNav').innerHTML = html;
     }
 
-    function wireGrid() {
-        const root = document.getElementById('rbGrid');
-        const sync = () => {
-            root.querySelectorAll('.rb-group').forEach(g => {
-                const boxes = [...g.querySelectorAll('.rb-items input')];
-                const on = boxes.filter(b => b.checked).length;
-                g.querySelector('.rb-count').textContent = `${on}/${boxes.length}`;
-                const all = g.querySelector('.rb-all');
-                all.checked = on === boxes.length && on > 0;
-                all.indeterminate = on > 0 && on < boxes.length;
-            });
-            const total = root.querySelectorAll('.rb-items input:checked').length;
-            const t = document.getElementById('rbTotal');
-            if (t) t.textContent = `${total} permission(s) ticked`;
-        };
-        root.addEventListener('change', e => {
-            if (e.target.classList.contains('rb-all')) {
-                e.target.closest('.rb-group').querySelectorAll('.rb-items input:not(:disabled)')
-                    .forEach(b => { b.checked = e.target.checked; });
+    function matchQuery(p, module) {
+        const q = ed.query;
+        return !q || `${p.label} ${p.key} ${p.action} ${module} ${p.section || ''}`.toLowerCase().includes(q);
+    }
+
+    function renderPane() {
+        const pane = document.getElementById('rbPane');
+        if (ed.query) {
+            const hits = allPerms().filter(p => matchQuery(p, p.module));
+            pane.innerHTML = `
+                <div class="rb-pane-head">
+                    <div><div class="rb-pane-title">Search results</div>
+                    <div class="rb-pane-sub">${hits.length} permission(s) match &ldquo;${esc(ed.query)}&rdquo;</div></div>
+                </div>
+                <div class="rb-pane-body">${hits.length ? `<div class="rb-section">${hits.map(p => permRow(p, true)).join('')}</div>`
+                    : '<div class="rb-empty"><i class="fas fa-magnifying-glass"></i> Nothing matches. Try another word.</div>'}</div>`;
+            return;
+        }
+        const g = roles.catalog.find(x => x.module === ed.module) || roles.catalog[0];
+        const { on, total } = groupStats(g);
+        const sections = [];
+        g.permissions.forEach(p => {
+            const name = p.section || '';
+            let s = sections.find(x => x.name === name);
+            if (!s) { s = { name, perms: [] }; sections.push(s); }
+            s.perms.push(p);
+        });
+        const togglable = g.permissions.filter(canToggle);
+        pane.innerHTML = `
+            <div class="rb-pane-head">
+                <div><div class="rb-pane-title"><i class="fas ${MODULE_ICONS[g.module] || 'fa-circle'}"></i> ${esc(g.module)}</div>
+                <div class="rb-pane-sub">${on} of ${total} selected</div></div>
+                ${ed.readOnly || !togglable.length ? '' : `<div class="rb-pane-actions">
+                    <button type="button" class="rb-link" data-act="all">Select all</button>
+                    <button type="button" class="rb-link" data-act="none">Clear</button></div>`}
+            </div>
+            <div class="rb-pane-body">${sections.map(s => `
+                <div class="rb-section">
+                    ${s.name ? `<div class="rb-section-title">${esc(s.name)}</div>` : ''}
+                    ${s.perms.map(p => permRow(p, false)).join('')}
+                </div>`).join('')}</div>`;
+    }
+
+    function renderTotals() {
+        const t = document.getElementById('rbTotal');
+        if (t) t.innerHTML = `<b>${ed.selected.size}</b> permission(s) selected`;
+    }
+
+    function refreshEditor() {
+        renderNav();
+        renderPane();
+        renderTotals();
+    }
+
+    function invalidatePreview() {
+        const box = document.getElementById('rbPreview');
+        if (box) { box.innerHTML = ''; delete box.dataset.confirmed; }
+        const btn = document.querySelector('#uacModal .uac-btn-primary');
+        if (btn && ed.role) btn.textContent = 'Review & save';
+    }
+
+    function wireEditor() {
+        const root = document.getElementById('rbEditor');
+        root.addEventListener('click', e => {
+            const nav = e.target.closest('.rb-nav-item');
+            if (nav) {
+                ed.module = nav.dataset.module;
+                ed.query = '';
+                document.getElementById('rbSearch').value = '';
+                refreshEditor();
+                document.querySelector('#rbPane .rb-pane-body')?.scrollTo(0, 0);
+                return;
             }
-            sync();
+            const act = e.target.closest('.rb-link');
+            if (act) {
+                const g = roles.catalog.find(x => x.module === ed.module);
+                g.permissions.filter(canToggle).forEach(p => {
+                    if (act.dataset.act === 'all') ed.selected.add(p.key); else ed.selected.delete(p.key);
+                });
+                invalidatePreview();
+                refreshEditor();
+            }
         });
-        const search = document.getElementById('rbSearch');
-        if (search) search.addEventListener('input', () => {
-            const q = search.value.trim().toLowerCase();
-            root.querySelectorAll('.rb-perm').forEach(l => { l.style.display = !q || l.dataset.text.includes(q) ? '' : 'none'; });
-            root.querySelectorAll('.rb-group').forEach(g => {
-                g.style.display = [...g.querySelectorAll('.rb-perm')].some(l => l.style.display !== 'none') ? '' : 'none';
-            });
+        root.addEventListener('change', e => {
+            const key = e.target.dataset && e.target.dataset.key;
+            if (!key) return;
+            if (e.target.checked) ed.selected.add(key); else ed.selected.delete(key);
+            e.target.closest('.rb-row').classList.toggle('is-on', e.target.checked);
+            invalidatePreview();
+            renderNav();
+            renderTotals();
+            const sub = document.querySelector('#rbPane .rb-pane-sub');
+            if (sub && !ed.query) {
+                const g = roles.catalog.find(x => x.module === ed.module);
+                const { on, total } = groupStats(g);
+                sub.textContent = `${on} of ${total} selected`;
+            }
         });
-        sync();
+        document.getElementById('rbSearch').addEventListener('input', e => {
+            ed.query = e.target.value.trim().toLowerCase();
+            renderNav();
+            renderPane();
+        });
     }
 
-    function tickedKeys() {
-        return [...document.querySelectorAll('#rbGrid .rb-items input:checked')].map(b => b.value);
-    }
+    window.uacRestoreRoleDefaults = function () {
+        if (!ed.role || !ed.role.template_permissions) return;
+        ed.selected = new Set(ed.role.template_permissions);
+        invalidatePreview();
+        refreshEditor();
+        toast('Default permissions restored. Save to keep them.', 'info');
+    };
 
     window.openRoleEditor = function (roleId) {
         if (!roles) return;
         const r = roleId ? roleById(roleId) : null;
-        const readOnly = !!(r && (r.is_builtin || !roles.can_manage));
-        const selected = new Set(r ? r.permissions : []);
-        const title = r ? (readOnly ? `Role: ${r.name}` : `Edit role: ${r.name}`) : 'New role';
+        ed.role = r;
+        ed.readOnly = !!(r && (r.is_builtin || !roles.can_manage));
+        ed.selected = new Set(r ? r.permissions : []);
+        ed.query = '';
+        const firstOn = roles.catalog.find(g => g.permissions.some(p => ed.selected.has(p.key)));
+        ed.module = (firstOn || roles.catalog[0]).module;
+
+        const title = r ? (ed.readOnly ? r.name : `Edit role`) : 'New role';
+        const totalPerms = allPerms().length;
         const note = r && r.builtin_code === 'company_admin'
-            ? '<p class="uac-p uac-muted">Built-in: everything inside the company, including managing users and roles. It can\'t be changed.</p>'
+            ? '<div class="rb-note"><i class="fas fa-circle-info"></i> Built-in role: full access inside the company, including people and roles. It can\'t be changed.</div>'
             : r && r.builtin_code === 'user'
-                ? '<p class="uac-p uac-muted">Built-in: grants nothing by itself. Give people a custom role for what they should do.</p>'
-                : '';
+                ? '<div class="rb-note"><i class="fas fa-circle-info"></i> Built-in role: grants nothing by itself. Give people a custom role for what they should do.</div>'
+                : r && r.template_key
+                    ? '<div class="rb-note"><i class="fas fa-wand-magic-sparkles"></i> Starter role. Change anything you like; <b>Restore defaults</b> brings back the original ticks.</div>'
+                    : '';
         const body = `
             ${note}
             <div class="rb-top">
-                <div><label class="uac-label" for="rbName">Role name</label>
-                    <input id="rbName" class="uac-input" maxlength="60" value="${esc(r ? r.name : '')}" ${readOnly ? 'disabled' : ''} placeholder="e.g. Gate Operator"></div>
-                <div><label class="uac-label" for="rbDesc">Description</label>
-                    <input id="rbDesc" class="uac-input" maxlength="300" value="${esc(r ? r.description : '')}" ${readOnly ? 'disabled' : ''} placeholder="What this person does"></div>
+                <div class="rb-field"><label class="uac-label" for="rbName">Role name</label>
+                    <input id="rbName" class="uac-input" maxlength="60" value="${esc(r ? r.name : '')}" ${ed.readOnly ? 'disabled' : ''} placeholder="e.g. Gate Operator"></div>
+                <div class="rb-field"><label class="uac-label" for="rbDesc">Description</label>
+                    <input id="rbDesc" class="uac-input" maxlength="300" value="${esc(r ? r.description : '')}" ${ed.readOnly ? 'disabled' : ''} placeholder="What does this person do?"></div>
             </div>
-            <div class="rb-toolbar">
-                <input id="rbSearch" class="uac-input" placeholder="Search permissions...">
-                <span id="rbTotal" class="uac-muted"></span>
+            <div id="rbEditor" class="rb-editor">
+                <aside class="rb-side">
+                    <div class="rb-search"><i class="fas fa-magnifying-glass"></i>
+                        <input id="rbSearch" class="uac-input" placeholder="Search ${totalPerms} permissions" autocomplete="off"></div>
+                    <nav id="rbNav" class="rb-nav" aria-label="Permission groups"></nav>
+                    <div class="rb-side-foot">${roles.catalog.length} groups &middot; ${totalPerms} permissions</div>
+                </aside>
+                <section id="rbPane" class="rb-pane" aria-live="polite"></section>
             </div>
-            <div id="rbGrid" class="rb-grid">${permissionGrid(selected, readOnly)}</div>
             <div id="rbPreview"></div>`;
-        const actions = readOnly ? [] : [{
+        const footerLeft = `<span id="rbTotal" class="rb-total"></span>
+            ${r && r.template_permissions && !ed.readOnly ? '<button type="button" class="rb-link" onclick="uacRestoreRoleDefaults()"><i class="fas fa-rotate-left"></i> Restore defaults</button>' : ''}`;
+        const actions = ed.readOnly ? [] : [{
             label: r ? 'Review & save' : 'Create role', primary: true, run: async () => {
                 const payload = { name: document.getElementById('rbName').value, description: document.getElementById('rbDesc').value,
-                                  permissions: tickedKeys() };
+                                  permissions: [...ed.selected] };
                 if (!r) {
                     const out = await api('POST', '/api/iam/roles', payload);
                     closeModal(); toast(out.message, 'success'); loadUsersAccess();
@@ -514,28 +653,28 @@
                 const box = document.getElementById('rbPreview');
                 if (!box.dataset.confirmed) {
                     const pv = await api('POST', `/api/iam/roles/${r.id}/preview`, payload);
-                    const list = (arr, cls) => arr.length ? arr.map(x => `<span class="uac-chip ${cls}">${esc(x)}</span>`).join('') : '<span class="uac-muted">none</span>';
+                    const list = (arr, cls) => arr.length ? arr.map(x => `<span class="rb-chip ${cls}">${esc(x)}</span>`).join('') : '<span class="uac-muted">nothing</span>';
                     box.innerHTML = `<div class="rb-preview">
-                        <div><b>${pv.users.length}</b> user(s) get this change on their next click:
-                            ${pv.users.map(u => esc(u.username)).join(', ') || 'nobody yet'}</div>
-                        <div class="rb-diff"><span class="uac-muted">Adds:</span> ${list(pv.added, 'rb-add')}</div>
-                        <div class="rb-diff"><span class="uac-muted">Removes:</span> ${list(pv.removed, 'rb-rem')}</div>
-                        <div class="uac-muted">Press "Review &amp; save" again to save.</div></div>`;
+                        <div class="rb-preview-head"><i class="fas fa-users"></i>
+                            <span><b>${pv.users.length}</b> user(s) get this change on their next click${pv.users.length ? ': ' + pv.users.map(u => esc(u.username)).join(', ') : ''}</span></div>
+                        <div class="rb-diff"><span class="rb-diff-label">Adds</span><div>${list(pv.added, 'rb-add')}</div></div>
+                        <div class="rb-diff"><span class="rb-diff-label">Removes</span><div>${list(pv.removed, 'rb-rem')}</div></div>
+                        <div class="rb-preview-foot">Check the changes, then press <b>Confirm &amp; save</b>.</div></div>`;
                     box.dataset.confirmed = '1';
+                    const btn = document.querySelector('#uacModal .uac-btn-primary');
+                    if (btn) btn.textContent = 'Confirm & save';
                     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     return;
                 }
                 const out = await api('PUT', `/api/iam/roles/${r.id}`, payload);
                 closeModal(); toast(out.message, 'success'); loadUsersAccess();
             } }];
-        modal(title, body, actions, true);
-        wireGrid();
-        // any change after a preview needs a fresh preview
-        document.getElementById('uacModal').addEventListener('input', e => {
-            if (e.target.id === 'rbSearch') return;
-            const box = document.getElementById('rbPreview');
-            if (box) { box.innerHTML = ''; delete box.dataset.confirmed; }
-        });
+        modal(title, body, actions, true, footerLeft,
+              r ? (ed.readOnly ? (r.is_builtin ? 'Built-in role (read-only)' : 'View only') : r.name) : 'Pick what people with this role may do.');
+        refreshEditor();
+        wireEditor();
+        // editing the name/description after a preview needs a fresh preview
+        ['rbName', 'rbDesc'].forEach(id => document.getElementById(id).addEventListener('input', invalidatePreview));
     };
 
     window.uacRoleSetActive = function (roleId, active) {

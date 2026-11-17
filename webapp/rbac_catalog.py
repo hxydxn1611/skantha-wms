@@ -190,6 +190,84 @@ BUILTIN_ROLES = (
 )
 
 
+# Sub-sections inside the larger permission groups (only for display in the role builder;
+# they are NOT roles). Permissions not listed here sit in their group without a sub-section.
+PERMISSION_SECTIONS: Dict[str, str] = {}
+for _section, _keys in (
+    ("Monitoring", ("gate.dashboard.view", "gate.pass.view", "gate.vehicle_log.view", "gate.driver.view",
+                    "gate.violation.view", "gate.documents.export")),
+    ("Security desk (entry)", ("gate.vehicle.register", "gate.vehicle.edit", "gate.anpr.execute", "gate.otp.send",
+                               "gate.otp.verify", "gate.entry.approve", "gate.entry.reject", "gate.dock.admit")),
+    ("Exit & checkout", ("gate.checkout.approve", "gate.checkout.complete")),
+    ("Gate in-charge (exceptions & overrides)", ("gate.otp.override", "gate.entry.bulk_approve",
+                                                 "gate.manual_admission.authorize", "gate.exception.approve",
+                                                 "gate.override.manual", "gate.violation.manage")),
+    ("Gate devices", ("gate.devices.configure",)),
+    ("Viewing", ("cameras.view", "cameras.stream.view", "cameras.ptz.control")),
+    ("Camera setup", ("cameras.create", "cameras.configure", "cameras.delete")),
+    ("People", ("users.view", "users.invite", "users.edit", "users.deactivate")),
+    ("Roles & access", ("roles.view", "roles.manage", "assignments.manage")),
+    ("Warehouses & company", ("warehouses.view", "warehouses.manage", "company.settings.manage")),
+    ("Audit", ("audit.view", "audit.export")),
+):
+    for _k in _keys:
+        PERMISSION_SECTIONS[_k] = _section
+
+# Starter roles: created once for every company as ordinary custom roles (editable,
+# renameable, deactivatable; "Restore defaults" brings these ticks back). No sensitive
+# permission is ticked by default - an admin adds those deliberately.
+_GATE_MONITOR = ("gate.dashboard.view", "gate.pass.view", "gate.vehicle_log.view", "gate.driver.view",
+                 "gate.violation.view")
+_GATE_DESK = ("gate.vehicle.register", "gate.vehicle.edit", "gate.anpr.execute", "gate.otp.send",
+              "gate.otp.verify", "gate.entry.approve", "gate.entry.reject", "gate.checkout.complete")
+_LIVE_CAMERAS = ("cameras.view", "cameras.stream.view")
+STARTER_ROLES = (
+    ("gate_security", "Gate Security",
+     "Security desk: registers vehicles, reads plates, verifies driver OTPs, lets vehicles in and out.",
+     ("dashboard.view", "deliveries.view") + _GATE_MONITOR + _GATE_DESK + _LIVE_CAMERAS),
+    ("gate_incharge", "Gate In-charge",
+     "Runs the gate: everything Gate Security does, plus dock dispatch, exit approval, violations and documents.",
+     ("dashboard.view", "reports.view", "deliveries.view", "deliveries.create", "deliveries.edit", "violations.view")
+     + _GATE_MONITOR + _GATE_DESK + _LIVE_CAMERAS
+     + ("gate.dock.admit", "gate.checkout.approve", "gate.violation.manage", "gate.documents.export")),
+    ("dock_supervisor", "Dock Supervisor",
+     "Runs unloading at the docks: receipts, staging, pallets and vision counts.",
+     ("dashboard.view", "gate.pass.view", "gate.dock.admit", "deliveries.view", "dock.view", "dock.unload.execute",
+      "dock.evidence.view", "inbound.view", "inbound.receipt.complete", "inbound.staging.view", "bins.view",
+      "inventory.view", "pallet.view", "pallet.create", "pallet.seal", "vision.view", "vision.counting.execute",
+      "vision.counting.review", "violations.view") + _LIVE_CAMERAS),
+    ("inventory_controller", "Inventory Controller",
+     "Looks after stock: bins, transfers, cycle counts and pallets.",
+     ("dashboard.view", "sku.view", "bins.view", "bins.create", "bins.edit", "inventory.view", "inventory.transfer",
+      "inventory.export", "cyclecount.view", "cyclecount.execute", "pallet.view", "pallet.create", "pallet.seal",
+      "pallet.transfer", "inbound.view", "outbound.view", "vision.traceability.view")),
+    ("dispatch_operator", "Dispatch Operator",
+     "Prepares and dispatches outbound orders.",
+     ("dashboard.view", "sku.view", "bins.view", "inventory.view", "outbound.view", "outbound.create",
+      "outbound.dispatch", "pallet.view", "pallet.transfer", "gate.pass.view")),
+    ("vision_operator", "AI Vision Operator",
+     "Runs AI counting and tracking, sets up zones and cameras, enrolls workers.",
+     ("dashboard.view", "vision.view", "vision.counting.execute", "vision.counting.review", "vision.traceability.view",
+      "vision.zones.manage", "cameras.configure", "cameras.ptz.control", "workers.view", "workers.enroll")
+     + _LIVE_CAMERAS),
+    ("warehouse_manager", "Warehouse Manager",
+     "Manages day-to-day operations of a warehouse; sees users and roles but does not change them.",
+     tuple(sorted({k for k, p in PERMISSIONS_BY_KEY.items()
+                   if p.scope_level != P and not p.sensitive
+                   and not k.startswith(("users.invite", "users.edit", "users.deactivate", "roles.manage",
+                                         "assignments.manage", "warehouses.manage", "company.settings",
+                                         "audit.export", "cameras.delete", "workers.delete", "sku.delete",
+                                         "bins.delete", "pallet.delete", "deliveries.delete"))}))),
+    ("executive", "Executive (view-only)",
+     "Sees dashboards, reports and every operational screen, without changing anything.",
+     ("dashboard.view", "reports.view", "reports.export", "gate.dashboard.view", "gate.pass.view",
+      "gate.vehicle_log.view", "deliveries.view", "dock.view", "inbound.view", "bins.view", "sku.view",
+      "inventory.view", "cyclecount.view", "outbound.view", "pallet.view", "vision.view",
+      "vision.traceability.view", "violations.view", "warehouses.view", "copilot.use") + _LIVE_CAMERAS),
+)
+STARTER_ROLES_BY_KEY = {t[0]: t for t in STARTER_ROLES}
+
+
 def builtin_permissions(builtin_code: Optional[str]) -> frozenset:
     if builtin_code == "platform_admin":
         return frozenset(PERMISSIONS_BY_KEY)
@@ -205,6 +283,13 @@ def _self_check() -> None:
         assert p.action in ACTIONS, p
         assert p.scope_level in (W, C, P), p
         assert p.key.count(".") >= 1 and p.key == p.key.lower(), p
+    for k in PERMISSION_SECTIONS:
+        assert k in PERMISSIONS_BY_KEY, f"section for unknown permission {k}"
+    for key, name, _, perms in STARTER_ROLES:
+        for k in perms:
+            assert k in PERMISSIONS_BY_KEY, f"starter role {name}: unknown permission {k}"
+            assert PERMISSIONS_BY_KEY[k].scope_level != P, f"starter role {name}: platform permission {k}"
+            assert not PERMISSIONS_BY_KEY[k].sensitive, f"starter role {name}: sensitive permission {k}"
 
 
 _self_check()

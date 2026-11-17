@@ -131,5 +131,42 @@ class TestNoEscalation(Phase5Base):
         self.assertFalse(any(p["key"].startswith("platform.") for g in cat for p in g["permissions"]))
 
 
+class TestStarterRoles(Phase5Base):
+    STARTERS = {"Gate Security", "Gate In-charge", "Dock Supervisor", "Inventory Controller", "Dispatch Operator",
+                "AI Vision Operator", "Warehouse Manager", "Executive (view-only)"}
+
+    def test_every_company_has_editable_starter_roles(self):
+        import rbac_catalog
+        for (cid,) in self.sql("SELECT id FROM companies"):
+            names = {r[0] for r in self.sql("SELECT name FROM roles WHERE company_id = ? AND template_key IS NOT NULL", (cid,))}
+            self.assertEqual(names, self.STARTERS, cid)
+        roles = self.get(self.client("david"), "/api/iam/roles").get_json()["roles"]
+        gs = next(r for r in roles if r["template_key"] == "gate_security")
+        self.assertEqual(set(gs["permissions"]), set(rbac_catalog.STARTER_ROLES_BY_KEY["gate_security"][3]))
+        self.assertEqual(gs["permissions"], gs["template_permissions"])
+        # no starter role carries a sensitive permission
+        sensitive = {k for k, p in rbac_catalog.PERMISSIONS_BY_KEY.items() if p.sensitive}
+        self.assertFalse(any(set(r["permissions"]) & sensitive for r in roles if r["template_key"]))
+        # editable like any custom role; the defaults stay available for "Restore defaults"
+        r = self.send(self.client("david"), "PUT", f"/api/iam/roles/{gs['id']}",
+                      {"permissions": gs["permissions"] + ["gate.otp.override"]})
+        self.assertTrue(r.get_json()["success"], r.get_json())
+        gs2 = next(x for x in self.get(self.client("david"), "/api/iam/roles").get_json()["roles"] if x["id"] == gs["id"])
+        self.assertIn("gate.otp.override", gs2["permissions"])
+        self.assertNotIn("gate.otp.override", gs2["template_permissions"])
+        # usable straight away in an invitation
+        self.invite_with_role("david", "p5.sec@example.com", "p5sec", gs["id"], self.glass_wh[0])
+        self.assertIn("gate.otp.verify", self.me_perms(self.user_client("p5sec")))
+
+    def test_new_companies_get_them_and_catalog_has_sections(self):
+        r = self.send(self.client("admin"), "POST", "/api/platform/companies",
+                      {"name": "Starter Roles Ltd", "owner_email": "owner@starter.example"}).get_json()
+        names = {x[0] for x in self.sql("SELECT name FROM roles WHERE company_id = ?", (r["company_id"],))}
+        self.assertEqual(names, self.STARTERS)
+        cat = self.get(self.client("david"), "/api/iam/roles").get_json()["catalog"]
+        gate = next(g for g in cat if g["module"] == "Gate")
+        self.assertIn("Security desk (entry)", {p["section"] for p in gate["permissions"]})
+
+
 if __name__ == "__main__":
     unittest.main()
