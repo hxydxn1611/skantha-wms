@@ -13,7 +13,7 @@ import sys
 import tempfile
 import unittest
 
-from tests import copy_live_db
+from tests import copy_live_db, prepare_test_db
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEBAPP = os.path.join(ROOT, "webapp")
@@ -60,6 +60,11 @@ class Phase0Base(unittest.TestCase):
         ibs.UPLOAD_DIR = os.path.join(cls._tmp, "sku_images")
         os.makedirs(ibs.UPLOAD_DIR, exist_ok=True)
         db.init_db()
+        prepare_test_db(cls.db_path)
+        conn = sqlite3.connect(cls.db_path)
+        with conn:  # fixture: these tests act as already-onboarded users
+            conn.execute("UPDATE users SET must_reset_password = 0")
+        conn.close()
 
     @classmethod
     def tearDownClass(cls):
@@ -73,9 +78,18 @@ class Phase0Base(unittest.TestCase):
         shutil.rmtree(cls._tmp, ignore_errors=True)
 
     def client(self, user=None):
+        """Test client with a valid Phase 1 session (uid + session_version) for `user`."""
+        user = dict(user or ADMIN)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            uid, sv = conn.execute("SELECT id, session_version FROM users WHERE LOWER(username) = LOWER(?)",
+                                   (user["username"],)).fetchone()
+        finally:
+            conn.close()
+        user.update({"uid": uid, "sv": sv, "must_reset_password": False})
         c = self.app_module.app.test_client()
         with c.session_transaction() as s:
-            s["user"] = dict(user or ADMIN)
+            s["user"] = user
         return c
 
     def fingerprint(self):
@@ -185,9 +199,11 @@ class TestWarehouseOwnership(Phase0Base):
 
     def test_registration_creates_warehouse_without_touching_catalogue(self):
         before = self.fingerprint()
-        r = self.app_module.app.test_client().post("/api/register", json={
+        self.assertTrue(self.db.store_email_otp("p0@example.com", "424242"))
+        r = self.app_module.app.test_client().post("/api/auth/verify_otp_and_register", json={
             "username": "phase0_signup", "password": "Phase0-Test-Pass", "email": "p0@example.com",
-            "company_name": "Li On", "city": "Coimbatore", "environment_blueprint": "wood"})
+            "otp_code": "424242", "company_name": "Li On", "city": "Coimbatore",
+            "environment_blueprint": "wood"})
         data = r.get_json()
         self.assertTrue(data["success"], data)
         # 'Li On' slugs to WH-LION-COI, which belongs to Lion: it must get its own code

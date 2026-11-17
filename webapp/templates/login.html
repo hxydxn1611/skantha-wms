@@ -497,8 +497,14 @@
                             sessionStorage.setItem('wms_user', JSON.stringify(data.user));
                         } catch(e) {}
                     }
-                    // Determine redirect destination
-                    const nextUrl = new URLSearchParams(window.location.search).get('next') || '/';
+                    // Determine redirect destination: a forced password reset wins; otherwise
+                    // only same-site paths are followed (no open redirect via ?next=).
+                    if (data.must_reset_password && data.redirect) {
+                        window.location.href = data.redirect;
+                        return;
+                    }
+                    const rawNext = new URLSearchParams(window.location.search).get('next') || '/';
+                    const nextUrl = (rawNext.startsWith('/') && !rawNext.startsWith('//') && !rawNext.startsWith('/\\')) ? rawNext : '/';
                     window.location.href = nextUrl;
                 } else {
                     const msg = data.message || 'Invalid credentials. Please verify your username and password.';

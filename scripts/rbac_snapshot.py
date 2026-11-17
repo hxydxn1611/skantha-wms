@@ -175,14 +175,29 @@ def run_api_snapshot_inprocess(db_path: str) -> Dict[str, Any]:
     os.environ["WARLOG_DB_PATH"] = db_path
     os.environ.setdefault("FLASK_SECRET_KEY", "rbac-snapshot-only")
     os.environ.setdefault("WARLOG_SKIP_DOTENV", "1")
+    os.environ.setdefault("WARLOG_SKIP_MIGRATION_BACKUP", "1")  # private copy; no backup needed
     sys.path.insert(0, WEBAPP_DIR)
     os.chdir(WEBAPP_DIR)
     import db  # noqa: E402  (older code has no env support: pin the path explicitly)
     db.DB_PATH = db_path
     import app as app_module  # noqa: E402
     client = app_module.app.test_client()
+    session_user = dict(ADMIN_SESSION)
+    conn = db.get_db()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(users)")]
+        if "session_version" in cols:
+            # RBAC Phase 1+: sessions need uid/sv. On this private copy only, admin is
+            # treated as having already replaced its default password, so the snapshot
+            # compares the data admin sees rather than the one-time reset screen.
+            with conn:
+                conn.execute("UPDATE users SET must_reset_password = 0 WHERE LOWER(username) = 'admin'")
+            uid, sv = conn.execute("SELECT id, session_version FROM users WHERE LOWER(username) = 'admin'").fetchone()
+            session_user.update({"uid": uid, "sv": sv, "must_reset_password": False})
+    finally:
+        conn.close()
     with client.session_transaction() as s:
-        s["user"] = dict(ADMIN_SESSION)
+        s["user"] = session_user
     result: Dict[str, Any] = {}
     for path in API_ENDPOINTS:
         try:
@@ -215,7 +230,13 @@ def api_snapshot(db_path: str, out_file: str) -> Dict[str, Any]:
 
 # Fields added by RBAC migrations. Extra keys in a response are invisible to the existing
 # UI, so they are not treated as a change to what admin sees.
-RBAC_ADDED_KEYS = frozenset({"is_demo"})
+RBAC_ADDED_KEYS = frozenset({"is_demo", "company_id", "state"})
+
+# Deliberate Phase 1 data changes, excluded from the "existing rows unchanged" check:
+#   users.password  plain-text passwords are moved to users.password_hash, then blanked (H3)
+#   email_otps      old plain-text OTP codes are purged; new ones are stored hashed (H19)
+PARITY_EXCLUDED_COLUMNS = {"users": ("password",)}
+PARITY_EXCLUDED_TABLES = frozenset({"email_otps"})
 
 
 def _strip_keys(value: Any, keys: frozenset) -> Any:

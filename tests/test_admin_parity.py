@@ -55,11 +55,17 @@ class TestAdminParity(unittest.TestCase):
         self.assertEqual(diffs, [], "\n".join(diffs))
 
     def test_existing_rows_and_values_are_unchanged(self):
+        # Both sides are fingerprinted the same way (baseline columns, minus the documented
+        # deliberate changes in rbac_snapshot.PARITY_EXCLUDED_*), so only real changes show.
         cols = {t: v["columns"] for t, v in self.base_tables.items()}
-        now = snap.table_fingerprints(self.work_db, columns_by_table=cols)
-        changed = [f"{t}: {self.base_tables[t]['count']} rows -> {now.get(t, {}).get('count')}"
-                   for t in self.base_tables
-                   if t not in now or now[t]["sha256"] != self.base_tables[t]["sha256"]]
+        snapshot_db = os.path.join(self.base, "skandha_wms.snapshot.db")
+        base = snap.table_fingerprints(snapshot_db, columns_by_table=cols,
+                                       ignore_columns=snap.PARITY_EXCLUDED_COLUMNS)
+        now = snap.table_fingerprints(self.work_db, columns_by_table=cols,
+                                      ignore_columns=snap.PARITY_EXCLUDED_COLUMNS)
+        changed = [f"{t}: {base[t]['count']} rows -> {now.get(t, {}).get('count')}"
+                   for t in base if t not in snap.PARITY_EXCLUDED_TABLES
+                   and (t not in now or now[t]["sha256"] != base[t]["sha256"])]
         self.assertEqual(changed, [], "\n".join(changed))
 
     def test_existing_files_are_unchanged(self):

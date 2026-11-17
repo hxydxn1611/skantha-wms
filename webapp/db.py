@@ -529,7 +529,8 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-        conn.execute("INSERT OR IGNORE INTO users (username, password, company_name, assigned_warehouse_code, role) VALUES ('admin', 'admin', 'Skantha Industrial Solutions', 'WH-MAIN', 'Admin')")
+        # RBAC Phase 1 (H3): no default admin/admin account is seeded any more.
+        # A fresh install creates its first Platform Admin with scripts/rbac_recover.py --create.
 
         # Seed initial object classes for AI Vision & Tracking Master if empty
         cur = conn.cursor()
@@ -691,20 +692,21 @@ def init_db():
 
     conn.close()
 
+    # RBAC Phase 1: identity/access schema, password hashing, built-in roles.
+    # Idempotent; backs the database up before applying any pending step.
+    import rbac_migration
+    rbac_migration.migrate(DB_PATH)
+
 def get_user(username, password):
+    """Returns the user when the password matches its hash (RBAC Phase 1, H3).
+    Login goes through auth_service.authenticate, which adds lockout and auditing."""
     if not username or not password:
         return None
-    u = str(username).strip()
-    p = str(password).strip()
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND password = ?",
-        (u, u, p)
-    )
-    row = cur.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    import auth_service
+    user = auth_service.find_user(username)
+    if user and user.get("is_active", 1) and auth_service.verify_user_password(user, str(password)):
+        return auth_service.get_user_by_id(user["id"])
+    return None
 
 def get_user_by_email(email: str):
     if not email:
@@ -717,16 +719,40 @@ def get_user_by_email(email: str):
     return dict(row) if row else None
 
 def create_user(username, password, email=None, company_name="Skantha Industrial Solutions", assigned_warehouse_code="WH-MAIN", role="Admin"):
+    """Creates a user with a hashed password (RBAC Phase 1). Returns True on success."""
+    from werkzeug.security import generate_password_hash
     conn = get_db()
     try:
         with conn:
+            if conn.execute("SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)", (str(username).strip(),)).fetchone():
+                return False
             conn.execute(
-                "INSERT INTO users (username, password, email, is_email_verified, company_name, assigned_warehouse_code, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (username, password, email, 1 if email else 0, company_name, assigned_warehouse_code, role)
+                "INSERT INTO users (username, password, password_hash, email, is_email_verified, company_name, assigned_warehouse_code, role) VALUES (?, '', ?, ?, ?, ?, ?, ?)",
+                (username, generate_password_hash(password), email, 1 if email else 0, company_name, assigned_warehouse_code, role)
             )
         return True
     except sqlite3.IntegrityError:
         return False
+    finally:
+        conn.close()
+
+
+def get_user_id_by_username(username: str) -> Optional[int]:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM users WHERE LOWER(username) = LOWER(?)", (str(username).strip(),)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def hash_otp(email: str, code: str) -> str:
+    """Keyed hash of an email OTP (RBAC Phase 1): codes are never stored in plain text."""
+    import hashlib
+    import hmac
+    key = (os.environ.get('FLASK_SECRET_KEY') or os.environ.get('SECRET_KEY') or '').encode()
+    msg = f"{str(email or '').strip().casefold()}|{str(code).strip()}".encode()
+    return "h$" + hmac.new(key, msg, hashlib.sha256).hexdigest()
 
 def store_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION', expires_in_minutes: int = 10) -> bool:
     """Stores a generated verification OTP for the provided email address."""
@@ -740,7 +766,7 @@ def store_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION', ex
             conn.execute("""
                 INSERT INTO email_otps (email, otp_code, purpose, expires_at, verified)
                 VALUES (LOWER(?), ?, ?, datetime('now', 'localtime', '+' || ? || ' minutes'), 0)
-            """, (email.strip(), str(otp_code).strip(), purpose, int(expires_in_minutes)))
+            """, (email.strip(), hash_otp(email, otp_code), purpose, int(expires_in_minutes)))
         return True
     except Exception as e:
         logger.error(f"Error storing email OTP: {e}")
@@ -774,8 +800,14 @@ def verify_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION') -
         
         if row["is_expired"] == 1:
             return False, "Verification code has expired. Please request a new OTP."
-            
-        if str(row["otp_code"]) != clean_otp:
+
+        import hmac
+        if not hmac.compare_digest(str(row["otp_code"]), hash_otp(clean_email, clean_otp)):
+            # RBAC Phase 1: 5 wrong tries void the code
+            with conn:
+                conn.execute("""UPDATE email_otps SET attempts = attempts + 1,
+                                verified = CASE WHEN attempts + 1 >= 5 THEN -1 ELSE verified END
+                                WHERE id = ?""", (row["id"],))
             return False, "Invalid verification code. Please check and re-enter."
             
         # Code matches and is valid; mark as verified
@@ -3526,7 +3558,15 @@ def create_or_update_warehouse(
                 company_name = excluded.company_name,
                 updated_at = CURRENT_TIMESTAMP
         """, (code_clean, name.strip(), city.strip(), operating_mode.strip().upper(), industry.strip(), address.strip(), status.strip(), comp_clean))
-    
+        # RBAC Phase 1: link to the company record when that company already exists
+        try:
+            conn.execute("""
+                UPDATE warehouses SET company_id = (SELECT id FROM companies WHERE name_key = ?)
+                WHERE UPPER(code) = ? AND company_id IS NULL
+            """, (normalize_company_name(comp_clean), code_clean))
+        except sqlite3.OperationalError:
+            pass
+
     rec = get_warehouse_by_code(code_clean)
     conn.close()
     return rec or {}

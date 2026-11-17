@@ -283,6 +283,15 @@
                             window.location.href = '/login?expired=1';
                         }, 500);
                     }
+                } else if (response.status === 403 && !window._passwordResetRedirecting) {
+                    // RBAC Phase 1: the account must set a new password first
+                    try {
+                        const body = await response.clone().json();
+                        if (body && body.error_code === 'password_reset_required') {
+                            window._passwordResetRedirecting = true;
+                            window.location.href = body.redirect || '/account/reset-password';
+                        }
+                    } catch (e) {}
                 }
                 return response;
             };

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, request, jsonify, send_file, session, redirect, url_for, make_response
+from flask import Flask, render_template, Response, request, jsonify, send_file, session, redirect, url_for, make_response, g
 from typing import Optional, Union, Tuple, Dict, Any, List
 import os as _os
 
@@ -73,7 +73,7 @@ app.jinja_env.auto_reload = True
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=24)
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12)
 )
 
 # SKU Image Upload Directory
@@ -99,6 +99,7 @@ from pallet_service import get_pallet_service
 from industry_blueprint_service import get_blueprint_catalog, apply_industry_blueprint
 from staging_perception_service import get_staging_service, ActorType, QuotaStatus
 
+import auth_service
 from rbac_config import get_rbac_mode
 logger.info(f"[RBAC] RBAC_MODE={get_rbac_mode()}")
 
@@ -145,26 +146,35 @@ except Exception as e:
     logger.warning(f"Failed to start RTMP service: {e}")
 
 
+# Paths reachable without a session. Everything else needs a valid, current session.
+PUBLIC_EXACT_PATHS = frozenset({
+    '/favicon.ico', '/login', '/logout', '/api/login', '/api/logout',
+    '/api/auth/send_otp', '/api/auth/verify_otp_and_register',
+    '/api/company/preview_recognition',
+})
+PUBLIC_PREFIXES = ('/static/', '/video_feed/')  # /video_feed is closed in RBAC Phase 2
+# While a password reset is pending, only these paths work.
+RESET_ALLOWED_PATHS = frozenset({
+    '/account/reset-password', '/api/auth/force_reset_password', '/logout', '/api/logout',
+})
+RESET_PAGE = '/account/reset-password'
+
+
+def _client_ip() -> str:
+    return request.remote_addr or ''
+
+
 @app.before_request
 def enforce_authentication_and_session():
     path = request.path
-    # Allow public assets and public authentication/registration endpoints
-    if (
-        path.startswith('/static/')
-        or path == '/favicon.ico'
-        or path == '/login'
-        or path == '/logout'
-        or path == '/api/login'
-        or path == '/api/logout'
-        or path == '/api/register'
-        or path.startswith('/api/auth/')
-        or path == '/api/company/preview_recognition'
-        or path.startswith('/video_feed/')
-    ):
+    if path in PUBLIC_EXACT_PATHS or path.startswith(PUBLIC_PREFIXES):
         return None
 
-    user = session.get('user')
-    if not user or not isinstance(user, dict) or not user.get('username'):
+    # RBAC Phase 1 (D10, H20): the session must name a current, active user whose
+    # session_version matches. Pre-Phase-1 cookies and revoked sessions are rejected.
+    current = auth_service.load_session_user(session.get('user'))
+    if current is None:
+        session.clear()
         if path.startswith('/api/'):
             return jsonify({
                 'success': False,
@@ -174,57 +184,104 @@ def enforce_authentication_and_session():
         dest = request.full_path if request.query_string else request.path
         return redirect(url_for('login_page', next=dest))
 
+    g.current_user = current
+    if current.get('must_reset_password') and path not in RESET_ALLOWED_PATHS:
+        if path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': 'You must set a new password before continuing.',
+                'error_code': 'password_reset_required',
+                'redirect': RESET_PAGE
+            }), 403
+        return redirect(RESET_PAGE)
     return None
 
 @app.route('/')
 def index():
-    if 'user' not in session or not isinstance(session['user'], dict) or not session['user'].get('username'):
-        return redirect(url_for('login_page', next=request.path))
     return render_template('index.html', current_user=session['user'])
 
 @app.route('/login', methods=['GET'])
 def login_page():
-    if session.get('user') and isinstance(session['user'], dict) and session['user'].get('username'):
+    if auth_service.load_session_user(session.get('user')):
         return redirect('/')
     return render_template('login.html')
 
-@app.route('/logout', methods=['GET', 'POST'])
-def logout():
+def _end_session_response(resp):
+    current = auth_service.load_session_user(session.get('user'))
+    if current:
+        auth_service.audit('auth.logout', actor=current, ip=_client_ip())
     session.clear()
-    resp = make_response(redirect('/login'))
     resp.delete_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'))
     return resp
+
+@app.route('/logout', methods=['GET', 'POST'])
+def logout():
+    return _end_session_response(make_response(redirect('/login')))
 
 @app.route('/api/logout', methods=['POST', 'GET'])
 def api_logout():
-    session.clear()
-    resp = make_response(jsonify({'success': True, 'message': 'Logged out successfully'}))
-    resp.delete_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'))
-    return resp
+    return _end_session_response(make_response(jsonify({'success': True, 'message': 'Logged out successfully'})))
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.json or {}
-    user = db.get_user(data.get('username'), data.get('password'))
-    if user:
-        # Tenant / Session isolation: automatically switch active facility to user's assigned warehouse
-        wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
-        switched = db.set_active_warehouse(wh_code)
-        user_clean = {
-            "username": user.get("username"),
-            "company_name": user.get("company_name", "WARLOG Intelligence Systems"),
-            "assigned_warehouse_code": wh_code,
-            "role": user.get("role", "Admin"),
-            "active_warehouse": switched
-        }
-        session.permanent = True
-        session['user'] = user_clean
-        return jsonify({
-            'success': True,
-            'message': f'Logged in as {user.get("username")}',
-            'user': user_clean
-        })
-    return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+    data = request.get_json(silent=True) or {}
+    status, user = auth_service.authenticate(
+        data.get('username'), (data.get('password') or '').strip(),  # stripped, as it always was
+        ip=_client_ip(), user_agent=request.headers.get('User-Agent')
+    )
+    if status == 'locked':
+        return jsonify({'success': False, 'message': auth_service.LOCKED_LOGIN_ERROR,
+                        'error_code': 'too_many_attempts'}), 429
+    if status != 'ok' or not user:
+        return jsonify({'success': False, 'message': auth_service.GENERIC_LOGIN_ERROR}), 401
+
+    # Existing behaviour kept until RBAC Phase 3 (per-session warehouse):
+    # switch the active facility to the user's assigned warehouse.
+    wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
+    switched = db.set_active_warehouse(wh_code)
+    session.clear()  # fresh session at every login
+    session.permanent = True
+    session['user'] = auth_service.session_payload(user, {'assigned_warehouse_code': wh_code,
+                                                          'active_warehouse': switched})
+    must_reset = bool(user.get('must_reset_password'))
+    user_clean = {**auth_service.public_user(user), 'assigned_warehouse_code': wh_code,
+                  'active_warehouse': switched, 'must_reset_password': must_reset}
+    return jsonify({
+        'success': True,
+        'message': f'Logged in as {user.get("username")}',
+        'user': user_clean,
+        'must_reset_password': must_reset,
+        'redirect': RESET_PAGE if must_reset else None
+    })
+
+@app.route('/account/reset-password', methods=['GET'])
+def reset_password_page():
+    current = g.current_user
+    if not current.get('must_reset_password'):
+        return redirect('/')
+    return render_template('reset_password.html', username=current.get('username'))
+
+@app.route('/api/auth/force_reset_password', methods=['POST'])
+def api_force_reset_password():
+    """Sets a new password when a reset is required (default or guessable password)."""
+    current = g.current_user
+    if not current.get('must_reset_password'):
+        return jsonify({'success': False, 'message': 'No password reset is required for this account.'}), 400
+    data = request.get_json(silent=True) or {}
+    new_pw = (data.get('new_password') or '').strip()
+    if new_pw != (data.get('confirm_password') or '').strip():
+        return jsonify({'success': False, 'message': 'The two passwords do not match.'}), 400
+    err = auth_service.validate_new_password(new_pw, current.get('username'), current.get('company_name'))
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    full = auth_service.get_user_by_id(current['id'])
+    if auth_service.verify_user_password(full, new_pw):
+        return jsonify({'success': False, 'message': 'Choose a password different from your current one.'}), 400
+    new_sv = auth_service.set_password(current['id'], new_pw, actor=current,
+                                       action='auth.password_reset_forced', ip=_client_ip())
+    # Keep this browser signed in; every other session for the account is now invalid.
+    session['user'] = {**session['user'], 'sv': new_sv, 'must_reset_password': False}
+    return jsonify({'success': True, 'message': 'Password updated.', 'redirect': '/'})
 
 @app.route('/api/company/preview_recognition', methods=['POST'])
 def api_company_preview_recognition():
@@ -373,9 +430,15 @@ def api_send_otp():
         if existing_user:
             return jsonify({'success': False, 'message': f'An account with email {email} already exists. Please sign in.'}), 409
 
-        # Generate secure 6-digit OTP
-        import random
-        otp_code = f"{random.randint(100000, 999999)}"
+        # RBAC Phase 1: at most 3 codes per email per 10 minutes; cryptographically random code
+        if not auth_service.otp_send_allowed(email):
+            return jsonify({'success': False, 'error_code': 'too_many_requests',
+                            'message': 'Too many verification codes requested. Please wait 10 minutes and try again.'}), 429
+        company_name = (data.get('company_name') or '').strip()
+        if company_name and auth_service.company_exists(company_name):
+            return jsonify({'success': False, 'error_code': 'company_exists_invite_required',
+                            'message': 'This company already has a WARLOG workspace. Ask its administrator to invite you.'}), 409
+        otp_code = auth_service.new_otp_code()
 
         # Store in database with 10-minute validity
         stored = db.store_email_otp(email=email, otp_code=otp_code, purpose=purpose, expires_in_minutes=10)
@@ -458,6 +521,18 @@ def api_verify_otp_and_register():
             return jsonify({'success': False, 'message': 'Email address and 6-digit OTP code are required.'}), 400
         if not username or not password:
             return jsonify({'success': False, 'message': 'Admin username and password are required.'}), 400
+        # RBAC Phase 1: every signup creates its own company; a blank company would
+        # have joined a shared default company as its admin.
+        if not company_name:
+            return jsonify({'success': False, 'message': 'Company name is required to create a workspace.'}), 400
+        if auth_service.company_exists(company_name):
+            return jsonify({'success': False, 'error_code': 'company_exists_invite_required',
+                            'message': 'This company already has a WARLOG workspace. Ask its administrator to invite you.'}), 409
+        pw_err = auth_service.validate_new_password(password, username, company_name)
+        if pw_err:
+            return jsonify({'success': False, 'message': pw_err}), 400
+        if db.get_user_id_by_username(username):
+            return jsonify({'success': False, 'message': 'Username is already taken. Please choose another username.'}), 409
 
         # Verify OTP
         is_valid, verify_msg = db.verify_email_otp(email=email, otp_code=otp_code, purpose='REGISTRATION')
@@ -465,46 +540,38 @@ def api_verify_otp_and_register():
             return jsonify({'success': False, 'message': verify_msg}), 400
 
         # Determine Environment: Use explicit user dropdown or auto-detect from company name / warehouse / description
-        from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
+        from industry_blueprint_service import auto_detect_company_industry
         if env_choice and env_choice not in ('auto', 'custom'):
             detected_key = env_choice
-            detected_info = {'detected_key': detected_key, 'confidence': 1.0, 'reason': 'Selected via Industry Environment Selector'}
-        elif company_name or warehouse_name or description:
+        else:
             detected_info = auto_detect_company_industry(f"{company_name} {warehouse_name}".strip(), description)
             detected_key = detected_info.get('detected_key', 'custom')
-        else:
-            detected_key = 'custom'
-            detected_info = {'detected_key': 'custom', 'confidence': 0.8, 'reason': 'Standard Warehousing Workspace'}
 
-        assigned_wh_code = 'WH-MAIN'
-        if company_name or warehouse_name:
-            try:
-                assigned_wh_code = _provision_registration_warehouse(
-                    company_name=company_name, warehouse_name=warehouse_name,
-                    city=city, description=description, blueprint_key=detected_key
-                )
-            except Exception as e_ind:
-                logger.warning(f"Error provisioning registration warehouse: {e_ind}")
+        assigned_wh_code = _provision_registration_warehouse(
+            company_name=company_name, warehouse_name=warehouse_name,
+            city=city, description=description, blueprint_key=detected_key
+        )
 
         user_created = db.create_user(
             username=username,
             password=password,
             email=email,
-            company_name=company_name or 'WARLOG Intelligence Systems',
+            company_name=company_name,
             assigned_warehouse_code=assigned_wh_code
         )
         if not user_created:
             return jsonify({'success': False, 'message': 'Username is already taken. Please choose another username.'}), 409
 
+        new_user = auth_service.find_user(username)
+        company_id = auth_service.provision_company_admin(new_user['id'], company_name, assigned_wh_code)
+        auth_service.audit('user.registered', actor=new_user, company_id=company_id,
+                           resource_type='company', resource_id=str(company_id), ip=_client_ip())
+
         # Auto-login to session
-        user_session = {
-            'username': username,
-            'email': email,
-            'company_name': company_name or 'WARLOG Intelligence Systems',
-            'assigned_warehouse_code': assigned_wh_code,
-            'role': 'Admin'
-        }
-        session['user'] = user_session
+        session.clear()
+        session.permanent = True
+        session['user'] = auth_service.session_payload(new_user)
+        user_session = auth_service.public_user(new_user)
 
         return jsonify({
             'success': True,
@@ -520,60 +587,8 @@ def api_verify_otp_and_register():
         return jsonify({'success': False, 'message': f'Registration failed: {str(e)}'}), 500
 
 
-@app.route('/api/register', methods=['POST'])
-def api_register():
-    data = request.json or request.form.to_dict() or {}
-    username = data.get('username')
-    password = data.get('password')
-    email = (data.get('email') or '').strip().lower()
-    company_name = (data.get('company_name') or '').strip()
-    warehouse_name = (data.get('warehouse_name') or '').strip()
-    description = (data.get('description') or '').strip()
-    city = (data.get('city') or 'Bengaluru').strip()
-    env_choice = (data.get('environment_blueprint') or '').strip().lower()
-    
-    if not username or not password:
-        return jsonify({'success': False, 'message': 'Username and password required'}), 400
-    
-    assigned_wh_code = 'WH-MAIN'
-    detected_info = None
-    if company_name or warehouse_name:
-        try:
-            from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-            if env_choice and env_choice not in ('auto', 'custom'):
-                detected_key = env_choice
-                detected_info = {'detected_key': detected_key, 'confidence': 1.0}
-            else:
-                detected = auto_detect_company_industry(f"{company_name} {warehouse_name}".strip(), description)
-                detected_info = detected
-                detected_key = detected['detected_key']
-            
-            assigned_wh_code = _provision_registration_warehouse(
-                company_name=company_name, warehouse_name=warehouse_name,
-                city=city, description=description, blueprint_key=detected_key
-            )
-        except Exception as e_ind:
-            logger.warning(f"Auto-industry setup on registration notice: {e_ind}")
-    
-    if db.create_user(username, password, email=email, company_name=company_name or 'WARLOG Intelligence Systems', assigned_warehouse_code=assigned_wh_code):
-        user_clean = {
-            'username': username,
-            'email': email,
-            'company_name': company_name,
-            'assigned_warehouse_code': assigned_wh_code,
-            'role': 'Admin'
-        }
-        session['user'] = user_clean
-        return jsonify({
-            'success': True,
-            'message': f'User registered successfully with dedicated {company_name or "Industrial"} workspace',
-            'assigned_warehouse_code': assigned_wh_code,
-            'company_name': company_name,
-            'user': user_clean,
-            'detected_key': (detected_info or {}).get('detected_key'),
-            'detected_environment': detected_info
-        })
-    return jsonify({'success': False, 'message': 'Username already exists'}), 409
+# RBAC Phase 1 (H4): /api/register was removed. It created accounts without email
+# verification. Signup goes through /api/auth/send_otp -> /api/auth/verify_otp_and_register.
 
 @app.route('/api/company/auto_setup', methods=['POST'])
 def api_company_auto_setup():
