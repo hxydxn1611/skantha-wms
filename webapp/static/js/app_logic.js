@@ -138,9 +138,12 @@
             const compEl = document.getElementById('topbarCompanyName');
             if (compEl) compEl.textContent = user.company_name || 'My Organization';
             const userEl = document.getElementById('topbarUsername');
-            if (userEl) userEl.textContent = `${user.role || 'Admin'} (${user.username})`;
+            // RBAC: show the real role (Super Admin / Company Admin / role name), not the legacy 'Admin'
+            const shownRole = user.role_label || (window.currentUser && window.currentUser.username === user.username
+                ? window.currentUser.role_label : '') || user.role || 'User';
+            if (userEl) userEl.textContent = `${shownRole} (${user.username})`;
             const dropUser = document.getElementById('dropdownDisplayUser');
-            if (dropUser) dropUser.textContent = `${user.role || 'Admin'} (${user.username})`;
+            if (dropUser) dropUser.textContent = `${shownRole} (${user.username})`;
             const dropOrg = document.getElementById('dropdownDisplayOrg');
             if (dropOrg) dropOrg.textContent = user.company_name || 'My Organization';
         }

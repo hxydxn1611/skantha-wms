@@ -339,5 +339,12 @@ class TestCompaniesAndOwners(Phase3ABase):
         self.assertIn("platform-companies-view", self.get(self.client("admin"), "/").get_data(as_text=True))
 
 
+class TestRoleLabel(Phase3ABase):
+    def test_top_bar_shows_the_real_role(self):
+        for user, label in (("admin", "Super Admin"), ("david", "Company Admin"), ("leakadmin", "Company Admin")):
+            html = self.get(self.client(user), "/").get_data(as_text=True)
+            self.assertIn(f'"role_label": "{label}"', html, user)
+
+
 if __name__ == "__main__":
     unittest.main()

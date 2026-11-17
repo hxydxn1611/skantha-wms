@@ -378,7 +378,9 @@ def api_platform_companies():
 @app.route('/')
 def index():
     user = g.get('current_user') or {}
-    return render_template('index.html', current_user=session['user'],
+    shown_user = {**session['user'],
+                  'role_label': auth_service.role_label(user.get('id'), bool(user.get('is_platform_admin')))}
+    return render_template('index.html', current_user=shown_user,
                            warehouse_scope=rbac_service.current_warehouse_id() or '',
                            is_platform_admin=bool(user.get('is_platform_admin')))
 

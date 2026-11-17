@@ -222,6 +222,32 @@ def authenticate(identifier: str, password: str, ip: Optional[str] = None,
 
 
 # ----------------------------------------------------------------------------- sessions
+def role_label(user_id: Optional[int], is_platform_admin: bool = False) -> str:
+    """The title shown next to the user's name: 'Super Admin' for the Platform Admin,
+    otherwise the user's highest active role ('Company Admin', a custom role, 'User')."""
+    if is_platform_admin:
+        return "Super Admin"
+    if not user_id:
+        return "User"
+    conn = db.get_db()
+    try:
+        rows = conn.execute("""
+            SELECT r.name, r.builtin_code FROM user_warehouse_access a
+            JOIN roles r ON r.id = a.role_id AND r.is_active = 1
+            WHERE a.user_id = ? AND a.status = 'Active'""", (user_id,)).fetchall()
+    except Exception:
+        return "User"
+    finally:
+        conn.close()
+    codes = {r[1] for r in rows}
+    if "company_admin" in codes:
+        return "Company Admin"
+    custom = sorted(r[0] for r in rows if not r[1])
+    if custom:
+        return custom[0]
+    return "User"
+
+
 def session_payload(user: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """What goes into session['user']: the keys the SPA has always used, plus uid/sv."""
     payload = {
