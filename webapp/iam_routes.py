@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from flask import Blueprint, g, jsonify, render_template, request, session
 
-import auth_service
 import iam_service
 import rbac_service
 from iam_service import IamError
@@ -201,6 +200,55 @@ def api_revoke_assignment(assignment_id):
     _need("assignments.manage")
     iam_service.revoke_assignment(_actor(), _company(), assignment_id, _body().get("reason"), _ip())
     return jsonify({"success": True, "message": "Access removed."})
+
+
+# ----------------------------------------------------------------------------- roles (Phase 5)
+@bp.route("/api/iam/roles", methods=["GET"])
+def api_list_roles():
+    _need("roles.view")
+    cid = _company()
+    actor = _actor()
+    perms = rbac_service.effective_permissions()
+    return jsonify({"success": True, "company_id": cid,
+                    "roles": iam_service.list_roles_detailed(cid),
+                    "catalog": iam_service.permission_catalog(actor, cid),
+                    "can_manage": bool(actor.get("is_platform_admin")) or "roles.manage" in perms})
+
+
+@bp.route("/api/iam/roles", methods=["POST"])
+def api_create_role():
+    _need("roles.manage")
+    out = iam_service.create_role(_actor(), _company(), _body(), _ip())
+    return jsonify({"success": True, "message": f"Role '{out['name']}' created.", **out})
+
+
+@bp.route("/api/iam/roles/<int:role_id>", methods=["PUT"])
+def api_update_role(role_id):
+    _need("roles.manage")
+    out = iam_service.update_role(_actor(), _company(), role_id, _body(), _ip())
+    return jsonify({"success": True, "message": f"Role '{out['name']}' saved. "
+                    f"{out['users_affected']} user(s) get the change on their next click.", **out})
+
+
+@bp.route("/api/iam/roles/<int:role_id>/preview", methods=["POST"])
+def api_preview_role(role_id):
+    _need("roles.manage")
+    return jsonify({"success": True, **iam_service.preview_role_change(_actor(), _company(), role_id, _body())})
+
+
+@bp.route("/api/iam/roles/<int:role_id>/deactivate", methods=["POST"])
+def api_deactivate_role(role_id):
+    _need("roles.manage")
+    out = iam_service.set_role_active(_actor(), _company(), role_id, False, _body().get("reason"), _ip())
+    return jsonify({"success": True, "message": f"Role deactivated. {out['users_affected']} user(s) lost its "
+                                                "permissions on their next click.", **out})
+
+
+@bp.route("/api/iam/roles/<int:role_id>/activate", methods=["POST"])
+def api_activate_role(role_id):
+    _need("roles.manage")
+    out = iam_service.set_role_active(_actor(), _company(), role_id, True, _body().get("reason"), _ip())
+    return jsonify({"success": True, "message": "Role reactivated.", **out})
 
 
 # ----------------------------------------------------------------------------- companies (Platform Admin)

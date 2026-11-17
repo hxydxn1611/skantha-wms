@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import auth_service
 import db
 import mailer
+import rbac_catalog
 import rbac_migration
 
 INVITE_HOURS = 72
@@ -276,6 +277,7 @@ def create_invitation(actor: Dict[str, Any], company_id: int, email: str, role_i
         if company["status"] != "Active":
             raise IamError(409, "company_suspended", "This company is suspended.")
         role = _role(conn, role_id, company_id)
+        _check_can_grant(conn, actor, company_id, role_permission_set(conn, role))
         wh = _warehouse(conn, warehouse_id, company_id)
         if role.get("builtin_code") == "company_admin" and wh is not None:
             raise IamError(400, "company_admin_is_company_wide",
@@ -464,6 +466,7 @@ def add_assignment(actor: Dict[str, Any], company_id: int, user_id: int, role_id
         target = _user_in_company(conn, user_id, company_id)
         _guard_target(actor, target)
         role = _role(conn, role_id, company_id)
+        _check_can_grant(conn, actor, company_id, role_permission_set(conn, role))
         wh = _warehouse(conn, warehouse_id, company_id)
         if role.get("builtin_code") == "company_admin" and wh is not None:
             raise IamError(400, "company_admin_is_company_wide",
@@ -691,3 +694,237 @@ def set_company_status(actor: Dict[str, Any], company_id: int, active: bool, rea
     auth_service.audit("platform.company.activated" if active else "platform.company.suspended", actor=actor,
                        company_id=company_id, resource_type="company", resource_id=str(company_id), reason=reason,
                        before={"status": company["status"]}, after={"status": "Active" if active else "Suspended"}, ip=ip)
+
+
+# ----------------------------------------------------------------------------- roles (Phase 5)
+MAX_ROLE_NAME = 60
+
+
+def role_permission_set(conn, role: Dict[str, Any]) -> frozenset:
+    """What a role grants inside a company (never platform permissions)."""
+    if role.get("is_builtin"):
+        return frozenset(k for k in rbac_catalog.builtin_permissions(role.get("builtin_code"))
+                         if rbac_catalog.PERMISSIONS_BY_KEY[k].scope_level != "platform")
+    keys = {r[0] for r in conn.execute("""
+        SELECT rp.permission_key FROM role_permissions rp
+        JOIN permissions p ON p.key = rp.permission_key AND p.retired = 0
+        WHERE rp.role_id = ?""", (role["id"],))}
+    return frozenset(k for k in keys if k in rbac_catalog.PERMISSIONS_BY_KEY
+                     and rbac_catalog.PERMISSIONS_BY_KEY[k].scope_level != "platform")
+
+
+def actor_company_permissions(conn, actor: Dict[str, Any], company_id: int) -> frozenset:
+    """Everything the actor holds anywhere in this company (union of their active
+    assignments there). The Platform Admin holds everything."""
+    if actor.get("is_platform_admin"):
+        return frozenset(k for k, p in rbac_catalog.PERMISSIONS_BY_KEY.items() if p.scope_level != "platform")
+    held = set()
+    for row in conn.execute("""
+        SELECT r.* FROM user_warehouse_access a JOIN roles r ON r.id = a.role_id AND r.is_active = 1
+        JOIN companies c ON c.id = a.company_id AND c.status = 'Active'
+        WHERE a.user_id = ? AND a.company_id = ? AND a.status = 'Active'""", (actor["id"], company_id)):
+        held |= role_permission_set(conn, dict(row))
+    return frozenset(held)
+
+
+def _check_can_grant(conn, actor: Dict[str, Any], company_id: int, keys) -> None:
+    """H12: nobody grants (through a role, an invitation or an assignment) what they don't hold."""
+    missing = set(keys) - actor_company_permissions(conn, actor, company_id)
+    if missing:
+        labels = sorted(rbac_catalog.PERMISSIONS_BY_KEY[k].label for k in missing
+                        if k in rbac_catalog.PERMISSIONS_BY_KEY)
+        more = f" and {len(labels) - 5} more" if len(labels) > 5 else ""
+        raise IamError(403, "escalation_blocked",
+                       "You can only grant permissions you have yourself. Missing: "
+                       + ", ".join(labels[:5]) + more + ".")
+
+
+def permission_catalog(actor: Dict[str, Any], company_id: int) -> List[Dict[str, Any]]:
+    """The tick-box list for the role builder: every company/warehouse permission, grouped
+    by module, with `grantable` = the actor holds it. Platform permissions are never listed."""
+    conn = _conn()
+    try:
+        held = actor_company_permissions(conn, actor, company_id)
+        retired = {r[0] for r in conn.execute("SELECT key FROM permissions WHERE retired = 1")}
+    finally:
+        conn.close()
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for p in rbac_catalog.PERMISSION_CATALOG:
+        if p.scope_level == "platform" or p.key in retired:
+            continue
+        groups.setdefault(p.module, []).append({
+            "key": p.key, "label": p.label, "action": p.action, "scope_level": p.scope_level,
+            "sensitive": bool(p.sensitive), "grantable": p.key in held})
+    return [{"module": m, "permissions": perms} for m, perms in groups.items()]
+
+
+def _role_users(conn, role_id: int, company_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    sql = """
+        SELECT DISTINCT u.id, u.username, u.is_active, COALESCE(w.code, 'All locations') AS warehouse_code
+        FROM user_warehouse_access a JOIN users u ON u.id = a.user_id
+        LEFT JOIN warehouses w ON w.id = a.warehouse_id
+        WHERE a.role_id = ? AND a.status = 'Active'"""
+    params: tuple = (role_id,)
+    if company_id is not None:
+        sql += " AND a.company_id = ?"
+        params += (company_id,)
+    return [dict(r) for r in conn.execute(sql + " ORDER BY u.username COLLATE NOCASE", params)]
+
+
+def list_roles_detailed(company_id: int) -> List[Dict[str, Any]]:
+    conn = _conn()
+    try:
+        rows = [dict(r) for r in conn.execute("""
+            SELECT * FROM roles
+            WHERE (is_builtin = 1 AND builtin_code IN ('company_admin', 'user')) OR (is_builtin = 0 AND company_id = ?)
+            ORDER BY is_builtin DESC, CASE builtin_code WHEN 'company_admin' THEN 0 ELSE 1 END, is_active DESC,
+                     name COLLATE NOCASE""", (company_id,))]
+        out = []
+        for r in rows:
+            out.append({"id": r["id"], "name": r["name"], "description": r["description"] or "",
+                        "is_builtin": bool(r["is_builtin"]), "builtin_code": r["builtin_code"],
+                        "is_active": bool(r["is_active"]), "permissions": sorted(role_permission_set(conn, r)),
+                        "users": _role_users(conn, r["id"], company_id), "updated_at": r.get("updated_at")})
+        return out
+    finally:
+        conn.close()
+
+
+def _custom_role(conn, role_id: int, company_id: int) -> Dict[str, Any]:
+    row = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
+    if not row:
+        raise IamError(404, "not_found", "Role not found.")
+    r = dict(row)
+    if r["is_builtin"]:
+        raise IamError(403, "builtin_read_only", "Built-in roles can't be changed. Create a custom role instead.")
+    if r["company_id"] != company_id:
+        raise IamError(404, "not_found", "Role not found.")
+    return r
+
+
+def _clean_role_input(conn, company_id: int, name: Any, description: Any, permissions: Any,
+                      exclude_id: Optional[int] = None) -> Tuple[str, str, frozenset]:
+    name = " ".join(str(name or "").split())
+    if not (2 <= len(name) <= MAX_ROLE_NAME):
+        raise IamError(400, "invalid_name", f"Role name: 2-{MAX_ROLE_NAME} characters.")
+    reserved = {n.casefold() for _, n, _ in rbac_catalog.BUILTIN_ROLES} | {"super admin"}
+    if name.casefold() in reserved:
+        raise IamError(409, "name_taken", "That name belongs to a built-in role.")
+    dup = conn.execute("SELECT 1 FROM roles WHERE company_id = ? AND LOWER(name) = LOWER(?) AND id IS NOT ?",
+                       (company_id, name, exclude_id)).fetchone()
+    if dup:
+        raise IamError(409, "name_taken", "Your company already has a role with that name.")
+    if not isinstance(permissions, (list, tuple)):
+        raise IamError(400, "invalid_permissions", "Tick at least one permission.")
+    keys = frozenset(str(k) for k in permissions)
+    unknown = [k for k in keys if k not in rbac_catalog.PERMISSIONS_BY_KEY
+               or rbac_catalog.PERMISSIONS_BY_KEY[k].scope_level == "platform"]
+    if unknown:
+        raise IamError(400, "unknown_permission", "Unknown permission: " + ", ".join(sorted(unknown)[:5]))
+    if not keys:
+        raise IamError(400, "invalid_permissions", "Tick at least one permission.")
+    return name, str(description or "").strip()[:300], keys
+
+
+def _labels(keys) -> List[str]:
+    return sorted(rbac_catalog.PERMISSIONS_BY_KEY[k].label for k in keys if k in rbac_catalog.PERMISSIONS_BY_KEY)
+
+
+def _diff(before: frozenset, after: frozenset) -> Dict[str, List[str]]:
+    return {"added": _labels(after - before), "removed": _labels(before - after)}
+
+
+def _forbid_own_role(conn, actor: Dict[str, Any], role_id: int) -> None:
+    if conn.execute("SELECT 1 FROM user_warehouse_access WHERE user_id = ? AND role_id = ? AND status = 'Active'",
+                    (actor["id"], role_id)).fetchone():
+        raise IamError(403, "self_change_forbidden",
+                       "You hold this role yourself, so you can't change it. Ask another admin.")
+
+
+def create_role(actor: Dict[str, Any], company_id: int, data: Dict[str, Any], ip: Optional[str] = None) -> Dict[str, Any]:
+    conn = _conn()
+    try:
+        name, desc, keys = _clean_role_input(conn, company_id, data.get("name"), data.get("description"),
+                                             data.get("permissions"))
+        _check_can_grant(conn, actor, company_id, keys)
+        with conn:
+            rid = conn.execute("""INSERT INTO roles (company_id, name, description, is_builtin, builtin_code,
+                                  is_active, created_by) VALUES (?, ?, ?, 0, NULL, 1, ?)""",
+                               (company_id, name, desc, actor["id"])).lastrowid
+            conn.executemany("INSERT INTO role_permissions (role_id, permission_key) VALUES (?, ?)",
+                             [(rid, k) for k in sorted(keys)])
+    finally:
+        conn.close()
+    auth_service.audit("iam.role.created", actor=actor, company_id=company_id, resource_type="role",
+                       resource_id=str(rid), after={"name": name, "permissions": sorted(keys)}, ip=ip)
+    return {"id": rid, "name": name}
+
+
+def preview_role_change(actor: Dict[str, Any], company_id: int, role_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Who is affected and what changes, before saving (nothing is written)."""
+    conn = _conn()
+    try:
+        role = _custom_role(conn, role_id, company_id)
+        before = role_permission_set(conn, role)
+        after = before
+        if "permissions" in data:
+            _, _, after = _clean_role_input(conn, company_id, data.get("name") or role["name"], "",
+                                            data.get("permissions"), exclude_id=role_id)
+        if data.get("deactivate"):
+            after = frozenset()
+        users = _role_users(conn, role_id, company_id)
+    finally:
+        conn.close()
+    return {"role": role["name"], "users": users, **_diff(before, after)}
+
+
+def update_role(actor: Dict[str, Any], company_id: int, role_id: int, data: Dict[str, Any],
+                ip: Optional[str] = None) -> Dict[str, Any]:
+    conn = _conn()
+    try:
+        role = _custom_role(conn, role_id, company_id)
+        _forbid_own_role(conn, actor, role_id)
+        before = role_permission_set(conn, role)
+        name, desc, keys = _clean_role_input(conn, company_id, data.get("name", role["name"]),
+                                             data.get("description", role["description"]),
+                                             data.get("permissions", sorted(before)), exclude_id=role_id)
+        # only what is being ADDED must be held; removing permissions is always allowed
+        _check_can_grant(conn, actor, company_id, keys - before)
+        with conn:
+            conn.execute("UPDATE roles SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                         (name, desc, role_id))
+            conn.execute("DELETE FROM role_permissions WHERE role_id = ?", (role_id,))
+            conn.executemany("INSERT INTO role_permissions (role_id, permission_key) VALUES (?, ?)",
+                             [(role_id, k) for k in sorted(keys)])
+        users = _role_users(conn, role_id, company_id)
+    finally:
+        conn.close()
+    change = _diff(before, keys)
+    auth_service.audit("iam.role.updated", actor=actor, company_id=company_id, resource_type="role",
+                       resource_id=str(role_id), reason=str(data.get("reason") or "") or None,
+                       before={"name": role["name"], "permissions": sorted(before)},
+                       after={"name": name, "permissions": sorted(keys), "users_affected": len(users)}, ip=ip)
+    return {"id": role_id, "name": name, "users_affected": len(users), **change}
+
+
+def set_role_active(actor: Dict[str, Any], company_id: int, role_id: int, active: bool,
+                    reason: Optional[str] = None, ip: Optional[str] = None) -> Dict[str, Any]:
+    if not active and not str(reason or "").strip():
+        raise IamError(400, "reason_required", "Give a reason for deactivating this role.")
+    conn = _conn()
+    try:
+        role = _custom_role(conn, role_id, company_id)
+        _forbid_own_role(conn, actor, role_id)
+        if active:
+            _check_can_grant(conn, actor, company_id, role_permission_set(conn, role))
+        with conn:
+            conn.execute("UPDATE roles SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                         (1 if active else 0, role_id))
+        users = _role_users(conn, role_id, company_id)
+    finally:
+        conn.close()
+    auth_service.audit("iam.role.activated" if active else "iam.role.deactivated", actor=actor,
+                       company_id=company_id, resource_type="role", resource_id=str(role_id), reason=reason,
+                       before={"is_active": bool(role["is_active"])},
+                       after={"is_active": active, "users_affected": len(users)}, ip=ip)
+    return {"id": role_id, "users_affected": len(users)}

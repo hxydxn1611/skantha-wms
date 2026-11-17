@@ -4278,6 +4278,18 @@
                 <div class="uac-subhead">Invitations</div>
                 <div id="uacInvites" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
             </div>
+            <div class="glass-panel" id="uacRolesPanel" style="margin-top: 1.5rem; display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
+                    <div>
+                        <div class="uac-subhead" style="margin:0;">Roles</div>
+                        <div class="uac-muted">A role is a set of ticked permissions. Give it to people per location in the People list above.</div>
+                    </div>
+                    <button class="btn-primary" id="uacNewRoleBtn" onclick="openRoleEditor()" style="display:none; align-items:center; gap:6px;">
+                        <i class="fas fa-plus"></i> New Role
+                    </button>
+                </div>
+                <div id="uacRoles" class="uac-table-wrap"></div>
+            </div>
         </div>
         {% endif %}
 

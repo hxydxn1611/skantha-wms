@@ -42,13 +42,13 @@
     }
 
     // ------------------------------------------------------------------ modal helper
-    function modal(title, bodyHtml, actions) {
+    function modal(title, bodyHtml, actions, wide) {
         closeModal();
         const wrap = document.createElement('div');
         wrap.id = 'uacModal';
         wrap.className = 'uac-modal-backdrop';
         wrap.innerHTML = `
-            <div class="uac-modal" role="dialog" aria-modal="true" aria-labelledby="uacModalTitle">
+            <div class="uac-modal ${wide ? 'uac-modal-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="uacModalTitle">
                 <div class="uac-modal-head">
                     <h3 id="uacModalTitle">${esc(title)}</h3>
                     <button type="button" class="uac-x" aria-label="Close" onclick="window.__uacClose()">&times;</button>
@@ -127,6 +127,7 @@
             const sel = document.getElementById('uacCompany');
             if (sel && sel.style.display !== 'none' && !sel.value) sel.value = uac.company_id;
             render();
+            loadRoles();
         } catch (err) {
             usersEl.innerHTML = `<div class="uac-empty uac-error">${esc(err.message)}</div>`;
             document.getElementById('uacInvites').innerHTML = '';
@@ -378,6 +379,181 @@
         modal(`Suspend ${name}`, `<p class="uac-p">Everyone in ${esc(name)} is signed out and can't sign in until you reactivate it. No data is deleted.</p>
             <label class="uac-label" for="susReason">Reason</label><input id="susReason" class="uac-input">`,
             [{ label: 'Suspend company', danger: true, run: () => go(document.getElementById('susReason').value) }]);
+    };
+
+    // ------------------------------------------------------------------ roles (Phase 5)
+    let roles = null;   // /api/iam/roles response
+
+    async function loadRoles() {
+        const panel = document.getElementById('uacRolesPanel');
+        if (!panel) return;
+        try {
+            roles = await api('GET', '/api/iam/roles');
+        } catch (err) {
+            panel.style.display = 'none';   // no roles.view
+            return;
+        }
+        panel.style.display = '';
+        document.getElementById('uacNewRoleBtn').style.display = roles.can_manage ? 'inline-flex' : 'none';
+        const rows = roles.roles.map(r => {
+            const badge = r.is_builtin ? '<span class="uac-pill warn">Built-in</span>'
+                : (r.is_active ? '<span class="uac-pill ok">Active</span>' : '<span class="uac-pill off">Deactivated</span>');
+            const people = r.users.length
+                ? r.users.slice(0, 4).map(u => `<span class="uac-chip">${esc(u.username)} &middot; ${esc(u.warehouse_code)}</span>`).join('')
+                  + (r.users.length > 4 ? ` <span class="uac-muted">+${r.users.length - 4} more</span>` : '')
+                : '<span class="uac-muted">Nobody yet</span>';
+            const acts = [`<button class="uac-btn-sm" onclick="openRoleEditor(${r.id})"><i class="fas ${r.is_builtin || !roles.can_manage ? 'fa-eye' : 'fa-pen'}"></i> ${r.is_builtin || !roles.can_manage ? 'View' : 'Edit'}</button>`];
+            if (!r.is_builtin && roles.can_manage) {
+                acts.push(r.is_active
+                    ? `<button class="uac-btn-sm danger" onclick="uacRoleSetActive(${r.id}, false)"><i class="fas fa-ban"></i> Deactivate</button>`
+                    : `<button class="uac-btn-sm" onclick="uacRoleSetActive(${r.id}, true)"><i class="fas fa-rotate-left"></i> Reactivate</button>`);
+            }
+            const count = r.builtin_code === 'company_admin' ? 'Everything in the company' : `${r.permissions.length} permission(s)`;
+            return `<tr class="${r.is_active ? '' : 'uac-row-off'}">
+                <td><div class="uac-name">${esc(r.name)}</div><div class="uac-muted">${esc(r.description)}</div></td>
+                <td>${badge}</td><td>${count}</td><td>${people}</td>
+                <td class="uac-actions">${acts.join('')}</td></tr>`;
+        }).join('');
+        document.getElementById('uacRoles').innerHTML =
+            `<table class="uac-table"><thead><tr><th>Role</th><th>Type</th><th>Grants</th><th>People</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function roleById(id) { return (roles && roles.roles.find(r => r.id === id)) || null; }
+
+    function permissionGrid(selected, readOnly) {
+        return roles.catalog.map(group => {
+            const items = group.permissions.map(p => {
+                const checked = selected.has(p.key) ? 'checked' : '';
+                const disabled = readOnly || (!p.grantable && !selected.has(p.key)) ? 'disabled' : '';
+                const title = !p.grantable ? 'You can only grant permissions you have yourself' : p.key;
+                return `<label class="rb-perm ${p.grantable ? '' : 'rb-locked'}" title="${esc(title)}" data-text="${esc((p.label + ' ' + p.key + ' ' + group.module).toLowerCase())}">
+                    <input type="checkbox" value="${esc(p.key)}" ${checked} ${disabled}>
+                    <span>${esc(p.label)}</span>
+                    ${p.sensitive ? '<span class="rb-sensitive" title="Sensitive: every use is audited">Sensitive</span>' : ''}
+                    <span class="rb-action">${esc(p.action)}</span>
+                </label>`;
+            }).join('');
+            return `<fieldset class="rb-group" data-module="${esc(group.module)}">
+                <legend><label><input type="checkbox" class="rb-all" ${readOnly ? 'disabled' : ''}> ${esc(group.module)}</label>
+                <span class="rb-count"></span></legend>
+                <div class="rb-items">${items}</div></fieldset>`;
+        }).join('');
+    }
+
+    function wireGrid() {
+        const root = document.getElementById('rbGrid');
+        const sync = () => {
+            root.querySelectorAll('.rb-group').forEach(g => {
+                const boxes = [...g.querySelectorAll('.rb-items input')];
+                const on = boxes.filter(b => b.checked).length;
+                g.querySelector('.rb-count').textContent = `${on}/${boxes.length}`;
+                const all = g.querySelector('.rb-all');
+                all.checked = on === boxes.length && on > 0;
+                all.indeterminate = on > 0 && on < boxes.length;
+            });
+            const total = root.querySelectorAll('.rb-items input:checked').length;
+            const t = document.getElementById('rbTotal');
+            if (t) t.textContent = `${total} permission(s) ticked`;
+        };
+        root.addEventListener('change', e => {
+            if (e.target.classList.contains('rb-all')) {
+                e.target.closest('.rb-group').querySelectorAll('.rb-items input:not(:disabled)')
+                    .forEach(b => { b.checked = e.target.checked; });
+            }
+            sync();
+        });
+        const search = document.getElementById('rbSearch');
+        if (search) search.addEventListener('input', () => {
+            const q = search.value.trim().toLowerCase();
+            root.querySelectorAll('.rb-perm').forEach(l => { l.style.display = !q || l.dataset.text.includes(q) ? '' : 'none'; });
+            root.querySelectorAll('.rb-group').forEach(g => {
+                g.style.display = [...g.querySelectorAll('.rb-perm')].some(l => l.style.display !== 'none') ? '' : 'none';
+            });
+        });
+        sync();
+    }
+
+    function tickedKeys() {
+        return [...document.querySelectorAll('#rbGrid .rb-items input:checked')].map(b => b.value);
+    }
+
+    window.openRoleEditor = function (roleId) {
+        if (!roles) return;
+        const r = roleId ? roleById(roleId) : null;
+        const readOnly = !!(r && (r.is_builtin || !roles.can_manage));
+        const selected = new Set(r ? r.permissions : []);
+        const title = r ? (readOnly ? `Role: ${r.name}` : `Edit role: ${r.name}`) : 'New role';
+        const note = r && r.builtin_code === 'company_admin'
+            ? '<p class="uac-p uac-muted">Built-in: everything inside the company, including managing users and roles. It can\'t be changed.</p>'
+            : r && r.builtin_code === 'user'
+                ? '<p class="uac-p uac-muted">Built-in: grants nothing by itself. Give people a custom role for what they should do.</p>'
+                : '';
+        const body = `
+            ${note}
+            <div class="rb-top">
+                <div><label class="uac-label" for="rbName">Role name</label>
+                    <input id="rbName" class="uac-input" maxlength="60" value="${esc(r ? r.name : '')}" ${readOnly ? 'disabled' : ''} placeholder="e.g. Gate Operator"></div>
+                <div><label class="uac-label" for="rbDesc">Description</label>
+                    <input id="rbDesc" class="uac-input" maxlength="300" value="${esc(r ? r.description : '')}" ${readOnly ? 'disabled' : ''} placeholder="What this person does"></div>
+            </div>
+            <div class="rb-toolbar">
+                <input id="rbSearch" class="uac-input" placeholder="Search permissions...">
+                <span id="rbTotal" class="uac-muted"></span>
+            </div>
+            <div id="rbGrid" class="rb-grid">${permissionGrid(selected, readOnly)}</div>
+            <div id="rbPreview"></div>`;
+        const actions = readOnly ? [] : [{
+            label: r ? 'Review & save' : 'Create role', primary: true, run: async () => {
+                const payload = { name: document.getElementById('rbName').value, description: document.getElementById('rbDesc').value,
+                                  permissions: tickedKeys() };
+                if (!r) {
+                    const out = await api('POST', '/api/iam/roles', payload);
+                    closeModal(); toast(out.message, 'success'); loadUsersAccess();
+                    return;
+                }
+                const box = document.getElementById('rbPreview');
+                if (!box.dataset.confirmed) {
+                    const pv = await api('POST', `/api/iam/roles/${r.id}/preview`, payload);
+                    const list = (arr, cls) => arr.length ? arr.map(x => `<span class="uac-chip ${cls}">${esc(x)}</span>`).join('') : '<span class="uac-muted">none</span>';
+                    box.innerHTML = `<div class="rb-preview">
+                        <div><b>${pv.users.length}</b> user(s) get this change on their next click:
+                            ${pv.users.map(u => esc(u.username)).join(', ') || 'nobody yet'}</div>
+                        <div class="rb-diff"><span class="uac-muted">Adds:</span> ${list(pv.added, 'rb-add')}</div>
+                        <div class="rb-diff"><span class="uac-muted">Removes:</span> ${list(pv.removed, 'rb-rem')}</div>
+                        <div class="uac-muted">Press "Review &amp; save" again to save.</div></div>`;
+                    box.dataset.confirmed = '1';
+                    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    return;
+                }
+                const out = await api('PUT', `/api/iam/roles/${r.id}`, payload);
+                closeModal(); toast(out.message, 'success'); loadUsersAccess();
+            } }];
+        modal(title, body, actions, true);
+        wireGrid();
+        // any change after a preview needs a fresh preview
+        document.getElementById('uacModal').addEventListener('input', e => {
+            if (e.target.id === 'rbSearch') return;
+            const box = document.getElementById('rbPreview');
+            if (box) { box.innerHTML = ''; delete box.dataset.confirmed; }
+        });
+    };
+
+    window.uacRoleSetActive = function (roleId, active) {
+        const r = roleById(roleId);
+        if (!r) return;
+        if (active) {
+            api('POST', `/api/iam/roles/${roleId}/activate`, {}).then(o => { toast(o.message, 'success'); loadUsersAccess(); })
+                .catch(e => toast(e.message, 'error'));
+            return;
+        }
+        modal(`Deactivate role: ${r.name}`, `
+            <p class="uac-p">${r.users.length} user(s) lose this role's permissions on their next click:
+                ${r.users.map(u => esc(u.username)).join(', ') || 'nobody'}. Their other access stays. You can reactivate it later.</p>
+            <label class="uac-label" for="rdReason">Reason</label><input id="rdReason" class="uac-input">`,
+            [{ label: 'Deactivate role', danger: true, run: async () => {
+                const out = await api('POST', `/api/iam/roles/${roleId}/deactivate`, { reason: document.getElementById('rdReason').value });
+                closeModal(); toast(out.message, 'success'); loadUsersAccess();
+            } }]);
     };
 
     window.loadUsersAccess = loadUsersAccess;

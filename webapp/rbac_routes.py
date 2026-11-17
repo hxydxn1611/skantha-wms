@@ -59,6 +59,12 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "iam.api_user_reset_link": "users.edit",
     "iam.api_add_assignment": "assignments.manage",
     "iam.api_revoke_assignment": "assignments.manage",
+    "iam.api_list_roles": "roles.view",          # Phase 5: role builder
+    "iam.api_create_role": "roles.manage",
+    "iam.api_update_role": "roles.manage",
+    "iam.api_preview_role": "roles.manage",
+    "iam.api_deactivate_role": "roles.manage",
+    "iam.api_activate_role": "roles.manage",
     "iam.api_platform_create_company": "platform.companies.manage",
     "iam.api_platform_suspend_company": "platform.companies.manage",
     "iam.api_platform_activate_company": "platform.companies.manage",
