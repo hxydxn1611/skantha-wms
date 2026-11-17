@@ -178,9 +178,9 @@ class TestWarehouseOwnership(Phase0Base):
         self.assertEqual(self.db.unique_warehouse_code("WH-LION-COI", "  lion "), "WH-LION-COI")
 
     def test_create_route_returns_409_for_another_companys_code(self):
-        puma = dict(ADMIN, username="Puma", company_name="Puma")
-        r = self.client(puma).post("/api/warehouses/create",
-                                   json={"name": "Hijack", "code": "WH-LION-COI", "company_name": "Puma"})
+        other = dict(ADMIN, username="david", company_name="glass and brass")
+        r = self.client(other).post("/api/warehouses/create",
+                                    json={"name": "Hijack", "code": "WH-LION-COI", "company_name": "glass and brass"})
         self.assertEqual(r.status_code, 409)
         self.assertEqual(self.db.get_warehouse_by_code("WH-LION-COI")["company_name"], "Lion")
 

@@ -14,7 +14,6 @@ import sys
 import tempfile
 import unittest
 
-from tests import copy_live_db
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEBAPP = os.path.join(ROOT, "webapp")
@@ -22,6 +21,37 @@ sys.path.insert(0, WEBAPP)
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 import rbac_snapshot  # noqa: E402
+
+
+def _copy(src, dst):
+    s = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    d = sqlite3.connect(dst)
+    try:
+        s.backup(d)
+    finally:
+        d.close()
+        s.close()
+
+
+def _is_pre_migration(path):
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return "password_hash" not in [r[1] for r in conn.execute("PRAGMA table_info(users)")]
+    finally:
+        conn.close()
+
+
+def pre_migration_source():
+    """The live DB while it is unmigrated; afterwards the automatic pre-migration backup
+    (backups/pre_rbac_v1_*.db) that still holds the original data."""
+    import glob
+    live = os.path.join(WEBAPP, "skandha_wms.db")
+    if _is_pre_migration(live):
+        return live
+    for path in sorted(glob.glob(os.path.join(ROOT, "backups", "pre_rbac_v1_*.db"))):
+        if _is_pre_migration(path):
+            return path
+    return None
 
 
 class Phase1Base(unittest.TestCase):
@@ -34,12 +64,13 @@ class Phase1Base(unittest.TestCase):
         import rbac_catalog
         cls.db, cls.app_module, cls.auth, cls.mig, cls.catalog = db, app_module, auth_service, rbac_migration, rbac_catalog
         cls._tmp = tempfile.mkdtemp(prefix="warlog_phase1_")
-        cls.db_path = copy_live_db(os.path.join(cls._tmp, "phase1.db"))
+        cls.db_path = os.path.join(cls._tmp, "phase1.db")
+        source = pre_migration_source()
+        if source is None:
+            raise unittest.SkipTest("no pre-migration database available (live DB migrated, no backup)")
+        _copy(source, cls.db_path)
         conn = sqlite3.connect(cls.db_path)
         try:
-            cols = [r[1] for r in conn.execute("PRAGMA table_info(users)")]
-            if "password_hash" in cols:
-                raise unittest.SkipTest("live DB is already migrated; pre-migration passwords are not available")
             cls.plain = {u: p for u, p in conn.execute("SELECT username, password FROM users")}
         finally:
             conn.close()

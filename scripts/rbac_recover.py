@@ -8,6 +8,8 @@ there is no web route for any of this. Every action is written to audit_logs.
       py -3.14 scripts/rbac_recover.py reset --username admin --temporary
   Unlock and reactivate an account, and make it Platform Admin:
       py -3.14 scripts/rbac_recover.py reset --username admin --temporary --make-platform-admin
+  Permanently remove accounts (backs up first; never the last Platform Admin):
+      py -3.14 scripts/rbac_recover.py remove --username testuser Mangalesh --reason "owner request"
   Fresh install: create the first Platform Admin and its company:
       py -3.14 scripts/rbac_recover.py create --username owner --company "Skantha Industrial Solutions" --email you@example.com
 
@@ -105,9 +107,75 @@ def cmd_create(args) -> int:
     return 0
 
 
+def cmd_remove(args) -> int:
+    """Permanently removes accounts (owner request). Backs up first; never removes the last
+    Platform Admin; leaving a company without any admin needs --allow-companies-without-admin."""
+    users = []
+    for name in args.username:
+        u = auth_service.find_user(name)
+        if not u:
+            print(f"No user called {name!r}.")
+            return 1
+        users.append(u)
+    ids = {u["id"] for u in users}
+    conn = db.get_db()
+    try:
+        remaining_pa = conn.execute(
+            f"SELECT COUNT(*) FROM users WHERE is_platform_admin = 1 AND is_active = 1 AND id NOT IN ({','.join('?' * len(ids))})",
+            tuple(ids)).fetchone()[0]
+        if remaining_pa == 0:
+            print("Refused: this would remove the last Platform Admin.")
+            return 1
+        orphaned = [r[0] for r in conn.execute(f"""
+            SELECT c.name FROM companies c
+            WHERE EXISTS (SELECT 1 FROM user_warehouse_access a JOIN roles r ON r.id = a.role_id
+                          WHERE a.company_id = c.id AND r.builtin_code = 'company_admin' AND a.status = 'Active'
+                            AND a.warehouse_id IS NULL AND a.user_id IN ({','.join('?' * len(ids))}))
+              AND NOT EXISTS (SELECT 1 FROM user_warehouse_access a JOIN roles r ON r.id = a.role_id
+                              JOIN users u ON u.id = a.user_id AND u.is_active = 1
+                              WHERE a.company_id = c.id AND r.builtin_code = 'company_admin' AND a.status = 'Active'
+                                AND a.warehouse_id IS NULL AND a.user_id NOT IN ({','.join('?' * len(ids))}))
+        """, tuple(ids) + tuple(ids))]
+    finally:
+        conn.close()
+    if orphaned and not args.allow_companies_without_admin:
+        print("Refused: these companies would have no admin left: " + ", ".join(orphaned))
+        print("Re-run with --allow-companies-without-admin if that is intended (the Platform Admin can still manage them).")
+        return 1
+
+    backup = rbac_migration.backup_database(db.DB_PATH)
+    print(f"Backup written to {backup}")
+    conn = db.get_db()
+    try:
+        conn.execute("DROP TRIGGER IF EXISTS trg_last_admin_user_delete")
+        conn.execute("DROP TRIGGER IF EXISTS trg_last_company_admin_assignment_delete")
+        conn.commit()
+        with conn:
+            for u in users:
+                company_id = auth_service.user_company_id(u["id"], conn)
+                conn.execute("DELETE FROM user_warehouse_access WHERE user_id = ?", (u["id"],))
+                conn.execute("DELETE FROM user_company_access WHERE user_id = ?", (u["id"],))
+                conn.execute("DELETE FROM users WHERE id = ?", (u["id"],))
+                auth_service.audit("user.deleted", actor_username="console", company_id=company_id,
+                                   resource_type="user", resource_id=str(u["id"]),
+                                   reason=args.reason, before={"username": u["username"], "company_name": u.get("company_name")},
+                                   ip="console", conn=conn)
+                print(f"Removed {u['username']} ({u.get('company_name')})")
+    finally:
+        conn.executescript(rbac_migration.TRIGGERS_SQL)  # protection back on, whatever happened
+        conn.close()
+    if orphaned:
+        print("Companies now without an admin (manageable by the Platform Admin): " + ", ".join(orphaned))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    rm = sub.add_parser("remove", help="permanently remove accounts (backs up first)")
+    rm.add_argument("--username", required=True, nargs="+")
+    rm.add_argument("--reason", required=True)
+    rm.add_argument("--allow-companies-without-admin", action="store_true")
     r = sub.add_parser("reset", help="reset a password, unlock and reactivate an account")
     r.add_argument("--username", required=True)
     r.add_argument("--temporary", action="store_true", help="issue a one-time temporary password")
@@ -118,7 +186,7 @@ def main() -> int:
     c.add_argument("--email")
     args = ap.parse_args()
     rbac_migration.migrate(db.DB_PATH)
-    return cmd_reset(args) if args.cmd == "reset" else cmd_create(args)
+    return {"reset": cmd_reset, "create": cmd_create, "remove": cmd_remove}[args.cmd](args)
 
 
 if __name__ == "__main__":

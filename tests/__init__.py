@@ -61,6 +61,19 @@ def prepare_test_db(db_path: str) -> str:
     return db_path
 
 
+def session_for(username: str, db_path: str = None) -> dict:
+    """A valid session['user'] (uid + session_version) for any user in a test database."""
+    conn = sqlite3.connect(db_path or os.environ["WARLOG_DB_PATH"])
+    try:
+        uid, sv, company, wh = conn.execute(
+            "SELECT id, session_version, company_name, assigned_warehouse_code FROM users WHERE LOWER(username) = LOWER(?)",
+            (username,)).fetchone()
+    finally:
+        conn.close()
+    return {"username": username, "company_name": company, "assigned_warehouse_code": wh or "WH-MAIN",
+            "role": "Admin", "uid": uid, "sv": sv, "must_reset_password": False}
+
+
 def admin_session(db_path: str = None) -> dict:
     """A valid session['user'] for `admin` in the given test database (uid + session_version)."""
     conn = sqlite3.connect(db_path or os.environ["WARLOG_DB_PATH"])

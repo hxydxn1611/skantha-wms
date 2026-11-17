@@ -230,7 +230,10 @@ def api_snapshot(db_path: str, out_file: str) -> Dict[str, Any]:
 
 # Fields added by RBAC migrations. Extra keys in a response are invisible to the existing
 # UI, so they are not treated as a change to what admin sees.
-RBAC_ADDED_KEYS = frozenset({"is_demo", "company_id", "state"})
+RBAC_ADDED_KEYS = frozenset({
+    "is_demo", "company_id", "state",      # columns added by RBAC migrations
+    "otp", "otp_generated",                # deliberately removed from responses in Phase 2 (H17)
+})
 
 # Deliberate Phase 1 data changes, excluded from the "existing rows unchanged" check:
 #   users.password  plain-text passwords are moved to users.password_hash, then blanked (H3)

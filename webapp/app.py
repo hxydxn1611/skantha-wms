@@ -100,6 +100,7 @@ from industry_blueprint_service import get_blueprint_catalog, apply_industry_blu
 from staging_perception_service import get_staging_service, ActorType, QuotaStatus
 
 import auth_service
+import rbac_service
 from rbac_config import get_rbac_mode
 logger.info(f"[RBAC] RBAC_MODE={get_rbac_mode()}")
 
@@ -152,7 +153,7 @@ PUBLIC_EXACT_PATHS = frozenset({
     '/api/auth/send_otp', '/api/auth/verify_otp_and_register',
     '/api/company/preview_recognition',
 })
-PUBLIC_PREFIXES = ('/static/', '/video_feed/')  # /video_feed is closed in RBAC Phase 2
+PUBLIC_PREFIXES = ('/static/',)  # RBAC Phase 2 (H6): /video_feed needs a session + cameras.stream.view
 # While a password reset is pending, only these paths work.
 RESET_ALLOWED_PATHS = frozenset({
     '/account/reset-password', '/api/auth/force_reset_password', '/logout', '/api/logout',
@@ -194,7 +195,89 @@ def enforce_authentication_and_session():
                 'redirect': RESET_PAGE
             }), 403
         return redirect(RESET_PAGE)
-    return None
+
+    # RBAC Phase 2: CSRF token (H9) and the route permission map. Both follow RBAC_MODE
+    # (off / audit = log only / enforce = block).
+    rbac_service.csrf_token()
+    blocked = rbac_service.check_csrf()
+    if blocked is not None:
+        return blocked
+    return rbac_service.authorize_request()
+
+
+_OTP_RESPONSE_KEYS = frozenset({'otp', 'otp_generated'})
+
+
+def _strip_keys(value, keys):
+    if isinstance(value, dict):
+        return {k: _strip_keys(v, keys) for k, v in value.items() if k not in keys}
+    if isinstance(value, list):
+        return [_strip_keys(v, keys) for v in value]
+    return value
+
+
+@app.after_request
+def rbac_after_request(response):
+    """RBAC Phase 2 response hardening:
+    * CSRF cookie for the page's JavaScript (H9)
+    * driver OTPs never leave the server in API responses (H17); only
+      /api/gate_passes/<id>/otp returns one, to holders of gate.otp.send
+    * 5xx bodies never carry raw exception text (H18); details go to the server log
+    """
+    try:
+        rbac_service.set_csrf_cookie(response)
+        if response.is_streamed or not response.is_json or not request.path.startswith('/api/'):
+            return response
+        if request.endpoint != 'api_gate_pass_otp':
+            raw = response.get_data()
+            if b'"otp' in raw:
+                response.set_data(json.dumps(_strip_keys(json.loads(raw), _OTP_RESPONSE_KEYS), default=str))
+        if response.status_code >= 500:
+            body = response.get_json(silent=True)
+            if isinstance(body, dict):
+                ref = uuid.uuid4().hex[:8]
+                logger.error(f"[ERROR ref={ref}] {request.method} {request.path} -> {response.status_code}: "
+                             f"{body.get('error') or body.get('message')}")
+                for k in ('error', 'message', 'details', 'detail', 'traceback'):
+                    if k in body:
+                        body[k] = f"Internal server error (reference {ref})."
+                response.set_data(json.dumps(body, default=str))
+    except Exception as e:  # hardening must never break a response
+        logger.warning(f"[RBAC] after_request hardening skipped: {e}")
+    return response
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(e):
+    """Unhandled errors: JSON with a reference id for API calls, never the exception text (H18)."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': e.description, 'error_code': e.name.lower().replace(' ', '_')}), e.code
+        return e
+    ref = uuid.uuid4().hex[:8]
+    logger.exception(f"[ERROR ref={ref}] unhandled exception on {request.method} {request.path}")
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'error': f'Internal server error (reference {ref}).',
+                        'error_code': 'internal_error'}), 500
+    return make_response(f'Internal server error (reference {ref}).', 500)
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def api_auth_me():
+    """Who am I, where am I working, and what may I do (used by the UI from Phase 6)."""
+    current = g.current_user
+    wid = rbac_service.current_warehouse_id()
+    perms = sorted(rbac_service.permissions_for_user(current['id'], bool(current.get('is_platform_admin')), wid))
+    return jsonify({
+        'success': True,
+        'user': {**auth_service.public_user(auth_service.get_user_by_id(current['id']) or {}),
+                 'is_platform_admin': bool(current.get('is_platform_admin'))},
+        'company_id': auth_service.user_company_id(current['id']),
+        'warehouse_id': wid,
+        'permissions': perms,
+        'rbac_mode': get_rbac_mode(),
+    })
 
 @app.route('/')
 def index():
@@ -243,6 +326,7 @@ def api_login():
     session.permanent = True
     session['user'] = auth_service.session_payload(user, {'assigned_warehouse_code': wh_code,
                                                           'active_warehouse': switched})
+    rbac_service.csrf_token()
     must_reset = bool(user.get('must_reset_password'))
     user_clean = {**auth_service.public_user(user), 'assigned_warehouse_code': wh_code,
                   'active_warehouse': switched, 'must_reset_password': must_reset}
@@ -937,7 +1021,9 @@ def create_gate_pass():
             return jsonify({"success": True, "gate_pass": existing, "message": f"Active gate pass {existing['id']} found for {plate}."})
             
     # Generate a random 4-digit OTP if driver_phone is provided
-    otp = str(random.randint(1000, 9999)) if data.get('driver_phone') else ""
+    # RBAC Phase 2 (H17): random 4-digit code, never returned in API responses.
+    import secrets as _secrets
+    otp = f"{_secrets.randbelow(9000) + 1000}" if data.get('driver_phone') else ""
     if otp:
         data['otp'] = otp
         print(f"\n[MOCK SMS] Sent OTP {otp} to Driver Phone {data.get('driver_phone')}\n")
@@ -3560,8 +3646,9 @@ def update_gate_pass(gp_id):
     
     sms_response = None
     if data.get('status') == 'Sent to Dock':
-        import random
-        otp = str(random.randint(1000, 9999)) if data.get('driver_phone') else "1234"
+        # RBAC Phase 2 (H17): no fixed "1234" fallback; no phone means no OTP.
+        import secrets as _secrets
+        otp = f"{_secrets.randbelow(9000) + 1000}" if data.get('driver_phone') else ""
         data['otp'] = otp
         phone = data.get('driver_phone')
         if phone:
@@ -3635,8 +3722,21 @@ def update_gate_pass(gp_id):
                     ac.last_gate_pass_photo = gp.get('photo') or ac.last_gate_pass_photo
         except Exception:
             pass
-        return jsonify({"success": True, "gate_pass": gp, "otp_generated": data.get('otp'), "sms_response": sms_response})
+        return jsonify({"success": True, "gate_pass": gp, "otp_sent": bool(data.get('otp')), "sms_response": sms_response})
     return jsonify({"success": False, "message": "Gate pass not found"})
+
+@app.route('/api/gate_passes/<gp_id>/otp', methods=['GET'])
+def api_gate_pass_otp(gp_id):
+    """'Read to driver': the only place a driver OTP is shown, until an SMS provider is
+    configured. Needs gate.otp.send (route map) and every view is audited (H17)."""
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found"}), 404
+    current = g.current_user
+    auth_service.audit('gate.otp_viewed', actor=current, company_id=auth_service.user_company_id(current['id']),
+                       resource_type='gate_pass', resource_id=str(gp_id), ip=_client_ip())
+    return jsonify({"success": True, "gate_pass_id": gp_id, "otp": gp.get('otp') or None,
+                    "otp_verified": bool(gp.get('otp_verified'))})
 
 @app.route('/api/dock/unload_step/<gp_id>', methods=['POST'])
 def unload_step(gp_id):
@@ -8084,6 +8184,13 @@ def api_copilot_action():
         action = data.get('action', '')
         params = data.get('params', {})
         user = session.get('user')
+        # RBAC Phase 2: Copilot can only do what the user could do directly.
+        import rbac_routes
+        needed = rbac_routes.COPILOT_ACTION_PERMISSIONS.get(action)
+        if needed:
+            denied = rbac_service.check_permission(needed, reason_required=(action == 'manual_admit'))
+            if denied is not None:
+                return denied
         result = get_copilot_service().execute_action(action, params, user=user)
         return jsonify(result)
     except Exception as e:
