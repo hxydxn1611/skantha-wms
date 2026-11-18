@@ -778,7 +778,8 @@
                 showBlueprintToast(`Successfully created ${data.warehouse.name} (${data.warehouse.code}) in ${city}`, 'success');
                 closeAddFacilityModal();
                 await loadWarehousesDropdown();
-                await switchActiveFacility(data.warehouse.code);
+                // the global (wrapped) switch reloads the page into the new location
+                await (window.switchActiveFacility || switchActiveFacility)(data.warehouse.code);
             } else {
                 if (errBanner) {
                     errBanner.style.display = 'block';

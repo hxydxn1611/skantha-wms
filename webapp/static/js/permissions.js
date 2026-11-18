@@ -314,18 +314,58 @@
         sync();
     }
 
+    // Changing the location in the top bar reloads the page, so every screen (dashboard,
+    // cameras, inventory, gate, ...) shows the new location's data; the open screen is kept.
+    const RETURN_KEY = 'warlog_return_view';
+    function reloadForLocation(label) {
+        try {
+            const active = document.querySelector('.view-section.active');
+            sessionStorage.setItem(RETURN_KEY, JSON.stringify({
+                tab: active && active.id ? active.id.replace(/-view$/, '') : '',
+                label: label || '',
+            }));
+        } catch (e) {}
+        window.location.reload();
+    }
+    function pickerLabel(code) {
+        const sel = document.getElementById('topbarFacilitySelect');
+        const opt = sel ? Array.from(sel.options).find(o => o.value === code) : null;
+        return opt ? opt.textContent.trim() : '';
+    }
+    function restoreAfterLocationChange() {
+        let saved = null;
+        try {
+            saved = JSON.parse(sessionStorage.getItem(RETURN_KEY) || 'null');
+            sessionStorage.removeItem(RETURN_KEY);
+        } catch (e) {}
+        if (!saved) return;
+        setTimeout(() => {
+            if (saved.tab && saved.tab !== 'dashboard' && document.getElementById(saved.tab + '-view')
+                && hasPerm(MODULE_RULES[saved.tab]) && typeof window.switchTab === 'function') {
+                window.switchTab(saved.tab);
+            }
+            if (saved.label) toast('Now working in ' + saved.label, 'success');
+        }, 600);
+    }
+
     function wrapFacilitySwitch() {
         const original = window.switchActiveFacility;
         if (typeof original !== 'function' || original.__warlogWrapped) return;
         const wrapped = async function (code, silent) {
             if (code === ALL) {
                 window.warlogSetTabWarehouse && window.warlogSetTabWarehouse('all');
-                window.location.reload();
+                reloadForLocation('all locations (view only)');
                 return;
             }
             const leavingAll = ACCESS.scope === 'company_all';
+            const before = window.warlogTabWarehouse ? window.warlogTabWarehouse() : '';
             const out = await original.apply(this, arguments);
-            if (leavingAll) { window.location.reload(); return out; }
+            const after = window.warlogTabWarehouse ? window.warlogTabWarehouse() : '';
+            // a person picked a different location (automatic switches pass silent = true)
+            if (leavingAll || (!silent && after && after !== before)) {
+                reloadForLocation(pickerLabel(code));
+                return out;
+            }
             refreshAccess();
             return out;
         };
@@ -402,6 +442,7 @@
         readOnlyBanner();
         decoratePicker();
         wrapFacilitySwitch();
+        restoreAfterLocationChange();
         const bp = document.getElementById('topbarBlueprintBtn');
         if (bp) bp.style.display = hasPerm('masterdata.blueprint.apply') ? 'inline-flex' : 'none';
         if (ACCESS.all && ACCESS.scope !== 'company_all') return;   // nothing to hide
