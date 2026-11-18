@@ -141,7 +141,7 @@
                         <td style="display:flex; align-items:center; gap:8px;">
                             <span style="display:inline-block; width:12px; height:12px; border-radius:2px; background:${rgbStr};"></span>
                             <b>Stack ${s.id}</b>
-                            <span style="color:var(--text-muted); font-size:0.75rem;">(${s.name})</span>
+                            <span style="color:var(--text-muted); font-size:0.75rem;">(${__h(s.name)})</span>
                         </td>
                         <td style="text-align:center; font-weight:700;">${s.layers}</td>
                         <td style="text-align:center; font-family:'JetBrains Mono',monospace; color:#38bdf8;">${s.formula}</td>

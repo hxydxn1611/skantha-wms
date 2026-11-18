@@ -76,7 +76,7 @@
 
                 mappedVisionSkus.forEach(s => {
 
-                    html += `<option value="${s.sku_id}">🎯 Target Only: ${s.sku_id} &mdash; ${s.name} (${s.category})</option>`;
+                    html += `<option value="${__h(s.sku_id)}">🎯 Target Only: ${__h(s.sku_id)} &mdash; ${__h(s.name)} (${__h(s.category)})</option>`;
 
                 });
 
@@ -148,7 +148,7 @@
 
                     const bname = s.bundle_name || 'Bundle';
 
-                    wbHtml += `<option value="${s.sku_id}">🎯 ${s.sku_id} — ${s.name} [1 ${bname} = ${upb} ${uom}]</option>`;
+                    wbHtml += `<option value="${__h(s.sku_id)}">🎯 ${__h(s.sku_id)} — ${__h(s.name)} [1 ${bname} = ${upb} ${uom}]</option>`;
 
                 });
 
@@ -222,7 +222,7 @@
 
             if (recText) {
 
-                recText.innerHTML = `Locked SKU: <b style="color:#38bdf8; font-family:monospace;">${matched.sku_id}</b> &mdash; ${matched.name} <span style="color:#94a3b8;">(${matched.category || 'General'})</span>`;
+                recText.innerHTML = `Locked SKU: <b style="color:#38bdf8; font-family:monospace;">${__h(matched.sku_id)}</b> &mdash; ${__h(matched.name)} <span style="color:#94a3b8;">(${__h(matched.category || 'General')})</span>`;
 
             }
 
@@ -402,7 +402,7 @@
 
             if (badge) {
 
-                badge.innerHTML = `<i class="fas fa-crosshairs"></i> Target Match: Count ONLY ${matched.sku_id} (Ignore Others & Racks)`;
+                badge.innerHTML = `<i class="fas fa-crosshairs"></i> Target Match: Count ONLY ${__h(matched.sku_id)} (Ignore Others & Racks)`;
 
                 badge.style.background = 'rgba(16,185,129,0.15)';
 
@@ -962,7 +962,7 @@
 
                 skuTag.style.display = 'inline-flex';
 
-                skuTag.innerHTML = `<i class="fas fa-certificate" style="color:#10b981;"></i> Reference SKU: <b>${data.sku_id}</b> &bull; ${data.confidence_note || 'AI Trained Signature Verified'}`;
+                skuTag.innerHTML = `<i class="fas fa-certificate" style="color:#10b981;"></i> Reference SKU: <b>${__h(data.sku_id)}</b> &bull; ${__h(data.confidence_note || 'AI Trained Signature Verified')}`;
 
             } else {
 
@@ -1132,7 +1132,7 @@
 
                         ${icon}
 
-                        <span style="font-size:0.75rem; color:${isIgnored ? '#94a3b8' : '#f1f5f9'}; font-weight:600;">${cl.name}:</span>
+                        <span style="font-size:0.75rem; color:${isIgnored ? '#94a3b8' : '#f1f5f9'}; font-weight:600;">${__h(cl.name)}:</span>
 
                         <b style="font-size:0.85rem; color:#fff; font-family:'JetBrains Mono',monospace;">${cl.count}</b>
 
@@ -1856,7 +1856,7 @@
 
             if (data.sku_id) {
 
-                label += ` &bull; ${data.sku_id}`;
+                label += ` &bull; ${__h(data.sku_id)}`;
 
             }
 
@@ -1896,7 +1896,7 @@
 
                             <span style="display:inline-block; width:12px; height:12px; border-radius:2px; background:${hexColor};"></span>
 
-                            <b>${s.name}</b>
+                            <b>${__h(s.name)}</b>
 
                         </td>
 
@@ -2708,7 +2708,7 @@
 
                         <div style="font-weight:800; color:#fff; display:flex; align-items:center; gap:6px;">
 
-                            <span style="color:${tagCol};">[${tagText}]</span> ${d.label}
+                            <span style="color:${tagCol};">[${tagText}]</span> ${__h(d.label)}
 
                         </div>
 
@@ -4156,7 +4156,7 @@
 
             if (file.size === 0) {
 
-                const err = `The selected file (${file.name || 'file'}) is empty (0 bytes). Please upload a valid image file.`;
+                const err = `The selected file (${__h(file.name || 'file')}) is empty (0 bytes). Please upload a valid image file.`;
 
                 if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
 
@@ -4234,7 +4234,7 @@
 
             if (hasNonImageExt || (!hasValidExt && !isImageMime && file.name && file.name.includes('.'))) {
 
-                const err = `Unsupported document format (${file.name || 'file'}). Please upload an image file (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).`;
+                const err = `Unsupported document format (${__h(file.name || 'file')}). Please upload an image file (JPEG, PNG, WebP, AVIF, TIFF, BMP, GIF).`;
 
                 if (typeof showToast === 'function') showToast(err, 'error'); else alert(err);
 
@@ -5835,7 +5835,7 @@
 
                         <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${cl.color_hex || '#0284c7'};"></span>
 
-                        <span style="color:#f1f5f9; font-weight:600;">${cl.name}:</span>
+                        <span style="color:#f1f5f9; font-weight:600;">${__h(cl.name)}:</span>
 
                         <b style="color:#fff; font-family:'JetBrains Mono',monospace;">${cl.count}</b>
 
@@ -7261,7 +7261,7 @@ function initWb3DPalletViewer(matrixData) {
 
                 hoverDiv.innerHTML = `
 
-                    <div style="font-weight:700; color:#38bdf8;">${item.label}</div>
+                    <div style="font-weight:700; color:#38bdf8;">${__h(item.label)}</div>
 
                     <div style="font-size:0.65rem; color:${item.isHidden ? '#f59e0b' : '#10b981'};">
 

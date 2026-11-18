@@ -9,6 +9,17 @@
     window.__warlogCsrfInstalled = true;
 
     var SAFE_METHODS = /^(GET|HEAD|OPTIONS)$/i;
+
+    /* Hardening: text that people type (driver names, plates, vendors, codes) is escaped before
+       it goes into page HTML.  __h(v) = safe text/attribute;  __js(v) = a safe quoted JavaScript
+       string for inline onclick="fn(...)" handlers. null/undefined become ''. */
+    var HTML_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' };
+    window.__h = function (v) {
+        return (v === null || v === undefined) ? '' : String(v).replace(/[&<>"'`]/g, function (c) { return HTML_ESC[c]; });
+    };
+    window.__js = function (v) {
+        return window.__h(JSON.stringify(v === null || v === undefined ? '' : String(v)));
+    };
     var WAREHOUSE_KEY = 'warlog_warehouse_id';
 
     /* RBAC Phase 3A: each browser tab keeps its own working warehouse, so switching in

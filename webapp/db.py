@@ -1,4 +1,5 @@
 import sqlite3
+import re
 import json
 import time
 import os
@@ -930,6 +931,19 @@ def get_delivery(po_number):
     conn.close()
     return _row_to_delivery(row)
 
+_BAD_CODE = re.compile(r"(\.\.|[/\\\x00-\x1f<>\"'`])")
+
+
+def code_problem(code: str, label: str = "SKU code") -> Optional[str]:
+    """Hardening: codes end up in file names and pages, so no path pieces or markup."""
+    code = str(code or "")
+    if len(code) > 64:
+        return f"{label} must be at most 64 characters."
+    if _BAD_CODE.search(code):
+        return f"{label} can't contain /, \\, '..', quotes, < or >."
+    return None
+
+
 class CodeInUseError(ValueError):
     """RBAC Phase 3B: a code (SKU, bin, PO, camera) that another company or warehouse
     already uses. Codes are unique across WARLOG; the message never says whose it is."""
@@ -1195,6 +1209,29 @@ def create_gate_pass(data):
                 raise
     return None
 
+def get_gate_pass_otp_attempts(gp_id) -> int:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT otp_failed_attempts FROM gate_passes WHERE id = ?", (gp_id,)).fetchone()
+        return int(row[0] or 0) if row else 0
+    except sqlite3.OperationalError:
+        return 0
+    finally:
+        conn.close()
+
+
+def set_gate_pass_otp_attempts(gp_id, attempts):
+    """Hardening: wrong gate-OTP tries for one pass (column from migration 011)."""
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("UPDATE gate_passes SET otp_failed_attempts = ? WHERE id = ?", (int(attempts), gp_id))
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
+
+
 def update_gate_pass(gp_id, data):
     """Update gate pass details and propagate connection updates to pre-registration."""
     conn = get_db()
@@ -1258,6 +1295,12 @@ def update_gate_pass(gp_id, data):
             WHERE id = ?
         """, (plate, vehicle_type, driver_name, load_desc, vendor, status, dock, expected_date,
               po_number or None, unloaded_qty, activity, bin_allocation, photo, driver_photo, sheet_str, driver_phone, vendor_email, otp, otp_verified, exit_time, gp_id))
+        if 'otp' in data and data.get('otp') and data.get('otp') != curr['otp']:
+            # a newly issued code starts with a clean count of wrong tries
+            try:
+                conn.execute("UPDATE gate_passes SET otp_failed_attempts = 0 WHERE id = ?", (curr['id'],))
+            except sqlite3.OperationalError:
+                pass
         if status != curr['status']:
             # RBAC Phase 8: gate pass history (who moved it, from, to, why) for every route
             import gate_flow
@@ -2488,6 +2531,10 @@ def add_sku(sku_id, name, description, category, unit_weight=0.0, unit_volume=0.
     tbp_val = max(1, int(target_bundles_per_pallet or 10))
     wt_val = float(unit_weight or 0.0)
     vol_val = float(unit_volume or 0.0)
+    bad = code_problem(sku_code)
+    if bad:
+        conn.close()
+        raise ValueError(bad)
     try:
         ensure_code_free(conn, "skus", "sku_id", sku_code, "SKU code")
     except CodeInUseError:
@@ -2849,6 +2896,8 @@ def save_sku_master_record(data):
     name = str(data.get('name', '')).strip()
     if not sku_id:
         return None, "SKU Code is required."
+    if code_problem(sku_id) and not get_sku_by_id(sku_id):
+        return None, code_problem(sku_id)
     if not name:
         return None, "Product Name is required."
 
@@ -2978,6 +3027,10 @@ def batch_import_sku_records(skus_list, duplicate_policy='skip'):
             if not sku_id or not name:
                 failed += 1
                 errors.append({"row": row_num, "sku_id": sku_id, "error": "SKU Code and Product Name are mandatory."})
+                continue
+            if code_problem(sku_id) and not conn.execute("SELECT 1 FROM skus WHERE sku_id = ?", (sku_id,)).fetchone():
+                failed += 1
+                errors.append({"row": row_num, "sku_id": sku_id, "error": code_problem(sku_id)})
                 continue
 
             upb_val = max(1, int(float(item.get('units_per_bundle', 1) or 1)))

@@ -2108,7 +2108,7 @@
                                     configBadge.innerText = 'Configured';
                                     configBadge.className = 'badge sent';
                                 }
-                                showRoiAlert(`✓ ROI saved successfully for ${currentRoiZone.zone_code} on camera ${data.data.camera_code}.`, 'success');
+                                showRoiAlert(`✓ ROI saved successfully for ${__h(currentRoiZone.zone_code)} on camera ${data.data.camera_code}.`, 'success');
                                 fetchVisionZones();
                             } else {
                                 showRoiAlert(data.message || 'Failed to save ROI configuration.');
@@ -2380,7 +2380,7 @@
                                 const sel = document.getElementById('ttCameraSelect');
                                 if (sel) {
                                     sel.innerHTML = camList.map(c => `
-                                        <option value="${c.camera_id}">${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})</option>
+                                        <option value="${c.camera_id}">${c.camera_code || c.camera_id} - ${__h(c.name)} (${__h(c.location || 'General')})</option>
                                     `).join('');
                                 }
                             }
@@ -2668,7 +2668,7 @@
                                         ${t.hits}
                                     </td>
                                     <td style="text-align:center;">
-                                        <span class="badge sent" style="font-size:0.72rem; text-transform:uppercase;">${t.state || 'Active'}</span>
+                                        <span class="badge sent" style="font-size:0.72rem; text-transform:uppercase;">${__h(t.state || 'Active')}</span>
                                     </td>
                                 </tr>
                             `;
@@ -2689,7 +2689,7 @@
                                 const sel = document.getElementById('idCameraSelect');
                                 if (sel) {
                                     sel.innerHTML = camList.map(c => `
-                                        <option value="${c.camera_id}">${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})</option>
+                                        <option value="${c.camera_id}">${c.camera_code || c.camera_id} - ${__h(c.name)} (${__h(c.location || 'General')})</option>
                                     `).join('');
                                 }
                             }
@@ -3042,7 +3042,7 @@
                                 const camList = Array.isArray(cams) ? cams : (cams.data || []);
                                 select.innerHTML = camList.map(c => `
                                     <option value="${c.camera_id}" ${c.camera_id === valActiveCameraId ? 'selected' : ''}>
-                                        ${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})
+                                        ${c.camera_code || c.camera_id} - ${__h(c.name)} (${__h(c.location || 'General')})
                                     </option>
                                 `).join('');
                                 return;
@@ -3340,7 +3340,7 @@
                                 const camList = Array.isArray(cams) ? cams : (cams.data || []);
                                 select.innerHTML = camList.map(c => `
                                     <option value="${c.camera_id}" ${c.camera_id === assocActiveCameraId ? 'selected' : ''}>
-                                        ${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})
+                                        ${c.camera_code || c.camera_id} - ${__h(c.name)} (${__h(c.location || 'General')})
                                     </option>
                                 `).join('');
                                 return;
@@ -3928,7 +3928,7 @@
                                 const camList = Array.isArray(cams) ? cams : (cams.data || []);
                                 select.innerHTML = camList.map(c => `
                                     <option value="${c.camera_id}" ${c.camera_id === wbActiveCameraId ? 'selected' : ''}>
-                                        ${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})
+                                        ${c.camera_code || c.camera_id} - ${__h(c.name)} (${__h(c.location || 'General')})
                                     </option>
                                 `).join('');
                                 return;
@@ -4539,7 +4539,7 @@
                                 const camList = Array.isArray(cams) ? cams : (cams.data || []);
                                 select.innerHTML = camList.map(c => `
                                     <option value="${c.camera_id}" ${c.camera_id === bbActiveCameraId ? 'selected' : ''}>
-                                        ${c.camera_code || c.camera_id} - ${c.name} (${c.location || 'General'})
+                                        ${c.camera_code || c.camera_id} - ${__h(c.name)} (${__h(c.location || 'General')})
                                     </option>
                                 `).join('');
                                 return;
@@ -7107,6 +7107,9 @@
                         if (imgEl) imgEl.style.display = 'block';
                         if (fallbackEl) fallbackEl.style.display = 'none';
                     }
+                    // the preview <img> calls these from onerror/onload attributes, so they must be global
+                    window.handleDashPreviewError = handleDashPreviewError;
+                    window.handleDashPreviewSuccess = handleDashPreviewSuccess;
 
                     function renderDashboardMaterials(materials) {
                         const listEl = document.getElementById('dashMaterialsList');

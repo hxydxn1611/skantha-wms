@@ -60,7 +60,7 @@
             const data = await res.json();
 
             if (!data.success) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="color:#ef4444; text-align:center; padding:1.5rem;">Error loading SKU records: ${data.message || 'Unknown error'}</td></tr>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="color:#ef4444; text-align:center; padding:1.5rem;">Error loading SKU records: ${__h(data.message || 'Unknown error')}</td></tr>`;
                 return;
             }
 
@@ -164,7 +164,7 @@
             if (tbody) tbody.innerHTML = html;
         } catch (e) {
             console.error('Error fetching SKU master:', e);
-            if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="color:#ef4444; text-align:center; padding:1.5rem;">Failed to fetch SKU records: ${e.message}</td></tr>`;
+            if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="color:#ef4444; text-align:center; padding:1.5rem;">Failed to fetch SKU records: ${__h(e.message)}</td></tr>`;
         }
     }
 
@@ -510,7 +510,7 @@
             const errContainer = document.getElementById('excelImportErrorsContainer');
             if (data.errors && data.errors.length > 0) {
                 errContainer.style.display = 'block';
-                errContainer.innerHTML = data.errors.map(e => `<div>Row ${e.row} [${e.sku_id}]: ${escapeHtml(e.error)}</div>`).join('');
+                errContainer.innerHTML = data.errors.map(e => `<div>Row ${e.row} [${__h(e.sku_id)}]: ${escapeHtml(e.error)}</div>`).join('');
             } else {
                 errContainer.style.display = 'none';
             }
@@ -610,7 +610,7 @@
                 </div>
             `).join('');
         } catch (e) {
-            container.innerHTML = `<div style="grid-column:1/-1; color:#ef4444; padding:1rem;">Error: ${e.message}</div>`;
+            container.innerHTML = `<div style="grid-column:1/-1; color:#ef4444; padding:1rem;">Error: ${__h(e.message)}</div>`;
         }
     }
 

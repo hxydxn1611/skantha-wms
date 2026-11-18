@@ -250,6 +250,7 @@ RBAC_ADDED_KEYS = frozenset({
     "is_demo", "company_id", "state",      # columns added by RBAC migrations
     "warehouse_id", "legacy_test",         # ownership columns (Phase 3A)
     "otp", "otp_generated",                # deliberately removed from responses in Phase 2 (H17)
+    "otp_failed_attempts",                 # hardening: wrong gate-OTP tries per pass
 })
 
 # Deliberate Phase 1 data changes, excluded from the "existing rows unchanged" check:

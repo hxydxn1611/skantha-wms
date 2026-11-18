@@ -21,6 +21,7 @@ Steps
                       warehouse (table rebuild, every row/id/link kept) (Phase 3B)
   009_starter_roles   starter roles for every company (editable custom roles) (Phase 5)
   010_settings_tables platform_settings, company_settings (Phase 7)
+  011_gate_otp_attempts gate_passes.otp_failed_attempts (hardening)
 
 The permission catalogue is synced on every run (idempotent upsert; removed keys retired).
 """
@@ -376,6 +377,12 @@ def _step_settings_tables(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_ts ON audit_logs(ts)")
 
 
+def _step_gate_otp_attempts(conn: sqlite3.Connection) -> None:
+    """Hardening: wrong gate-OTP tries are counted per pass (5 tries, then the code is void)."""
+    if "otp_failed_attempts" not in _columns(conn, "gate_passes"):
+        conn.execute("ALTER TABLE gate_passes ADD COLUMN otp_failed_attempts INTEGER NOT NULL DEFAULT 0")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -643,6 +650,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("008_per_company_codes", _step_per_company_codes),
     ("009_starter_roles", _step_starter_roles),
     ("010_settings_tables", _step_settings_tables),
+    ("011_gate_otp_attempts", _step_gate_otp_attempts),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {

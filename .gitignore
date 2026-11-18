@@ -42,3 +42,7 @@ webapp/static/invoices/*.pdf
 
 # RBAC backups and baselines (contain DB copies; never commit)
 backups/
+
+# Copilot AI key file (never commit)
+.gemini_api_key
+webapp/.gemini_api_key

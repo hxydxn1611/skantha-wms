@@ -160,17 +160,17 @@
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
                         <div>
                             <span style="font-size:0.72rem; font-weight:700; color:#38bdf8; letter-spacing:0.05em; text-transform:uppercase;">${wh.code}</span>
-                            <h3 style="color:#f8fafc; font-size:1.1rem; margin:2px 0 0 0;">${wh.name}</h3>
+                            <h3 style="color:#f8fafc; font-size:1.1rem; margin:2px 0 0 0;">${__h(wh.name)}</h3>
                         </div>
                         ${isActive ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:4px;"><i class="fas fa-check-circle" style="margin-right:4px;"></i>ACTIVE</span>' : ''}
                     </div>
                     <div style="display:flex; align-items:center; gap:6px; color:#94a3b8; font-size:0.83rem; margin-bottom:8px;">
                         <i class="fas fa-location-dot" style="color:#0ea5e9;"></i>
-                        <span>${wh.city || 'Primary Region'}</span>
-                        ${wh.address ? `<span style="color:#64748b;">• ${wh.address}</span>` : ''}
+                        <span>${__h(wh.city || 'Primary Region')}</span>
+                        ${wh.address ? `<span style="color:#64748b;">• ${__h(wh.address)}</span>` : ''}
                     </div>
                     <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:6px 10px; margin-bottom:14px; font-size:0.78rem; color:#cbd5e1;">
-                        <span style="color:#64748b;">Industry / Nature:</span> <strong>${wh.industry || 'General Logistics'}</strong>
+                        <span style="color:#64748b;">Industry / Nature:</span> <strong>${__h(wh.industry || 'General Logistics')}</strong>
                     </div>
                 </div>
                 <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
@@ -337,8 +337,8 @@
                             ${bp.mode || 'DEDICATED'}
                         </span>
                     </div>
-                    <h4 style="margin:0 0 4px 0; font-size:0.95rem; font-weight:700; color:#f8fafc;">${bp.name}</h4>
-                    <p style="margin:0 0 10px 0; font-size:0.78rem; color:#94a3b8; line-height:1.35;">${bp.description}</p>
+                    <h4 style="margin:0 0 4px 0; font-size:0.95rem; font-weight:700; color:#f8fafc;">${__h(bp.name)}</h4>
+                    <p style="margin:0 0 10px 0; font-size:0.78rem; color:#94a3b8; line-height:1.35;">${__h(bp.description)}</p>
                     
                     <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;">
                         ${sampleSkusList}
@@ -465,7 +465,7 @@
                         <div style="display:flex; align-items:center; justify-content:space-between;">
                             <div>
                                 <i class="fas fa-circle-check" style="margin-right:6px;"></i>
-                                <b>Success!</b> ${data.message}
+                                <b>Success!</b> ${__h(data.message)}
                                 <div style="font-size:0.78rem; color:#a7f3d0; margin-top:4px;">
                                     Facility: <b>${data.warehouse ? data.warehouse.name : targetWhCode}</b> &bull; Added ${data.skus_created || 0} SKUs, ${data.classes_created || 0} Vision Classes, ${data.zones_created || 0} Storage Zones, ${data.deliveries_created || 0} Inbound Shipments.
                                 </div>

@@ -323,7 +323,20 @@ def handle_scope_fence(e):
 @app.errorhandler(db.CodeInUseError)
 def handle_code_in_use(e):
     """RBAC Phase 3B: a code another company/warehouse already uses (never says whose)."""
-    return jsonify({'success': False, 'error': str(e), 'message': str(e), 'error_code': 'code_in_use'}), 409
+    return jsonify({'success': False, 'error': _public_error(e), 'message': _public_error(e), 'error_code': 'code_in_use'}), 409
+
+
+def _public_error(e) -> str:
+    """Hardening (H18 for 4xx/200 answers): what an error may tell the browser.
+    Our own validation messages (ValueError) and missing fields are shown; anything else
+    (database errors, file paths, crashes) goes to the server log with a reference."""
+    if isinstance(e, KeyError):
+        return f"Missing field: {e.args[0] if e.args else ''}".strip()
+    if type(e) is ValueError or isinstance(e, (db.CodeInUseError, db.WarehouseOwnershipError)):
+        return str(e)
+    ref = uuid.uuid4().hex[:8]
+    logger.warning(f"[ERROR ref={ref}] {request.method} {request.path}: {type(e).__name__}: {e}")
+    return f"Something went wrong (reference {ref})."
 
 
 @app.errorhandler(Exception)
@@ -554,7 +567,7 @@ def api_company_preview_recognition():
             'operating_mode': bp.get('operating_mode', 'DEDICATED')
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
 
 
 def _smtp_settings() -> tuple:
@@ -704,7 +717,7 @@ def api_send_otp():
         })
     except Exception as e:
         logger.error(f"Error in api_send_otp: {e}")
-        return jsonify({'success': False, 'message': f'Internal error sending OTP: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'Internal error sending OTP: {_public_error(e)}'}), 500
 
 
 def _industry_name_for(blueprint_key: str, company_name: str, prompt: str) -> str:
@@ -824,7 +837,7 @@ def api_verify_otp_and_register():
         })
     except Exception as e:
         logger.error(f"Error in api_verify_otp_and_register: {e}")
-        return jsonify({'success': False, 'message': f'Registration failed: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'Registration failed: {_public_error(e)}'}), 500
 
 
 # RBAC Phase 1 (H4): /api/register was removed. It created accounts without email
@@ -891,7 +904,7 @@ def api_company_auto_setup():
             return jsonify({'success': False, 'error': res.get('error', 'Setup failed')}), 500
     except Exception as e:
         logger.error(f"Error in company auto setup: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
 
 @app.route('/api/deliveries', methods=['GET', 'POST'])
 def handle_deliveries():
@@ -930,7 +943,7 @@ def api_add_bin():
     except db.CodeInUseError:
         raise
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'success': False, 'error': _public_error(e)}), 400
 
 @app.route('/api/bins/<bin_id>', methods=['PUT', 'POST'])
 def api_update_bin(bin_id):
@@ -947,7 +960,7 @@ def api_update_bin(bin_id):
         )
         return jsonify({'success': True, 'message': f'Bin {bin_id} updated successfully'})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'success': False, 'error': _public_error(e)}), 400
 
 @app.route('/api/skus', methods=['GET'])
 def api_get_skus():
@@ -973,7 +986,7 @@ def api_add_sku():
     except db.CodeInUseError:
         raise
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': _public_error(e)})
 
 @app.route('/api/skus/<sku_id>/bundle_config', methods=['POST', 'PUT'])
 def api_update_sku_bundle_config(sku_id):
@@ -999,7 +1012,7 @@ def api_update_sku_bundle_config(sku_id):
         })
     except Exception as e:
         logger.exception(f"Failed updating bundle config for SKU {sku_id}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
 
 # ==============================================================================
 # MULTI-WAREHOUSE & INDUSTRY BLUEPRINT API ROUTES
@@ -1019,7 +1032,7 @@ def api_get_warehouses():
                         "scoped_company": (session.get('user') or {}).get('company_name')})
     except Exception as e:
         logger.error(f"Error fetching warehouses: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/warehouses/active', methods=['GET'])
 def api_get_active_warehouse():
@@ -1027,7 +1040,7 @@ def api_get_active_warehouse():
         active = db.get_warehouse_by_id(rbac_service.current_warehouse_id()) or db.get_active_warehouse()
         return jsonify({"success": True, "active_warehouse": {**active, 'is_active': 1} if active else active})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/warehouses/switch', methods=['POST'])
 def api_switch_warehouse():
@@ -1051,7 +1064,7 @@ def api_switch_warehouse():
         return jsonify({"success": True, "warehouse": switched, "message": f"Switched to {switched['name']} ({switched['code']})"})
     except Exception as e:
         logger.error(f"Error switching warehouse: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/warehouses', methods=['POST'])
 @app.route('/api/warehouses/create', methods=['POST'])
@@ -1121,7 +1134,7 @@ def api_create_warehouse():
         return jsonify({"success": True, "warehouse": wh, "message": f"Warehouse {wh['name']} ({wh['code']}) created successfully."})
     except Exception as e:
         logger.error(f"Error creating warehouse: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/industry_blueprints', methods=['GET'])
 def api_get_industry_blueprints():
@@ -1130,7 +1143,7 @@ def api_get_industry_blueprints():
         return jsonify({"success": True, "blueprints": catalog})
     except Exception as e:
         logger.error(f"Error fetching industry blueprints: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/industry_blueprints/apply', methods=['POST'])
 def api_apply_industry_blueprint():
@@ -1197,7 +1210,7 @@ def api_apply_industry_blueprint():
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error applying industry blueprint: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/bins', methods=['GET'])
 def api_get_bins():
@@ -1209,7 +1222,7 @@ def api_get_bin_inventory(bin_id):
         inventory = db.get_bin_inventory(bin_id)
         return jsonify(inventory), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": _public_error(e)}), 500
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
@@ -1249,7 +1262,8 @@ def create_gate_pass():
     otp = f"{_secrets.randbelow(9000) + 1000}" if data.get('driver_phone') else ""
     if otp:
         data['otp'] = otp
-        print(f"\n[MOCK SMS] Sent OTP {otp} to Driver Phone {data.get('driver_phone')}\n")
+        # Hardening: the log never shows the code or the phone number ('read to driver' shows the code)
+        logger.info("[GATE OTP] code issued for a new gate pass")
             
     # Auto-matches against pre-registered deliveries (by plate or po_number)
     # and connects both collections inside db.create_gate_pass
@@ -1269,11 +1283,34 @@ def verify_otp():
     gp = db.get_gate_pass(gp_id)
     if not gp:
         return jsonify({"success": False, "message": "Gate pass not found."})
-    
-    if gp.get('otp') == entered_otp:
-        db.update_gate_pass(gp_id, {"otp_verified": 1})
+
+    # Hardening: 5 wrong tries per code, then the code is void (a new one must be issued, or a
+    # permitted person uses the OTP override with a reason). Constant-time compare; every
+    # wrong try is audited; the code is cleared once verified.
+    import hmac as _hmac
+    MAX_OTP_TRIES = 5
+    tries = db.get_gate_pass_otp_attempts(gp_id)
+    stored = str(gp.get('otp') or '')
+    if gp.get('otp_verified'):
+        return jsonify({"success": True, "message": "OTP already verified."})
+    if not stored:
+        return jsonify({"success": False, "message": "No OTP has been issued for this gate pass."})
+    if tries >= MAX_OTP_TRIES:
+        return jsonify({"success": False, "error_code": "otp_locked",
+                        "message": "Too many wrong codes. Issue a new code, or use the OTP override with a reason."}), 429
+    if _hmac.compare_digest(stored, str(entered_otp or '').strip()):
+        db.update_gate_pass(gp_id, {"otp_verified": 1, "otp": ""})
+        db.set_gate_pass_otp_attempts(gp_id, 0)
         return jsonify({"success": True, "message": "OTP Verified Successfully!"})
-    return jsonify({"success": False, "message": "Invalid OTP. Please try again."})
+    tries += 1
+    db.set_gate_pass_otp_attempts(gp_id, tries)
+    current = g.get('current_user') or {}
+    auth_service.audit('gate.otp_failed', actor=current, company_id=auth_service.user_company_id(current['id']) if current.get('id') else None,
+                       warehouse_id=rbac_service.current_warehouse_id(), resource_type='gate_pass',
+                       resource_id=str(gp_id), after={"failed_attempts": tries}, ip=_client_ip(), result='denied')
+    left = MAX_OTP_TRIES - tries
+    return jsonify({"success": False, "message": (f"Invalid OTP. {left} tr{'y' if left == 1 else 'ies'} left."
+                                                  if left > 0 else "Invalid OTP. The code is now void; issue a new one.")})
 
 @app.route('/api/gate/checkout', methods=['POST'])
 def checkout():
@@ -1803,7 +1840,9 @@ def api_upload_sku_images():
             errors.append(f"Target SKU '{sku_for_file}' for image '{orig_name}' does not exist.")
             continue
 
-        safe_filename = f"{sku_for_file}_{uuid.uuid4().hex[:8]}{ext}"
+        # Hardening: the file name never carries path pieces, whatever the SKU code is
+        safe_sku = re.sub(r'[^A-Za-z0-9._-]', '_', str(sku_for_file)).strip('.') or 'SKU'
+        safe_filename = f"{safe_sku}_{uuid.uuid4().hex[:8]}{ext}"
         dest_path = os.path.join(SKU_IMAGE_UPLOAD_DIR, safe_filename)
         try:
             f.seek(0)
@@ -2069,7 +2108,7 @@ def api_detection_test():
             nparr = np.frombuffer(file_bytes, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         except Exception as e:
-            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {e}"}), 400
+            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {_public_error(e)}"}), 400
     elif sample_scene:
         sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", sample_scene)
         if os.path.exists(sample_path):
@@ -2258,7 +2297,7 @@ def api_tracking_test():
             nparr = np.frombuffer(file_bytes, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         except Exception as e:
-            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {e}"}), 400
+            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {_public_error(e)}"}), 400
     elif sample_scene:
         sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", sample_scene)
         if os.path.exists(sample_path):
@@ -2448,7 +2487,7 @@ def api_identity_test():
             nparr = np.frombuffer(file_bytes, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         except Exception as e:
-            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {e}"}), 400
+            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {_public_error(e)}"}), 400
     elif sample_scene:
         sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", sample_scene)
         if os.path.exists(sample_path):
@@ -3897,18 +3936,12 @@ def update_gate_pass(gp_id):
         data['otp'] = otp
         phone = data.get('driver_phone')
         if phone:
-            try:
-                import requests  # type: ignore
-                resp = requests.post('https://textbelt.com/text', data={
-                    'phone': phone, 
-                    'message': f'Skandha WMS: Your Dock Assignment OTP is {otp}', 
-                    'key': 'textbelt'
-                })
-                sms_response = resp.json()
-                print("[REAL SMS API]", sms_response)
-            except Exception as e:
-                sms_response = {"success": False, "error": str(e)}
-                print("SMS Error:", e)
+            # Hardening: no third-party texting service (the free public key sent drivers' phone
+            # numbers and codes abroad, with no timeout). Until an SMS provider is configured the
+            # code reaches the driver through 'read to driver' (gate.otp.send).
+            sms_response = {"success": False, "sent": False,
+                            "reason": "No SMS provider configured; use 'read to driver'."}
+            logger.info(f"[GATE OTP] code issued for gate pass {gp_id} (no SMS provider configured)")
 
     existing_before = db.get_gate_pass(gp_id)
     if existing_before:
@@ -4040,7 +4073,7 @@ def api_dock_gate_pass_evidence(gp_id):
             return jsonify({"success": False, "error": f"Gate pass '{gp_id}' not found"}), 404
         return jsonify({"success": True, "data": evidence}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/dock/verification/<dock_name>', methods=['GET'])
 def api_dock_verification(dock_name):
@@ -4049,7 +4082,7 @@ def api_dock_verification(dock_name):
         dossier = get_integration_service().get_dock_unloading_evidence_dossier(dock_name)
         return jsonify({"success": True, "data": dossier}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/dock/auto_add/<gp_id>', methods=['POST'])
 def auto_add_step(gp_id):
@@ -4277,7 +4310,7 @@ def gate_auto_dispatch_toggle():
             return jsonify({"success": True, "auto_dispatch": state})
         return jsonify({"success": True, "auto_dispatch": get_gate_auto_dispatch()})
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/approve_all_matched', methods=['POST'])
@@ -4326,7 +4359,7 @@ def approve_all_matched_passes():
             "message": f"Dispatched {dispatched_count} Gate Pass(es) to active Docks!"
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 def _collect_live_gate_frames() -> List[Tuple[str, np.ndarray, List[Dict[str, Any]]]]:
@@ -4485,7 +4518,7 @@ def simulate_gate_arrival():
             "message": f"Gate Pass {gp_id} issued for {plate} ({smart_dock})"
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/scan_now', methods=['POST'])
@@ -4530,7 +4563,7 @@ def scan_gate_now():
             "message": "No clear plate locked in current frame — use 1-Click Expected PO Queue or Snap + Auto-OCR."
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/snap_and_read', methods=['POST'])
@@ -4590,7 +4623,7 @@ def snap_and_read_gate():
             "message": "High-res truck snapshot captured! Select an Expected PO below to admit in 1 click."
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/register_walkin_vehicle', methods=['POST'])
@@ -4717,7 +4750,7 @@ def register_walkin_vehicle():
             "message": f"Registered new vehicle {plate} with PO {po_number} & Gate Pass {gp_id} ({smart_dock})!"
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 @app.route('/api/cameras', methods=['POST'])
 def add_camera():
@@ -5278,7 +5311,7 @@ def api_integration_overview():
         overview = get_integration_service().get_unified_overview()
         return jsonify({"success": True, "data": overview}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/delivery/<po_number>', methods=['GET'])
 def api_integration_delivery(po_number):
@@ -5289,7 +5322,7 @@ def api_integration_delivery(po_number):
             return jsonify({"success": False, "error": f"Delivery '{po_number}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/gate_pass/<gp_id>', methods=['GET'])
 def api_integration_gate_pass(gp_id):
@@ -5300,7 +5333,7 @@ def api_integration_gate_pass(gp_id):
             return jsonify({"success": False, "error": f"Gate pass '{gp_id}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/material/<material_id>', methods=['GET'])
 def api_integration_material(material_id):
@@ -5311,7 +5344,7 @@ def api_integration_material(material_id):
             return jsonify({"success": False, "error": f"Material '{material_id}' not found in traceability"}), 404
         return jsonify({"success": True, "data": dossier}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/dock/<dock_name>', methods=['GET'])
 def api_integration_dock(dock_name):
@@ -5320,7 +5353,7 @@ def api_integration_dock(dock_name):
         ctx = get_integration_service().get_dock_context(dock_name)
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/bin/<bin_id>', methods=['GET'])
 def api_integration_bin(bin_id):
@@ -5331,7 +5364,7 @@ def api_integration_bin(bin_id):
             return jsonify({"success": False, "error": f"Bin '{bin_id}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/camera/<camera_id>', methods=['GET'])
 def api_integration_camera(camera_id):
@@ -5342,7 +5375,7 @@ def api_integration_camera(camera_id):
             return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/e2e/test_scenario', methods=['POST'])
 def api_integration_e2e_test_scenario():
@@ -5353,7 +5386,7 @@ def api_integration_e2e_test_scenario():
         result = get_integration_service().run_e2e_integration_scenario(po_number)
         return jsonify(result), 200 if result.get("success") else 400
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 # ============================================================================
 # PART 13 — WMS INTEGRATION & CONTROLLED ACTIONS ENHANCEMENT
@@ -5375,7 +5408,7 @@ def api_controlled_actions_recommendations():
         }), 200
     except Exception as e:
         logger.error(f"Error fetching controlled action recommendations: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/preview', methods=['POST'])
@@ -5404,7 +5437,7 @@ def api_controlled_actions_preview():
         }), 200
     except Exception as e:
         logger.error(f"Error generating controlled action preview: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/execute', methods=['POST'])
@@ -5446,7 +5479,7 @@ def api_controlled_actions_execute():
         return jsonify(res), status_code
     except Exception as e:
         logger.error(f"Error executing controlled action: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/reject', methods=['POST'])
@@ -5477,7 +5510,7 @@ def api_controlled_actions_reject():
         return jsonify(res), 200
     except Exception as e:
         logger.error(f"Error rejecting controlled action: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/audit', methods=['GET'])
@@ -5495,7 +5528,7 @@ def api_controlled_actions_audit():
         }), 200
     except Exception as e:
         logger.error(f"Error fetching controlled action audit: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/status/<path:idempotency_key>', methods=['GET'])
@@ -5577,7 +5610,7 @@ def api_vision_runtime_status():
         telemetry = mgr.get_telemetry()
         return jsonify({"success": True, "data": telemetry}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras', methods=['GET'])
@@ -5588,7 +5621,7 @@ def api_vision_runtime_cameras():
         telemetry = mgr.get_telemetry()
         return jsonify({"success": True, "cameras": telemetry.get("cameras", [])}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>', methods=['GET'])
@@ -5601,7 +5634,7 @@ def api_vision_runtime_camera_detail(camera_id):
             return jsonify({"success": False, "error": f"Camera session '{camera_id}' not found"}), 404
         return jsonify({"success": True, "camera": sess.to_dict()}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>/start', methods=['POST'])
@@ -5628,7 +5661,7 @@ def api_vision_runtime_camera_start(camera_id):
             "camera": sess.to_dict()
         }), 200 if success else 500
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>/stop', methods=['POST'])
@@ -5647,7 +5680,7 @@ def api_vision_runtime_camera_stop(camera_id):
             "camera": sess.to_dict()
         }), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>/restart', methods=['POST'])
@@ -5666,7 +5699,7 @@ def api_vision_runtime_camera_restart(camera_id):
             "camera": sess.to_dict()
         }), 200 if success else 500
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/start', methods=['POST'])
@@ -5690,7 +5723,7 @@ def api_vision_runtime_start_all():
         results = mgr.start_all()
         return jsonify({"success": True, "results": results}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/stop', methods=['POST'])
@@ -5714,7 +5747,7 @@ def api_vision_runtime_stop_all():
         results = mgr.stop_all()
         return jsonify({"success": True, "results": results}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/preview.jpg', methods=['GET'])
@@ -5724,8 +5757,9 @@ def api_vision_runtime_camera_preview_jpg(camera_id=None):
     mgr = get_vision_runtime_manager()
     cid = camera_id or request.args.get('camera_id')
     sess = mgr.get_session(cid) if cid else None
-    if not sess and mgr.sessions:
-        sess = next(iter(mgr.sessions.values()))
+    if not sess and not cid and mgr.sessions:
+        # no camera named: the first camera this person may see (never another company's)
+        sess = next((s for cam_id, s in mgr.sessions.items() if rbac_scope.camera_visible(cam_id)), None)
     
     target_cid = sess.camera_id if sess else (cid or "CAM-001")
     target_loc = sess.location if sess else "Dock 01"
@@ -5832,7 +5866,7 @@ def api_vision_runtime_camera_test_step(camera_id=None):
             }
         }), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/dashboard/live', methods=['GET'])
@@ -6123,7 +6157,7 @@ def api_vision_dashboard_live():
 
     except Exception as e:
         logger.error(f"Failed to generate live dashboard summary: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count/audit/<bin_id>', methods=['GET'])
@@ -6137,7 +6171,7 @@ def audit_bin_cycle_count(bin_id):
         result = service.evaluate_bin(bin_id)
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count/audit/<bin_id>/simulate', methods=['POST'])
@@ -6152,7 +6186,7 @@ def simulate_bin_cycle_count(bin_id):
         result = service.evaluate_bin(bin_id, observation_override=override)
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count/activities', methods=['GET'])
@@ -6163,7 +6197,7 @@ def get_cycle_count_activities():
         activities = db.get_activities(limit=limit)
         return jsonify({"success": True, "activities": activities}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count', methods=['POST'])
@@ -7158,7 +7192,7 @@ def api_multi_angle_count():
 
     except Exception as e:
         logger.exception("Error running multi-angle audit count")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/sync-audit-count', methods=['POST'])
@@ -7200,7 +7234,7 @@ def api_sync_audit_count():
             "pallet": updated
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 # ==============================================================================
@@ -7250,7 +7284,7 @@ def api_get_vision_skus():
         return jsonify({"success": True, "skus": skus, "count": len(skus)})
     except Exception as e:
         logger.exception("Error fetching vision SKUs")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cameras/<camera_id>/snapshot', methods=['GET'])
@@ -7269,7 +7303,7 @@ def api_camera_snapshot(camera_id):
         return Response(buf.tobytes(), mimetype='image/jpeg')
     except Exception as e:
         logger.exception(f"Error capturing snapshot from camera {camera_id}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 def decode_image_bytes_to_bgr(raw_bytes: bytes, max_dim: int = 8192):
@@ -7612,7 +7646,7 @@ def api_count_pallet_pieces():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error counting individual pieces")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/re-render-pieces', methods=['POST'])
@@ -7674,7 +7708,7 @@ def api_re_render_pallet_pieces():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error re-rendering pieces")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/count-bundles', methods=['POST'])
@@ -7877,7 +7911,7 @@ def api_count_pallet_bundles():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error counting bundles multi-view")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 
@@ -8076,7 +8110,7 @@ def api_count_pallet_multiview():
 
     except Exception as e:
         logger.exception("Error during multi-view fusion counting")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 
@@ -8142,7 +8176,7 @@ def api_review_pallet_multiview():
         return jsonify({'success': False, 'error': str(ve), 'error_code': 'invalid_review_action'}), 400
     except Exception as e:
         logger.exception('Error during multi-view review action')
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
 
 @app.route('/api/pallets/resolve-strategy', methods=['POST'])
 def api_resolve_counting_strategy():
@@ -8183,7 +8217,7 @@ def api_resolve_counting_strategy():
         return jsonify(resolution), 200
     except Exception as e:
         logger.exception("Error resolving counting strategy")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/transfer-inventory', methods=['POST'])
@@ -8271,7 +8305,7 @@ def api_transfer_vision_inventory():
         return jsonify({"success": False, "error": str(ve), "error_code": "validation_error"}), 400
     except Exception as e:
         logger.exception("Error transferring vision count to inventory")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/glass-profiles', methods=['GET'])
@@ -8282,7 +8316,7 @@ def api_get_glass_profiles():
         return jsonify({"success": True, "profiles": profiles}), 200
     except Exception as e:
         logger.exception("Error fetching glass profiles")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/glass-profiles', methods=['POST'])
@@ -8296,7 +8330,7 @@ def api_save_glass_profile():
         return jsonify({"success": True, "profile": saved}), 200
     except Exception as e:
         logger.exception("Error saving glass profile")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/glass-profiles/<profile_id>', methods=['DELETE'])
@@ -8307,7 +8341,7 @@ def api_delete_glass_profile(profile_id):
         return jsonify({"success": deleted}), 200
     except Exception as e:
         logger.exception("Error deleting glass profile")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/decode_ocr', methods=['POST'])
@@ -8331,7 +8365,7 @@ def decode_ocr_endpoint():
         return jsonify({"success": False, "text": "", "message": "No barcode/QR found"})
     except Exception as e:
         logger.exception("Error decoding image QR")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/telemetry/live', methods=['GET'])
@@ -8434,7 +8468,7 @@ def get_live_telemetry_endpoint():
         })
     except Exception as e:
         logger.exception("Error in live telemetry endpoint")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 
@@ -8473,7 +8507,7 @@ def api_copilot_chat():
         return jsonify(result)
     except Exception as e:
         logger.exception("Error in copilot chat endpoint")
-        return jsonify({"success": False, "reply": f"Copilot error: {e}", "cards": []}), 500
+        return jsonify({"success": False, "reply": f"Copilot error: {_public_error(e)}", "cards": []}), 500
 
 @app.route('/api/copilot/action', methods=['POST'])
 def api_copilot_action():
@@ -8503,7 +8537,7 @@ def api_copilot_action():
         return jsonify(result)
     except Exception as e:
         logger.exception("Error in copilot action endpoint")
-        return jsonify({"success": False, "message": f"Action error: {e}"}), 500
+        return jsonify({"success": False, "message": f"Action error: {_public_error(e)}"}), 500
 
 # RBAC Phase 7: audit retention (default 365 days, per company audit.retention_days).
 # Runs a few minutes after start and then once a day; it only removes rows past retention.

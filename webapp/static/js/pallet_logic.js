@@ -147,8 +147,8 @@
                     <div class="violation-card-desc">${v.description || v.details || 'Human error caught by Autonomous Vision pipeline.'}</div>
                     <div class="violation-card-meta">
                         ${v.pallet_id ? `<span>PLT: <b>${v.pallet_id}</b></span>` : ''}
-                        ${v.bin_id ? `<span>BIN: <b>${v.bin_id}</b></span>` : ''}
-                        ${v.sku_id ? `<span>SKU: <b>${v.sku_id}</b></span>` : ''}
+                        ${v.bin_id ? `<span>BIN: <b>${__h(v.bin_id)}</b></span>` : ''}
+                        ${v.sku_id ? `<span>SKU: <b>${__h(v.sku_id)}</b></span>` : ''}
                         ${v.camera_id ? `<span>CAM: <b>${v.camera_id}</b></span>` : ''}
                     </div>
                     <div style="margin-top:6px; display:flex; justify-content:flex-end;">
@@ -293,7 +293,7 @@
             select.innerHTML = '<option value="">-- Choose SKU to Palletize --</option>' + skus.map(s => {
                 const bundleUnits = s.units_per_bundle || 10;
                 const targetBundles = s.target_bundles_per_pallet || 50;
-                return `<option value="${s.sku_id}" data-units="${bundleUnits}" data-target="${targetBundles}">${s.sku_id} - ${s.name} (${bundleUnits} pcs/bundle)</option>`;
+                return `<option value="${__h(s.sku_id)}" data-units="${bundleUnits}" data-target="${targetBundles}">${__h(s.sku_id)} - ${__h(s.name)} (${bundleUnits} pcs/bundle)</option>`;
             }).join('');
         } catch(e) {
             console.error('[Pallet SKUs] Error:', e);
@@ -310,7 +310,7 @@
             if (!select) return;
 
             select.innerHTML = '<option value="">-- None / Assign on Seal --</option>' + bins.map(b => {
-                return `<option value="${b.bin_id}">${b.bin_id} (${b.zone || 'Storage'} - ${b.status || 'AVAILABLE'})</option>`;
+                return `<option value="${__h(b.bin_id)}">${__h(b.bin_id)} (${__h(b.zone || 'Storage')} - ${b.status || 'AVAILABLE'})</option>`;
             }).join('');
         } catch(e) {
             console.error('[Pallet Bins] Error:', e);
@@ -333,7 +333,7 @@
             }
 
             select.innerHTML = cams.map(c => {
-                return `<option value="${c.camera_id}">${c.camera_id} - ${c.name} (${c.location || 'Palletizing Zone'})</option>`;
+                return `<option value="${c.camera_id}">${c.camera_id} - ${__h(c.name)} (${__h(c.location || 'Palletizing Zone')})</option>`;
             }).join('');
 
             // On change, update stream feed
@@ -469,8 +469,8 @@
                 <tr style="${isSelected ? 'background:rgba(99,102,241,0.06); font-weight:600;' : ''}">
                     <td style="font-family:'JetBrains Mono',monospace;"><b>${p.pallet_id}</b></td>
                     <td>
-                        <div><b>${p.sku_id}</b></div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">${p.sku_name || ''}</div>
+                        <div><b>${__h(p.sku_id)}</b></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${__h(p.sku_name || '')}</div>
                     </td>
                     <td>
                         <span class="badge" style="background:${isSealed ? '#10b981' : '#6366f1'}; color:white; font-size:0.7rem;">

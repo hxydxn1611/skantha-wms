@@ -1876,7 +1876,7 @@
                     `;
                 }).join('');
             } catch(err) {
-                container.innerHTML = `<div style="grid-column:1/-1; color:var(--danger); font-size:0.82rem;">Error loading expected deliveries: ${err.message}</div>`;
+                container.innerHTML = `<div style="grid-column:1/-1; color:var(--danger); font-size:0.82rem;">Error loading expected deliveries: ${__h(err.message)}</div>`;
             }
         };
 
@@ -1982,7 +1982,7 @@
                     gateBody.innerHTML = activePasses.map(gp => {
                         let poDropdown = '';
                         let expectedDateInput = `<input type="hidden" id="expectedDate_${gp.id}" value="${gp.expected_date || ''}">`;
-                        let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${gp.po_number || ''}">`;
+                        let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${__h(gp.po_number || '')}">`;
                         
                         if (gp.status === 'Pending') {
                             if (gp.po_number) {
@@ -2155,22 +2155,22 @@
                 if(dockedPasses.length > 0) {
                     dockBody.innerHTML = dockedPasses.map(gp => `
                         <tr>
-                            <td style="font-size:1.2rem; font-weight:bold; color:var(--accent-hover)">${gp.dock}</td>
+                            <td style="font-size:1.2rem; font-weight:bold; color:var(--accent-hover)">${__h(gp.dock)}</td>
                             <td>
                                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                                    <strong style="font-family:monospace; font-size:0.95rem;">${gp.plate}</strong>
-                                    <button type="button" class="btn-primary" style="padding:2px 6px; font-size:0.68rem; background:#334155;" onclick="promptEditPlateAndSnapshot('${gp.id}', '${gp.plate || ''}')" title="Edit Plate & Update Snapshot">✏️ Edit</button>
+                                    <strong style="font-family:monospace; font-size:0.95rem;">${__h(gp.plate)}</strong>
+                                    <button type="button" class="btn-primary" style="padding:2px 6px; font-size:0.68rem; background:#334155;" onclick="promptEditPlateAndSnapshot('${gp.id}', ${__js(gp.plate || '')})" title="Edit Plate & Update Snapshot">✏️ Edit</button>
                                 </div>
-                                <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">${gp.vehicle_type}</div>
-                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Vendor: ${gp.vendor || 'N/A'}</div>
-                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">PO: ${gp.po_number || 'N/A'}</div>
+                                <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">${__h(gp.vehicle_type)}</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Vendor: ${__h(gp.vendor || 'N/A')}</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">PO: ${__h(gp.po_number || 'N/A')}</div>
                                 <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Exp: ${gp.expected_date || 'N/A'}</div>
                             </td>
-                            <td>${gp.driver_name}</td>
+                            <td>${__h(gp.driver_name)}</td>
                             <td>
-                                <div>${gp.load}</div>
+                                <div>${__h(gp.load)}</div>
                                 <div style="font-size:0.8rem; color:var(--accent-hover); margin-top:4px; font-weight:bold;">Activity: ${gp.activity || 'Loading'}</div>
-                                ${gp.photo ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" onclick="openTruckImageModal('/static/${gp.photo}', '${gp.plate || ''}', '${gp.id || ''}')" style="max-width:150px; max-height:80px; object-fit:cover; border-radius:4px; display:block; cursor:zoom-in; border:1px solid rgba(255,255,255,0.15); transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'" alt="Truck Photo" title="Click to expand"/></div>` : '<div style="font-size:0.8rem; color:var(--text-muted);">No Photo</div>'}
+                                ${gp.photo ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" onclick="openTruckImageModal('/static/${gp.photo}', ${__js(gp.plate || '')}, '${gp.id || ''}')" style="max-width:150px; max-height:80px; object-fit:cover; border-radius:4px; display:block; cursor:zoom-in; border:1px solid rgba(255,255,255,0.15); transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'" alt="Truck Photo" title="Click to expand"/></div>` : '<div style="font-size:0.8rem; color:var(--text-muted);">No Photo</div>'}
                             </td>
                             <td>
                                 <span class="badge ${gp.status === 'Completed' ? 'sent' : 'pending'}">${gp.status}</span>
@@ -2207,7 +2207,7 @@
                                                     <tr>
                                                         <td style="padding:4px;">
                                                              <div style="font-family:monospace; color:var(--text-main);">${item.sku}</div>
-                                                            <div style="font-size:0.75rem; color:var(--text-muted);">${item.description}</div>
+                                                            <div style="font-size:0.75rem; color:var(--text-muted);">${__h(item.description)}</div>
                                                         </td>
                                                         <td style="padding:4px; font-weight:bold;">${item.expected} ${item.uom}</td>
                                                         <td style="padding:4px; font-weight:bold; color:var(--accent-hover);" id="unloaded_${gp.id}">${gp.unloaded_qty || 0}</td>
@@ -2240,7 +2240,7 @@
                                     <button class="btn-danger" style="width:100%; margin-bottom:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="width:100%; background:var(--accent-hover);" onclick="sendInvoice('${gp.id}')">📧 Send Invoice to Vendor</button>` : ''}
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--accent);" onclick="downloadGateManifest('${gp.id}')">📄 PDF Manifest</button>` : ''}
-                                    ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', '${gp.plate}')">Check Out</button>` : ''}
+                                    ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', ${__js(gp.plate)})">Check Out</button>` : ''}
                                 `}
                             </td>
                         </tr>
@@ -3104,8 +3104,8 @@
                     <tr>
                         <td style="font-family:monospace;">${l.id}</td>
                         <td style="color:var(--accent); font-weight:bold;">${l.gp_id}</td>
-                        <td style="font-family:monospace; font-size:1.1rem;">${l.plate}</td>
-                        <td>${l.driver_name}</td>
+                        <td style="font-family:monospace; font-size:1.1rem;">${__h(l.plate)}</td>
+                        <td>${__h(l.driver_name)}</td>
                         <td>${l.entry_time}</td>
                         <td>${l.exit_time || '-'}</td>
                         <td><span class="badge ${l.status === 'Departed' ? 'sent' : 'pending'}">${l.status}</span></td>
@@ -3128,9 +3128,9 @@
                     <tr>
                         <td style="font-family:monospace;">${i.id}</td>
                         <td style="color:var(--accent); font-weight:bold;">${i.gp_id}</td>
-                        <td>${i.po_number}</td>
-                        <td>${i.vendor}</td>
-                        <td>${i.vendor_email}</td>
+                        <td>${__h(i.po_number)}</td>
+                        <td>${__h(i.vendor)}</td>
+                        <td>${__h(i.vendor_email)}</td>
                         <td>${i.generated_at}</td>
                         <td><a href="/static/invoices/${i.pdf_path}" target="_blank" class="btn-primary" style="text-decoration:none; display:inline-block; padding:4px 12px; font-size:0.85rem;">📄 Download PDF</a></td>
                     </tr>
@@ -3939,12 +3939,12 @@
                 if (hikCard) {
                     hikCard.innerHTML = `
                         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                            <strong style="color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;" title="${cam.name}">${cam.name}</strong>
+                            <strong style="color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;" title="${__h(cam.name)}">${__h(cam.name)}</strong>
                             <span style="color:#10b981; font-size:0.7rem;">Online</span>
                         </div>
-                        <div style="color:#888; font-size:0.7rem; margin-bottom:4px;">${cam.location} | ${cam.vendor}</div>
+                        <div style="color:#888; font-size:0.7rem; margin-bottom:4px;">${__h(cam.location)} | ${__h(cam.vendor)}</div>
                         <div style="font-size:0.7rem; color:${hasBin ? '#10b981' : '#9ca3af'}; margin-bottom:6px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">
-                            ${hasBin ? `📍 Bin: <b>${cam.bin_id}</b> (Pile: <b>${pileCount}</b>)` : `⚠️ No Bin Assigned (Click)`}
+                            ${hasBin ? `📍 Bin: <b>${__h(cam.bin_id)}</b> (Pile: <b>${pileCount}</b>)` : `⚠️ No Bin Assigned (Click)`}
                         </div>
                         <div style="display:flex; gap:4px;">
                             <button style="flex:1; background:#374151; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="manualSnapshot('${cam.id}')">Snap</button>
@@ -4043,7 +4043,7 @@
                         <div style="display:flex; align-items:center; gap:10px;">
                             ${w.photo_path ? `<img src="${w.photo_path}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #38bdf8;">` : `<div style="width:34px; height:34px; border-radius:50%; background:#334155; display:flex; align-items:center; justify-content:center;">👷</div>`}
                             <div>
-                                <div style="font-size:0.84rem; font-weight:700; color:#f8fafc;">${w.name}</div>
+                                <div style="font-size:0.84rem; font-weight:700; color:#f8fafc;">${__h(w.name)}</div>
                                 <div style="font-size:0.7rem; color:#94a3b8;">${w.role || 'Operator'} • ${w.worker_code}</div>
                             </div>
                         </div>
@@ -4893,10 +4893,10 @@ window.fetchBins = async function() {
             const pctWt = b.max_weight > 0 ? ((b.current_weight/b.max_weight)*100).toFixed(1) : 0;
             tr.innerHTML = `
                 <td>
-                    <strong>${b.bin_id}</strong>
-                    <div style="margin-top:4px;"><button type="button" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" onclick="window.openInspectBinModal('${b.bin_id}')">Inspect</button></div>
+                    <strong>${__h(b.bin_id)}</strong>
+                    <div style="margin-top:4px;"><button type="button" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" onclick="window.openInspectBinModal(${__js(b.bin_id)})">Inspect</button></div>
                 </td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${b.zone}</span></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${__h(b.zone)}</span></td>
                 <td>
                     <div style="font-size:0.8rem; margin-bottom:4px;">${b.current_volume.toFixed(1)} / ${b.max_volume} mA3</div>
                     <div style="width:100%; background:#334155; height:6px; border-radius:3px;">
@@ -4910,10 +4910,10 @@ window.fetchBins = async function() {
                     </div>
                 </td>
                 <td><strong style="color:var(--primary-navy); font-size:1.1rem;">${b.stock_count}</strong> Items</td>
-                <td>${b.vendor || 'Empty'}</td>
+                <td>${__h(b.vendor || 'Empty')}</td>
                 <td><span class="badge ${b.status==='Active'?'badge-success':'badge-warning'}" style="padding: 4px 8px; border-radius: 4px;">${b.status}</span></td>
                 <td style="text-align:center;">
-                    <button type="button" class="btn btn-outline" style="padding:4px 8px; font-size:0.75rem; border:1px solid rgba(0,242,254,0.4); color:var(--primary-teal); background:rgba(0,242,254,0.08); border-radius:4px; cursor:pointer;" onclick="window.openEditBinModal('${b.bin_id}', '${b.zone}', ${b.max_volume}, ${b.max_weight}, '${b.status}')">
+                    <button type="button" class="btn btn-outline" style="padding:4px 8px; font-size:0.75rem; border:1px solid rgba(0,242,254,0.4); color:var(--primary-teal); background:rgba(0,242,254,0.08); border-radius:4px; cursor:pointer;" onclick="window.openEditBinModal(${__js(b.bin_id)}, ${__js(b.zone)}, ${b.max_volume}, ${b.max_weight}, '${b.status}')">
                         <i class="fas fa-edit"></i> Edit / Expand
                     </button>
                 </td>
@@ -5061,15 +5061,15 @@ window.fetchSkus = async function() {
             const bname = s.bundle_name || 'Bundle';
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong style="font-family:monospace; color:#0284c7;">${s.sku_id}</strong></td>
-                <td><strong>${s.name}</strong></td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${s.category || 'General'}</span></td>
+                <td><strong style="font-family:monospace; color:#0284c7;">${__h(s.sku_id)}</strong></td>
+                <td><strong>${__h(s.name)}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${__h(s.category || 'General')}</span></td>
                 <td><span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; font-family:monospace;">${uom}</span></td>
                 <td>
                     <div style="display:inline-flex; align-items:center; gap:6px;">
-                        <input type="number" min="1" value="${upb}" id="quickUpb_${s.sku_id}" style="width:74px; padding:4px 8px; border-radius:6px; border:1px solid var(--border-light); font-weight:700; margin:0;">
+                        <input type="number" min="1" value="${upb}" id="quickUpb_${__h(s.sku_id)}" style="width:74px; padding:4px 8px; border-radius:6px; border:1px solid var(--border-light); font-weight:700; margin:0;">
                         <span style="font-size:0.78rem; color:var(--text-muted);">${uom} / ${bname}</span>
-                        <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:0.72rem;" onclick="window.quickSaveBundleDeclaration && window.quickSaveBundleDeclaration('${s.sku_id}')">Save</button>
+                        <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:0.72rem;" onclick="window.quickSaveBundleDeclaration && window.quickSaveBundleDeclaration(${__js(s.sku_id)})">Save</button>
                     </div>
                 </td>
                 <td><span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">${bname}</span></td>
@@ -5111,12 +5111,12 @@ window.openInspectBinModal = async function(binId) {
                 inventory.forEach(i => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td><strong>${i.sku_id}</strong></td>
+                        <td><strong>${__h(i.sku_id)}</strong></td>
                         <td>
-                            <div>${i.sku_name || 'Unknown'}</div>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">${i.category || '-'}</div>
+                            <div>${__h(i.sku_name || 'Unknown')}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">${__h(i.category || '-')}</div>
                         </td>
-                        <td>${i.vendor || '-'}</td>
+                        <td>${__h(i.vendor || '-')}</td>
                         <td><strong>${i.quantity}</strong></td>
                         <td style="font-size:0.85rem; color:var(--text-muted);">${new Date(i.received_date).toLocaleString()}</td>
                     `;
@@ -5194,7 +5194,7 @@ window.submitAddSku = async function() {
                 const currentVal = sel.value;
                 let skuOptions = '<option value="">Select SKU...</option>';
                 skus.forEach(s => {
-                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} - ${s.name}</option>`;
+                    skuOptions += `<option value="${__h(s.sku_id)}">${__h(s.sku_id)} - ${__h(s.name)}</option>`;
                 });
                 sel.innerHTML = skuOptions;
                 sel.value = currentVal;
@@ -5247,7 +5247,7 @@ window.initDashboardAnalytics = async function() {
             if(alerts.length === 0) {
                 alertBox.innerHTML = '<div style="color:var(--primary-teal);">✅ All systems normal. No alerts.</div>';
             } else {
-                alertBox.innerHTML = alerts.map(a => `<div style="margin-bottom:8px; padding:10px; border-left:4px solid ${a.type==='error'?'var(--danger)':'var(--warning)'}; background:rgba(0,0,0,0.2); border-radius:4px;">${a.message}</div>`).join('');
+                alertBox.innerHTML = alerts.map(a => `<div style="margin-bottom:8px; padding:10px; border-left:4px solid ${a.type==='error'?'var(--danger)':'var(--warning)'}; background:rgba(0,0,0,0.2); border-radius:4px;">${__h(a.message)}</div>`).join('');
             }
         }
     } catch(e) { console.error(e); }
@@ -5281,7 +5281,7 @@ window.fetchOutboundOrders = async function() {
         
         orders.forEach(o => {
             const tr = document.createElement('tr');
-            let itemsStr = o.items.map(i => `${i.quantity}x ${i.sku_id} (Picked: ${i.picked_quantity})`).join('<br>');
+            let itemsStr = o.items.map(i => `${i.quantity}x ${__h(i.sku_id)} (Picked: ${i.picked_quantity})`).join('<br>');
             
             let actionBtn = `<button class="btn-primary" onclick="pickOutboundOrder('${o.id}')">Pick Items</button>`;
             if (o.status === 'Fulfilled') actionBtn = '<span style="color:var(--primary-teal); font-weight:bold;">Completed</span>';
@@ -5343,7 +5343,7 @@ if (origSwitchTabOutbound) {
             fetch('/api/skus').then(r=>r.json()).then(skus => {
                 const sel = document.getElementById('outboundSku');
                 if(sel) {
-                    sel.innerHTML = '<option value="">Select SKU...</option>' + skus.map(s => `<option value="${s.sku_id}">${s.name}</option>`).join('');
+                    sel.innerHTML = '<option value="">Select SKU...</option>' + skus.map(s => `<option value="${__h(s.sku_id)}">${__h(s.name)}</option>`).join('');
                 }
             });
         }
@@ -5411,7 +5411,7 @@ function populateCycleCountBinSelect(bins) {
     if (!select) return;
     const currentVal = select.value;
     select.innerHTML = '<option value="">-- Choose Storage Bin --</option>' + 
-        bins.map(b => `<option value="${b.bin_id}" ${b.bin_id === currentVal ? 'selected' : ''}>${b.bin_id} (${b.zone || 'General'}) - ${b.stock_count || 0} items</option>`).join('');
+        bins.map(b => `<option value="${__h(b.bin_id)}" ${b.bin_id === currentVal ? 'selected' : ''}>${__h(b.bin_id)} (${__h(b.zone || 'General')}) - ${b.stock_count || 0} items</option>`).join('');
 }
 
 function renderCycleCountTable(bins) {
@@ -5428,14 +5428,14 @@ function renderCycleCountTable(bins) {
         const vendorText = b.vendor || 'Empty';
         return `
             <tr>
-                <td><strong>${b.bin_id}</strong></td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${b.zone || 'General'}</span></td>
+                <td><strong>${__h(b.bin_id)}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${__h(b.zone || 'General')}</span></td>
                 <td><span style="font-family:monospace; font-size:0.85rem;">${vendorText}</span></td>
                 <td><strong style="color:var(--accent); font-size:1.05rem;">${stockCount}</strong> Units</td>
                 <td><span class="badge ${stockCount > 0 ? 'badge-success' : 'badge-warning'}">${stockCount > 0 ? 'Stocked' : 'Empty'}</span></td>
                 <td>
                     <div style="display:flex; gap:8px;">
-                        <button class="btn-primary btn-sm" onclick="selectAndInspectBin('${b.bin_id}')" style="display:inline-flex; align-items:center; gap:4px;">
+                        <button class="btn-primary btn-sm" onclick="selectAndInspectBin(${__js(b.bin_id)})" style="display:inline-flex; align-items:center; gap:4px;">
                             <span>👁️</span> Inspect AI
                         </button>
                     </div>
@@ -5522,7 +5522,7 @@ function renderInspectionResults(data) {
     const itemsDiv = document.getElementById('ccWmsItemsList');
     if (itemsDiv) {
         if (wms.items && wms.items.length > 0) {
-            itemsDiv.innerHTML = wms.items.map(it => `<div>• <strong>${it.sku_id}</strong> (${it.sku_name || 'Component'}): ${it.quantity} units</div>`).join('');
+            itemsDiv.innerHTML = wms.items.map(it => `<div>• <strong>${__h(it.sku_id)}</strong> (${__h(it.sku_name || 'Component')}): ${it.quantity} units</div>`).join('');
         } else {
             itemsDiv.innerHTML = `<em>No inventory records in ledger for this bin.</em>`;
         }
@@ -5672,7 +5672,7 @@ async function fetchCycleCountActivities() {
                 <td style="font-family:monospace; font-size:0.8rem; color:var(--text-muted);">${a.timestamp || '-'}</td>
                 <td><span class="badge" style="background:rgba(59,130,246,0.15); color:#3b82f6;">${a.action || 'AUDIT'}</span></td>
                 <td><strong>${a.target || '-'}</strong></td>
-                <td style="font-size:0.85rem;">${a.details || '-'}</td>
+                <td style="font-size:0.85rem;">${__h(a.details || '-')}</td>
             </tr>
         `).join('');
     } catch (e) {
@@ -6142,7 +6142,7 @@ async function finishWalkaroundAudit() {
                         <td style="display:flex; align-items:center; gap:8px;">
                             <span style="display:inline-block; width:12px; height:12px; border-radius:2px; background:${rgbStr};"></span>
                             <b>Stack ${s.id}</b>
-                            <span style="color:var(--text-muted); font-size:0.75rem;">(${s.name})</span>
+                            <span style="color:var(--text-muted); font-size:0.75rem;">(${__h(s.name)})</span>
                         </td>
                         <td style="text-align:center; font-weight:700;">${s.layers}</td>
                         <td style="text-align:center; font-family:'JetBrains Mono',monospace; color:#38bdf8;">${s.formula}</td>
@@ -6544,7 +6544,7 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                         <i class="${item.icon || 'fas fa-info-circle'}"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-title">${item.title}</div>
+                        <div class="timeline-title">${__h(item.title)}</div>
                         <div class="timeline-meta"><span>${item.meta}</span></div>
                     </div>
                 </div>
@@ -6825,14 +6825,14 @@ window.updateCameraFeedsTable = function(cameras) {
                     <div style="display:flex; align-items:center; gap:8px;">
                         <span class="chip-dot ${isOnline ? 'online' : 'offline'}" style="background:${isOnline ? '#10b981' : '#ef4444'};"></span>
                         <div>
-                            <strong>${cam.name || 'Unnamed Camera'}</strong>
+                            <strong>${__h(cam.name || 'Unnamed Camera')}</strong>
                             <div style="font-size:0.72rem; color:var(--text-muted); font-family:monospace;">ID: ${cam.id}</div>
                         </div>
                     </div>
                 </td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.72rem;">${cam.location || 'General Zone'}</span></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.72rem;">${__h(cam.location || 'General Zone')}</span></td>
                 <td><span style="font-size:0.75rem; font-weight:700; color:#0284c7;">${cam.type || 'RTSP Direct'}</span></td>
-                <td>${cam.bin_id ? `<span style="font-family:monospace; font-weight:700; color:#10b981;">${cam.bin_id}</span>` : '<span style="color:var(--text-muted); font-size:0.75rem;">None</span>'}</td>
+                <td>${cam.bin_id ? `<span style="font-family:monospace; font-weight:700; color:#10b981;">${__h(cam.bin_id)}</span>` : '<span style="color:var(--text-muted); font-size:0.75rem;">None</span>'}</td>
                 <td><span style="font-size:0.75rem; font-family:monospace; color:#38bdf8;">${lat}</span></td>
                 <td>
                     <span class="badge ${isOnline ? 'sent' : 'pending'}" style="font-size:0.7rem;">
@@ -6905,12 +6905,12 @@ window.initCameraEventsTimeline = function() {
         <div class="event-item-card ${e.type}">
             <div class="event-top-row">
                 <span class="event-type-badge">
-                    <i class="fas ${e.icon}"></i> ${e.title}
+                    <i class="fas ${e.icon}"></i> ${__h(e.title)}
                 </span>
                 <span class="event-time-stamp">${e.time}</span>
             </div>
             <p class="event-description">${e.desc}</p>
-            <span class="event-zone-tag"><i class="fas fa-location-dot"></i> ${e.zone}</span>
+            <span class="event-zone-tag"><i class="fas fa-location-dot"></i> ${__h(e.zone)}</span>
         </div>
     `).join('');
 };

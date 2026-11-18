@@ -971,7 +971,12 @@ class TestSyntheticFrameSource(BaseFrameSource):
     def read_frame(self) -> np.ndarray:
         self.frame_idx += 1
         self.last_capture_time = time.time()
-        
+
+        # The simulated warehouse scene is for automated tests only (WARLOG_TEST_MODE=1).
+        # A real camera without a stream address shows a plain "no video signal" card.
+        if os.environ.get("WARLOG_TEST_MODE") != "1":
+            return self._no_signal_frame()
+
         # Synthesize frame using detection engine's warehouse perspective generator
         base_frame = self.detection_engine.create_synthetic_warehouse_frame(scene_type="dock")
         frame = base_frame.copy()
@@ -995,6 +1000,39 @@ class TestSyntheticFrameSource(BaseFrameSource):
             (0, 220, 255),
             2
         )
+        return frame
+
+    _no_signal_cache: Dict[str, Tuple[float, np.ndarray]] = {}
+
+    def _no_signal_frame(self) -> np.ndarray:
+        """A calm placeholder: camera name, 'No video signal', how to connect it. Rebuilt at
+        most once a second per camera (the clock in the corner), so it costs almost nothing."""
+        now = time.time()
+        cached = self._no_signal_cache.get(self.camera_id)
+        if cached and now - cached[0] < 1.0:
+            return cached[1]
+        w, h = 1280, 720
+        frame = np.zeros((h, w, 3), dtype=np.uint8)
+        frame[:] = (34, 27, 22)                       # deep slate (BGR)
+        cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (70, 58, 50), 2)
+        cx, cy = w // 2, h // 2 - 40
+        # camera icon
+        cv2.rectangle(frame, (cx - 70, cy - 42), (cx + 40, cy + 42), (120, 105, 95), 3, cv2.LINE_AA)
+        pts = np.array([[cx + 40, cy - 14], [cx + 80, cy - 36], [cx + 80, cy + 36], [cx + 40, cy + 14]], np.int32)
+        cv2.polylines(frame, [pts], True, (120, 105, 95), 3, cv2.LINE_AA)
+        cv2.line(frame, (cx - 90, cy + 62), (cx + 100, cy - 62), (80, 80, 225), 4, cv2.LINE_AA)
+
+        def centred(text, y, scale, color, thick):
+            (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+            cv2.putText(frame, text, ((w - tw) // 2, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
+
+        centred("NO VIDEO SIGNAL", cy + 120, 1.15, (235, 228, 222), 2)
+        centred(f"{self.camera_id}  -  {self.location or 'Camera'}", cy + 165, 0.75, (170, 160, 150), 2)
+        centred("No stream address is set for this camera. Add it in Camera Junction > Settings.",
+                cy + 205, 0.6, (140, 130, 120), 1)
+        cv2.putText(frame, datetime.now().strftime("%H:%M:%S"), (w - 130, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                    (140, 130, 120), 2, cv2.LINE_AA)
+        self._no_signal_cache[self.camera_id] = (now, frame)
         return frame
 
     def close(self):

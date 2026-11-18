@@ -27,6 +27,32 @@ os.environ["WARLOG_SKIP_DOTENV"] = "1"
 os.environ.setdefault("FLASK_SECRET_KEY", "ui-pass-only-" + os.urandom(8).hex())
 
 TMP = tempfile.mkdtemp(prefix="warlog_ui_pass_")
+
+# The app serves the REAL static folder; opening screens can make the vision services write
+# previews and prune old ones. Copy the protected folders now and restore them at the end,
+# exactly like scripts/run_tests_safely.py does.
+GUARDED = [os.path.join(ROOT, "webapp", "static", d) for d in ("uploads", "invoices", "manifests")]
+GUARD_COPY = os.path.join(TMP, "static_guard")
+for _d in GUARDED:
+    if os.path.isdir(_d):
+        shutil.copytree(_d, os.path.join(GUARD_COPY, os.path.basename(_d)))
+
+
+def restore_static():
+    restored = 0
+    for d in GUARDED:
+        saved = os.path.join(GUARD_COPY, os.path.basename(d))
+        if not os.path.isdir(saved):
+            continue
+        for root_dir, _, names in os.walk(saved):
+            for n in names:
+                src = os.path.join(root_dir, n)
+                dst = os.path.join(d, os.path.relpath(src, saved))
+                if not os.path.exists(dst) or os.path.getsize(dst) != os.path.getsize(src)                         or open(dst, "rb").read() != open(src, "rb").read():
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(src, dst)
+                    restored += 1
+    return restored
 DB = os.path.join(TMP, "ui.db")
 os.environ["WARLOG_DB_PATH"] = DB
 os.environ["WARLOG_SKIP_MIGRATION_BACKUP"] = "1"
@@ -113,6 +139,8 @@ with sync_playwright() as p:
                                      "permission": body.get("permission")})
 
         page.on("response", on_response)
+        js_errors = []
+        page.on("pageerror", lambda err, js_errors=js_errors: js_errors.append(str(err)[:200]))
         r = ctx.request.post(BASE + "/api/login", data=json.dumps({"username": username, "password": PW}),
                              headers={"Content-Type": "application/json"})
         assert r.ok, (username, r.status, r.text())
@@ -147,16 +175,22 @@ with sync_playwright() as p:
             failed = True
         if refusals:
             failed = True
+        entry["js_errors"] = sorted(set(js_errors))
+        if js_errors:
+            failed = True
         report[username] = entry
         ctx.close()
     browser.close()
 server.shutdown()
+print(f"static files restored after the pass: {restore_static()}")
 
 out = os.path.join(TMP, "ui_pass_report.json")
 with open(out, "w", encoding="utf-8") as fh:
     json.dump(report, fh, indent=1)
 for u, e in report.items():
     n = len(e["refusals_on_load"]) + sum(len(v) for v in e["refusals_by_screen"].values())
+    for err in e.get("js_errors", []):
+        print(f"      [JS ERROR] {err}")
     print(f"{u:10s} screens={len(e['visible_modules']):2d} hidden_controls={e['hidden_controls']:4d} refusals={n}"
           + (f"  <-- {e.get('problem')}" if e.get("problem") else ""))
     for where, items in [("on load", e["refusals_on_load"])] + list(e["refusals_by_screen"].items()):
