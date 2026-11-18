@@ -18,8 +18,9 @@ bp = Blueprint("iam", __name__)
 
 
 def _ip() -> str:
-    fwd = request.headers.get("X-Forwarded-For", "")
-    return (fwd.split(",")[0].strip() if fwd else request.remote_addr) or ""
+    # The connection's own address. Behind the HTTPS proxy, ProxyFix (BEHIND_TLS_PROXY=1) puts
+    # the real client address here; a client-sent X-Forwarded-For is never trusted directly.
+    return request.remote_addr or ""
 
 
 def _actor():

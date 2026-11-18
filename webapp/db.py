@@ -1258,6 +1258,10 @@ def update_gate_pass(gp_id, data):
             WHERE id = ?
         """, (plate, vehicle_type, driver_name, load_desc, vendor, status, dock, expected_date,
               po_number or None, unloaded_qty, activity, bin_allocation, photo, driver_photo, sheet_str, driver_phone, vendor_email, otp, otp_verified, exit_time, gp_id))
+        if status != curr['status']:
+            # RBAC Phase 8: gate pass history (who moved it, from, to, why) for every route
+            import gate_flow
+            gate_flow.record_event(conn, curr['id'], curr['status'], status)
 
         # Keep vehicle_log synchronized whenever plate or driver_name is edited!
         try:

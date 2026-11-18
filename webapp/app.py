@@ -81,6 +81,15 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(hours=12)
 )
 
+# RBAC Phase 8 (H8): running behind the HTTPS reverse proxy (deploy/Caddyfile).
+# BEHIND_TLS_PROXY=1 in .env: trust exactly one proxy hop for the client address and scheme,
+# send cookies only over HTTPS and add HSTS. Off by default, so plain-HTTP LAN use still works.
+BEHIND_TLS_PROXY = os.environ.get('BEHIND_TLS_PROXY', '0').strip() == '1'
+if BEHIND_TLS_PROXY:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    app.config.update(SESSION_COOKIE_SECURE=True, PREFERRED_URL_SCHEME='https')
+
 # SKU Image Upload Directory
 SKU_IMAGE_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'sku_images')
 os.makedirs(SKU_IMAGE_UPLOAD_DIR, exist_ok=True)
@@ -265,6 +274,16 @@ def rbac_after_request(response):
     * 5xx bodies never carry raw exception text (H18); details go to the server log
     """
     audit_events.record(response)   # RBAC Phase 7: one audit row per successful change
+    # RBAC Phase 8: standard browser security headers (never break a response)
+    try:
+        h = response.headers
+        h.setdefault('X-Content-Type-Options', 'nosniff')
+        h.setdefault('X-Frame-Options', 'SAMEORIGIN')
+        h.setdefault('Referrer-Policy', 'same-origin')
+        if BEHIND_TLS_PROXY:
+            h.setdefault('Strict-Transport-Security', 'max-age=31536000')
+    except Exception:
+        pass
     try:
         rbac_service.set_csrf_cookie(response)
         if response.is_streamed or not response.is_json or not request.path.startswith('/api/'):
@@ -3847,7 +3866,29 @@ def update_gate_pass(gp_id):
         return jsonify({"success": False, "message": "Gate pass not found"}), 404
         
     data = request.json
-    
+
+    # RBAC Phase 8 (gate state machine): each status step needs its own permission; a jump
+    # outside the allowed steps needs gate.override.manual and a reason, in every RBAC mode.
+    if isinstance(data, dict) and data.get('status'):
+        import gate_flow
+        current = db.get_gate_pass(gp_id)
+        if current:
+            legal, needed = gate_flow.check(current.get('status'), data.get('status'))
+            if not legal:
+                if gate_flow.OVERRIDE not in rbac_service.effective_permissions():
+                    return jsonify({"success": False, "error_code": "illegal_transition",
+                                    "message": f"A gate pass can't go from '{current.get('status')}' to "
+                                               f"'{data.get('status')}'. Only someone allowed to force gate "
+                                               "status changes can do that, with a reason."}), 409
+                if not rbac_service._request_reason():
+                    return jsonify({"success": False, "error_code": "reason_required",
+                                    "permission_label": "Force a gate status change outside the normal flow",
+                                    "message": "Please give a short reason for this action."}), 400
+            elif needed:
+                denied = rbac_service.check_permission(needed)
+                if denied is not None:
+                    return denied
+
     sms_response = None
     if data.get('status') == 'Sent to Dock':
         # RBAC Phase 2 (H17): no fixed "1234" fallback; no phone means no OTP.
