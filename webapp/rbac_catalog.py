@@ -96,11 +96,12 @@ PERMISSION_CATALOG: List[Permission] = [
     _p("sku.import", "Master data", "Manage", "Import SKUs from spreadsheets", C),
     _p("masterdata.blueprint.apply", "Master data", "Manage", "Apply an industry template", C, sensitive=True),
 
-    # ---------------------------------------------------------------- Inventory (4)
+    # ---------------------------------------------------------------- Inventory (5)
     _p("inventory.view", "Inventory", "View", "View stock"),
     _p("inventory.adjust", "Inventory", "Manage", "Adjust stock quantities", sensitive=True),
     _p("inventory.transfer", "Inventory", "Execute", "Transfer stock between bins"),
     _p("inventory.export", "Inventory", "Export", "Export stock"),
+    _p("inventory.levels.manage", "Inventory", "Configure", "Set minimum stock levels"),
 
     # ---------------------------------------------------------------- Cycle count (3)
     _p("cyclecount.view", "Cycle count", "View", "View cycle counts"),
@@ -239,8 +240,8 @@ STARTER_ROLES = (
     ("inventory_controller", "Inventory Controller",
      "Looks after stock: bins, transfers, cycle counts and pallets.",
      ("dashboard.view", "sku.view", "bins.view", "bins.create", "bins.edit", "inventory.view", "inventory.transfer",
-      "inventory.export", "cyclecount.view", "cyclecount.execute", "pallet.view", "pallet.create", "pallet.seal",
-      "pallet.transfer", "inbound.view", "outbound.view", "vision.traceability.view")),
+      "inventory.export", "inventory.levels.manage", "cyclecount.view", "cyclecount.execute", "pallet.view",
+      "pallet.create", "pallet.seal", "pallet.transfer", "inbound.view", "outbound.view", "vision.traceability.view")),
     ("dispatch_operator", "Dispatch Operator",
      "Prepares and dispatches outbound orders.",
      ("dashboard.view", "sku.view", "bins.view", "inventory.view", "outbound.view", "outbound.create",

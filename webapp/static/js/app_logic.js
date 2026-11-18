@@ -713,6 +713,8 @@
                 if (typeof pollData === 'function') pollData();
             } else if (tabId === 'warehouses') {
                 if (typeof window.renderWarehouseLocationsView === 'function') window.renderWarehouseLocationsView();
+            } else if (tabId === 'inventory') {
+                if (typeof window.loadInventory === 'function') window.loadInventory();
             } else if (tabId === 'master-hub') {
                 if (typeof fetchDeliveries === 'function') fetchDeliveries();
                 if (typeof fetchGatePasses === 'function') fetchGatePasses();

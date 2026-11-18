@@ -91,6 +91,9 @@ EVENTS: Dict[str, Dict[str, Tuple[str, Optional[str], Tuple[str, ...]]]] = {
                                "DELETE": ("delivery.deleted", "delivery", ("arg:po_number",))},
     # stock
     "update_inventory": {"PUT": ("inventory.adjusted", "inventory", ("arg:inv_id",))},
+    "stock.api_adjust": {"POST": ("inventory.adjusted", "inventory", ("body:inventory_id",))},
+    "stock.api_transfer": {"POST": ("inventory.transferred", "inventory", ("body:inventory_id",))},
+    "stock.api_min_level": {"PUT": ("inventory.min_level_set", None, ())},
     "api_transfer_vision_inventory": {"POST": ("inventory.transferred", None, ())},
     "sync_camera_inventory": {"POST": ("inventory.adjusted", "camera", ("arg:camera_id",))},
     "api_sync_audit_count": {"POST": ("inventory.adjusted", None, ())},

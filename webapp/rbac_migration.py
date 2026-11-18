@@ -383,6 +383,54 @@ def _step_gate_otp_attempts(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gate_passes ADD COLUMN otp_failed_attempts INTEGER NOT NULL DEFAULT 0")
 
 
+def _step_stock_ledger(conn: sqlite3.Connection) -> None:
+    """Inventory section: a history line for every stock change, and per-location minimum
+    levels. The history is written by triggers on `inventory`, so every existing writer
+    (receiving, picking, cycle counts, camera sync, controlled actions) is covered without
+    touching it; the request layer then adds who did it and why (stock_ledger.py)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS stock_movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        company_id INTEGER REFERENCES companies(id),
+        warehouse_id INTEGER REFERENCES warehouses(id),
+        inventory_id INTEGER, sku_id TEXT, bin_id TEXT, batch_number TEXT,
+        qty_before INTEGER NOT NULL DEFAULT 0, qty_after INTEGER NOT NULL DEFAULT 0, delta INTEGER NOT NULL DEFAULT 0,
+        movement_type TEXT NOT NULL DEFAULT 'change',
+        actor TEXT, source TEXT, reason TEXT, ref TEXT)""")
+    for col in ("warehouse_id", "company_id", "sku_id", "bin_id", "inventory_id"):
+        conn.execute(f"CREATE INDEX IF NOT EXISTS ix_stock_movements_{col} ON stock_movements({col})")
+    conn.execute("""CREATE TABLE IF NOT EXISTS stock_min_levels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER REFERENCES companies(id),
+        warehouse_id INTEGER REFERENCES warehouses(id),
+        sku_id TEXT NOT NULL, min_qty INTEGER NOT NULL DEFAULT 0,
+        updated_by TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (warehouse_id, sku_id))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_stock_min_levels_company_id ON stock_min_levels(company_id)")
+    cols = "company_id, warehouse_id, inventory_id, sku_id, bin_id, batch_number, qty_before, qty_after, delta, movement_type"
+    conn.execute(f"""CREATE TRIGGER IF NOT EXISTS stock_ledger_ins AFTER INSERT ON inventory
+        WHEN COALESCE(NEW.quantity, 0) != 0
+        BEGIN INSERT INTO stock_movements ({cols}) VALUES (NEW.company_id, NEW.warehouse_id, NEW.id, NEW.sku_id,
+            NEW.bin_id, NEW.batch_number, 0, COALESCE(NEW.quantity, 0), COALESCE(NEW.quantity, 0), 'created'); END""")
+    conn.execute(f"""CREATE TRIGGER IF NOT EXISTS stock_ledger_upd AFTER UPDATE ON inventory
+        WHEN COALESCE(OLD.quantity, 0) != COALESCE(NEW.quantity, 0)
+          OR OLD.bin_id IS NOT NEW.bin_id OR OLD.sku_id IS NOT NEW.sku_id
+        BEGIN INSERT INTO stock_movements ({cols}) VALUES (NEW.company_id, NEW.warehouse_id, NEW.id, NEW.sku_id,
+            NEW.bin_id, NEW.batch_number, COALESCE(OLD.quantity, 0), COALESCE(NEW.quantity, 0),
+            COALESCE(NEW.quantity, 0) - COALESCE(OLD.quantity, 0), 'change'); END""")
+    conn.execute(f"""CREATE TRIGGER IF NOT EXISTS stock_ledger_del AFTER DELETE ON inventory
+        WHEN COALESCE(OLD.quantity, 0) != 0
+        BEGIN INSERT INTO stock_movements ({cols}) VALUES (OLD.company_id, OLD.warehouse_id, OLD.id, OLD.sku_id,
+            OLD.bin_id, OLD.batch_number, COALESCE(OLD.quantity, 0), 0, -COALESCE(OLD.quantity, 0), 'removed'); END""")
+    # new permission "Set minimum stock levels": the starter roles whose template now
+    # includes it get it once (admins can still untick it; later edits are never touched)
+    if "template_key" in _columns(conn, "roles"):
+        sync_catalog(conn)
+        conn.execute("""INSERT OR IGNORE INTO role_permissions (role_id, permission_key)
+                        SELECT id, 'inventory.levels.manage' FROM roles
+                         WHERE template_key IN ('inventory_controller', 'warehouse_manager')""")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -498,6 +546,8 @@ def _step_ownership_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f'ALTER TABLE "{t}" ADD COLUMN company_id INTEGER REFERENCES companies(id)')
         conn.execute(f"CREATE INDEX IF NOT EXISTS ix_{t}_company_id ON {t}(company_id)")
     for t in rbac_scope.WAREHOUSE_TABLES:
+        if t in rbac_scope.LATER_TABLES and not _columns(conn, t):
+            continue  # created (already owned) by a later step, e.g. 012_stock_ledger
         if "company_id" not in _columns(conn, t):
             conn.execute(f'ALTER TABLE "{t}" ADD COLUMN company_id INTEGER REFERENCES companies(id)')
         if "warehouse_id" not in _columns(conn, t):
@@ -520,7 +570,8 @@ def _step_ownership_backfill(conn: sqlite3.Connection) -> None:
     import rbac_ownership
     import rbac_scope
     before = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-              for t in rbac_scope.SCOPED_TABLES + tuple(rbac_scope.CHILD_TABLES)}
+              for t in rbac_scope.SCOPED_TABLES + tuple(rbac_scope.CHILD_TABLES)
+              if not (t in rbac_scope.LATER_TABLES and not _columns(conn, t))}
     counts = rbac_ownership.apply(conn, rbac_ownership.approved_proposal(conn))
     after = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in before}
     if before != after:
@@ -651,6 +702,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("009_starter_roles", _step_starter_roles),
     ("010_settings_tables", _step_settings_tables),
     ("011_gate_otp_attempts", _step_gate_otp_attempts),
+    ("012_stock_ledger", _step_stock_ledger),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {

@@ -68,6 +68,7 @@
         'inbound-flow': 'inbound.view',
         'outbound': 'outbound.view',
         'palletization': 'pallet.view',
+        'inventory': 'inventory.view',
         'warehouses': 'warehouses.view',
         'master-hub': 'sku.view|bins.view|inventory.view|deliveries.view|gate.pass.view|cyclecount.view|vision.view',
         'copilot': 'copilot.use',
@@ -229,7 +230,7 @@
 
     function firstAllowedModule() {
         const order = ['dashboard', 'gate-passes', 'docks', 'deliveries', 'inbound-flow', 'outbound', 'palletization',
-                       'ai-vision', 'cameras', 'master-hub', 'warehouses', 'users-access'];
+                       'inventory', 'ai-vision', 'cameras', 'master-hub', 'warehouses', 'users-access'];
         return order.find(m => hasPerm(MODULE_RULES[m]) && document.getElementById(m + '-view')) || null;
     }
 

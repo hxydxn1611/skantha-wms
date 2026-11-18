@@ -1516,6 +1516,49 @@
                         </div>
                     </div>
 
+                    <!-- Inventory (stock control) -->
+                    <div class="macos-dock-item" data-module="inventory">
+                        <button class="tab-btn dock-btn" onclick="switchTab('inventory')" role="tab" aria-selected="false" aria-label="Inventory" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="inv-rack" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#94a3b8"/><stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+    <linearGradient id="inv-box-a" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="inv-box-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="inv-box-c" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <!-- rack uprights and shelves -->
+  <rect x="7" y="6" width="3" height="37" rx="1" fill="url(#inv-rack)"/>
+  <rect x="38" y="6" width="3" height="37" rx="1" fill="url(#inv-rack)"/>
+  <rect x="7" y="22" width="34" height="2.5" rx="1" fill="url(#inv-rack)"/>
+  <rect x="7" y="38" width="34" height="2.5" rx="1" fill="url(#inv-rack)"/>
+  <!-- stock on the shelves -->
+  <rect x="12" y="11" width="11" height="11" rx="1.5" fill="url(#inv-box-a)" stroke="#1e3a8a" stroke-width="0.7"/>
+  <rect x="25" y="14" width="11" height="8" rx="1.5" fill="url(#inv-box-c)" stroke="#92400e" stroke-width="0.7"/>
+  <rect x="12" y="29" width="9" height="9" rx="1.5" fill="url(#inv-box-b)" stroke="#065f46" stroke-width="0.7"/>
+  <rect x="23" y="27" width="13" height="11" rx="1.5" fill="url(#inv-box-a)" stroke="#1e3a8a" stroke-width="0.7"/>
+  <line x1="17.5" y1="11" x2="17.5" y2="22" stroke="#bfdbfe" stroke-width="0.8"/>
+  <line x1="29.5" y1="27" x2="29.5" y2="38" stroke="#bfdbfe" stroke-width="0.8"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Inventory</span>
+                            <span id="nav-inventory-alerts" class="dock-badge-counter inv-badge-off" title="Stock alerts">0</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Inventory</span>
+                            <span class="tooltip-desc">Stock by product, bin &amp; history</span>
+                        </div>
+                    </div>
+
                     <div class="dock-separator"></div>
 
                     <!-- 10. Warehouse Locations -->
@@ -4193,6 +4236,140 @@
             </div>
         </div>
 
+        <!-- INVENTORY VIEW (inventory.view) - stock by line / product / bin, history, alerts -->
+        <div id="inventory-view" class="view-section">
+            <div class="glass-panel uac-hero">
+                <div class="uac-hero-top">
+                    <div class="uac-hero-title">
+                        <span class="uac-hero-icon inv-hero-icon"><i class="fas fa-boxes-stacked"></i></span>
+                        <div>
+                            <div class="uac-hero-kicker"><span class="uac-live-dot"></span> Stock control</div>
+                            <h2>Inventory</h2>
+                            <p>What is in stock, where it is, and every change made to it. Adjustments need a reason and everything is kept in the history.</p>
+                        </div>
+                    </div>
+                    <div class="uac-hero-actions">
+                        <button class="btn-primary uac-hdr-btn uac-hdr-teal" data-perm="inventory.export" onclick="invExportCsv()">
+                            <i class="fas fa-file-arrow-down"></i> Export CSV
+                        </button>
+                        <button class="uac-btn" onclick="loadInventory()" title="Refresh"><i class="fas fa-rotate"></i></button>
+                    </div>
+                </div>
+                <div class="uac-stats inv-stats">
+                    <div class="uac-stat"><span class="uac-stat-icon s-blue"><i class="fas fa-cubes"></i></span>
+                        <div><div class="uac-stat-label">Total quantity</div><div class="uac-stat-value" id="invStatQty">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-violet"><i class="fas fa-tags"></i></span>
+                        <div><div class="uac-stat-label">Products in stock</div><div class="uac-stat-value" id="invStatProducts">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-teal"><i class="fas fa-table-cells"></i></span>
+                        <div><div class="uac-stat-label">Bins used</div><div class="uac-stat-value" id="invStatBins">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-amber"><i class="fas fa-triangle-exclamation"></i></span>
+                        <div><div class="uac-stat-label">Alerts</div><div class="uac-stat-value" id="invStatAlerts">–</div></div></div>
+                </div>
+            </div>
+
+            <div class="uac-tabs" id="invTabs" role="tablist" aria-label="Inventory sections">
+                <button class="uac-tab is-active" data-tab="stock" role="tab" onclick="invShowTab('stock')">
+                    <span class="uac-tab-icon t-blue"><i class="fas fa-list"></i></span> Stock
+                </button>
+                <button class="uac-tab" data-tab="products" role="tab" onclick="invShowTab('products')">
+                    <span class="uac-tab-icon t-violet"><i class="fas fa-tags"></i></span> By Product
+                </button>
+                <button class="uac-tab" data-tab="bins" role="tab" onclick="invShowTab('bins')">
+                    <span class="uac-tab-icon t-teal"><i class="fas fa-table-cells-large"></i></span> By Bin
+                </button>
+                <button class="uac-tab" data-tab="history" role="tab" onclick="invShowTab('history')">
+                    <span class="uac-tab-icon t-slate"><i class="fas fa-clock-rotate-left"></i></span> History
+                </button>
+                <button class="uac-tab" data-tab="alerts" role="tab" onclick="invShowTab('alerts')">
+                    <span class="uac-tab-icon t-amber"><i class="fas fa-bell"></i></span> Alerts
+                    <span class="uac-tab-badge" id="invAlertBadge" style="display:none;">0</span>
+                </button>
+            </div>
+
+            <div id="invReadOnlyNote" class="inv-note" style="display:none;">
+                <i class="fas fa-eye"></i><span>You are looking at <b>all locations</b> (read-only). Pick one location in the top bar to adjust or move stock.</span>
+            </div>
+
+            <!-- Stock -->
+            <div class="uac-pane is-active" data-pane="stock">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-list c-blue"></i> Stock</div>
+                            <div class="uac-muted">Every stock line: one product, in one bin, from one batch.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invStockQ" class="uac-input" placeholder="Search product, SKU, bin or batch"></div>
+                            <select id="invStockZone" class="uac-input"><option value="">All zones</option></select>
+                            <select id="invStockCat" class="uac-input"><option value="">All categories</option></select>
+                            <label class="inv-check"><input type="checkbox" id="invStockIssues"> Needs attention only</label>
+                        </div>
+                    </div>
+                    <div id="invStock" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- By Product -->
+            <div class="uac-pane" data-pane="products">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-tags c-violet"></i> By Product</div>
+                            <div class="uac-muted">Total per product across all bins, against its minimum level. Click a row to see its bins.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invProdQ" class="uac-input" placeholder="Search product or SKU"></div>
+                            <label class="inv-check"><input type="checkbox" id="invProdLow"> Below minimum only</label>
+                        </div>
+                    </div>
+                    <div id="invProducts" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- By Bin -->
+            <div class="uac-pane" data-pane="bins">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-table-cells-large c-teal"></i> By Bin</div>
+                            <div class="uac-muted">What each bin holds and how full it is (by volume or weight, whichever is higher).</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invBinQ" class="uac-input" placeholder="Search bin"></div>
+                            <select id="invBinZone" class="uac-input"><option value="">All zones</option></select>
+                            <label class="inv-check"><input type="checkbox" id="invBinUsed"> With stock only</label>
+                        </div>
+                    </div>
+                    <div id="invBins" class="inv-bin-grid"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- History -->
+            <div class="uac-pane" data-pane="history">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-clock-rotate-left c-slate"></i> History</div>
+                            <div class="uac-muted" id="invHistSub">Every stock change: who, when, how much and why. Newest first.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invHistQ" class="uac-input" placeholder="Search product, bin, person or reason"></div>
+                            <select id="invHistType" class="uac-input">
+                                <option value="">All changes</option>
+                                <option value="adjust">Adjustments</option>
+                                <option value="transfer_out">Transfers out</option>
+                                <option value="transfer_in">Transfers in</option>
+                                <option value="receive">Received</option>
+                                <option value="pick">Picked / dispatched</option>
+                                <option value="cycle_count">Cycle counts</option>
+                                <option value="count_sync">Count syncs</option>
+                                <option value="vision_transfer">AI counts posted</option>
+                            </select>
+                            <button class="uac-btn" id="invHistClear" style="display:none;" onclick="invHistoryFor(null)"><i class="fas fa-xmark"></i> Show all</button>
+                        </div>
+                    </div>
+                    <div id="invHistory" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- Alerts -->
+            <div class="uac-pane" data-pane="alerts">
+                <div id="invAlerts" class="inv-alerts"><div class="glass-panel"><div class="uac-empty">Loading...</div></div></div>
+            </div>
+        </div>
+
         <!-- WAREHOUSES & LOCATIONS VIEW -->
         <div id="warehouses-view" class="view-section">
             <div class="glass-panel" style="margin-bottom: 1.5rem;">
@@ -4556,6 +4733,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <h3>Inventory Master (Stock Details)</h3>
         <span style="font-size:0.85rem; color:var(--text-muted);">Real-time View of Physical Stock</span>
+        <button type="button" class="uac-btn-sm inv-open-btn" data-perm="inventory.view" onclick="switchTab('inventory')"><i class="fas fa-boxes-stacked"></i> Open in Inventory &rarr;</button>
     </div>
     <div style="overflow-x:auto;">
         <table style="width:100%;">
@@ -5115,6 +5293,7 @@ function switchSubTab(tabId, btn) {
     if(typeof window.fetchCycleCountData === 'function' && tabId === 'cycle-count') window.fetchCycleCountData();
     if(typeof window.fetchObjectClasses === 'function' && tabId === 'vision-objects') window.fetchObjectClasses();
     if(typeof window.fetchVisionZones === 'function' && tabId === 'vision-zones') window.fetchVisionZones();
+    if(typeof window.loadInventoryMaster === 'function' && tabId === 'inventory-master') window.loadInventoryMaster();
 }
 window.switchSubTab = switchSubTab;
                 </script>
@@ -9225,6 +9404,7 @@ window.switchSubTab = switchSubTab;
         <div class="modal-dialog" style="max-width: 800px;">
             <div class="modal-header">
                 <h3 style="margin:0;">Inspect Bin: <span id="inspectBinIdTitle" style="color:var(--primary-navy);"></span></h3>
+                <button type="button" class="uac-btn-sm inv-open-btn" data-perm="inventory.view" onclick="document.getElementById('inspectBinModal').style.display='none'; openInventoryForBin(document.getElementById('inspectBinIdTitle').innerText)"><i class="fas fa-boxes-stacked"></i> View in Inventory</button>
                 <button type="button" class="modal-close-btn" onclick="document.getElementById('inspectBinModal').style.display='none'" title="Close">&times;</button>
             </div>
             <div class="modal-body">
@@ -11347,6 +11527,9 @@ window.switchSubTab = switchSubTab;
     <!-- Palletization Simple mode (remove these two lines to undo) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/pallet_simple.css') }}?v={{ range(1000, 99999) | random }}">
     <script src="{{ url_for('static', filename='js/pallet_simple.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    <!-- Inventory section (menu: Inventory; also fills Master Data Hub > Inventory Master) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/inventory.js') }}?v={{ range(1000, 99999) | random }}"></script>
 
     <!-- SKU Master UI Logic -->
     <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}"></script>

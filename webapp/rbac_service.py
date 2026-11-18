@@ -388,7 +388,7 @@ _ID_FIELDS = {
     "cam_id": [("cameras", "camera_id"), ("cameras", "camera_code")],
     "order_id": [("outbound_orders", "id")],
     "violation_id": [("violations_log", "id")],
-    "inv_id": [("inventory", "id")],
+    "inv_id": [("inventory", "id")], "inventory_id": [("inventory", "id")],
     "worker_code": [("trained_workers", "worker_code")],
     "image_id": [("sku_images", "id")],
     "profile_id": [("glass_measurement_profiles", "id")],

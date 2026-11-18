@@ -74,6 +74,10 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # RBAC Phase 3A (H25): no r
 # RBAC Phase 4: users, invitations, passwords and companies
 from iam_routes import bp as iam_blueprint  # noqa: E402
 app.register_blueprint(iam_blueprint)
+# Inventory section: stock overview, history, adjust / transfer / minimum levels
+from inventory_routes import bp as stock_blueprint  # noqa: E402
+import stock_ledger  # noqa: E402
+app.register_blueprint(stock_blueprint)
 app.jinja_env.auto_reload = True
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -245,6 +249,7 @@ def enforce_authentication_and_session():
         return blocked
     # RBAC Phase 7: remember the record a gate/stock/config change touches (audit before/after)
     audit_events.snapshot()
+    stock_ledger.begin()   # stock history: name the person on any stock change this request makes
     return None
 
 
@@ -274,6 +279,7 @@ def rbac_after_request(response):
     * 5xx bodies never carry raw exception text (H18); details go to the server log
     """
     audit_events.record(response)   # RBAC Phase 7: one audit row per successful change
+    stock_ledger.finish(response)
     # RBAC Phase 8: standard browser security headers (never break a response)
     try:
         h = response.headers
@@ -5570,8 +5576,13 @@ def get_inventory():
 
 @app.route('/api/inventory/<int:inv_id>', methods=['PUT'])
 def update_inventory(inv_id):
-    data = request.json
-    new_qty = data.get('quantity')
+    data = request.get_json(silent=True) or {}
+    try:
+        new_qty = int(str(data.get('quantity')).strip())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Quantity must be a whole number."}), 400
+    if new_qty < 0:
+        return jsonify({"success": False, "message": "Quantity can't be negative."}), 400
     conn = db.get_db()
     cursor = conn.cursor()
     inv = cursor.execute("SELECT * FROM inventory WHERE id = ?", (inv_id,)).fetchone()
@@ -5588,8 +5599,8 @@ def update_inventory(inv_id):
     for item in invs:
         sku = cursor.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (item['sku_id'],)).fetchone()
         if sku:
-            total_vol += sku['unit_volume'] * item['quantity']
-            total_wt += sku['unit_weight'] * item['quantity']
+            total_vol += (sku['unit_volume'] or 0) * (item['quantity'] or 0)
+            total_wt += (sku['unit_weight'] or 0) * (item['quantity'] or 0)
             
     cursor.execute("UPDATE bins SET current_volume = ?, current_weight = ? WHERE bin_id = ?", (total_vol, total_wt, bin_id))
     conn.commit()
