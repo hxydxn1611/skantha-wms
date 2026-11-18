@@ -78,6 +78,9 @@ app.register_blueprint(iam_blueprint)
 from inventory_routes import bp as stock_blueprint  # noqa: E402
 import stock_ledger  # noqa: E402
 app.register_blueprint(stock_blueprint)
+# AI Vision tools: Counting Studio (YOLOE, no training) + product photos from the internet
+from vision_studio_routes import bp as vstudio_blueprint  # noqa: E402
+app.register_blueprint(vstudio_blueprint)
 app.jinja_env.auto_reload = True
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,

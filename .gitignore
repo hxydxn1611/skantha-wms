@@ -46,3 +46,7 @@ backups/
 # Copilot AI key file (never commit)
 .gemini_api_key
 webapp/.gemini_api_key
+
+# YOLOE text encoder (downloaded once, 572 MB) and YOLOE weights
+webapp/mobileclip*.ts
+mobileclip*.ts

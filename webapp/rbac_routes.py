@@ -144,6 +144,14 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "stock.api_adjust": "inventory.adjust",
     "stock.api_transfer": "inventory.transfer",
     "stock.api_min_level": "inventory.levels.manage",
+    # AI Vision tools (vision_studio_routes.py; changes are also checked in the handlers)
+    "vstudio.api_status": "vision.view|vision.counting.execute|sku.view",
+    "vstudio.api_count": "vision.counting.execute",
+    "vstudio.api_examples": "vision.view|vision.counting.execute|sku.view",
+    "vstudio.api_save_example": "sku.edit",
+    "vstudio.api_delete_example": "sku.edit",
+    "vstudio.api_photo_search": "sku.create|sku.edit",
+    "vstudio.api_photo_import": "sku.edit",
 
     # ------------------------------------------------------------ cycle count
     "audit_bin_cycle_count": "cyclecount.view",

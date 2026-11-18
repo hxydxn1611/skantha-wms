@@ -392,6 +392,7 @@ _ID_FIELDS = {
     "worker_code": [("trained_workers", "worker_code")],
     "image_id": [("sku_images", "id")],
     "profile_id": [("glass_measurement_profiles", "id")],
+    "example_id": [("sku_count_examples", "id")],
     "zone_id": [("vision_zones", "id")],
 }
 # (endpoint, method, field) of "create" requests: a code that belongs to someone else is
@@ -457,6 +458,7 @@ def check_record_scope():
 
 _FILE_OWNER_COLUMNS = [
     ("sku_images", "file_path"), ("gate_passes", "photo"), ("gate_passes", "driver_photo"),
+    ("sku_count_examples", "image_path"),
 ]
 
 

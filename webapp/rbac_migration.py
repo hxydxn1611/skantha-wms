@@ -431,6 +431,18 @@ def _step_stock_ledger(conn: sqlite3.Connection) -> None:
                          WHERE template_key IN ('inventory_controller', 'warehouse_manager')""")
 
 
+def _step_count_examples(conn: sqlite3.Connection) -> None:
+    """AI Vision > Counting Studio: an example photo + boxes saved per product, so counting a
+    product later needs no drawing ("show it one item" once)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS sku_count_examples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER REFERENCES companies(id),
+        sku_id TEXT NOT NULL, name TEXT, image_path TEXT NOT NULL, boxes_json TEXT NOT NULL,
+        created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_sku_count_examples_company_id ON sku_count_examples(company_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_sku_count_examples_sku ON sku_count_examples(sku_id)")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -542,6 +554,8 @@ def _step_ownership_columns(conn: sqlite3.Connection) -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
     for t in rbac_scope.COMPANY_TABLES:
+        if t in rbac_scope.LATER_TABLES and not _columns(conn, t):
+            continue  # created (already owned) by a later step, e.g. 013_count_examples
         if "company_id" not in _columns(conn, t):
             conn.execute(f'ALTER TABLE "{t}" ADD COLUMN company_id INTEGER REFERENCES companies(id)')
         conn.execute(f"CREATE INDEX IF NOT EXISTS ix_{t}_company_id ON {t}(company_id)")
@@ -703,6 +717,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("010_settings_tables", _step_settings_tables),
     ("011_gate_otp_attempts", _step_gate_otp_attempts),
     ("012_stock_ledger", _step_stock_ledger),
+    ("013_count_examples", _step_count_examples),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {
