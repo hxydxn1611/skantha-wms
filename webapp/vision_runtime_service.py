@@ -503,6 +503,38 @@ def _scope_warehouse_id(warehouse_id=None):
     return None
 
 
+def _audit_background_gate_pass(camera_id, gp_id, payload, auto_dispatched) -> None:
+    """RBAC Phase 7 (H28): what background services do is recorded as 'system:<service>'.
+    ANPR only creates passes; an auto-dispatched one names who switched auto-dispatch on.
+    Called once per new gate pass (never per frame); never raises."""
+    try:
+        import audit_events
+        import rbac_scope
+        sc = rbac_scope.get_scope()
+        cid = sc.company_id if sc is not None else None
+        wid = sc.warehouse_id if sc is not None else None
+        after = {"plate": payload.get("plate"), "po_number": payload.get("po_number"),
+                 "status": payload.get("status"), "dock": payload.get("dock"), "camera_id": camera_id}
+        audit_events.system_event("anpr", "gate.pass_created", company_id=cid, warehouse_id=wid,
+                                  resource_type="gate_pass", resource_id=gp_id, after=after)
+        if auto_dispatched:
+            enabled_by = None
+            if wid:
+                conn = db.get_db()
+                try:
+                    row = conn.execute("SELECT value_json FROM warehouse_settings WHERE warehouse_id = ? "
+                                       "AND key = 'gate.auto_dispatch.enabled_by'", (wid,)).fetchone()
+                    enabled_by = json.loads(row[0]) if row and row[0] else None
+                finally:
+                    conn.close()
+            audit_events.system_event("auto_dispatch", "gate.dock_admitted", company_id=cid, warehouse_id=wid,
+                                      resource_type="gate_pass", resource_id=gp_id,
+                                      after={**after, "auto_dispatch_enabled_by": (enabled_by or {}).get("username")},
+                                      reason=(enabled_by or {}).get("reason"))
+    except Exception as e:
+        logger.warning(f"[AUDIT] background gate pass {gp_id} not recorded: {e}")
+
+
 def set_gate_auto_dispatch(enabled: bool, warehouse_id=None) -> bool:
     global _GATE_AUTO_DISPATCH_MATCHED_POS
     wid = _scope_warehouse_id(warehouse_id)
@@ -2178,6 +2210,7 @@ class CameraRuntimeSession:
                         if auto_dispatched:
                             db.update_vehicle_log(gp_id, status="At Dock", dock=smart_dock, driver_name=gp_payload["driver_name"])
                         logger.info(f"[{self.camera_id} INSTANT ANPR] Created Gate Pass {gp_id} in {elapsed_ms}ms for plate: {target_plate} (PO: {matched_po or 'Walk-In'})")
+                        _audit_background_gate_pass(self.camera_id, gp_id, gp_payload, auto_dispatched)
 
                     with self.lock:
                         self.last_gate_pass_id = gp_id

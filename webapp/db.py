@@ -2658,54 +2658,71 @@ def intelligent_putaway(total_unloaded, vendor_name, sku_id='UNKNOWN-SKU'):
 
 # ----------------- Activities & Audit Log Operations -----------------
 
-_in_memory_activities = []
+_in_memory_activities = []   # kept only as a fallback before the RBAC tables exist
+
 
 def log_activity(action, target, details=""):
     """
-    Thread-safe logging of operational events and cycle count audits.
-    Maintains an in-memory audit log and writes to the activities table if present.
-    Avoids schema changes to maintain strict database invariants.
+    Operational events (cycle-count audits, controlled actions ...).
+    RBAC Phase 7: stored in audit_logs as 'activity.<action>' with the company and warehouse
+    of the request (or of the camera thread), so each company only ever sees its own.
     """
-    entry = {
-        "id": len(_in_memory_activities) + 1,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "action": action,
-        "target": target,
-        "details": details
-    }
-    _in_memory_activities.insert(0, entry)
-    
-    conn = get_db()
+    import rbac_scope
+    actor_id, actor_name = None, "system"
     try:
-        has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='activities'").fetchone()
-        if has_table:
-            with conn:
-                conn.execute('''
-                    INSERT INTO activities (timestamp, action, target, details)
-                    VALUES (CURRENT_TIMESTAMP, ?, ?, ?)
-                ''', (action, target, details))
+        from flask import g, has_request_context
+        if has_request_context():
+            u = g.get("current_user") or {}
+            actor_id, actor_name = u.get("id"), u.get("username") or "system"
     except Exception:
         pass
+    sc = rbac_scope.get_scope()
+    entry = {"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "action": action, "target": target, "details": details}
+    conn = sqlite3.connect(DB_PATH, timeout=15)
+    try:
+        with conn:
+            conn.execute("""INSERT INTO audit_logs (actor_user_id, actor_username, company_id, warehouse_id, action,
+                                resource_type, resource_id, after_json, result)
+                            VALUES (?, ?, ?, ?, ?, 'activity', ?, ?, 'success')""",
+                         (actor_id, actor_name, sc.company_id if sc else None, sc.warehouse_id if sc else None,
+                          "activity." + str(action).lower(), str(target) if target is not None else None,
+                          json.dumps({"action": action, "details": details})))
+    except sqlite3.Error:
+        entry["id"] = len(_in_memory_activities) + 1
+        _in_memory_activities.insert(0, entry)
     finally:
         conn.close()
 
 
 def get_activities(limit=50):
-    """Retrieve recent operational activity logs."""
-    conn = get_db()
+    """Recent operational activity for the current company / warehouse (RBAC Phase 7)."""
+    import rbac_scope
+    sc = rbac_scope.get_scope()
+    where, params = "action LIKE 'activity.%'", []
+    if sc is not None and not sc.unrestricted and rbac_scope.isolation_enabled():
+        if sc.warehouse_id:
+            where += " AND warehouse_id = ?"
+            params.append(sc.warehouse_id)
+        else:
+            where += " AND company_id = ?"
+            params.append(sc.company_id)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     try:
-        has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='activities'").fetchone()
-        if has_table:
-            cursor = conn.execute('''
-                SELECT id, timestamp, action, target, details
-                FROM activities
-                ORDER BY id DESC
-                LIMIT ?
-            ''', (limit,))
-            return [dict(r) for r in cursor.fetchall()]
+        rows = conn.execute(f"""SELECT id, ts, after_json, resource_id FROM audit_logs WHERE {where}
+                                ORDER BY id DESC LIMIT ?""", tuple(params) + (int(limit),)).fetchall()
+    except sqlite3.Error:
         return _in_memory_activities[:limit]
     finally:
         conn.close()
+    out = []
+    for rid, ts, after_json, target in rows:
+        try:
+            d = json.loads(after_json or "{}")
+        except ValueError:
+            d = {}
+        out.append({"id": rid, "timestamp": ts, "action": d.get("action"), "target": target,
+                    "details": d.get("details", "")})
+    return out
 
 
 # ============================================================================

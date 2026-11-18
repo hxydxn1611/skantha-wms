@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 import json
 import time
 import logging
@@ -207,8 +208,26 @@ class WarlogCopilotService:
             s = re.sub(pattern, rep, s)
         return s
 
+    @staticmethod
+    def sanitize_web_query(query: str, strip_terms=()) -> str:
+        """H16: what may leave the server. Number plates, PO / gate-pass / invoice numbers,
+        long numbers, phone numbers, emails and the given names are removed first."""
+        q = str(query or "")
+        q = re.sub(r"[\w.+-]+@[\w-]+\.[\w.-]+", " ", q)                                   # emails
+        q = re.sub(r"\b[A-Z]{2}\s?-?\d{1,2}\s?-?[A-Z]{0,3}\s?-?\d{3,4}\b", " ", q, flags=re.I)  # number plates
+        q = re.sub(r"\b(?:PO|GP|INV|DN|GRN|SO)[-\s#]?[A-Z0-9-]{2,}\b", " ", q, flags=re.I)       # document numbers
+        q = re.sub(r"\+?\d[\d\s-]{6,}\d", " ", q)                                          # phones / long numbers
+        q = re.sub(r"\b\d{5,}\b", " ", q)
+        for term in strip_terms or ():
+            term = str(term or "").strip()
+            if len(term) >= 3:
+                q = re.sub(re.escape(term), " ", q, flags=re.I)
+        return re.sub(r"\s+", " ", q).strip()
+
     def _search_web_knowledge(self, query: str, max_results: int = 4) -> list:
         """
+        RBAC Phase 7 (H16): runs only when the company has switched Copilot web search on
+        (off by default), and only with a sanitized query (see sanitize_web_query).
         Performs high-speed live web search without any external API keys or paid tools
         using standard HTTP requests to retrieve authoritative industrial and technical knowledge.
         100% free, private, and server-native.
@@ -217,6 +236,11 @@ class WarlogCopilotService:
         import urllib.parse
         import html
 
+        if not getattr(_CALL, "allow_web", False):
+            return []
+        query = self.sanitize_web_query(query, getattr(_CALL, "strip_terms", ()))
+        if len(query) < 3:
+            return []
         url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote_plus(query)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -247,8 +271,22 @@ class WarlogCopilotService:
             logger.warning(f"Web knowledge search notice: {e}")
         return results
 
-    def handle_chat(self, message: str, user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Processes incoming chat/voice queries across all operational & knowledge domains."""
+    def handle_chat(self, message: str, user: Optional[Dict[str, Any]] = None, *, allow_web_search: bool = False,
+                    can_configure_ai: bool = False, strip_terms=()) -> Dict[str, Any]:
+        """Processes incoming chat/voice queries across all operational & knowledge domains.
+        RBAC Phase 7: web search only when allowed for the company; the global AI key only
+        by someone allowed to configure it (the Platform Admin)."""
+        _CALL.allow_web = bool(allow_web_search)
+        _CALL.can_configure_ai = bool(can_configure_ai)
+        _CALL.strip_terms = tuple(strip_terms or ())
+        try:
+            return self._handle_chat(message, user)
+        finally:
+            _CALL.allow_web = False
+            _CALL.can_configure_ai = False
+            _CALL.strip_terms = ()
+
+    def _handle_chat(self, message: str, user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not message or not str(message).strip():
             return {
                 "success": False,
@@ -265,6 +303,14 @@ class WarlogCopilotService:
         # 0. SERVER-LEVEL GEMINI AI CORE CONFIGURATION (ADMIN OVERRIDE)
         # -------------------------------------------------------------
         m_key = re.search(r'(?:set\s+(?:api\s+)?key|gemini\s+key)\s+([A-Za-z0-9_\-]{20,})', raw_query, re.IGNORECASE)
+        if m_key and not getattr(_CALL, "can_configure_ai", False):
+            return {
+                "success": False,
+                "reply": "Only the platform administrator can change the AI key.",
+                "cards": [],
+                "suggestions": ["📊 Shift Summary", "🚛 Gate Queue"],
+                "config_refused": True,
+            }
         if m_key:
             new_key = m_key.group(1).strip()
             if self.set_gemini_api_key(new_key):
@@ -1549,6 +1595,10 @@ class WarlogCopilotService:
 
 # Singleton accessor
 _COPILOT_INSTANCE: Optional[WarlogCopilotService] = None
+
+# per-request flags (the service object is shared by all requests and threads)
+_CALL = threading.local()
+
 
 def get_copilot_service() -> WarlogCopilotService:
     global _COPILOT_INSTANCE

@@ -251,6 +251,63 @@ def api_activate_role(role_id):
     return jsonify({"success": True, "message": "Role reactivated.", **out})
 
 
+# ----------------------------------------------------------------------------- audit log & company settings (Phase 7)
+def _audit_company():
+    """Company Admins: their own company. Platform Admin: a chosen company, or all ('all')."""
+    actor = _actor()
+    requested = request.args.get("company_id")
+    if actor.get("is_platform_admin") and requested in ("all", "*"):
+        return None
+    return iam_service.acting_company(actor, requested)
+
+
+def _audit_filters():
+    return {k: request.args.get(k) for k in ("q", "action", "actor", "from", "to", "result") if request.args.get(k)}
+
+
+@bp.route("/api/iam/audit", methods=["GET"])
+def api_audit_list():
+    _need("audit.view")
+    out = iam_service.list_audit(_audit_company(), _audit_filters(), request.args.get("page", 1))
+    perms = rbac_service.effective_permissions()
+    out["can_export"] = bool(_actor().get("is_platform_admin")) or "audit.export" in perms
+    return jsonify({"success": True, **out})
+
+
+@bp.route("/api/iam/audit/export", methods=["GET"])
+def api_audit_export():
+    _need("audit.export")
+    from flask import Response
+    import auth_service
+    cid = _audit_company()
+    csv_text = iam_service.audit_csv(cid, _audit_filters())
+    auth_service.audit("audit.exported", actor=_actor(), company_id=cid, ip=_ip(), after={"filters": _audit_filters()})
+    return Response("﻿" + csv_text, mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=warlog_audit_log.csv",
+                             "Cache-Control": "no-store"})
+
+
+@bp.route("/api/iam/company_settings", methods=["GET"])
+def api_company_settings():
+    _need("users.view")
+    import settings_service
+    cid = _company()
+    perms = rbac_service.effective_permissions()
+    admin = bool(_actor().get("is_platform_admin"))
+    return jsonify({"success": True, "company_id": cid, "settings": settings_service.company_settings(cid),
+                    "can": {"copilot.web_search": admin or "copilot.config" in perms,
+                            "audit.retention_days": admin or "company.settings.manage" in perms}})
+
+
+@bp.route("/api/iam/company_settings", methods=["PUT"])
+def api_update_company_settings():
+    d = _body()
+    key = d.get("key")
+    _need("copilot.config" if key == "copilot.web_search" else "company.settings.manage")
+    value = iam_service.set_company_setting(_actor(), _company(), key, d.get("value"), _ip())
+    return jsonify({"success": True, "key": key, "value": value, "message": "Setting saved."})
+
+
 # ----------------------------------------------------------------------------- companies (Platform Admin)
 @bp.route("/api/platform/companies", methods=["POST"])
 def api_platform_create_company():

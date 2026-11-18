@@ -20,6 +20,7 @@ Steps
   008_per_company_codes  object class codes unique per company, zone codes unique per
                       warehouse (table rebuild, every row/id/link kept) (Phase 3B)
   009_starter_roles   starter roles for every company (editable custom roles) (Phase 5)
+  010_settings_tables platform_settings, company_settings (Phase 7)
 
 The permission catalogue is synced on every run (idempotent upsert; removed keys retired).
 """
@@ -364,6 +365,17 @@ def ensure_starter_roles(conn: sqlite3.Connection, company_id: int) -> int:
     return created
 
 
+def _step_settings_tables(conn: sqlite3.Connection) -> None:
+    """Phase 7: platform settings (e.g. the RTMP stream key) and per-company settings
+    (e.g. Copilot web search, audit retention). Additive."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS platform_settings (
+        key TEXT PRIMARY KEY, value_json TEXT, updated_by INTEGER, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS company_settings (
+        company_id INTEGER NOT NULL REFERENCES companies(id), key TEXT NOT NULL, value_json TEXT,
+        updated_by INTEGER, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (company_id, key))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_audit_logs_ts ON audit_logs(ts)")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -630,6 +642,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("007_ownership_backfill", _step_ownership_backfill),
     ("008_per_company_codes", _step_per_company_codes),
     ("009_starter_roles", _step_starter_roles),
+    ("010_settings_tables", _step_settings_tables),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {

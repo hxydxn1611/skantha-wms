@@ -49,7 +49,8 @@ class Phase3BBase(Phase3ABase):
                 for t in ("skus", "sku_images", "object_classes", "vision_zones", "expected_deliveries")}
 
     def apply(self, user, body, wh=None):
-        return self.send(self.client(user, wh), "POST", "/api/industry_blueprints/apply", body)
+        # Phase 7: applying a template is an exceptional action and needs a reason
+        return self.send(self.client(user, wh), "POST", "/api/industry_blueprints/apply", {"reason": "test", **body})
 
 
 class TestSchema(Phase3BBase):

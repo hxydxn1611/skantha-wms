@@ -270,7 +270,9 @@ def _strip_keys(value: Any, keys: frozenset) -> Any:
 # Phase 3A: the active warehouse is per session (and per tab) instead of one global flag,
 # so these two endpoints legitimately report a different "active" warehouse.
 SESSION_STATE_KEYS = {"/api/warehouses": frozenset({"is_active", "active_warehouse"}),
-                      "/api/warehouses/active": frozenset({"is_active", "active_warehouse"})}
+                      "/api/warehouses/active": frozenset({"is_active", "active_warehouse"}),
+                      # Phase 7 (H7): the camera push address now carries the secret stream key
+                      "/api/system/rtmp_status": frozenset({"rtmp_url", "key_required"})}
 
 
 SUPERSET_LIST_ENDPOINTS = {"/api/warehouses": ("code", "warehouses")}

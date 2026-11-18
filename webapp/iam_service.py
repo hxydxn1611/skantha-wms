@@ -19,6 +19,7 @@ Rules (RBAC plan, "Authentication and accounts", H12, H24):
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import secrets
 import sqlite3
@@ -937,3 +938,130 @@ def set_role_active(actor: Dict[str, Any], company_id: int, role_id: int, active
                        before={"is_active": bool(role["is_active"])},
                        after={"is_active": active, "users_affected": len(users)}, ip=ip)
     return {"id": role_id, "users_affected": len(users)}
+
+
+# ----------------------------------------------------------------------------- audit log (Phase 7)
+AUDIT_PAGE = 50
+
+
+def _audit_where(company_id: Optional[int], f: Dict[str, Any]) -> Tuple[str, list]:
+    where, params = ["1=1"], []
+    if company_id is not None:
+        where.append("a.company_id = ?")
+        params.append(company_id)
+    if f.get("action"):
+        where.append("a.action LIKE ?")
+        params.append(str(f["action"]).strip() + "%")
+    if f.get("actor"):
+        where.append("LOWER(a.actor_username) LIKE ?")
+        params.append("%" + str(f["actor"]).strip().lower() + "%")
+    if f.get("q"):
+        q = "%" + str(f["q"]).strip().lower() + "%"
+        where.append("(LOWER(a.action) LIKE ? OR LOWER(COALESCE(a.resource_id,'')) LIKE ? OR LOWER(COALESCE(a.reason,'')) LIKE ?"
+                     " OR LOWER(COALESCE(a.actor_username,'')) LIKE ?)")
+        params += [q, q, q, q]
+    if f.get("from"):
+        where.append("a.ts >= ?")
+        params.append(str(f["from"]) + (" 00:00:00" if len(str(f["from"])) == 10 else ""))
+    if f.get("to"):
+        where.append("a.ts <= ?")
+        params.append(str(f["to"]) + (" 23:59:59" if len(str(f["to"])) == 10 else ""))
+    if f.get("result"):
+        where.append("a.result = ?")
+        params.append(str(f["result"]))
+    return " AND ".join(where), params
+
+
+def list_audit(company_id: Optional[int], filters: Dict[str, Any], page: int = 1) -> Dict[str, Any]:
+    """Company Admins see their own company's rows; the Platform Admin may pass None (all)."""
+    where, params = _audit_where(company_id, filters)
+    page = max(1, int(page or 1))
+    conn = _conn()
+    try:
+        total = conn.execute(f"SELECT COUNT(*) FROM audit_logs a WHERE {where}", params).fetchone()[0]
+        rows = conn.execute(f"""
+            SELECT a.id, a.ts, a.actor_username, a.action, a.resource_type, a.resource_id, a.reason,
+                   a.before_json, a.after_json, a.ip, a.result, a.company_id, a.warehouse_id,
+                   w.code AS warehouse_code, c.name AS company_name
+            FROM audit_logs a LEFT JOIN warehouses w ON w.id = a.warehouse_id
+            LEFT JOIN companies c ON c.id = a.company_id
+            WHERE {where} ORDER BY a.id DESC LIMIT ? OFFSET ?""",
+            params + [AUDIT_PAGE, (page - 1) * AUDIT_PAGE]).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for k in ("before_json", "after_json"):
+            try:
+                d[k[:-5]] = json.loads(d.pop(k)) if d.get(k) else None
+            except ValueError:
+                d[k[:-5]] = None
+        out.append(d)
+    return {"rows": out, "total": total, "page": page, "pages": max(1, -(-total // AUDIT_PAGE))}
+
+
+def audit_csv(company_id: Optional[int], filters: Dict[str, Any], limit: int = 20000) -> str:
+    import csv
+    import io
+    where, params = _audit_where(company_id, filters)
+    conn = _conn()
+    try:
+        rows = conn.execute(f"""
+            SELECT a.ts, a.actor_username, c.name, w.code, a.action, a.resource_type, a.resource_id, a.reason,
+                   a.result, a.ip, a.before_json, a.after_json
+            FROM audit_logs a LEFT JOIN warehouses w ON w.id = a.warehouse_id LEFT JOIN companies c ON c.id = a.company_id
+            WHERE {where} ORDER BY a.id DESC LIMIT ?""", params + [int(limit)]).fetchall()
+    finally:
+        conn.close()
+    buf = io.StringIO()
+    wr = csv.writer(buf)
+    wr.writerow(["time (UTC)", "who", "company", "location", "action", "record type", "record", "reason",
+                 "result", "ip", "before", "after"])
+    for r in rows:
+        # neutralise spreadsheet formulas in exported text
+        wr.writerow(["'" + str(v) if isinstance(v, str) and v[:1] in ("=", "+", "-", "@") else v for v in r])
+    return buf.getvalue()
+
+
+def purge_old_audit_rows() -> int:
+    """Retention (default 365 days, per company: audit.retention_days). Rows without a
+    company use the default. Runs from a daily background job; never edits rows."""
+    import settings_service
+    conn = _conn()
+    removed = 0
+    try:
+        companies = [r[0] for r in conn.execute("SELECT id FROM companies")]
+        with conn:
+            for cid in companies:
+                days = int(settings_service.get_company(cid, "audit.retention_days") or 365)
+                days = max(30, min(days, 3650))
+                removed += conn.execute("DELETE FROM audit_logs WHERE company_id = ? AND ts < datetime('now', ?)",
+                                        (cid, f"-{days} days")).rowcount
+            removed += conn.execute("DELETE FROM audit_logs WHERE company_id IS NULL AND ts < datetime('now', '-365 days')").rowcount
+    finally:
+        conn.close()
+    if removed:
+        logger.info(f"[AUDIT] retention removed {removed} rows older than the retention period")
+    return removed
+
+
+def set_company_setting(actor: Dict[str, Any], company_id: int, key: str, value: Any,
+                        ip: Optional[str] = None) -> Any:
+    import settings_service
+    if key == "copilot.web_search":
+        value = bool(value)
+    elif key == "audit.retention_days":
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise IamError(400, "invalid_value", "Retention must be a number of days.")
+        if not 30 <= value <= 3650:
+            raise IamError(400, "invalid_value", "Retention must be between 30 and 3650 days.")
+    else:
+        raise IamError(400, "unknown_setting", "Unknown setting.")
+    before = settings_service.get_company(company_id, key)
+    settings_service.set_company(company_id, key, value, actor.get("id"))
+    auth_service.audit("company.setting_changed", actor=actor, company_id=company_id, resource_type="company",
+                       resource_id=str(company_id), before={key: before}, after={key: value}, ip=ip)
+    return value

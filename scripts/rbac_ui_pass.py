@@ -130,6 +130,12 @@ with sync_playwright() as p:
             page.evaluate(f"window.switchTab && window.switchTab({json.dumps(module)})")
             page.wait_for_timeout(1800)
             screens[module] = refusals[before:]
+        if os.environ.get("UI_PASS_SHOTS") and username == "david":
+            page.evaluate("window.switchTab('users-access')")
+            page.wait_for_timeout(2500)
+            page.evaluate("document.getElementById('uacSettingsPanel').scrollIntoView()")
+            page.wait_for_timeout(400)
+            page.screenshot(path=os.path.join(os.environ["UI_PASS_SHOTS"], "david_audit.png"))
         entry = {"visible_modules": visible, "hidden_controls": hidden_count,
                  "refusals_on_load": [x for x in refusals if not any(x in v for v in screens.values())],
                  "refusals_by_screen": {k: v for k, v in screens.items() if v}}

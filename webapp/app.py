@@ -108,6 +108,8 @@ import auth_service
 import rbac_service
 import rbac_scope
 import sqlite3
+import audit_events
+import rbac_catalog
 from rbac_config import get_rbac_mode
 logger.info(f"[RBAC] RBAC_MODE={get_rbac_mode()}")
 
@@ -229,7 +231,12 @@ def enforce_authentication_and_session():
     # RBAC Phase 3A (H13/H14): records named in the URL or body must be in scope.
     if protected_file:
         return rbac_service.check_file_scope(path)
-    return rbac_service.check_record_scope()
+    blocked = rbac_service.check_record_scope()
+    if blocked is not None:
+        return blocked
+    # RBAC Phase 7: remember the record a gate/stock/config change touches (audit before/after)
+    audit_events.snapshot()
+    return None
 
 
 @app.teardown_request
@@ -257,6 +264,7 @@ def rbac_after_request(response):
       /api/gate_passes/<id>/otp returns one, to holders of gate.otp.send
     * 5xx bodies never carry raw exception text (H18); details go to the server log
     """
+    audit_events.record(response)   # RBAC Phase 7: one audit row per successful change
     try:
         rbac_service.set_csrf_cookie(response)
         if response.is_streamed or not response.is_json or not request.path.startswith('/api/'):
@@ -4197,7 +4205,34 @@ def gate_auto_dispatch_toggle():
         if request.method == 'POST':
             data = request.json or {}
             enabled = bool(data.get('enabled', False))
+            if enabled:
+                # RBAC Phase 7 (H28): auto-dispatch lets a background service admit vehicles, so
+                # switching it on needs the bulk-approval permission and a reason, in every mode,
+                # and who switched it on is kept with the setting.
+                if 'gate.entry.bulk_approve' not in rbac_service.effective_permissions():
+                    return jsonify({"success": False, "error_code": "permission_denied",
+                                    "permission": "gate.entry.bulk_approve",
+                                    "message": "You need 'Approve all matched pending passes at once' to switch on auto-dispatch."}), 403
+                reason = rbac_service._request_reason()
+                if not reason:
+                    return jsonify({"success": False, "error_code": "reason_required",
+                                    "permission_label": "Switch on gate auto-dispatch",
+                                    "message": "Please give a short reason for this action."}), 400
             state = set_gate_auto_dispatch(enabled)
+            wid = rbac_service.current_warehouse_id()
+            if wid:
+                actor = g.get('current_user') or {}
+                conn = db.get_db()
+                try:
+                    with conn:
+                        conn.execute("""INSERT INTO warehouse_settings (warehouse_id, key, value_json, updated_by, updated_at)
+                                        VALUES (?, 'gate.auto_dispatch.enabled_by', ?, ?, CURRENT_TIMESTAMP)
+                                        ON CONFLICT(warehouse_id, key) DO UPDATE SET value_json = excluded.value_json,
+                                        updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP""",
+                                     (wid, json.dumps({"username": actor.get('username'), "enabled": enabled,
+                                                       "reason": rbac_service._request_reason()}), actor.get('id')))
+                finally:
+                    conn.close()
             return jsonify({"success": True, "auto_dispatch": state})
         return jsonify({"success": True, "auto_dispatch": get_gate_auto_dispatch()})
     except Exception as e:
@@ -5034,10 +5069,15 @@ def api_system_rtmp_status():
     srv = get_rtmp_service()
     now = time.time()
     age = round(now - srv.last_frame_time, 2) if srv.last_frame_time > 0 else None
+    # RBAC Phase 7 (H7): the push address carries the secret stream key, so only people who
+    # may configure cameras see it in full.
+    can_configure = 'cameras.configure' in rbac_service.effective_permissions()
+    push_url = srv.push_url(lan_ip) if can_configure else f"rtmp://{lan_ip}:{srv.port}/<stream key hidden>/cam"
     return jsonify({
         "success": True,
         "lan_ip": lan_ip,
-        "rtmp_url": f"rtmp://{lan_ip}:{srv.port}{srv.stream_path}",
+        "rtmp_url": push_url,
+        "key_required": bool(srv.require_key),
         "is_running": srv.is_running,
         "frame_count": srv.frame_count,
         "last_frame_age_sec": age,
@@ -8372,7 +8412,23 @@ def api_copilot_chat():
         data = request.get_json(silent=True) or {}
         message = data.get('message', '')
         user = session.get('user')
-        result = get_copilot_service().handle_chat(message, user=user)
+        # RBAC Phase 7: web search per company (off by default, H16); the global AI key only
+        # by the Platform Admin; names that must never leave the server
+        import settings_service
+        current = g.get('current_user') or {}
+        company_id = auth_service.user_company_id(current['id']) if current.get('id') else None
+        strip = [current.get('username'), (session.get('user') or {}).get('company_name')]
+        result = get_copilot_service().handle_chat(
+            message, user=user,
+            allow_web_search=bool(settings_service.get_company(company_id, 'copilot.web_search')),
+            can_configure_ai=bool(current.get('is_platform_admin')),
+            strip_terms=[t for t in strip if t])
+        if result.get('config_refused'):
+            auth_service.audit('copilot.config_refused', actor=current, company_id=company_id, ip=request.remote_addr,
+                               result='denied')
+        elif re.search(r'(?:set\s+(?:api\s+)?key|gemini\s+key)\s+[A-Za-z0-9_\-]{20,}', message or '', re.IGNORECASE):
+            auth_service.audit('copilot.config_changed', actor=current, company_id=company_id, ip=request.remote_addr,
+                               after={'setting': 'gemini_api_key'})
         return jsonify(result)
     except Exception as e:
         logger.exception("Error in copilot chat endpoint")
@@ -8389,18 +8445,40 @@ def api_copilot_action():
         action = data.get('action', '')
         params = data.get('params', {})
         user = session.get('user')
-        # RBAC Phase 2: Copilot can only do what the user could do directly.
+        # RBAC Phase 2/7 (H15): Copilot can only do what the user could do directly, in every
+        # RBAC mode; only known actions run, and only from an explicit click (this endpoint).
         import rbac_routes
         needed = rbac_routes.COPILOT_ACTION_PERMISSIONS.get(action)
-        if needed:
-            denied = rbac_service.check_permission(needed, reason_required=(action == 'manual_admit'))
-            if denied is not None:
-                return denied
+        if not needed:
+            return jsonify({"success": False, "message": "Unknown action."}), 400
+        if needed not in rbac_service.effective_permissions():
+            spec = rbac_catalog.PERMISSIONS_BY_KEY.get(needed)
+            return jsonify({"success": False, "error_code": "permission_denied", "permission": needed,
+                            "message": f"You don't have permission: {spec.label if spec else needed}."}), 403
+        denied = rbac_service.check_permission(needed, reason_required=(action == 'manual_admit'))
+        if denied is not None:
+            return denied
         result = get_copilot_service().execute_action(action, params, user=user)
         return jsonify(result)
     except Exception as e:
         logger.exception("Error in copilot action endpoint")
         return jsonify({"success": False, "message": f"Action error: {e}"}), 500
+
+# RBAC Phase 7: audit retention (default 365 days, per company audit.retention_days).
+# Runs a few minutes after start and then once a day; it only removes rows past retention.
+def _audit_retention_job():
+    import iam_service
+    time.sleep(180)
+    while True:
+        try:
+            iam_service.purge_old_audit_rows()
+        except Exception as e:
+            logger.warning(f"[AUDIT] retention job: {e}")
+        time.sleep(24 * 3600)
+
+
+if os.environ.get('WARLOG_DISABLE_BACKGROUND_JOBS') != '1':
+    threading.Thread(target=_audit_retention_job, daemon=True, name='Audit-Retention').start()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

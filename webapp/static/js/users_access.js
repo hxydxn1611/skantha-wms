@@ -130,6 +130,8 @@
             if (sel && sel.style.display !== 'none' && !sel.value) sel.value = uac.company_id;
             render();
             loadRoles();
+            loadCompanySettings();
+            uacLoadAudit(1);
         } catch (err) {
             usersEl.innerHTML = `<div class="uac-empty uac-error">${esc(err.message)}</div>`;
             document.getElementById('uacInvites').innerHTML = '';
@@ -694,6 +696,105 @@
                 const out = await api('POST', `/api/iam/roles/${roleId}/deactivate`, { reason: document.getElementById('rdReason').value });
                 closeModal(); toast(out.message, 'success'); loadUsersAccess();
             } }]);
+    };
+
+    // ------------------------------------------------------------------ company settings (Phase 7)
+    async function loadCompanySettings() {
+        const panel = document.getElementById('uacSettingsPanel');
+        if (!panel) return;
+        let data;
+        try { data = await api('GET', '/api/iam/company_settings'); }
+        catch (e) { panel.style.display = 'none'; return; }
+        const s = data.settings, can = data.can;
+        if (!can['copilot.web_search'] && !can['audit.retention_days']) { panel.style.display = 'none'; return; }
+        panel.style.display = '';
+        document.getElementById('uacSettings').innerHTML = `
+            <div class="set-row">
+                <div><div class="set-title">Copilot web search</div>
+                    <div class="uac-muted">Lets Copilot look up general questions on the internet. Number plates, PO numbers, phone numbers, emails and names are removed before anything leaves the server. Off by default.</div></div>
+                <label class="set-switch" title="${can['copilot.web_search'] ? '' : 'You need the Copilot settings permission'}">
+                    <input type="checkbox" id="setWebSearch" ${s['copilot.web_search'] ? 'checked' : ''} ${can['copilot.web_search'] ? '' : 'disabled'}>
+                    <span class="set-slider"></span></label>
+            </div>
+            <div class="set-row">
+                <div><div class="set-title">Keep audit records for</div>
+                    <div class="uac-muted">Older records are removed once a day. Between 30 and 3650 days.</div></div>
+                <div class="set-inline"><input type="number" id="setRetention" class="uac-input" min="30" max="3650"
+                    value="${esc(s['audit.retention_days'])}" ${can['audit.retention_days'] ? '' : 'disabled'}><span class="uac-muted">days</span>
+                    ${can['audit.retention_days'] ? '<button class="uac-btn-sm" id="setRetentionSave">Save</button>' : ''}</div>
+            </div>`;
+        const save = async (key, value) => {
+            try { const o = await api('PUT', '/api/iam/company_settings', { key, value }); toast(o.message, 'success'); }
+            catch (e) { toast(e.message, 'error'); loadCompanySettings(); }
+        };
+        const ws = document.getElementById('setWebSearch');
+        if (ws && !ws.disabled) ws.addEventListener('change', () => save('copilot.web_search', ws.checked));
+        const rb = document.getElementById('setRetentionSave');
+        if (rb) rb.addEventListener('click', () => save('audit.retention_days', document.getElementById('setRetention').value));
+    }
+
+    // ------------------------------------------------------------------ audit log (Phase 7)
+    let auditRows = [];
+
+    function auditQuery(page) {
+        const p = new URLSearchParams();
+        const v = id => (document.getElementById(id) || {}).value || '';
+        if (v('audQ')) p.set('q', v('audQ'));
+        if (v('audArea')) p.set('action', v('audArea'));
+        if (v('audFrom')) p.set('from', v('audFrom'));
+        if (v('audTo')) p.set('to', v('audTo'));
+        if (page) p.set('page', page);
+        return p.toString();
+    }
+
+    function actionLabel(a) {
+        // 'iam.invitation.accepted' -> 'invitation accepted', 'gate.entry_approved' -> 'gate entry approved'
+        return String(a || '').replace(/^(iam|auth|platform|activity)\./, '').replace(/[._]/g, ' ');
+    }
+
+    window.uacLoadAudit = async function (page) {
+        const panel = document.getElementById('uacAuditPanel');
+        if (!panel) return;
+        let data;
+        try { data = await api('GET', '/api/iam/audit?' + auditQuery(page || 1)); }
+        catch (e) { panel.style.display = 'none'; return; }
+        panel.style.display = '';
+        document.getElementById('uacAuditExport').style.display = data.can_export ? 'inline-flex' : 'none';
+        auditRows = data.rows;
+        const resultPill = r => r === 'success' ? '' : `<span class="uac-pill ${r === 'denied' ? 'off' : 'warn'}">${esc(r)}</span>`;
+        document.getElementById('uacAudit').innerHTML = data.rows.length ? `
+            <table class="uac-table aud-table"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Record</th><th>Where</th><th>Reason</th><th></th></tr></thead>
+            <tbody>${data.rows.map((r, i) => `<tr>
+                <td class="aud-when">${when(r.ts)}</td>
+                <td>${esc(r.actor_username || '-')}${String(r.actor_username || '').startsWith('system:') ? ' <span class="uac-pill starter">system</span>' : ''}</td>
+                <td><span class="aud-action">${esc(actionLabel(r.action))}</span> ${resultPill(r.result)}</td>
+                <td class="uac-muted">${esc([r.resource_type, r.resource_id].filter(Boolean).join(' '))}</td>
+                <td class="uac-muted">${esc(r.warehouse_code || r.company_name || '')}</td>
+                <td>${esc(r.reason || '')}</td>
+                <td>${r.before || r.after ? `<button class="uac-btn-sm" onclick="uacAuditDetails(${i})">Details</button>` : ''}</td>
+            </tr>`).join('')}</tbody></table>` : '<div class="uac-empty">No records match.</div>';
+        const pager = document.getElementById('uacAuditPager');
+        pager.innerHTML = data.pages > 1 ? `
+            <button class="uac-btn-sm" ${data.page <= 1 ? 'disabled' : ''} onclick="uacLoadAudit(${data.page - 1})">Previous</button>
+            <span class="uac-muted">Page ${data.page} of ${data.pages} &middot; ${data.total} records</span>
+            <button class="uac-btn-sm" ${data.page >= data.pages ? 'disabled' : ''} onclick="uacLoadAudit(${data.page + 1})">Next</button>`
+            : `<span class="uac-muted">${data.total} record(s)</span>`;
+    };
+
+    window.uacAuditDetails = function (i) {
+        const r = auditRows[i];
+        if (!r) return;
+        const block = (title, obj) => obj ? `<div class="aud-block"><div class="uac-subhead">${title}</div><pre>${esc(JSON.stringify(obj, null, 2))}</pre></div>` : '';
+        modal(actionLabel(r.action), `
+            <p class="uac-p uac-muted">${when(r.ts)} &middot; ${esc(r.actor_username || '-')} &middot; ${esc(r.warehouse_code || r.company_name || '')}${r.ip ? ' &middot; ' + esc(r.ip) : ''}</p>
+            ${r.reason ? `<p class="uac-p"><b>Reason:</b> ${esc(r.reason)}</p>` : ''}
+            ${block('Before', r.before)}${block('After', r.after)}`, []);
+    };
+
+    window.uacExportAudit = function () {
+        const sel = document.getElementById('uacCompany');
+        const cid = sel && sel.style.display !== 'none' ? '&company_id=' + encodeURIComponent(sel.value) : '';
+        window.location.href = '/api/iam/audit/export?' + auditQuery(0) + cid;
     };
 
     window.loadUsersAccess = loadUsersAccess;

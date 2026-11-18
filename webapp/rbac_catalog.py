@@ -267,6 +267,15 @@ STARTER_ROLES = (
 )
 STARTER_ROLES_BY_KEY = {t[0]: t for t in STARTER_ROLES}
 
+# Exceptional actions: every use needs a written reason, in every RBAC mode (Phase 7).
+# The other sensitive permissions (AI runtime / test benches, camera simulation, Copilot
+# config) are audited on every use but don't ask for a reason, so the AI lab stays usable.
+REASON_PERMISSIONS = frozenset({
+    "inventory.adjust", "gate.entry.bulk_approve", "gate.override.manual", "gate.otp.override",
+    "gate.manual_admission.authorize", "gate.exception.approve", "masterdata.blueprint.apply",
+    "integration.test.execute",
+})
+
 
 def builtin_permissions(builtin_code: Optional[str]) -> frozenset:
     if builtin_code == "platform_admin":

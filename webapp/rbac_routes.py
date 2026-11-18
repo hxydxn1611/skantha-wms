@@ -65,6 +65,10 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "iam.api_preview_role": "roles.manage",
     "iam.api_deactivate_role": "roles.manage",
     "iam.api_activate_role": "roles.manage",
+    "iam.api_audit_list": "audit.view",          # Phase 7: audit log
+    "iam.api_audit_export": "audit.export",
+    "iam.api_company_settings": "users.view",
+    "iam.api_update_company_settings": "copilot.config|company.settings.manage",
     "iam.api_platform_create_company": "platform.companies.manage",
     "iam.api_platform_suspend_company": "platform.companies.manage",
     "iam.api_platform_activate_company": "platform.companies.manage",

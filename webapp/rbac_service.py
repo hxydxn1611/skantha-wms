@@ -256,6 +256,16 @@ def has_permission(key: str) -> bool:
 
 
 # ----------------------------------------------------------------------------- decisions
+def reason_needed(endpoint: Optional[str], key: Optional[str]) -> bool:
+    """Exceptional actions need a written reason (Phase 7). A preview never does."""
+    if request.is_json:
+        body = request.get_json(silent=True)
+        if isinstance(body, dict) and body.get("preview") is True:
+            return False
+    return (endpoint in rbac_routes.REASON_REQUIRED_ENDPOINTS
+            or (key is not None and key in rbac_catalog.REASON_PERMISSIONS))
+
+
 def _request_reason() -> str:
     reason = request.headers.get("X-Action-Reason") or ""
     if not reason and request.is_json:
@@ -324,11 +334,10 @@ def authorize_request():
         return None
 
     spec = rbac_catalog.PERMISSIONS_BY_KEY.get(key) if key else None
-    if endpoint in rbac_routes.REASON_REQUIRED_ENDPOINTS and request.method not in SAFE_METHODS:
-        if not _request_reason():
-            _log_decision("access.reason_missing", key, "reason required", "denied" if enforcing else "warning")
-            if enforcing:
-                return _deny(400, "reason_required", "A reason is required for this action.", key)
+    if request.method not in SAFE_METHODS and reason_needed(endpoint, key) and not _request_reason():
+        # Phase 7: required in every mode (the page asks "why?" and sends it again)
+        _log_decision("access.reason_missing", key, "reason required", "denied")
+        return _deny(400, "reason_required", "Please give a short reason for this action.", key)
     if spec and spec.sensitive and request.method not in SAFE_METHODS:
         user = current_identity() or {}
         auth_service.audit("access.sensitive", actor=user, company_id=auth_service.user_company_id(user.get("id")) if user else None,
@@ -350,9 +359,8 @@ def check_permission(key: str, *, reason_required: bool = False):
             return _deny(403, "permission_denied", f"You don't have permission: {spec.label if spec else key}.", key)
         return None
     if reason_required and not _request_reason():
-        _log_decision("access.reason_missing", key, "reason required", "denied" if enforcing else "warning")
-        if enforcing:
-            return _deny(400, "reason_required", "A reason is required for this action.", key)
+        _log_decision("access.reason_missing", key, "reason required", "denied")
+        return _deny(400, "reason_required", "Please give a short reason for this action.", key)
     return None
 
 

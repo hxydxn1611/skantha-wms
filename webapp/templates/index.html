@@ -4291,6 +4291,45 @@
                 </div>
                 <div id="uacRoles" class="uac-table-wrap"></div>
             </div>
+            <div class="glass-panel" id="uacSettingsPanel" style="margin-top: 1.5rem; display:none;">
+                <div class="uac-subhead" style="margin:0 0 4px;">Company settings</div>
+                <div class="uac-muted" style="margin-bottom:12px;">Apply to every location of this company.</div>
+                <div id="uacSettings"></div>
+            </div>
+            <div class="glass-panel" id="uacAuditPanel" style="margin-top: 1.5rem; display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                    <div>
+                        <div class="uac-subhead" style="margin:0;">Audit log</div>
+                        <div class="uac-muted">Every sign-in, access change, gate, stock and configuration change: who, when, where and why. Records can't be edited.</div>
+                    </div>
+                    <button class="btn-primary" id="uacAuditExport" onclick="uacExportAudit()" style="display:none; align-items:center; gap:6px;">
+                        <i class="fas fa-file-arrow-down"></i> Export CSV
+                    </button>
+                </div>
+                <div class="aud-filters">
+                    <input id="audQ" class="uac-input" placeholder="Search action, record, reason or person">
+                    <select id="audArea" class="uac-input">
+                        <option value="">All areas</option>
+                        <option value="auth.">Sign-in &amp; passwords</option>
+                        <option value="iam.">People, roles &amp; access</option>
+                        <option value="gate.">Gate</option>
+                        <option value="dock.">Dock</option>
+                        <option value="inventory.">Stock</option>
+                        <option value="pallet.">Pallets</option>
+                        <option value="cyclecount.">Cycle counts</option>
+                        <option value="camera.">Cameras</option>
+                        <option value="vision.">AI vision</option>
+                        <option value="copilot.">Copilot</option>
+                        <option value="access.">Refused &amp; sensitive actions</option>
+                        <option value="activity.">Operations activity</option>
+                    </select>
+                    <input id="audFrom" class="uac-input" type="date" title="From">
+                    <input id="audTo" class="uac-input" type="date" title="To">
+                    <button class="uac-btn" onclick="uacLoadAudit(1)"><i class="fas fa-filter"></i> Apply</button>
+                </div>
+                <div id="uacAudit" class="uac-table-wrap"></div>
+                <div id="uacAuditPager" class="aud-pager"></div>
+            </div>
         </div>
         {% endif %}
 

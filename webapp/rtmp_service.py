@@ -10,9 +10,16 @@ logger = logging.getLogger("rtmp_service")
 logger.setLevel(logging.INFO)
 
 class RTMPIngestService:
-    def __init__(self, port: int = 1935, stream_path: str = "/live/cam"):
+    """RBAC Phase 7 (H7): cameras push to the key gate on `port`; ffmpeg listens only on
+    127.0.0.1:`upstream_port`, so a push without the stream key never reaches it.
+    RTMP_REQUIRE_KEY=0 in .env switches the gate off (ffmpeg on 0.0.0.0:port as before)."""
+
+    def __init__(self, port: int = 1935, stream_path: str = "/live/cam", upstream_port: int = 19350):
         self.port = port
         self.stream_path = stream_path
+        self.upstream_port = upstream_port
+        self.require_key = os.environ.get("RTMP_REQUIRE_KEY", "1").strip() != "0"
+        self.gate = None
         self.is_running = False
         self.thread = None
         self.proc = None
@@ -33,8 +40,18 @@ class RTMPIngestService:
         self.thread.start()
         logger.info(f"RTMP Ingest Service started on rtmp://0.0.0.0:{self.port}{self.stream_path}")
 
+    def push_url(self, host: str) -> str:
+        """The address cameras push to (contains the secret key when the gate is on)."""
+        if not self.require_key:
+            return f"rtmp://{host}:{self.port}{self.stream_path}"
+        from settings_service import rtmp_stream_key
+        return f"rtmp://{host}:{self.port}/{rtmp_stream_key()}/cam"
+
     def stop(self):
         self.is_running = False
+        if self.gate:
+            self.gate.stop()
+            self.gate = None
         if self.proc and self.proc.poll() is None:
             try:
                 self.proc.terminate()
@@ -137,6 +154,19 @@ class RTMPIngestService:
             except Exception:
                 pass
 
+        listen_host, listen_port = "0.0.0.0", self.port
+        if self.require_key:
+            try:
+                from rtmp_gate import RTMPKeyGate
+                from settings_service import rtmp_stream_key
+                rtmp_stream_key()  # create the key now, not on the first push
+                self.gate = RTMPKeyGate(rtmp_stream_key, "0.0.0.0", self.port, "127.0.0.1", self.upstream_port).start()
+                listen_host, listen_port = "127.0.0.1", self.upstream_port
+            except Exception as e:
+                logger.error(f"RTMP key gate could not start ({e}); RTMP ingest stays off for safety.")
+                self.is_running = False
+                return
+
         cmd = [
             ffmpeg_bin,
             "-loglevel", "info",
@@ -146,7 +176,7 @@ class RTMPIngestService:
             "-flags", "low_delay",
             "-rw_timeout", "4000000",
             "-listen", "1",
-            "-i", f"rtmp://0.0.0.0:{self.port}{self.stream_path}",
+            "-i", f"rtmp://{listen_host}:{listen_port}{self.stream_path}",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-s", "640x480",
@@ -160,7 +190,8 @@ class RTMPIngestService:
             try:
                 # Reset per-connection frame timer so watchdog only monitors active stream silence
                 conn_last_frame = [0.0]
-                logger.info(f"Listening for camera RTMP push on rtmp://0.0.0.0:{self.port}{self.stream_path} ...")
+                logger.info(f"Listening for camera RTMP push on rtmp://{listen_host}:{listen_port}{self.stream_path}"
+                            + (" (behind the stream-key gate)" if self.gate else "") + " ...")
                 self.proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
