@@ -40,7 +40,11 @@ class PhotoSearchError(Exception):
 
 
 def _key(name: str) -> str:
-    return (os.environ.get(name) or "").strip()
+    v = (os.environ.get(name) or "").strip()
+    # an unfilled template value ("your-pexels-key", "<key>", "xxx") counts as no key
+    if not v or v.lower().startswith(("your", "<", "xxx", "changeme", "replace")):
+        return ""
+    return v
 
 
 def providers_status() -> Dict[str, bool]:
@@ -136,9 +140,11 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
     count = max(1, min(int(count or 10), 30))
     seen_set = set(seen or [])
     status = providers_status()
-    # Wikimedia is only a fallback when a key-based source is switched on
-    keyed = [n for n in ("pixabay", "pexels") if status[n]]
-    active = [(n, fn) for n, fn in PROVIDERS if (n in keyed) or (n == "wikimedia" and len(keyed) < 2)]
+    # Pixabay / Pexels when their keys are set; Wikimedia Commons only when neither is,
+    # or to top up when they have nothing new left for these words
+    keyed = [(n, fn) for n, fn in PROVIDERS if n in ("pixabay", "pexels") and status[n]]
+    wiki = [(n, fn) for n, fn in PROVIDERS if n == "wikimedia"]
+    active = keyed or wiki
     found: List[Dict] = []
     errors = 0
     page = max(1, int(page or 1))
@@ -156,8 +162,22 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
                 if i < len(b) and b[i]["id"] not in seen_set and b[i].get("thumb") and b[i].get("url"):
                     found.append(b[i])
                     seen_set.add(b[i]["id"])
-        if len(found) >= count or not any(batches):
+        if len(found) >= count:
             return found[:count], p + (0 if len(found) > count else 1)
+        if not any(batches):
+            break
+    if len(found) < count and keyed and wiki:
+        for p in (1, 2):
+            try:
+                for it in wiki[0][1](query, p):
+                    if it["id"] not in seen_set and it.get("thumb") and it.get("url"):
+                        found.append(it)
+                        seen_set.add(it["id"])
+            except requests.RequestException as e:
+                errors += 1
+                logger.warning(f"[PhotoSearch] wikimedia unreachable: {e}")
+            if len(found) >= count:
+                break
     if not found and errors:
         raise PhotoSearchError("Couldn't reach the photo services. Check the internet connection and try again.")
     return found[:count], page + 3

@@ -19,8 +19,39 @@
 
     // ================================================================== tabs
     let avTab = 'products';
+    // one-line "what is this for" under the tabs
+    const ABOUT = {
+        products: {
+            icon: 'fa-boxes-packing', color: 't-violet', title: 'Your product list',
+            text: 'Every product the warehouse handles: name, unit, pieces per bundle and photos. Palletization, Inventory and AI counting all read from here.',
+            tips: [['fa-plus', 'Add SKU', 'one product at a time'], ['fa-file-excel', 'Upload Excel', 'many at once (download the Template first)'],
+                   ['fa-images', 'Bulk Image Mapping', 'photos named by SKU code'], ['fa-globe', 'Images / Find photos online', 'pick product photos from the internet']],
+        },
+        studio: {
+            icon: 'fa-bullseye', color: 't-blue', title: 'Count items in a photo, no training needed',
+            text: 'Draw a box around one item (or type what it is) and the AI finds all the others. Tap to correct, then save the example so the next count is one click.',
+            tips: [['fa-image', 'Photo', 'upload or take a picture'], ['fa-vector-square', 'Draw example', 'box 1–3 items'],
+                   ['fa-bolt', 'Count', 'see every item numbered'], ['fa-bookmark', 'Save as example', 'reuse it for this product']],
+        },
+        weight: {
+            icon: 'fa-scale-balanced', color: 't-teal', title: 'Count without a camera',
+            text: 'Weigh the loaded pallet, take away the empty pallet, divide by one piece’s weight. Use it to double-check a camera count or when no photo is possible.',
+            tips: [['fa-box', 'Product', 'fills in one piece’s weight'], ['fa-weight-hanging', 'Weights', 'scale reading and empty pallet'],
+                   ['fa-scale-balanced', 'Compare', 'with the camera count']],
+        },
+    };
+    function renderAbout(name) {
+        const el = $('avAbout');
+        const a = ABOUT[name];
+        if (!el || !a) return;
+        el.innerHTML = `<span class="uac-tab-icon ${a.color} av-about-icon"><i class="fas ${a.icon}"></i></span>
+            <div class="av-about-body"><div class="av-about-title">${h(a.title)}</div><div class="av-about-text">${h(a.text)}</div>
+            <div class="av-about-tips">${a.tips.map(t => `<span><i class="fas ${t[0]}"></i><b>${h(t[1])}</b> ${h(t[2])}</span>`).join('')}</div></div>`;
+    }
+
     function avShowTab(name) {
         avTab = name;
+        renderAbout(name);
         document.querySelectorAll('#avTabs .uac-tab').forEach(b => b.classList.toggle('is-active', b.dataset.av === name));
         document.querySelectorAll('#ai-vision-view .av-products').forEach(el => { el.style.display = name === 'products' ? '' : 'none'; });
         document.querySelectorAll('#ai-vision-view .av-pane').forEach(el => { el.style.display = el.dataset.avpane === name ? '' : 'none'; });
@@ -569,9 +600,10 @@
             if (!r.ok || !b.success) throw new Error(b.error || 'Search failed.');
             PF.page = b.next_page || PF.page + 1;
             const src = b.sources || {};
-            $('pfSources').innerHTML = 'Photos from ' + [src.pixabay && 'Pixabay', src.pexels && 'Pexels', (!src.pixabay || !src.pexels) && 'Wikimedia Commons']
-                .filter(Boolean).map(x => `<b>${h(x)}</b>`).join(' · ') + ' · free to use'
-                + (!src.pixabay && !src.pexels ? ' <span class="pf-tip">Add the free Pixabay / Pexels keys for much better product photos.</span>' : '');
+            const keyed = [src.pixabay && 'Pixabay', src.pexels && 'Pexels'].filter(Boolean);
+            $('pfSources').innerHTML = 'Photos from ' + (keyed.length ? keyed : ['Wikimedia Commons']).map(x => `<b>${h(x)}</b>`).join(' · ')
+                + ' · free to use, even commercially'
+                + (!keyed.length ? ' <span class="pf-tip">Add the free Pixabay key for much better product photos.</span>' : '');
             (b.photos || []).forEach(p => {
                 PF.seen.push(p.id);
                 PF.items.push(p);
@@ -702,8 +734,25 @@
     };
 
     // ================================================================== start
+    // hover descriptions for the product toolbar buttons
+    function describeProductButtons() {
+        const map = [
+            ['openAddSkuModal()', 'Add one product by hand (you can also find photos online in the form)'],
+            ['openExcelUploadModal()', 'Add or update many products at once from an Excel file'],
+            ['openSkuImagesModal()', 'Upload many photos at once; each file name must contain the SKU code'],
+        ];
+        document.querySelectorAll('#ai-vision-view .av-products button[onclick]').forEach(b => {
+            const hit = map.find(m => (b.getAttribute('onclick') || '').trim() === m[0]);
+            if (hit && !b.title) b.title = hit[1];
+        });
+        document.querySelectorAll('#ai-vision-view .av-products a[href*="template"], #ai-vision-view .av-products button[onclick*="emplate"]')
+            .forEach(b => { if (!b.title) b.title = 'Download an empty Excel file with the right columns'; });
+    }
+
     function start() {
         wrapProductDialog();
+        renderAbout('products');
+        describeProductButtons();
         try {
             const t = sessionStorage.getItem('warlog_av_tab');
             if (t && t !== 'products' && document.querySelector(`#avTabs [data-av="${t}"]`)) {
