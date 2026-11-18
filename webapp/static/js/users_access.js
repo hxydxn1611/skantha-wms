@@ -124,6 +124,7 @@
         const usersEl = document.getElementById('uacUsers');
         if (!usersEl) return;
         if (window.currentUser && (window.currentUser.role_label === 'Super Admin')) await loadCompanies();
+        wireFilters();
         try {
             uac = await api('GET', '/api/iam/overview');
             const sel = document.getElementById('uacCompany');
@@ -143,7 +144,21 @@
         const inviteBtn = document.getElementById('uacInviteBtn');
         if (inviteBtn) inviteBtn.style.display = can['users.invite'] ? '' : 'none';
 
-        const rows = uac.users.map(u => {
+        fillPeopleFilters();
+        const fq = (document.getElementById('uacPeopleQ')?.value || '').trim().toLowerCase();
+        const fRole = document.getElementById('uacPeopleRole')?.value || '';
+        const fWh = document.getElementById('uacPeopleWh')?.value || '';
+        const fStatus = document.getElementById('uacPeopleStatus')?.value || '';
+        const people = uac.users.filter(u => {
+            const act = u.assignments.filter(a => a.status === 'Active');
+            if (fq && !`${u.username} ${u.email || ''}`.toLowerCase().includes(fq)) return false;
+            if (fRole && !act.some(a => String(a.role_id) === fRole)) return false;
+            if (fWh && !act.some(a => String(a.warehouse_id ?? 'all') === fWh)) return false;
+            if (fStatus === 'active' && !u.is_active) return false;
+            if (fStatus === 'inactive' && u.is_active) return false;
+            return true;
+        });
+        const rows = people.map(u => {
             const self = u.id === uac.me;
             const active = u.assignments.filter(a => a.status === 'Active');
             const access = active.length
@@ -172,11 +187,17 @@
                 <td class="uac-actions">${actions.join('') || '<span class="uac-muted">-</span>'}</td>
             </tr>`;
         }).join('');
-        document.getElementById('uacUsers').innerHTML = uac.users.length
+        document.getElementById('uacUsers').innerHTML = people.length
             ? `<table class="uac-table"><thead><tr><th>User</th><th>Email</th><th>Access (role &middot; location)</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-            : '<div class="uac-empty">No users yet. Invite someone to get started.</div>';
+            : (uac.users.length ? '<div class="uac-empty"><i class="fas fa-filter"></i> Nobody matches these filters.</div>'
+                                : '<div class="uac-empty">No users yet. Invite someone to get started.</div>');
 
-        const inv = uac.invitations.map(i => {
+        const fInv = document.getElementById('uacInviteStatus')?.value || '';
+        const invites = uac.invitations.filter(i => !fInv || i.status === fInv);
+        const pending = uac.invitations.filter(i => i.status === 'Pending').length;
+        const badge = document.getElementById('uacInviteBadge');
+        if (badge) { badge.textContent = pending; badge.style.display = pending ? '' : 'none'; }
+        const inv = invites.map(i => {
             const pill = { Pending: 'warn', Accepted: 'ok', Revoked: 'off', Expired: 'off' }[i.status] || 'off';
             const acts = [];
             if (can['users.invite'] && i.status === 'Pending') acts.push(`<button class="uac-btn-sm danger" onclick="uacRevokeInvite(${i.id})">Revoke</button>`);
@@ -187,9 +208,108 @@
                 <td>${i.status === 'Pending' ? when(i.expires_at) : '-'}</td>
                 <td class="uac-actions">${acts.join('')}</td></tr>`;
         }).join('');
-        document.getElementById('uacInvites').innerHTML = uac.invitations.length
+        document.getElementById('uacInvites').innerHTML = invites.length
             ? `<table class="uac-table"><thead><tr><th>Email</th><th>Role &middot; location</th><th>Status</th><th>Invited by</th><th>Sent</th><th>Expires</th><th></th></tr></thead><tbody>${inv}</tbody></table>`
-            : '<div class="uac-empty">No invitations yet.</div>';
+            : `<div class="uac-empty">${uac.invitations.length ? 'No invitations with this status.' : 'No invitations yet.'}</div>`;
+        updateSummary();
+        refreshTabs();
+    }
+
+    function fillPeopleFilters() {
+        const setOpts = (id, first, opts) => {
+            const sel = document.getElementById(id);
+            if (!sel) return;
+            const keep = sel.value;
+            sel.innerHTML = `<option value="">${first}</option>` + opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+            if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+        };
+        const roleMap = new Map();
+        uac.users.forEach(u => u.assignments.forEach(a => { if (a.status === 'Active') roleMap.set(String(a.role_id), a.role); }));
+        setOpts('uacPeopleRole', 'All roles', [...roleMap.entries()].sort((x, y) => x[1].localeCompare(y[1])));
+        setOpts('uacPeopleWh', 'All locations', [['all', 'All locations (company-wide)']]
+            .concat(uac.warehouses.map(w => [String(w.id), `${w.code} · ${w.name}`])));
+    }
+
+    // ------------------------------------------------------------------ tabs, header actions, summary
+    const TAB_KEY = 'warlog_uac_tab';
+    let currentTab = (() => { try { return localStorage.getItem(TAB_KEY) || 'people'; } catch (e) { return 'people'; } })();
+
+    function tabAvailable(name) {
+        const inner = { roles: 'uacRolesPanel', settings: 'uacSettingsPanel', audit: 'uacAuditPanel' }[name];
+        if (!inner) return true;
+        const el = document.getElementById(inner);
+        return !!el && el.style.display !== 'none';
+    }
+
+    function refreshTabs() {
+        const tabs = [...document.querySelectorAll('#uacTabs .uac-tab')];
+        let visible = 0;
+        tabs.forEach(t => { const ok = tabAvailable(t.dataset.tab); t.style.display = ok ? '' : 'none'; if (ok) visible++; });
+        const bar = document.getElementById('uacTabs');
+        if (bar) bar.style.display = visible > 1 ? '' : 'none';
+        if (!tabAvailable(currentTab)) currentTab = 'people';
+        applyTab();
+    }
+
+    function applyTab() {
+        document.querySelectorAll('#uacTabs .uac-tab').forEach(t => {
+            const on = t.dataset.tab === currentTab;
+            t.classList.toggle('is-active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        document.querySelectorAll('#users-access-view .uac-pane').forEach(p => p.classList.toggle('is-active', p.dataset.pane === currentTab));
+        document.querySelectorAll('#users-access-view .uac-hdr-btn').forEach(b => {
+            b.classList.toggle('tab-off', !(b.dataset.forTab || '').split(' ').includes(currentTab));
+        });
+    }
+
+    window.uacShowTab = function (name) {
+        if (!tabAvailable(name)) return;
+        currentTab = name;
+        try { localStorage.setItem(TAB_KEY, name); } catch (e) {}
+        applyTab();
+    };
+
+    let lastChange = null;
+    function updateSummary() {
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        if (uac) {
+            set('uacStatPeople', uac.users.length);
+            set('uacStatActive', uac.users.filter(u => u.is_active).length);
+            set('uacStatInvites', uac.invitations.filter(i => i.status === 'Pending').length);
+        }
+        if (roles) {
+            const starters = roles.roles.filter(r => r.template_key).length;
+            set('uacStatRoles', `${roles.roles.filter(r => r.is_active).length}` + (starters ? ` (${starters} starter)` : ''));
+        } else if (uac) {
+            set('uacStatRoles', uac.roles.length);
+        }
+        set('uacStatLast', lastChange ? shortWhen(lastChange) : '–');
+    }
+
+    function shortWhen(ts) {
+        const d = new Date(String(ts).replace(' ', 'T') + 'Z');
+        if (isNaN(d.getTime())) return String(ts);
+        const t = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const today = new Date();
+        const y = new Date(); y.setDate(today.getDate() - 1);
+        if (d.toDateString() === today.toDateString()) return `Today ${t}`;
+        if (d.toDateString() === y.toDateString()) return `Yesterday ${t}`;
+        return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) + ` ${t}`;
+    }
+
+    let filtersWired = false;
+    function wireFilters() {
+        if (filtersWired) return;
+        filtersWired = true;
+        ['uacPeopleQ', 'uacPeopleRole', 'uacPeopleWh', 'uacPeopleStatus', 'uacInviteStatus'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => uac && render());
+        });
+        const rq = document.getElementById('uacRolesQ');
+        if (rq) rq.addEventListener('input', () => roles && renderRolesTable());
+        const aq = document.getElementById('audQ');
+        if (aq) aq.addEventListener('keydown', e => { if (e.key === 'Enter') uacLoadAudit(1); });
     }
 
     function roleOptions() {
@@ -395,11 +515,20 @@
             roles = await api('GET', '/api/iam/roles');
         } catch (err) {
             panel.style.display = 'none';   // no roles.view
+            refreshTabs();
             return;
         }
         panel.style.display = '';
         document.getElementById('uacNewRoleBtn').style.display = roles.can_manage ? 'inline-flex' : 'none';
-        const rows = roles.roles.map(r => {
+        renderRolesTable();
+        updateSummary();
+        refreshTabs();
+    }
+
+    function renderRolesTable() {
+        const q = (document.getElementById('uacRolesQ')?.value || '').trim().toLowerCase();
+        const list = roles.roles.filter(r => !q || `${r.name} ${r.description}`.toLowerCase().includes(q));
+        const rows = list.map(r => {
             const badge = r.is_builtin ? '<span class="uac-pill warn">Built-in</span>'
                 : (r.is_active ? (r.template_key ? '<span class="uac-pill starter">Starter</span> ' : '') + '<span class="uac-pill ok">Active</span>'
                                : '<span class="uac-pill off">Deactivated</span>');
@@ -416,11 +545,12 @@
             const count = r.builtin_code === 'company_admin' ? 'Everything in the company' : `${r.permissions.length} permission(s)`;
             return `<tr class="${r.is_active ? '' : 'uac-row-off'}">
                 <td><div class="uac-name">${esc(r.name)}</div><div class="uac-muted">${esc(r.description)}</div></td>
-                <td>${badge}</td><td>${count}</td><td>${people}</td>
+                <td class="uac-nowrap">${badge}</td><td>${count}</td><td>${people}</td>
                 <td class="uac-actions">${acts.join('')}</td></tr>`;
         }).join('');
-        document.getElementById('uacRoles').innerHTML =
-            `<table class="uac-table"><thead><tr><th>Role</th><th>Type</th><th>Grants</th><th>People</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+        document.getElementById('uacRoles').innerHTML = list.length
+            ? `<table class="uac-table"><thead><tr><th>Role</th><th>Type</th><th>Grants</th><th>People</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+            : '<div class="uac-empty"><i class="fas fa-filter"></i> No role matches.</div>';
     }
 
     function roleById(id) { return (roles && roles.roles.find(r => r.id === id)) || null; }
@@ -704,10 +834,11 @@
         if (!panel) return;
         let data;
         try { data = await api('GET', '/api/iam/company_settings'); }
-        catch (e) { panel.style.display = 'none'; return; }
+        catch (e) { panel.style.display = 'none'; refreshTabs(); return; }
         const s = data.settings, can = data.can;
-        if (!can['copilot.web_search'] && !can['audit.retention_days']) { panel.style.display = 'none'; return; }
+        if (!can['copilot.web_search'] && !can['audit.retention_days']) { panel.style.display = 'none'; refreshTabs(); return; }
         panel.style.display = '';
+        refreshTabs();
         document.getElementById('uacSettings').innerHTML = `
             <div class="set-row">
                 <div><div class="set-title">Copilot web search</div>
@@ -757,10 +888,16 @@
         if (!panel) return;
         let data;
         try { data = await api('GET', '/api/iam/audit?' + auditQuery(page || 1)); }
-        catch (e) { panel.style.display = 'none'; return; }
+        catch (e) { panel.style.display = 'none'; refreshTabs(); return; }
         panel.style.display = '';
         document.getElementById('uacAuditExport').style.display = data.can_export ? 'inline-flex' : 'none';
         auditRows = data.rows;
+        if ((page || 1) === 1 && data.rows.length && !document.getElementById('audQ').value
+                && !document.getElementById('audArea').value) {
+            lastChange = data.rows[0].ts;
+            updateSummary();
+        }
+        refreshTabs();
         const resultPill = r => r === 'success' ? '' : `<span class="uac-pill ${r === 'denied' ? 'off' : 'warn'}">${esc(r)}</span>`;
         document.getElementById('uacAudit').innerHTML = data.rows.length ? `
             <table class="uac-table aud-table"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Record</th><th>Where</th><th>Reason</th><th></th></tr></thead>

@@ -4250,85 +4250,156 @@
         {% endif %}
 
         {% if can_manage_users %}
-        <!-- USERS & ACCESS VIEW (users.view) -->
+        <!-- USERS & ACCESS VIEW (users.view) - tabbed layout -->
         <div id="users-access-view" class="view-section">
-            <div class="glass-panel" style="margin-bottom: 1.5rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                    <div>
-                        <h2 style="display:flex; align-items:center; gap:8px;">
-                            <i class="fas fa-users-gear" style="color:#10b981;"></i>
-                            <span>Users &amp; Access</span>
-                        </h2>
-                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">
-                            Invite people, choose what they can do and where, and switch access off when they leave. Nothing is ever deleted.
-                        </p>
+            <div class="glass-panel uac-hero">
+                <div class="uac-hero-top">
+                    <div class="uac-hero-title">
+                        <span class="uac-hero-icon"><i class="fas fa-users-gear"></i></span>
+                        <div>
+                            <div class="uac-hero-kicker"><span class="uac-live-dot"></span> Identity &amp; access control</div>
+                            <h2>Users &amp; Access</h2>
+                            <p>Invite people, choose what they can do and where, and switch access off when they leave. Nothing is ever deleted.</p>
+                        </div>
                     </div>
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                        <select id="uacCompany" class="uac-input" style="display:none;" onchange="loadUsersAccess()"></select>
-                        <button class="btn-primary" id="uacInviteBtn" onclick="openInviteModal()" style="display:flex; align-items:center; gap:6px;">
+                    <div class="uac-hero-actions">
+                        <select id="uacCompany" class="uac-input" style="display:none;" onchange="loadUsersAccess()" title="Company"></select>
+                        <button class="btn-primary uac-hdr-btn" id="uacInviteBtn" data-for-tab="people invites" onclick="openInviteModal()">
                             <i class="fas fa-user-plus"></i> Invite User
+                        </button>
+                        <button class="btn-primary uac-hdr-btn uac-hdr-violet" id="uacNewRoleBtn" data-for-tab="roles" onclick="openRoleEditor()" style="display:none;">
+                            <i class="fas fa-plus"></i> New Role
+                        </button>
+                        <button class="btn-primary uac-hdr-btn uac-hdr-teal" id="uacAuditExport" data-for-tab="audit" onclick="uacExportAudit()" style="display:none;">
+                            <i class="fas fa-file-arrow-down"></i> Export CSV
                         </button>
                     </div>
                 </div>
+                <div class="uac-stats" id="uacStats">
+                    <div class="uac-stat"><span class="uac-stat-icon s-blue"><i class="fas fa-users"></i></span>
+                        <div><div class="uac-stat-label">People</div><div class="uac-stat-value" id="uacStatPeople">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-green"><i class="fas fa-user-check"></i></span>
+                        <div><div class="uac-stat-label">Active</div><div class="uac-stat-value" id="uacStatActive">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-amber"><i class="fas fa-envelope-open-text"></i></span>
+                        <div><div class="uac-stat-label">Pending invites</div><div class="uac-stat-value" id="uacStatInvites">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-violet"><i class="fas fa-shield-halved"></i></span>
+                        <div><div class="uac-stat-label">Roles</div><div class="uac-stat-value" id="uacStatRoles">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-teal"><i class="fas fa-clock-rotate-left"></i></span>
+                        <div><div class="uac-stat-label">Last change</div><div class="uac-stat-value uac-stat-small" id="uacStatLast">–</div></div></div>
+                </div>
             </div>
-            <div class="glass-panel" style="margin-bottom: 1.5rem;">
-                <div class="uac-subhead">People</div>
-                <div id="uacUsers" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+
+            <div class="uac-tabs" id="uacTabs" role="tablist" aria-label="Users and access sections">
+                <button class="uac-tab is-active" data-tab="people" role="tab" onclick="uacShowTab('people')">
+                    <span class="uac-tab-icon t-blue"><i class="fas fa-user-group"></i></span> People
+                </button>
+                <button class="uac-tab" data-tab="invites" role="tab" onclick="uacShowTab('invites')">
+                    <span class="uac-tab-icon t-amber"><i class="fas fa-paper-plane"></i></span> Invitations
+                    <span class="uac-tab-badge" id="uacInviteBadge" style="display:none;">0</span>
+                </button>
+                <button class="uac-tab" data-tab="roles" role="tab" onclick="uacShowTab('roles')">
+                    <span class="uac-tab-icon t-violet"><i class="fas fa-shield-halved"></i></span> Roles
+                </button>
+                <button class="uac-tab" data-tab="settings" role="tab" onclick="uacShowTab('settings')">
+                    <span class="uac-tab-icon t-slate"><i class="fas fa-sliders"></i></span> Company Settings
+                </button>
+                <button class="uac-tab" data-tab="audit" role="tab" onclick="uacShowTab('audit')">
+                    <span class="uac-tab-icon t-teal"><i class="fas fa-scroll"></i></span> Audit Log
+                </button>
             </div>
-            <div class="glass-panel">
-                <div class="uac-subhead">Invitations</div>
-                <div id="uacInvites" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
-            </div>
-            <div class="glass-panel" id="uacRolesPanel" style="margin-top: 1.5rem; display:none;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
-                    <div>
-                        <div class="uac-subhead" style="margin:0;">Roles</div>
-                        <div class="uac-muted">A role is a set of ticked permissions. Give it to people per location in the People list above.</div>
+
+            <!-- People -->
+            <div class="uac-pane is-active" data-pane="people">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-user-group c-blue"></i> People</div>
+                            <div class="uac-muted">Everyone in this company, what they can do and where.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="uacPeopleQ" class="uac-input" placeholder="Search name or email"></div>
+                            <select id="uacPeopleRole" class="uac-input"><option value="">All roles</option></select>
+                            <select id="uacPeopleWh" class="uac-input"><option value="">All locations</option></select>
+                            <select id="uacPeopleStatus" class="uac-input">
+                                <option value="">Any status</option><option value="active">Active</option><option value="inactive">Deactivated</option>
+                            </select>
+                        </div>
                     </div>
-                    <button class="btn-primary" id="uacNewRoleBtn" onclick="openRoleEditor()" style="display:none; align-items:center; gap:6px;">
-                        <i class="fas fa-plus"></i> New Role
-                    </button>
+                    <div id="uacUsers" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
                 </div>
-                <div id="uacRoles" class="uac-table-wrap"></div>
             </div>
-            <div class="glass-panel" id="uacSettingsPanel" style="margin-top: 1.5rem; display:none;">
-                <div class="uac-subhead" style="margin:0 0 4px;">Company settings</div>
-                <div class="uac-muted" style="margin-bottom:12px;">Apply to every location of this company.</div>
-                <div id="uacSettings"></div>
-            </div>
-            <div class="glass-panel" id="uacAuditPanel" style="margin-top: 1.5rem; display:none;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
-                    <div>
-                        <div class="uac-subhead" style="margin:0;">Audit log</div>
-                        <div class="uac-muted">Every sign-in, access change, gate, stock and configuration change: who, when, where and why. Records can't be edited.</div>
+
+            <!-- Invitations -->
+            <div class="uac-pane" data-pane="invites">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-paper-plane c-amber"></i> Invitations</div>
+                            <div class="uac-muted">Each link works once and expires after 72 hours.</div></div>
+                        <div class="uac-toolbar">
+                            <select id="uacInviteStatus" class="uac-input">
+                                <option value="">All invitations</option><option value="Pending">Pending</option><option value="Accepted">Accepted</option>
+                                <option value="Expired">Expired</option><option value="Revoked">Revoked</option>
+                            </select>
+                        </div>
                     </div>
-                    <button class="btn-primary" id="uacAuditExport" onclick="uacExportAudit()" style="display:none; align-items:center; gap:6px;">
-                        <i class="fas fa-file-arrow-down"></i> Export CSV
-                    </button>
+                    <div id="uacInvites" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
                 </div>
-                <div class="aud-filters">
-                    <input id="audQ" class="uac-input" placeholder="Search action, record, reason or person">
-                    <select id="audArea" class="uac-input">
-                        <option value="">All areas</option>
-                        <option value="auth.">Sign-in &amp; passwords</option>
-                        <option value="iam.">People, roles &amp; access</option>
-                        <option value="gate.">Gate</option>
-                        <option value="dock.">Dock</option>
-                        <option value="inventory.">Stock</option>
-                        <option value="pallet.">Pallets</option>
-                        <option value="cyclecount.">Cycle counts</option>
-                        <option value="camera.">Cameras</option>
-                        <option value="vision.">AI vision</option>
-                        <option value="copilot.">Copilot</option>
-                        <option value="access.">Refused &amp; sensitive actions</option>
-                        <option value="activity.">Operations activity</option>
-                    </select>
-                    <input id="audFrom" class="uac-input" type="date" title="From">
-                    <input id="audTo" class="uac-input" type="date" title="To">
-                    <button class="uac-btn" onclick="uacLoadAudit(1)"><i class="fas fa-filter"></i> Apply</button>
+            </div>
+
+            <!-- Roles -->
+            <div class="uac-pane" data-pane="roles">
+                <div class="glass-panel" id="uacRolesPanel" style="display:none;">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-shield-halved c-violet"></i> Roles</div>
+                            <div class="uac-muted">A role is a set of switched-on permissions. Give it to people per location on the People tab.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="uacRolesQ" class="uac-input" placeholder="Search roles"></div>
+                        </div>
+                    </div>
+                    <div id="uacRoles" class="uac-table-wrap"></div>
                 </div>
-                <div id="uacAudit" class="uac-table-wrap"></div>
-                <div id="uacAuditPager" class="aud-pager"></div>
+            </div>
+
+            <!-- Company settings -->
+            <div class="uac-pane" data-pane="settings">
+                <div class="glass-panel" id="uacSettingsPanel" style="display:none;">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-sliders c-slate"></i> Company Settings</div>
+                            <div class="uac-muted">Apply to every location of this company.</div></div>
+                    </div>
+                    <div id="uacSettings"></div>
+                </div>
+            </div>
+
+            <!-- Audit log -->
+            <div class="uac-pane" data-pane="audit">
+                <div class="glass-panel" id="uacAuditPanel" style="display:none;">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-scroll c-teal"></i> Audit Log</div>
+                            <div class="uac-muted">Every sign-in, access change, gate, stock and configuration change: who, when, where and why. Records can't be edited.</div></div>
+                    </div>
+                    <div class="aud-filters">
+                        <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="audQ" class="uac-input" placeholder="Search action, record, reason or person"></div>
+                        <select id="audArea" class="uac-input">
+                            <option value="">All areas</option>
+                            <option value="auth.">Sign-in &amp; passwords</option>
+                            <option value="iam.">People, roles &amp; access</option>
+                            <option value="gate.">Gate</option>
+                            <option value="dock.">Dock</option>
+                            <option value="inventory.">Stock</option>
+                            <option value="pallet.">Pallets</option>
+                            <option value="cyclecount.">Cycle counts</option>
+                            <option value="camera.">Cameras</option>
+                            <option value="vision.">AI vision</option>
+                            <option value="copilot.">Copilot</option>
+                            <option value="access.">Refused &amp; sensitive actions</option>
+                            <option value="activity.">Operations activity</option>
+                        </select>
+                        <input id="audFrom" class="uac-input" type="date" title="From">
+                        <input id="audTo" class="uac-input" type="date" title="To">
+                        <button class="uac-btn" onclick="uacLoadAudit(1)"><i class="fas fa-filter"></i> Apply</button>
+                    </div>
+                    <div id="uacAudit" class="uac-table-wrap"></div>
+                    <div id="uacAuditPager" class="aud-pager"></div>
+                </div>
             </div>
         </div>
         {% endif %}
