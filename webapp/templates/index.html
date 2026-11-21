@@ -4109,14 +4109,22 @@
                     let miniGateCamLoaded = false;
                     async function loadMiniGateCam() {
                         const imgEl = document.getElementById('miniGateCamView');
-                        if (imgEl && imgEl.src.includes('/video_feed/')) return;
+                        if (!imgEl) return;
                         try {
                             const res = await fetch('/api/cameras');
+                            if (!res.ok) return;
                             const cameras = await res.json();
-                            const gateCams = cameras.filter(c => c.is_gate_camera || c.location === 'Gate');
-                            const targetId = gateCams.length > 0 ? gateCams[0].id : (cameras[0] ? cameras[0].id : 'cam_inbound_01');
-                            if (imgEl && !imgEl.src.includes('/video_feed/')) {
-                                imgEl.src = `/video_feed/${targetId}`;
+                            if (!Array.isArray(cameras) || cameras.length === 0) return;
+                            const gateCams = cameras.filter(c => c.is_gate_camera || (c.location || '').toLowerCase().includes('gate'));
+                            const targetCam = gateCams.find(c => c.last_detected_plate) || gateCams[gateCams.length - 1] || cameras[0];
+                            if (!targetCam || !targetCam.id) return;
+                            const desiredSrc = `/video_feed/${targetCam.id}`;
+                            const curSrc = imgEl.getAttribute('src') || imgEl.dataset.streamSrc || '';
+                            const validIds = new Set(cameras.map(c => c.id));
+                            const curId = curSrc.includes('/video_feed/') ? curSrc.split('/video_feed/')[1].split('?')[0] : '';
+                            if (!curId || curId === 'undefined' || !validIds.has(curId) || curId !== targetCam.id) {
+                                imgEl.dataset.streamSrc = desiredSrc;
+                                imgEl.src = desiredSrc;
                                 imgEl.style.opacity = '1';
                             }
                         } catch(e) {}

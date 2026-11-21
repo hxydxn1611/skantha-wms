@@ -875,7 +875,13 @@ class OpenCVStreamFrameSource(BaseFrameSource):
                 if isinstance(self.device_id, str) and (self.device_id.startswith("rtsp://") or self.device_id.startswith("http://")):
                     # Ultra-fast 1.5s connection timeout; forces TCP to prevent UDP packet drops
                     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;1500000|stimeout;1500000|rtsp_transport;tcp|max_delay;500000|buffer_size;102400"
-                self.cap = cv2.VideoCapture(self.device_id)
+                if isinstance(self.device_id, int) and os.name == 'nt':
+                    self.cap = cv2.VideoCapture(self.device_id, cv2.CAP_DSHOW)
+                    if not self.cap.isOpened():
+                        self.cap.release()
+                        self.cap = cv2.VideoCapture(self.device_id)
+                else:
+                    self.cap = cv2.VideoCapture(self.device_id)
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 self.cap.set(cv2.CAP_PROP_FPS, 120)
                 self.is_connected = self.cap.isOpened()
@@ -1707,11 +1713,12 @@ class CameraRuntimeSession:
             has_active_cam = False
             try:
                 from app import active_cameras
-                if self.camera_id in active_cameras:
+                is_usb_index = str(self.stream_url).strip().isdigit()
+                if not is_usb_index and self.camera_id in active_cameras and getattr(active_cameras[self.camera_id], 'raw_frame', None) is not None:
                     has_active_cam = True
                 else:
-                    for ac in active_cameras.values():
-                        if str(getattr(ac, 'url', '')).strip() == str(self.stream_url).strip() and getattr(ac, 'is_running', False):
+                    for ac_id, ac in active_cameras.items():
+                        if ac_id != self.camera_id and str(getattr(ac, 'url', '')).strip() == str(self.stream_url).strip() and getattr(ac, 'raw_frame', None) is not None and getattr(ac, 'is_running', False):
                             has_active_cam = True
                             break
                 if not has_active_cam:
@@ -2281,18 +2288,7 @@ class CameraRuntimeSession:
                         }
                         self.events.insert(0, event)
 
-                    # Broadcast detection state across all Gate sessions and active_cameras so UI updates in <300ms
-                    try:
-                        mgr = get_vision_runtime_manager()
-                        for s_obj in mgr.sessions.values():
-                            if s_obj.is_gate_camera or s_obj.location == 'Gate':
-                                s_obj.last_detected_plate = target_plate
-                                s_obj.last_gate_pass_id = gp_id
-                                s_obj.last_gate_pass_photo = rel_photo_path
-                                s_obj.last_gate_pass_time = now_t
-                    except Exception:
-                        pass
-
+                    # Keep detection state scoped strictly to this camera_id
                     try:
                         from app import active_cameras
                         ac = active_cameras.get(self.camera_id)
@@ -2964,7 +2960,8 @@ class VisionRuntimeManager:
                     if not cid:
                         continue
                     valid_cids.add(cid)
-                    fps = c.get("ai_config", {}).get("processing_fps", 12) if c.get("ai_config") else 12
+                    raw_fps = c.get("ai_config", {}).get("processing_fps", 30) if c.get("ai_config") else 30
+                    fps = max(15, int(raw_fps or 30))
                     stream_url = c.get("stream_url", "")
                     is_test = (os.environ.get("WARLOG_TEST_MODE", "").lower() in ("1", "true") or not bool(stream_url))
                     if cid not in self.sessions:
