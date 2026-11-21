@@ -50,3 +50,6 @@ webapp/.gemini_api_key
 # YOLOE text encoder (downloaded once, 572 MB) and YOLOE weights
 webapp/mobileclip*.ts
 mobileclip*.ts
+
+# server log files (run_production.py writes logs/server.log)
+logs/
