@@ -8,12 +8,23 @@ def _load_env_and_require_secret_key() -> str:
     repo-root .env file. There is no built-in fallback; the app refuses to start
     without FLASK_SECRET_KEY, so sessions are never signed with a public key."""
     if _os.environ.get('WARLOG_SKIP_DOTENV') != '1':
+        _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _env_path = _os.path.join(_root, '.env')
         try:
             from dotenv import load_dotenv
-            _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-            load_dotenv(_os.path.join(_root, '.env'), override=False)
+            load_dotenv(_env_path, override=False)
         except ImportError:
-            pass
+            if _os.path.isfile(_env_path):
+                with open(_env_path, 'r', encoding='utf-8') as _f:
+                    for _raw in _f:
+                        _line = _raw.strip()
+                        if not _line or _line.startswith('#') or '=' not in _line:
+                            continue
+                        _k, _v = _line.split('=', 1)
+                        _k = _k.strip()
+                        _v = _v.strip().strip('"').strip("'")
+                        if _k and _k not in _os.environ:
+                            _os.environ[_k] = _v
     key = _os.environ.get('FLASK_SECRET_KEY') or _os.environ.get('SECRET_KEY') or ''
     if len(key) < 16:
         raise RuntimeError(

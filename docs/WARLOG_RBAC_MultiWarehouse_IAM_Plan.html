@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WARLOG RBAC &amp; Multi-Warehouse IAM Plan</title>
+<style>
+  @page { size: A4; margin: 14mm 14mm 16mm 14mm; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; line-height: 1.48; font-size: 11px; margin: 0; padding: 0; }
+  .header-banner { background: linear-gradient(135deg, #0f172a, #1e3a8a); color: #f8fafc; padding: 18px 22px; border-radius: 8px; margin-bottom: 16px; }
+  .header-banner h1 { margin: 0 0 6px 0; font-size: 18px; letter-spacing: 0.3px; }
+  .header-banner p { margin: 0; font-size: 11px; color: #cbd5e1; }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; margin-top: 18px; font-size: 14px; page-break-after: avoid; }
+  h3 { color: #0f172a; margin-top: 12px; margin-bottom: 4px; font-size: 12px; page-break-after: avoid; }
+  blockquote { background: #eff6ff; border-left: 4px solid #2563eb; margin: 10px 0; padding: 8px 12px; border-radius: 0 6px 6px 0; color: #1e293b; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 10px; page-break-inside: avoid; }
+  th { background: #f1f5f9; color: #0f172a; font-weight: 700; text-align: left; padding: 6px 8px; border: 1px solid #cbd5e1; }
+  td { padding: 6px 8px; border: 1px solid #e2e8f0; vertical-align: top; }
+  code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; font-size: 9.8px; color: #0f172a; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 6px; font-family: Consolas, monospace; font-size: 9.5px; overflow-x: auto; page-break-inside: avoid; }
+  pre code { background: transparent; color: #e2e8f0; padding: 0; }
+  ul, ol { margin: 6px 0 8px 18px; padding: 0; }
+  li { margin-bottom: 4px; }
+  .warn { background: #fef2f2; border-left: 4px solid #dc2626; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 8px 0; }
+  .phase-box { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; page-break-inside: avoid; }
+  .print-bar { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
+  .print-btn { background: #2563eb; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; }
+  .print-btn:hover { background: #1d4ed8; }
+  @media print { .no-print { display: none !important; } }
+</style>
+</head>
+<body>
+  <div class="print-bar no-print">
+    <button class="print-btn" onclick="window.print()">Download / Save as PDF</button>
+  </div>
+  <div class="header-banner">
+    <h1>WARLOG / Skantha WMS — Multi-Site Data Isolation, Dynamic RBAC &amp; OTP IAM Plan</h1>
+    <p>Engineering &amp; Agent Handoff Specification &bull; Zero-Regression Architecture for 120 FPS Camera Streaming &amp; Sub-15ms ANPR</p>
+  </div>
+
+  <blockquote>
+    <strong>Goal:</strong> Implement Multi-Company + Multi-State/Warehouse Data Isolation (Option 2), Dynamic Per-Warehouse RBAC (3 roles in compact sites up to 15–30+ custom roles in enterprise hubs), Role-Scoped Dashboard &amp; AI Copilot, Salted Password Hashing, and OTP Staff Onboarding with Forced First-Login Password Reset.
+  </blockquote>
+
+  <h2>1. Approved Product &amp; Security Rules</h2>
+  <ol>
+    <li><strong>Dashboard &amp; WARLOG AI Copilot Access:</strong> Enabled by default for all roles (<code>dashboard:view</code>, <code>copilot:use</code>), <strong>strictly filtered by active warehouse &amp; permissions</strong>. Frontline roles only see data &amp; Copilot answers for their authorized warehouse and allowed domains; <strong>Company Admin (<code>*</code>)</strong> sees complete cross-warehouse analytics and unrestricted Copilot actions across the company.</li>
+    <li><strong>Company Registration vs. Team Invites (<code>login.html</code>):</strong>
+      <ul>
+        <li><strong>New Company Self-Signup:</strong> Allowed via OTP email verification; provisions Company + initial Warehouse + default 3-role pack and makes registrant Company Admin.</li>
+        <li><strong>Existing Company Guard:</strong> Self-registration under an already-existing company name is blocked (<code>409 company_exists_invite_required</code>). Existing companies add staff strictly via <strong>Company Admin OTP Invites</strong>.</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h2>2. Current Codebase Baseline</h2>
+  <table>
+    <thead><tr><th>Component</th><th>Current State</th><th>Gap to Fix</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Auth Gate</strong></td><td><code>webapp/app.py</code> <code>enforce_authentication_and_session()</code> checks binary login only.</td><td>No permission checks; <code>/api/warehouses/switch</code> allows switching to any warehouse.</td></tr>
+      <tr><td><strong>Passwords</strong></td><td><code>webapp/db.py</code> <code>get_user()</code> &amp; <code>create_user()</code> store plaintext (<code>admin/admin</code>).</td><td>Upgrade cleanly to salted <code>werkzeug.security</code> hashes without locking out existing accounts.</td></tr>
+      <tr><td><strong>Multi-Warehouse</strong></td><td><code>warehouses</code> table flips a global <code>is_active=1</code> flag; lacks <code>state</code> column.</td><td>Concurrent users collide on global flag; needs session isolation + <code>state</code> column.</td></tr>
+      <tr><td><strong>Data Isolation</strong></td><td><code>cameras</code>, <code>bins</code>, <code>inventory</code>, <code>gate_passes</code>, <code>deliveries</code>, <code>pallets</code>, <code>outbound_orders</code> lack <code>warehouse_code</code>.</td><td>Records currently mix across warehouses.</td></tr>
+      <tr><td><strong>Staging &amp; Copilot</strong></td><td><code>staging_perception_service.py</code> uses 1 global singleton; <code>copilot_service.py</code> isn't RBAC-scoped.</td><td>Must isolate staging state by <code>warehouse_code</code> and enforce RBAC in Copilot.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. Hard Invariants (DO NOT BREAK)</h2>
+  <div class="warn">
+    <ul>
+      <li><strong>120 FPS Streaming &amp; HTTP/1.1 Connection Pool:</strong> Preserve lazy <code>data-stream-src</code>, <code>window.syncVisibleStreams()</code>, and the 4-slot live MJPEG cap in <code>cameras-view</code>. Keep <code>VisionRuntimeManager</code> &amp; <code>active_cameras</code> running by <code>camera_id</code>; filter API visibility rather than killing capture threads.</li>
+      <li><strong>Sub-15ms Gate ANPR:</strong> Do NOT run SQLite or RBAC lookups inside <code>_capture_loop()</code>, <code>_worker_loop()</code>, <code>_run_live_gate_anpr_worker()</code>, or <code>generate_frames()</code> loops.</li>
+      <li><strong>Zero-Downtime DB Migration:</strong> Use idempotent <code>ALTER TABLE ... ADD COLUMN ... DEFAULT ...</code> and backfill existing records to <code>WH-MAIN</code> / <code>Skantha Industrial Solutions</code>.</li>
+      <li><strong>Admin Recovery Guarantee:</strong> Every company must retain at least one active Admin role with wildcard <code>["*"]</code> permissions.</li>
+    </ul>
+  </div>
+
+  <h2>4. Permission-First Architecture (3 Roles vs 15–30+ Roles)</h2>
+  <p>Routes, Copilot handlers, and UI controls check <strong>fixed Permission Keys</strong>—never role titles. Roles are dynamic per-warehouse DB records bundling these keys, guaranteeing 100% WARLOG coverage whether a site enables 3 roles or 30.</p>
+  <table>
+    <thead><tr><th>Domain</th><th>Permission Keys</th><th>Covered Routes &amp; Views</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Overview &amp; AI</strong></td><td><code>dashboard:view</code>, <code>copilot:use</code></td><td>Role-scoped Dashboard &amp; Copilot (<code>/api/stats</code>, <code>/api/telemetry/live</code>, <code>/api/copilot/*</code>)</td></tr>
+      <tr><td><strong>Pre-Registration</strong></td><td><code>deliveries:view</code>, <code>deliveries:write</code></td><td><code>deliveries-view</code>, <code>/api/deliveries*</code></td></tr>
+      <tr><td><strong>Gate &amp; Docks</strong></td><td><code>gate:view</code>, <code>gate:operate</code>, <code>gate:override</code>, <code>docks:view</code>, <code>docks:manage</code></td><td><code>gate-passes-view</code>, <code>docks-view</code>, <code>/api/gate_passes*</code>, <code>/api/gate/*</code>, <code>/api/vehicle_log</code></td></tr>
+      <tr><td><strong>Inbound &amp; Staging</strong></td><td><code>inbound_staging:view</code>, <code>inbound_staging:count</code>, <code>inbound_staging:config</code></td><td><code>inbound-flow-view</code>, <code>/api/inbound/*</code>, <code>/api/staging/*</code></td></tr>
+      <tr><td><strong>Outbound &amp; Pallet</strong></td><td><code>outbound:view</code>, <code>outbound:dispatch</code>, <code>pallet:view</code>, <code>pallet:operate</code></td><td><code>outbound-view</code>, <code>palletization-view</code>, <code>/api/outbound/*</code>, <code>/api/pallets/*</code></td></tr>
+      <tr><td><strong>Master Hub &amp; Stock</strong></td><td><code>inventory:view</code>, <code>inventory:write</code>, <code>inventory:audit</code></td><td><code>master-hub-view</code>, <code>/api/bins*</code>, <code>/api/skus*</code>, <code>/api/cycle_count*</code>, <code>/api/violations*</code></td></tr>
+      <tr><td><strong>Cameras &amp; Vision AI</strong></td><td><code>cameras:view</code>, <code>cameras:install</code>, <code>cameras:calibrate</code>, <code>vision_ai:view</code>, <code>vision_ai:config</code></td><td><code>cameras-view</code>, <code>ai-vision-view</code>, <code>ai-vision-master-view</code>, <code>/api/cameras*</code>, <code>/api/vision/*</code>, <code>/api/workers/*</code></td></tr>
+      <tr><td><strong>Admin &amp; Safety</strong></td><td><code>warehouses:manage</code>, <code>users_roles:manage</code>, <code>records:delete</code></td><td><code>warehouses-view</code>, <code>/api/warehouses*</code>, <code>/api/iam/*</code>, destructive <code>DELETE</code> routes</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. Phased Implementation Plan</h2>
+
+  <div class="phase-box">
+    <h3>Phase 1 — Schema Extensions, Password Hashing &amp; Session Scoping (<code>db.py</code>, <code>app.py</code>)</h3>
+    <ul>
+      <li>Upgrade <code>create_user()</code> and <code>get_user()</code> to use <code>werkzeug.security</code> hashes, with silent 1-time upgrade for legacy plaintext users (e.g., <code>admin/admin</code>). Add <code>must_reset_password</code>, <code>is_active</code>, <code>invited_by</code>, <code>last_login_at</code> to <code>users</code>.</li>
+      <li>Add <code>state TEXT DEFAULT 'Karnataka'</code> to <code>warehouses</code>.</li>
+      <li>Create tables <code>rbac_roles</code>, <code>user_warehouse_access</code>, and <code>audit_logs</code>. Seed <code>3_role</code>, <code>5_role</code>, and <code>15_role</code> presets + <code>get_role_coverage()</code> meter helper.</li>
+      <li>Move active warehouse state into Flask <code>session['user']</code> so concurrent sessions never collide.</li>
+    </ul>
+<pre><code>CREATE TABLE IF NOT EXISTS rbac_roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_name TEXT NOT NULL, warehouse_code TEXT NOT NULL, role_name TEXT NOT NULL,
+    description TEXT DEFAULT '', permissions_json TEXT NOT NULL,
+    is_system_admin INTEGER DEFAULT 0, is_enabled INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(company_name, warehouse_code, role_name)
+);
+CREATE TABLE IF NOT EXISTS user_warehouse_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL, company_name TEXT NOT NULL, warehouse_code TEXT NOT NULL,
+    role_id INTEGER NOT NULL, is_default INTEGER DEFAULT 0, status TEXT DEFAULT 'Active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(username, warehouse_code)
+);</code></pre>
+  </div>
+
+  <div class="phase-box">
+    <h3>Phase 2 — <code>rbac_service.py</code>, Forced Password Reset Gate &amp; Company Signup Guard</h3>
+    <ul>
+      <li>Create <code>webapp/rbac_service.py</code> with <code>PERMISSION_CATALOG</code>, <code>get_request_scope()</code>, <code>@require_permission()</code>, and <code>log_audit_event()</code>.</li>
+      <li>Enforce <code>must_reset_password == 1</code> inside <code>enforce_authentication_and_session()</code>: return <code>403 password_reset_required</code> on all WMS APIs until <code>/api/auth/force_reset_password</code> completes.</li>
+      <li>In <code>/api/auth/send_otp</code>, <code>/api/auth/verify_otp_and_register</code>, and <code>/api/register</code>: reject public registration when <code>company_name</code> already exists (<code>409 company_exists_invite_required</code>).</li>
+    </ul>
+  </div>
+
+  <div class="phase-box">
+    <h3>Phase 3 — Full Multi-Site Data Isolation &amp; Role-Scoped Copilot (<code>Option 2</code>)</h3>
+    <ul>
+      <li>Add <code>company_name</code> + <code>warehouse_code DEFAULT 'WH-MAIN'</code> to all per-warehouse tables (<code>cameras</code>, <code>vision_zones</code>, <code>bins</code>, <code>inventory</code>, <code>expected_deliveries</code>, <code>gate_passes</code>, <code>vehicle_log</code>, <code>outbound_orders</code>, <code>pallets</code>, <code>violations_log</code>, <code>vision_counting_submissions</code>) and <code>company_name</code> to shared catalog tables (<code>skus</code>, <code>sku_images</code>, <code>object_classes</code>).</li>
+      <li>Add IDOR ownership checks on single-item routes; scope <code>get_staging_service(warehouse_code)</code> per facility.</li>
+      <li>Scope <code>/api/stats</code> and <code>webapp/copilot_service.py</code> to <code>(company_name, warehouse_code, permissions, is_admin)</code>.</li>
+    </ul>
+  </div>
+
+  <div class="phase-box">
+    <h3>Phase 4 — IAM Onboarding UI, State → Warehouse Picker &amp; Role Builder</h3>
+    <ul>
+      <li>Add <code>/api/auth/me</code>, <code>/api/auth/force_reset_password</code>, <code>/api/iam/permissions</code>, <code>/api/iam/warehouses/&lt;wh&gt;/roles</code>, <code>/api/iam/users</code>, <code>/api/iam/audit_logs</code>, and harden <code>/api/warehouses/switch</code>.</li>
+      <li>Admin Invite sends single-use hashed OTP via existing <code>send_verification_email()</code> SMTP mailer and flags <code>must_reset_password = 1</code>.</li>
+      <li>Update <code>login.html</code> with Forced Password Reset modal + State → Warehouse picker; update <code>index.html</code> &amp; <code>app_logic.js</code> with IAM Panel, Live Coverage Meter, and <code>window.hasPerm()</code> UI gating.</li>
+    </ul>
+  </div>
+
+  <h2>6. Acceptance Verification</h2>
+  <ol>
+    <li><strong>Legacy Login:</strong> <code>admin/admin</code> succeeds, auto-upgrades to salted hash, and retains all <code>WH-MAIN</code> cameras/bins.</li>
+    <li><strong>Same-Company Guard &amp; OTP Reset:</strong> Public signup on existing company returns <code>409</code>; OTP-invited user hits <code>403</code> until password reset, and OTP cannot be reused.</li>
+    <li><strong>Scoped Dashboard &amp; Copilot:</strong> Operators query allowed site data cleanly and receive RBAC denials on restricted modules/other warehouses; Admin has full visibility.</li>
+    <li><strong>Multi-Site Isolation &amp; 120 FPS Cameras:</strong> Concurrent WH-A (3 roles) vs WH-B (15 roles) sessions show 100% coverage &amp; zero data leakage while MJPEG feeds stay smooth.</li>
+  </ol>
+</body>
+</html>
