@@ -1089,7 +1089,7 @@ class SharedBusFrameSource(BaseFrameSource):
             self.is_connected = True
             return frame
 
-        # 2. Check active_cameras (Camera Junction SmartCamera in-memory registry, including shared stream_url)
+        # 2. Check active_cameras ONLY for THIS camera_id (or identical non-empty physical RTSP/HTTP/USB URL — never cross-bleed distinct cameras!)
         try:
             from app import active_cameras
             cam = active_cameras.get(self.camera_id)
@@ -1099,21 +1099,28 @@ class SharedBusFrameSource(BaseFrameSource):
                 self.last_capture_time = time.time()
                 self.is_connected = True
                 return raw.copy()
-            for other_cam in active_cameras.values():
-                if getattr(other_cam, "raw_frame", None) is not None and getattr(other_cam, "is_running", False):
-                    raw = other_cam.raw_frame
-                    self.bus.publish_frame(self.camera_id, raw, source_type="SMART_CAMERA_SHARED")
-                    self.last_capture_time = time.time()
-                    self.is_connected = True
-                    return raw.copy()
+
             mgr = get_vision_runtime_manager()
-            for other_sess in list(mgr.sessions.values()):
-                if other_sess.camera_id != self.camera_id and other_sess.latest_raw_frame is not None and other_sess.is_running:
-                    raw = other_sess.latest_raw_frame
-                    self.bus.publish_frame(self.camera_id, raw, source_type="RUNTIME_SESSION_SHARED")
-                    self.last_capture_time = time.time()
-                    self.is_connected = True
-                    return raw.copy()
+            own_sess = mgr.get_session(self.camera_id)
+            own_url = str(getattr(cam, "url", "") or (getattr(own_sess, "stream_url", "") if own_sess else "")).strip()
+            own_low = own_url.lower()
+            can_share_physical_url = bool(own_url) and not own_low.startswith(("device:", "push", "client")) and own_low != "client"
+
+            if can_share_physical_url:
+                for other_id, other_cam in list(active_cameras.items()):
+                    if other_id != self.camera_id and str(getattr(other_cam, "url", "")).strip() == own_url and getattr(other_cam, "raw_frame", None) is not None and getattr(other_cam, "is_running", False):
+                        raw = other_cam.raw_frame
+                        self.bus.publish_frame(self.camera_id, raw, source_type="SMART_CAMERA_SHARED")
+                        self.last_capture_time = time.time()
+                        self.is_connected = True
+                        return raw.copy()
+                for other_id, other_sess in list(mgr.sessions.items()):
+                    if other_id != self.camera_id and str(getattr(other_sess, "stream_url", "")).strip() == own_url and other_sess.latest_raw_frame is not None and other_sess.is_running:
+                        raw = other_sess.latest_raw_frame
+                        self.bus.publish_frame(self.camera_id, raw, source_type="RUNTIME_SESSION_SHARED")
+                        self.last_capture_time = time.time()
+                        self.is_connected = True
+                        return raw.copy()
         except Exception:
             pass
 
@@ -2161,11 +2168,11 @@ class CameraRuntimeSession:
 
                     try:
                         from app import active_cameras
-                        for ac in active_cameras.values():
-                            if getattr(ac, 'is_gate_camera', False) or ac.location == 'Gate' or ac.camera_id == self.camera_id:
-                                ac.last_detected_plate = target_plate
-                                ac.last_gate_pass_id = gp_id
-                                ac.last_gate_pass_photo = rel_photo_path
+                        ac = active_cameras.get(self.camera_id)
+                        if ac:
+                            ac.last_detected_plate = target_plate
+                            ac.last_gate_pass_id = gp_id
+                            ac.last_gate_pass_photo = rel_photo_path
                     except Exception:
                         pass
             else:
@@ -2174,9 +2181,9 @@ class CameraRuntimeSession:
                         self.last_detected_plate = ""
                     try:
                         from app import active_cameras
-                        for ac in active_cameras.values():
-                            if getattr(ac, 'is_gate_camera', False) or ac.location == 'Gate' or ac.camera_id == self.camera_id:
-                                ac.last_detected_plate = ""
+                        ac = active_cameras.get(self.camera_id)
+                        if ac:
+                            ac.last_detected_plate = ""
                     except Exception:
                         pass
         except Exception as e:
