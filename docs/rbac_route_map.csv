@@ -114,6 +114,7 @@ rule,method,endpoint,access,permission,module,scope,sensitive,reason_required
 /api/outbound,POST,handle_outbound,permission,outbound.create,Outbound,warehouse,,
 /api/outbound/<order_id>/manifest,GET,get_outbound_manifest,permission,outbound.view,Outbound,warehouse,,
 /api/outbound/<order_id>/pick,POST,pick_outbound,permission,outbound.dispatch,Outbound,warehouse,,
+/api/outbound/<order_id>/truck,POST,api_assign_outbound_truck,permission,outbound.dispatch,Outbound,warehouse,,
 /api/pallets,POST,api_create_pallet,permission,pallet.create,Pallets,warehouse,,
 /api/pallets,GET,api_get_pallets,permission,pallet.view,Pallets,warehouse,,
 /api/pallets/<pallet_id>,DELETE,api_delete_pallet,permission,pallet.delete,Pallets,warehouse,,

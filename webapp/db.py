@@ -898,7 +898,8 @@ def _row_to_gate_pass(row):
         "otp": d.get("otp") or "",
         "otp_verified": d.get("otp_verified") or 0,
         "exit_time": d.get("exit_time") or "",
-        "created_at": d.get("created_at")
+        "created_at": d.get("created_at"),
+        "outbound_order_id": d.get("outbound_order_id") or "",   # set for an outbound (loading) truck
     }
 
 # ----------------- Pre-Registration Operations -----------------
@@ -1147,7 +1148,7 @@ def create_gate_pass(data):
                     # CONNECTION LOGIC:
                     # 1. Match by Plate if plate is available
                     matched_deliv = None
-                    if plate and plate != "":
+                    if plate and plate != "" and not data.get('no_po_match'):
                         clean_search = _clean_plate(plate)
                         all_delivs = conn.execute("SELECT * FROM expected_deliveries ORDER BY created_at DESC").fetchall()
                         for d_row in all_delivs:
@@ -1305,6 +1306,15 @@ def update_gate_pass(gp_id, data):
             # RBAC Phase 8: gate pass history (who moved it, from, to, why) for every route
             import gate_flow
             gate_flow.record_event(conn, curr['id'], curr['status'], status)
+            # outbound truck: its order follows the truck through the gate
+            ob_order = curr['outbound_order_id'] if 'outbound_order_id' in curr.keys() else None
+            ob_status = OUTBOUND_STATUS_FOR_GATE.get(status)
+            if ob_order and ob_status:
+                if ob_status == 'Dispatched':
+                    conn.execute("UPDATE outbound_orders SET status = ?, dispatched_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                 (ob_status, ob_order))
+                else:
+                    conn.execute("UPDATE outbound_orders SET status = ? WHERE id = ?", (ob_status, ob_order))
 
         # Keep vehicle_log synchronized whenever plate or driver_name is edited!
         try:
@@ -1318,7 +1328,9 @@ def update_gate_pass(gp_id, data):
         # Put-away when a truck is marked Completed: decided here, booked after this change is saved
         # (a second connection can't write while this transaction is open - it used to wait 15 s and fail)
         pending_receipt = None
-        if status == 'Completed' and curr['status'] != 'Completed' and bin_allocation and (unloaded_qty or 0):
+        is_outbound = bool(curr['outbound_order_id'] if 'outbound_order_id' in curr.keys() else None)
+        if (status == 'Completed' and curr['status'] != 'Completed' and bin_allocation and (unloaded_qty or 0)
+                and not is_outbound):   # a loading truck takes goods away; it never receives
             import json
             sku_id = None
             try:
@@ -1357,6 +1369,86 @@ def update_gate_pass(gp_id, data):
             except ReceiveError as e:
                 print(f"[Receipt] {gp_id}: not booked - {e}")
     return get_gate_pass(gp_id)
+
+# ------------------------------------------------------------------ outbound trucks
+# gate pass status -> outbound order status (the order follows its truck)
+OUTBOUND_STATUS_FOR_GATE = {
+    "OTP Verified": "Truck at gate", "Approved": "Truck at gate",
+    "Sent to Dock": "At loading dock", "At Dock": "At loading dock",
+    "Unloading": "Loading", "Loading": "Loading",
+    "Unloaded": "Loaded", "Completed": "Loaded", "Checkout Approved": "Loaded",
+    "Exited": "Dispatched", "Departed": "Dispatched",
+    "Rejected": "Truck rejected",
+}
+OUTBOUND_READY = ("Fulfilled", "Picked", "Truck rejected")   # may get a (new) truck
+
+
+class OutboundError(ValueError):
+    """An outbound dispatch step that can't be done (not picked, truck already assigned, ...)."""
+
+
+def assign_outbound_truck(order_id, data):
+    """Gives a fully picked outbound order its truck: a fresh gate pass (activity Loading) linked to
+    the order, with a driver OTP when a phone number is given. The truck then goes through the
+    normal gate and dock steps, and the order follows it until it is Dispatched at the gate."""
+    import rbac_scope
+    import secrets as _secrets
+    plate = (data.get('plate') or '').strip().upper()
+    if len(plate.replace(' ', '').replace('-', '')) < 4:
+        raise OutboundError("Enter the truck's number plate.")
+    conn = get_db()
+    try:
+        cond, params = rbac_scope.home_filter("outbound_orders")
+        order = conn.execute(f"SELECT * FROM outbound_orders WHERE id = ?{cond}", (order_id,) + params).fetchone()
+        if not order:
+            raise OutboundError("That order was not found in this location.")
+        short = conn.execute("SELECT COUNT(*) FROM outbound_items WHERE order_id = ? AND COALESCE(picked_quantity, 0) < quantity",
+                             (order_id,)).fetchone()[0]
+        if short:
+            raise OutboundError("Pick the whole order first. A truck is assigned once everything is picked.")
+        if order['status'] not in OUTBOUND_READY:
+            raise OutboundError(f"This order already has a truck ({order['vehicle_plate'] or '-'}, status {order['status']}).")
+    finally:
+        conn.close()
+    otp = f"{_secrets.randbelow(9000) + 1000}" if (data.get('driver_phone') or '').strip() else ""
+    gp = create_gate_pass({
+        "plate": plate, "driver_name": (data.get('driver_name') or '').strip(),
+        "driver_phone": (data.get('driver_phone') or '').strip(), "vendor": (data.get('transporter') or '').strip()
+        or order['customer_name'], "load": f"Outbound {order_id} to {order['destination']} ({order['customer_name']})",
+        "activity": "Loading", "status": "Pending", "otp": otp, "expected_date": data.get('expected_date') or '',
+        "force_new": True, "no_po_match": True,
+    })
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("UPDATE gate_passes SET outbound_order_id = ? WHERE id = ?", (order_id, gp['id']))
+            conn.execute("""UPDATE outbound_orders SET gate_pass_id = ?, vehicle_plate = ?, transporter = ?,
+                            status = 'Truck assigned' WHERE id = ?""",
+                         (gp['id'], plate, (data.get('transporter') or '').strip() or None, order_id))
+    finally:
+        conn.close()
+    try:
+        create_vehicle_log(gp['id'], plate, (data.get('driver_name') or 'Driver').strip() or 'Driver')
+    except Exception:
+        pass
+    return get_gate_pass(gp['id'])
+
+
+def outbound_exit_problem(gp):
+    """Why an outbound truck may not leave yet (None = it may). Its order must be fully picked."""
+    order_id = (gp or {}).get('outbound_order_id')
+    if not order_id:
+        return None
+    conn = get_db()
+    try:
+        short = conn.execute("SELECT COUNT(*) FROM outbound_items WHERE order_id = ? AND COALESCE(picked_quantity, 0) < quantity",
+                             (order_id,)).fetchone()[0]
+    finally:
+        conn.close()
+    if short:
+        return f"Truck {gp.get('plate')} is loading order {order_id}, which isn't fully picked. It can't leave yet."
+    return None
+
 
 def delete_gate_pass(gp_id):
     """Delete a gate pass and revert the linked pre-registration status if appropriate."""

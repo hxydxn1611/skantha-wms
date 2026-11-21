@@ -341,7 +341,8 @@ def _public_error(e) -> str:
     (database errors, file paths, crashes) goes to the server log with a reference."""
     if isinstance(e, KeyError):
         return f"Missing field: {e.args[0] if e.args else ''}".strip()
-    if type(e) is ValueError or isinstance(e, (db.CodeInUseError, db.WarehouseOwnershipError, db.ReceiveError)):
+    if type(e) is ValueError or isinstance(e, (db.CodeInUseError, db.WarehouseOwnershipError, db.ReceiveError,
+                                               db.OutboundError)):
         return str(e)
     ref = uuid.uuid4().hex[:8]
     logger.warning(f"[ERROR ref={ref}] {request.method} {request.path}: {type(e).__name__}: {e}")
@@ -1356,6 +1357,9 @@ def checkout():
     elif face_check and not gp.get('driver_photo'):
         return jsonify({"success": False, "message": "Security Alert! No entry face photo found to verify against."})
         
+    problem = db.outbound_exit_problem(gp)
+    if problem:
+        return jsonify({"success": False, "error_code": "outbound_not_ready", "message": problem}), 409
     db.update_gate_pass(gp_id, {"status": "Departed", "exit_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
     db.checkout_vehicle_log(gp_id)
     return jsonify({"success": True, "message": "Check-out successful. Vehicle authorized to leave."})
@@ -3921,6 +3925,11 @@ def update_gate_pass(gp_id):
         import gate_flow
         current = db.get_gate_pass(gp_id)
         if current:
+            # an outbound truck can't be cleared to leave before its order is fully picked (not even by override)
+            if data.get('status') in ('Checkout Approved', 'Exited', 'Departed'):
+                problem = db.outbound_exit_problem(current)
+                if problem:
+                    return jsonify({"success": False, "error_code": "outbound_not_ready", "message": problem}), 409
             legal, needed = gate_flow.check(current.get('status'), data.get('status'))
             if not legal:
                 if gate_flow.OVERRIDE not in rbac_service.effective_permissions():
@@ -5566,12 +5575,27 @@ def api_controlled_actions_status(idempotency_key):
 
 @app.route('/api/gate/checkout/<gp_id>', methods=['POST'])
 def checkout_gate_pass(gp_id):
-    conn = db.get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE gate_passes SET status = 'Exited', exit_time = CURRENT_TIMESTAMP WHERE id = ?", (gp_id,))
-    conn.commit()
-    conn.close()
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found."}), 404
+    problem = db.outbound_exit_problem(gp)
+    if problem:
+        return jsonify({"success": False, "error_code": "outbound_not_ready", "message": problem}), 409
+    # through update_gate_pass: gate pass history, and an outbound order becomes Dispatched
+    db.update_gate_pass(gp_id, {"status": "Exited", "exit_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
     return jsonify({"success": True, "message": f"Vehicle {gp_id} successfully checked out and exited."})
+
+
+@app.route('/api/outbound/<order_id>/truck', methods=['POST'])
+def api_assign_outbound_truck(order_id):
+    """Assigns the truck for a fully picked outbound order: a gate pass (Loading) linked to the order."""
+    data = request.get_json(silent=True) or {}
+    try:
+        gp = db.assign_outbound_truck(order_id, data)
+    except db.OutboundError as e:
+        return jsonify({"success": False, "message": _public_error(e)}), 400
+    return jsonify({"success": True, "gate_pass": gp,
+                    "message": f"Truck {gp.get('plate')} assigned. Gate pass {gp.get('id')} is waiting at the gate."})
 
 
 @app.route('/api/inventory', methods=['GET'])
@@ -6758,9 +6782,13 @@ def _gate02_exit_checkout(data: Dict[str, Any]):
         except Exception:
             pass
 
-    # Update gate pass to Completed with exit_time
+    # Update gate pass with exit_time: Completed for an inbound truck; an outbound truck has
+    # Departed (its order becomes Dispatched) - only once its order is fully picked
+    problem = db.outbound_exit_problem(target_pass)
+    if problem:
+        return jsonify({"success": False, "error_code": "outbound_not_ready", "error": problem, "message": problem}), 409
     updated = db.update_gate_pass(target_pass['id'], {
-        "status": "Completed",
+        "status": "Departed" if target_pass.get('outbound_order_id') else "Completed",
         "exit_time": exit_time_str
     })
 

@@ -117,6 +117,7 @@
         configureStagingQuota: 'inbound.staging.configure', resetStagingZone: 'inbound.staging.reset',
         // outbound & pallets
         pickOutboundOrder: 'outbound.dispatch',
+        assignOutboundTruck: 'outbound.dispatch',
         openNewPalletModal: 'pallet.create',
         // vision
         executeWorkbenchCount: 'vision.counting.execute', executePieceCount: 'vision.counting.execute',

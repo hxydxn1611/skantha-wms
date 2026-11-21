@@ -115,3 +115,16 @@
 
 /* menu badge: hidden when there are no alerts (the global badge style forces display) */
 #nav-inventory-alerts.inv-badge-off { display: none !important; }
+
+/* Outbound orders: status chip, progress tracker (Picked -> ... -> Dispatched), truck line */
+.ob-status { display: inline-block; font-size: 0.72rem; font-weight: 800; padding: 3px 9px; border-radius: 999px; border: 1px solid; }
+.ob-track { display: flex; align-items: center; margin: 7px 0 4px; max-width: 190px; }
+.ob-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--panel-subtle); border: 1.5px solid var(--border-light); flex: none; }
+.ob-dot.is-done { background: #10b981; border-color: #10b981; }
+.ob-dot.is-now { background: #2563eb; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .2); }
+.ob-bar { flex: 1; height: 2px; background: var(--border-light); min-width: 6px; }
+.ob-truck { font-size: 0.74rem; color: var(--text-muted); margin-top: 3px; white-space: normal; max-width: 220px; line-height: 1.35; }
+.ob-truck i { color: #2563eb; }
+#outbound-view .table-container { overflow-x: auto; max-width: 100%; }
+#outboundTableBody td { vertical-align: top; }
+#outbound-view .glass-panel { min-width: 0; }   /* a wide order row scrolls inside its table, not the page */

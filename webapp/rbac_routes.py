@@ -137,6 +137,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "sync_camera_inventory": "inventory.adjust",
     "api_sync_audit_count": "inventory.adjust",
     "api_transfer_vision_inventory": "inventory.transfer",
+    "api_assign_outbound_truck": "outbound.dispatch",
     # Inventory section (inventory_routes.py; changes are also checked in the handlers)
     "stock.api_overview": "inventory.view",
     "stock.api_movements": "inventory.view",

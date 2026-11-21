@@ -1986,7 +1986,10 @@
                         let expectedDateInput = `<input type="hidden" id="expectedDate_${gp.id}" value="${gp.expected_date || ''}">`;
                         let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${__h(gp.po_number || '')}">`;
                         
-                        if (gp.status === 'Pending') {
+                        if (gp.outbound_order_id) {
+                            // outbound truck collecting an order (no PO to link)
+                            poDropdown = `<div style="display:flex; align-items:center; gap:6px; color:#7c3aed; font-weight:700; margin-bottom:0.4rem; font-size:0.80rem; background:rgba(124,58,237,0.1); padding:4px 8px; border-radius:6px; border:1px solid rgba(124,58,237,0.3);"><span>🚚 OUTBOUND · collecting order</span> <strong>${escapeHtml(gp.outbound_order_id)}</strong></div>`;
+                        } else if (gp.status === 'Pending') {
                             if (gp.po_number) {
                                 poDropdown = `<div style="display:flex; align-items:center; gap:6px; color:#10b981; font-weight:700; margin-bottom:0.4rem; font-size:0.80rem; background:rgba(16,185,129,0.1); padding:4px 8px; border-radius:6px; border:1px solid rgba(16,185,129,0.25);"><span>✓ Auto-Matched PO:</span> <strong>${escapeHtml(gp.po_number)}</strong></div>`;
                             } else {
@@ -5319,32 +5322,56 @@ if (origSwitchTab) {
 // OUTBOUND LOGIC
 // ==========================================
 
+// Outbound: order -> pick -> truck (gate pass, activity Loading) -> gate -> loading dock -> dispatched.
+// The order's status follows its truck through the gate (server side, db.update_gate_pass).
+const OB_STEPS = [
+    ['Picked', 'Picked'], ['Truck assigned', 'Truck'], ['Truck at gate', 'Gate'], ['At loading dock', 'Dock'],
+    ['Loading', 'Loading'], ['Loaded', 'Loaded'], ['Dispatched', 'Dispatched'],
+];
+const OB_LABEL = { 'Fulfilled': 'Picked', 'Partially Picked': 'Partly picked' };
+function obStepIndex(status) {
+    const s = OB_LABEL[status] || status;
+    const i = OB_STEPS.findIndex(x => x[0] === s);
+    return i;   // -1 = not picked yet (Pending / Partly picked / Truck rejected)
+}
 window.fetchOutboundOrders = async function() {
     try {
         const res = await fetch('/api/outbound');
         const orders = await res.json();
         const tbody = document.getElementById('outboundTableBody');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-        
-        orders.forEach(o => {
-            const tr = document.createElement('tr');
-            let itemsStr = o.items.map(i => `${i.quantity}x ${__h(i.sku_id)} (Picked: ${i.picked_quantity})`).join('<br>');
-            
-            let actionBtn = `<button class="btn-primary" onclick="pickOutboundOrder('${o.id}')">Pick Items</button>`;
-            if (o.status === 'Fulfilled') actionBtn = '<span style="color:var(--primary-teal); font-weight:bold;">Completed</span>';
-            actionBtn += `<button class="btn-primary" style="margin-top:4px; font-size:0.75rem; width:100%; background:var(--accent);" onclick="downloadOutboundManifest('${o.id}')">📄 PDF Manifest</button>`;
-            
-            tr.innerHTML = `
-                <td><strong>${o.id}</strong></td>
-                <td>${o.customer_name}</td>
-                <td>${o.destination}</td>
+        if (!tbody || !Array.isArray(orders)) return;
+        if (!orders.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:18px;">No outbound orders yet. Create one on the left.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = orders.map(o => {
+            const items = (o.items || []);
+            const fully = items.length && items.every(i => (i.picked_quantity || 0) >= i.quantity);
+            const itemsStr = items.map(i => `${Number(i.quantity)} × ${__h(i.sku_id)} <span style="color:var(--text-muted);">(picked ${Number(i.picked_quantity || 0)})</span>`).join('<br>');
+            const label = OB_LABEL[o.status] || o.status || 'Pending';
+            const idx = obStepIndex(o.status);
+            const color = o.status === 'Dispatched' ? '#059669' : (o.status === 'Truck rejected' ? '#dc2626' : (idx >= 0 ? '#2563eb' : '#b45309'));
+            const tracker = `<div class="ob-track">${OB_STEPS.map((st, i) => `<span class="ob-dot ${i <= idx ? 'is-done' : ''} ${i === idx ? 'is-now' : ''}" title="${__h(st[0])}"></span>`).join('<span class="ob-bar"></span>')}</div>`;
+            const truck = o.vehicle_plate ? `<div class="ob-truck"><i class="fas fa-truck"></i> <b>${__h(o.vehicle_plate)}</b> · ${__h(o.gate_pass_id || '')}${o.transporter ? ' · ' + __h(o.transporter) : ''}</div>` : '';
+            const sent = o.dispatched_at ? `<div class="ob-truck" style="color:#059669;"><i class="fas fa-circle-check"></i> Left the gate ${__h(String(o.dispatched_at).slice(0, 16))}</div>` : '';
+            const oid = __js(o.id);
+            let actions = '';
+            if (!fully && o.status !== 'Dispatched') {
+                actions += `<button class="btn-primary" onclick="pickOutboundOrder(${oid})"><i class="fas fa-hand-holding-box"></i> Pick items</button>`;
+            } else if (['Fulfilled', 'Picked', 'Truck rejected'].includes(o.status)) {
+                actions += `<button class="btn-primary" style="background:#2563eb;" onclick="assignOutboundTruck(${oid}, ${__js(o.customer_name || '')})"><i class="fas fa-truck"></i> ${o.status === 'Truck rejected' ? 'Assign another truck' : 'Assign truck'}</button>`;
+            } else if (o.status !== 'Dispatched') {
+                actions += `<div style="font-size:0.75rem; color:var(--text-muted);">Truck is being handled at the gate / dock</div>`;
+            }
+            actions += `<button class="btn-primary" style="margin-top:4px; font-size:0.75rem; width:100%; background:var(--accent);" onclick="downloadOutboundManifest(${oid})">📄 PDF Manifest</button>`;
+            return `<tr>
+                <td><strong>${__h(o.id)}</strong></td>
+                <td>${__h(o.customer_name)}</td>
+                <td>${__h(o.destination)}</td>
                 <td style="font-size:0.8rem;">${itemsStr}</td>
-                <td><span class="badge ${o.status==='Fulfilled'?'badge-success':(o.status==='Pending'?'badge-warning':'')}">${o.status}</span></td>
-                <td>${actionBtn}</td>
-            `;
-            tbody.appendChild(tr);
-        });
+                <td><span class="ob-status" style="color:${color}; border-color:${color}33; background:${color}12;">${__h(label)}</span>${tracker}${truck}${sent}</td>
+                <td>${actions}</td></tr>`;
+        }).join('');
     } catch(e) { console.error(e); }
 }
 
@@ -5369,16 +5396,72 @@ window.submitAddOutbound = async function() {
 
 window.pickOutboundOrder = async function(orderId) {
     try {
-        const res = await fetch(`/api/outbound/${orderId}/pick`, {method: 'POST'});
+        const res = await fetch(`/api/outbound/${encodeURIComponent(orderId)}/pick`, {method: 'POST'});
         const data = await res.json();
-        if(data.success) {
-            alert('Order pick processed! Status: ' + data.status);
-            window.fetchOutboundOrders();
-        } else {
-            alert('Failed to pick order: ' + data.error);
-        }
+        const say = (m, k) => (window.warlogToast ? window.warlogToast(m, k) : alert(m));
+        if (data.success) say(data.status === 'Fulfilled' ? 'Order picked in full. Next: assign the truck.' : (data.message || ('Status: ' + data.status)),
+                              data.status === 'Fulfilled' ? 'success' : 'warning');
+        else say('Failed to pick order: ' + (data.message || data.error || ''), 'error');
+        window.fetchOutboundOrders();
     } catch(e) { console.error(e); }
 }
+
+// Assign the truck for a picked order: creates its gate pass (Loading); the guard then checks it in.
+window.assignOutboundTruck = function(orderId, customer) {
+    const h = (v) => (window.__h ? window.__h(v) : String(v == null ? '' : v));
+    const wrap = document.createElement('div');
+    wrap.className = 'uac-modal-backdrop';
+    wrap.innerHTML = `<div class="uac-modal" role="dialog" aria-modal="true" style="max-width:460px;">
+        <div class="uac-modal-head"><div><h3><i class="fas fa-truck" style="color:#2563eb;"></i> Assign truck</h3>
+            <div class="uac-modal-sub">Order <b>${h(orderId)}</b>${customer ? ' for ' + h(customer) : ''}. A gate pass is created; the truck then goes through the gate and the loading dock like any truck.</div></div>
+            <button class="uac-x" type="button" aria-label="Close">&times;</button></div>
+        <div class="uac-modal-body">
+            <label class="uac-label" for="obPlate">Truck number plate</label>
+            <input id="obPlate" class="uac-input" maxlength="16" placeholder="e.g. TN38AB1234" style="text-transform:uppercase;">
+            <label class="uac-label" for="obDriver">Driver name</label>
+            <input id="obDriver" class="uac-input" maxlength="60">
+            <label class="uac-label" for="obPhone">Driver phone <span class="uac-muted">(optional: gives the driver an entry OTP)</span></label>
+            <input id="obPhone" class="uac-input" maxlength="16" inputmode="tel">
+            <label class="uac-label" for="obTransporter">Transporter <span class="uac-muted">(optional)</span></label>
+            <input id="obTransporter" class="uac-input" maxlength="80">
+        </div>
+        <div class="uac-modal-msg"></div>
+        <div class="uac-modal-actions"><button class="uac-btn" type="button" data-x>Cancel</button>
+            <button class="uac-btn uac-btn-primary" type="button" data-ok><i class="fas fa-check"></i> Assign truck</button></div></div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector('.uac-x').onclick = close;
+    wrap.querySelector('[data-x]').onclick = close;
+    wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+    setTimeout(() => wrap.querySelector('#obPlate').focus(), 30);
+    const msg = wrap.querySelector('.uac-modal-msg');
+    const ok = wrap.querySelector('[data-ok]');
+    ok.onclick = async () => {
+        const val = (id) => wrap.querySelector(id).value.trim();
+        if (val('#obPlate').replace(/[^A-Za-z0-9]/g, '').length < 4) { msg.textContent = "Enter the truck's number plate."; msg.className = 'uac-modal-msg error'; return; }
+        ok.disabled = true;
+        try {
+            const res = await fetch(`/api/outbound/${encodeURIComponent(orderId)}/truck`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ plate: val('#obPlate'), driver_name: val('#obDriver'), driver_phone: val('#obPhone'), transporter: val('#obTransporter') })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) { msg.textContent = data.message || 'The truck could not be assigned.'; msg.className = 'uac-modal-msg error'; return; }
+            close();
+            if (window.warlogToast) window.warlogToast(data.message, 'success'); else alert(data.message);
+            window.fetchOutboundOrders();
+            if (typeof fetchGatePasses === 'function') fetchGatePasses();
+        } catch (e) {
+            msg.textContent = 'Error: ' + e.message; msg.className = 'uac-modal-msg error';
+        } finally { ok.disabled = false; }
+    };
+};
+
+// the order follows its truck: refresh while the Outbound screen is open
+setInterval(() => {
+    const v = document.getElementById('outbound-view');
+    if (v && v.classList.contains('active') && !document.querySelector('.uac-modal-backdrop')) window.fetchOutboundOrders();
+}, 15000);
 
 // Hook into tab switching
 const origSwitchTabOutbound = window.switchTab;

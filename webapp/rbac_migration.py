@@ -456,6 +456,19 @@ def _step_photo_queries(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS ix_sku_photo_queries_company_id ON sku_photo_queries(company_id)")
 
 
+def _step_outbound_dispatch(conn: sqlite3.Connection) -> None:
+    """Outbound truck through the gate: an outbound order gets a gate pass (activity Loading);
+    the order follows the truck (at gate, at dock, loading, loaded, dispatched)."""
+    if "outbound_order_id" not in _columns(conn, "gate_passes"):
+        conn.execute("ALTER TABLE gate_passes ADD COLUMN outbound_order_id TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_gate_passes_outbound_order ON gate_passes(outbound_order_id)")
+    cols = _columns(conn, "outbound_orders")
+    for col, decl in (("gate_pass_id", "TEXT"), ("vehicle_plate", "TEXT"), ("transporter", "TEXT"),
+                      ("dispatched_at", "TIMESTAMP")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE outbound_orders ADD COLUMN {col} {decl}")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -732,6 +745,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("012_stock_ledger", _step_stock_ledger),
     ("013_count_examples", _step_count_examples),
     ("014_photo_queries", _step_photo_queries),
+    ("015_outbound_dispatch", _step_outbound_dispatch),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {
