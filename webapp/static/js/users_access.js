@@ -585,7 +585,9 @@
 
     function renderRolesTable() {
         const q = (document.getElementById('uacRolesQ')?.value || '').trim().toLowerCase();
-        const list = roles.roles.filter(r => !q || `${r.name} ${r.description}`.toLowerCase().includes(q));
+        const visibleRoles = roles.roles.filter(r => r.is_active || (r.users && r.users.length > 0));
+        const hiddenCount = roles.roles.length - visibleRoles.length;
+        const list = visibleRoles.filter(r => !q || `${r.name} ${r.description}`.toLowerCase().includes(q));
         const rows = list.map(r => {
             const badge = r.is_builtin ? '<span class="uac-pill warn">Built-in</span>'
                 : (r.is_active ? (r.template_key ? '<span class="uac-pill starter">Starter</span> ' : '') + '<span class="uac-pill ok">Active</span>'
@@ -615,9 +617,10 @@
                 <td class="uac-nowrap">${badge}</td><td>${count}</td><td>${people}</td>
                 <td class="uac-actions">${acts.join('')}</td></tr>`;
         }).join('');
-        document.getElementById('uacRoles').innerHTML = list.length
+        document.getElementById('uacRoles').innerHTML = (list.length
             ? `<table class="uac-table"><thead><tr><th>Role</th><th>Type</th><th>Grants</th><th>People</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-            : '<div class="uac-empty"><i class="fas fa-filter"></i> No role matches.</div>';
+            : '<div class="uac-empty"><i class="fas fa-filter"></i> No role matches.</div>')
+            + (hiddenCount > 0 ? `<div class="uac-muted" style="padding:10px 4px 2px; font-size:0.78rem;">${hiddenCount} unused pack/inactive role(s) hidden. Switch packs anytime via Apply Pack above.</div>` : '');
     }
 
     function roleById(id) { return (roles && roles.roles.find(r => r.id === id)) || null; }

@@ -1140,6 +1140,8 @@ def apply_role_pack(actor: Dict[str, Any], company_id: int, pack_key: str,
         raise IamError(400, "invalid_pack", "Choose 3_role, 5_role, or 15_role.")
 
     created = 0
+    deactivated = 0
+    target_keys = {rname.casefold() for rname, _, _ in specs}
     conn = _conn()
     try:
         with conn:
@@ -1165,9 +1167,28 @@ def apply_role_pack(actor: Dict[str, Any], company_id: int, pack_key: str,
                     "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (?, ?)",
                     [(rid, pk) for pk in valid_perms]
                 )
+
+            other_roles = conn.execute(
+                "SELECT id, name FROM roles WHERE company_id = ? AND is_builtin = 0 AND is_active = 1",
+                (int(company_id),)
+            ).fetchall()
+            for orow in other_roles:
+                if str(orow["name"] or "").casefold() in target_keys:
+                    continue
+                assigned = conn.execute(
+                    "SELECT 1 FROM user_warehouse_access WHERE role_id = ? AND status = 'Active' LIMIT 1",
+                    (orow["id"],)
+                ).fetchone()
+                if not assigned:
+                    conn.execute(
+                        "UPDATE roles SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (orow["id"],)
+                    )
+                    deactivated += 1
     finally:
         conn.close()
 
+    cov = roles_coverage_summary(company_id)
     auth_service.audit("role.pack_applied", actor=actor, company_id=company_id, resource_type="role_pack",
-                       resource_id=pack_key, after={"pack": pack_key, "created": created}, ip=ip)
-    return {"pack": pack_key, "created": created, "coverage": roles_coverage_summary(company_id)}
+                       resource_id=pack_key, after={"pack": pack_key, "created": created, "deactivated": deactivated}, ip=ip)
+    return {"pack": pack_key, "created": created, "deactivated": deactivated, "active_roles": len(specs), "coverage": cov}

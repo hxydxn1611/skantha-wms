@@ -262,7 +262,12 @@ def api_roles_coverage():
 def api_apply_role_pack():
     _need("roles.manage")
     out = iam_service.apply_role_pack(_actor(), _company(), _body().get("pack", "3_role"), _ip())
-    return jsonify({"success": True, "message": f"Applied {out['pack']} pack cleanly.", **out})
+    cov = out["coverage"]
+    return jsonify({
+        "success": True,
+        "message": f"Switched to {out['pack']} pack: {cov['active_custom_roles']} active role(s) ready ({cov['coverage_pct']}% coverage).",
+        **out,
+    })
 
 
 # ----------------------------------------------------------------------------- audit log & company settings (Phase 7)

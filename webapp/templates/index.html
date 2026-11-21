@@ -11705,7 +11705,7 @@ window.switchSubTab = switchSubTab;
     </div>
 
     <!-- Palletization & Violation Logic -->
-    <script src="{{ url_for('static', filename='js/pallet_logic.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/pallet_logic.js') }}?v={{ range(1000, 99999) | random }}"></script>
     <!-- Palletization Simple mode (remove these two lines to undo) -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/pallet_simple.css') }}?v={{ range(1000, 99999) | random }}">
     <script src="{{ url_for('static', filename='js/pallet_simple.js') }}?v={{ range(1000, 99999) | random }}"></script>
