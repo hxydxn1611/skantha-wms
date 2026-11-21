@@ -1949,681 +1949,241 @@
         </div>
 
         
+        <!-- ENTERPRISE INBOUND SUPPLY CONTROL TOWER -->
         <div id="inbound-flow-view" class="view-section">
             <div class="glass-panel" style="margin-bottom:20px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
                     <div>
-                        <h2 style="margin:0; font-size:1.5rem; color:var(--primary-navy);">Inbound Operations Automation</h2>
-                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.9rem;">AI-driven truck arrivals, automatic dock assignments, computer vision piece verification, and automated inventory sync.</p>
+                        <h2 style="margin:0; font-size:1.45rem; color:var(--text-main); display:flex; align-items:center; gap:10px;">
+                            <i class="fas fa-truck-ramp-box" style="color:var(--accent);"></i>
+                            Inbound Supply Control Tower
+                        </h2>
+                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.86rem;">
+                            End-to-end inbound loop: Pre-Registered PO &rarr; Gate ANPR Entry &rarr; Dock Unloading &rarr; AI Pallet Count &rarr; GRN Bin Put-Away.
+                        </p>
                     </div>
-                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                        <span class="badge sent" style="font-size:0.8rem; padding:8px 12px; display:inline-flex; align-items:center; gap:6px;">
-                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--success);"></span>
-                            Matrix Agent Active
-                        </span>
-                        <button type="button" class="btn-primary" style="background:#10b981; color:#000; font-weight:bold; font-size:0.8rem; padding:8px 14px; border:none; cursor:pointer;" onclick="simulateInboundArrival()">
-                            ⚡ Simulate Inbound Arrival &amp; Unload
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="btn-secondary" style="font-size:0.78rem; padding:7px 12px;" onclick="switchTab('deliveries')">
+                            <i class="fas fa-plus"></i> New Pre-Reg PO
                         </button>
-                        <button type="button" class="btn-secondary" style="font-size:0.8rem; padding:8px 12px;" onclick="refreshInboundAutomation()">
-                            🔄 Refresh
+                        <button type="button" class="btn-secondary" style="font-size:0.78rem; padding:7px 12px;" onclick="switchTab('gate-passes')">
+                            <i class="fas fa-shield-halved"></i> Gate ANPR
+                        </button>
+                        <button type="button" class="btn-secondary" style="font-size:0.78rem; padding:7px 12px;" onclick="switchTab('palletization')">
+                            <i class="fas fa-pallet"></i> Palletization Count
+                        </button>
+                        <button type="button" class="btn-primary" style="font-size:0.78rem; padding:7px 14px;" onclick="refreshInboundAutomation()">
+                            <i class="fas fa-arrows-rotate"></i> Refresh Pipeline
                         </button>
                     </div>
                 </div>
 
-                <!-- KPI Metric Counters -->
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:15px; margin-top:20px;">
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Active Dock Trucks</div>
-                        <div id="inbound-kpi-trucks" style="font-size:1.6rem; font-weight:700; color:var(--accent-hover); margin-top:4px;">0</div>
+                <!-- 5-Stage End-to-End Inbound Pipeline KPIs -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:12px; margin-top:18px;">
+                    <div onclick="filterInboundPipeline('po', this)" class="inb-kpi-card" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">1. Expected POs</div>
+                        <div id="inbound-kpi-po" style="font-size:1.55rem; font-weight:800; color:var(--accent); margin-top:4px;">0</div>
+                        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">Pre-Registered ASN</div>
                     </div>
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">AI Verified Items</div>
-                        <div id="inbound-kpi-pieces" style="font-size:1.6rem; font-weight:700; color:#10b981; margin-top:4px;">0</div>
+                    <div onclick="filterInboundPipeline('gate', this)" class="inb-kpi-card" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">2. At Gate (ANPR)</div>
+                        <div id="inbound-kpi-gate" style="font-size:1.55rem; font-weight:800; color:#f59e0b; margin-top:4px;">0</div>
+                        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">Awaiting Dock Bay</div>
                     </div>
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Target Bins Allocated</div>
-                        <div id="inbound-kpi-bins" style="font-size:1.6rem; font-weight:700; color:#8b5cf6; margin-top:4px;">0</div>
+                    <div onclick="filterInboundPipeline('dock', this)" class="inb-kpi-card" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">3. Active Dock Bays</div>
+                        <div id="inbound-kpi-trucks" style="font-size:1.55rem; font-weight:800; color:#0284c7; margin-top:4px;">0</div>
+                        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">Unloading &amp; Counting</div>
                     </div>
-                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 16px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Autonomous Sync</div>
-                        <div id="inbound-kpi-sync" style="font-size:1.1rem; font-weight:700; color:#34d399; margin-top:8px;">REAL-TIME ON</div>
+                    <div onclick="switchTab('palletization')" class="inb-kpi-card" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">4. AI Pallets Staging</div>
+                        <div id="inbound-kpi-pallets" style="font-size:1.55rem; font-weight:800; color:#8b5cf6; margin-top:4px;">0</div>
+                        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;"><span id="inbound-kpi-pieces">0</span> counted pcs queued</div>
+                    </div>
+                    <div onclick="filterInboundPipeline('completed', this)" class="inb-kpi-card" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">5. Booked into Stock</div>
+                        <div id="inbound-kpi-received" style="font-size:1.55rem; font-weight:800; color:#10b981; margin-top:4px;">0</div>
+                        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;"><span id="inbound-kpi-bins">0</span> bins active</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Active Dock Unloading & Reconciliation Grid -->
+            <!-- Unified Live Inbound Consignment & Dock Pipeline Table -->
             <div class="glass-panel" style="margin-bottom:20px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
                     <div>
-                        <h3 style="margin:0; font-size:1.2rem; color:var(--primary-navy);">Active Dock Unloading &amp; Material Reconciliation</h3>
-                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.82rem;">Real-time computer vision verification of materials unloading at physical docks vs PO manifest.</p>
+                        <h3 style="margin:0; font-size:1.12rem; color:var(--text-main);">Live Inbound Consignment Pipeline</h3>
+                        <p style="color:var(--text-muted); margin:3px 0 0 0; font-size:0.8rem;">Synced across Pre-Registration POs, Gate Passes, AI Dock Counts, and Bin Inventory.</p>
                     </div>
-                    <span id="inbound-dock-count-badge" class="badge" style="background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:0.75rem; padding:4px 8px;">0 Active Bays</span>
+                    <div id="inboundFilterBar" style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <button type="button" class="btn-primary btn-sm" onclick="filterInboundPipeline('all', this)" style="padding:5px 11px; font-size:0.75rem;">All</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="filterInboundPipeline('po', this)" style="padding:5px 11px; font-size:0.75rem;">Expected POs</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="filterInboundPipeline('gate', this)" style="padding:5px 11px; font-size:0.75rem;">At Gate</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="filterInboundPipeline('dock', this)" style="padding:5px 11px; font-size:0.75rem;">At Dock</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="filterInboundPipeline('completed', this)" style="padding:5px 11px; font-size:0.75rem;">Put Away</button>
+                    </div>
                 </div>
-                <div id="inbound-docks-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap:20px;">
-                    <!-- Dynamically populated dock cards -->
-                    <div style="grid-column: 1 / -1; text-align:center; padding: 40px 20px; color:var(--text-muted);">
-                        <i class="fas fa-truck-loading" style="font-size:2.5rem; color:var(--border-light); margin-bottom:12px; display:block;"></i>
-                        <p style="margin:0 0 10px 0; font-size:1rem; font-weight:600;">No trucks are currently docked for unloading.</p>
-                        <p style="margin:0 0 18px 0; font-size:0.85rem;">Assign a truck to a dock in Gate Management, or click below to simulate an inbound arrival.</p>
-                        <button type="button" class="btn-primary" style="font-size:0.85rem; padding:8px 16px;" onclick="simulateInboundArrival()">
-                            ⚡ Simulate Inbound Arrival &amp; Dock Unload
-                        </button>
+                <div class="table-container" style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.83rem;">
+                        <thead>
+                            <tr>
+                                <th>PO / Vendor</th>
+                                <th>Gate Pass / Truck</th>
+                                <th>Manifest &amp; Expected Qty</th>
+                                <th>Dock / Target Bin</th>
+                                <th>5-Stage Loop Progress</th>
+                                <th style="text-align:right;">Next Step</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inboundPipelineTableBody">
+                            <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">Loading live inbound pipeline...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Active Dock Unloading Vision Feeds -->
+            <div class="glass-panel" style="margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-light); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
+                    <div>
+                        <h3 style="margin:0; font-size:1.12rem; color:var(--text-main);">Active Dock Unloading &amp; AI Reconciliation</h3>
+                        <p style="color:var(--text-muted); margin:3px 0 0 0; font-size:0.8rem;">Live overhead vision feed and direct GRN stock booking for trucks currently at unloading bays.</p>
+                    </div>
+                    <span id="inbound-dock-count-badge" class="badge sent" style="font-size:0.75rem; padding:4px 10px;">0 Active Bays</span>
+                </div>
+                <div id="inbound-docks-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap:16px;">
+                    <div style="grid-column: 1 / -1; text-align:center; padding: 28px 20px; color:var(--text-muted);">
+                        No trucks are currently docked for unloading.
                     </div>
                 </div>
             </div>
 
-            <!-- ========================================================================= -->
-            <!-- STAGING AREA LIVE COUNTING & PERCEPTION STUDIO (Part 16 - Multi-Camera 360) -->
-            <!-- ========================================================================= -->
-            <style>
-                .stg-studio-panel {
-                    background: var(--panel-bg, #111827);
-                    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
-                    border-radius: 16px;
-                    padding: 1.5rem;
-                    box-shadow: var(--card-shadow, 0 12px 40px rgba(0, 0, 0, 0.45));
-                    color: var(--text-main, #f8fafc);
-                    margin-bottom: 20px;
-                    transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-                }
-                [data-theme="dark"] .stg-studio-panel {
-                    background: radial-gradient(circle at 12% 15%, rgba(14, 165, 233, 0.08), transparent 45%),
-                                radial-gradient(circle at 88% 25%, rgba(16, 185, 129, 0.08), transparent 40%),
-                                #090d16 !important;
-                    border-color: rgba(255, 255, 255, 0.08) !important;
-                    color: #f8fafc !important;
-                }
-                [data-theme="light"] .stg-studio-panel {
-                    background: #ffffff !important;
-                    border-color: #e2e8f0 !important;
-                    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06) !important;
-                    color: #0f172a !important;
-                }
-                [data-theme="ocean"] .stg-studio-panel {
-                    background: radial-gradient(circle at 12% 15%, rgba(0, 240, 255, 0.12), transparent 45%),
-                                #0c2340 !important;
-                    border-color: rgba(0, 240, 255, 0.25) !important;
-                    color: #f0fdfa !important;
-                }
-                [data-theme="amber"] .stg-studio-panel {
-                    background: radial-gradient(circle at 12% 15%, rgba(245, 158, 11, 0.12), transparent 45%),
-                                #1f1a14 !important;
-                    border-color: rgba(245, 158, 11, 0.25) !important;
-                    color: #fef3c7 !important;
-                }
-                .stg-top-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    flex-wrap: wrap;
-                    gap: 1rem;
-                    padding-bottom: 1.15rem;
-                    border-bottom: 1px solid var(--border-light, rgba(255, 255, 255, 0.07));
-                }
-                .stg-title-text {
-                    color: var(--text-main, #f8fafc);
-                }
-                [data-theme="light"] .stg-title-text { color: #0f172a !important; }
-                [data-theme="dark"] .stg-title-text { color: #f8fafc !important; }
-                [data-theme="ocean"] .stg-title-text { color: #f0fdfa !important; }
-                [data-theme="amber"] .stg-title-text { color: #fef3c7 !important; }
-
-                .stg-sub-text {
-                    color: var(--text-muted, #94a3b8);
-                }
-                [data-theme="light"] .stg-sub-text { color: #64748b !important; }
-                [data-theme="dark"] .stg-sub-text { color: #94a3b8 !important; }
-                [data-theme="ocean"] .stg-sub-text { color: #7dd3fc !important; }
-                [data-theme="amber"] .stg-sub-text { color: #fbbf24 !important; }
-
-                .stg-angles-bar {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    flex-wrap: wrap;
-                    margin: 1.25rem 0;
-                    background: var(--panel-subtle, rgba(15, 23, 42, 0.7));
-                    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.06));
-                    padding: 6px 12px;
-                    border-radius: 10px;
-                }
-                [data-theme="light"] .stg-angles-bar {
-                    background: #f1f5f9 !important;
-                    border-color: #e2e8f0 !important;
-                }
-                [data-theme="ocean"] .stg-angles-bar {
-                    background: rgba(6, 21, 45, 0.75) !important;
-                    border-color: rgba(0, 240, 255, 0.18) !important;
-                }
-                [data-theme="amber"] .stg-angles-bar {
-                    background: rgba(20, 16, 12, 0.75) !important;
-                    border-color: rgba(245, 158, 11, 0.18) !important;
-                }
-                .stg-angle-btn {
-                    background: var(--panel-bg, rgba(30, 41, 59, 0.6));
-                    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
-                    color: var(--text-muted, #94a3b8);
-                    font-size: 0.78rem;
-                    font-weight: 700;
-                    padding: 6px 14px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 6px;
-                    transition: all 0.2s ease;
-                }
-                [data-theme="light"] .stg-angle-btn {
-                    background: #ffffff !important;
-                    border: 1px solid #cbd5e1 !important;
-                    color: #475569 !important;
-                }
-                [data-theme="light"] .stg-angle-btn:hover {
-                    color: #0284c7 !important;
-                    border-color: #0284c7 !important;
-                    background: rgba(2, 132, 199, 0.08) !important;
-                }
-                [data-theme="light"] .stg-angle-btn.active {
-                    background: rgba(2, 132, 199, 0.14) !important;
-                    border-color: #0284c7 !important;
-                    color: #0284c7 !important;
-                    box-shadow: 0 0 10px rgba(2, 132, 199, 0.2) !important;
-                }
-                [data-theme="dark"] .stg-angle-btn:hover {
-                    color: #f8fafc;
-                    border-color: rgba(56, 189, 248, 0.4);
-                    background: rgba(56, 189, 248, 0.1);
-                }
-                [data-theme="dark"] .stg-angle-btn.active {
-                    background: linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(16, 185, 129, 0.25));
-                    border-color: #0ea5e9;
-                    color: #38bdf8;
-                    box-shadow: 0 0 12px rgba(14, 165, 233, 0.3);
-                }
-                [data-theme="ocean"] .stg-angle-btn {
-                    background: rgba(10, 31, 58, 0.7) !important;
-                    border: 1px solid rgba(0, 240, 255, 0.2) !important;
-                    color: #7dd3fc !important;
-                }
-                [data-theme="ocean"] .stg-angle-btn.active {
-                    background: rgba(0, 240, 255, 0.2) !important;
-                    border-color: #00f0ff !important;
-                    color: #00f0ff !important;
-                    box-shadow: 0 0 12px rgba(0, 240, 255, 0.3) !important;
-                }
-                [data-theme="amber"] .stg-angle-btn {
-                    background: rgba(38, 31, 24, 0.7) !important;
-                    border: 1px solid rgba(245, 158, 11, 0.2) !important;
-                    color: #fde68a !important;
-                }
-                [data-theme="amber"] .stg-angle-btn.active {
-                    background: rgba(245, 158, 11, 0.22) !important;
-                    border-color: #f59e0b !important;
-                    color: #fbbf24 !important;
-                    box-shadow: 0 0 12px rgba(245, 158, 11, 0.3) !important;
-                }
-                .stg-hero-grid {
-                    display: grid;
-                    grid-template-columns: 1.2fr 1fr;
-                    gap: 1.5rem;
-                }
-                @media (max-width: 1024px) {
-                    .stg-hero-grid { grid-template-columns: 1fr; }
-                }
-                .stg-stream-viewport {
-                    position: relative;
-                    width: 100%;
-                    height: 340px;
-                    background: #030712;
-                    border-radius: 12px;
-                    overflow: hidden;
-                    border: 1px solid rgba(14, 165, 233, 0.35);
-                    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), inset 0 0 25px rgba(14, 165, 233, 0.15);
-                    transition: box-shadow 0.2s ease;
-                }
-                .stg-stream-viewport.placement-flash {
-                    box-shadow: 0 0 40px rgba(16, 185, 129, 0.8), inset 0 0 35px rgba(16, 185, 129, 0.4);
-                }
-                .stg-stream-viewport img {
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                }
-                .stg-action-deck {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-                    gap: 10px;
-                    margin-top: 12px;
-                }
-                .stg-action-btn {
-                    padding: 10px 12px;
-                    border-radius: 8px;
-                    font-size: 0.82rem;
-                    font-weight: 800;
-                    cursor: pointer;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 6px;
-                    transition: transform 0.15s, box-shadow 0.15s;
-                    border: none;
-                }
-                .stg-action-btn:hover {
-                    transform: translateY(-1px);
-                }
-                .btn-worker-drop {
-                    background: linear-gradient(135deg, #0ea5e9, #0284c7);
-                    color: #fff;
-                    box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
-                }
-                .btn-forklift-drop {
-                    background: linear-gradient(135deg, #f59e0b, #d97706);
-                    color: #000;
-                    box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
-                }
-                .btn-reset-zone {
-                    background: rgba(30, 41, 59, 0.8);
-                    border: 1px solid rgba(255, 255, 255, 0.12);
-                    color: #f8fafc;
-                }
-                [data-theme="light"] .btn-reset-zone {
-                    background: #f1f5f9 !important;
-                    border: 1px solid #cbd5e1 !important;
-                    color: #334155 !important;
-                }
-                .btn-burst-test {
-                    background: linear-gradient(135deg, #10b981, #059669);
-                    color: #fff;
-                    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
-                }
-                .stg-hud-card {
-                    background: var(--card-bg, #111827);
-                    border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
-                    border-radius: 12px;
-                    padding: 1.25rem;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: space-between;
-                    box-shadow: var(--card-shadow, 0 8px 24px rgba(0, 0, 0, 0.35));
-                }
-                [data-theme="light"] .stg-hud-card {
-                    background: #f8fafc !important;
-                    border: 1px solid #e2e8f0 !important;
-                    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04) !important;
-                }
-                [data-theme="dark"] .stg-hud-card {
-                    background: linear-gradient(145deg, rgba(15, 23, 42, 0.75), rgba(30, 41, 59, 0.45)) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                }
-                [data-theme="ocean"] .stg-hud-card {
-                    background: rgba(8, 25, 48, 0.85) !important;
-                    border: 1px solid rgba(0, 240, 255, 0.2) !important;
-                }
-                [data-theme="amber"] .stg-hud-card {
-                    background: rgba(25, 20, 15, 0.88) !important;
-                    border: 1px solid rgba(245, 158, 11, 0.2) !important;
-                }
-                .stg-gauge-center {
-                    display: flex;
-                    align-items: center;
-                    gap: 20px;
-                    margin: 12px 0;
-                }
-                .stg-donut-wrapper {
-                    position: relative;
-                    width: 104px;
-                    height: 104px;
-                    flex-shrink: 0;
-                }
-                .stg-donut-svg {
-                    width: 100%;
-                    height: 100%;
-                    transform: rotate(-90deg);
-                }
-                .donut-ring-bg {
-                    fill: none;
-                    stroke: rgba(255, 255, 255, 0.07);
-                    stroke-width: 9;
-                }
-                [data-theme="light"] .stg-donut-wrapper .donut-ring-bg { stroke: #e2e8f0 !important; }
-                [data-theme="ocean"] .stg-donut-wrapper .donut-ring-bg { stroke: rgba(0, 240, 255, 0.12) !important; }
-                [data-theme="amber"] .stg-donut-wrapper .donut-ring-bg { stroke: rgba(245, 158, 11, 0.12) !important; }
-
-                .donut-ring-val {
-                    fill: none;
-                    stroke: #0ea5e9;
-                    stroke-width: 9;
-                    stroke-linecap: round;
-                    stroke-dasharray: 289;
-                    stroke-dashoffset: 289;
-                    transition: stroke-dashoffset 0.3s ease, stroke 0.3s ease;
-                }
-                .stg-donut-text {
-                    position: absolute;
-                    inset: 0;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    line-height: 1.1;
-                }
-                .stg-count-big {
-                    font-size: 1.55rem;
-                    font-weight: 900;
-                    font-family: 'Consolas', monospace;
-                    color: var(--text-main, #f8fafc);
-                }
-                [data-theme="light"] .stg-count-big { color: #0f172a !important; }
-                [data-theme="dark"] .stg-count-big { color: #f8fafc !important; }
-                [data-theme="ocean"] .stg-count-big { color: #f0fdfa !important; }
-                [data-theme="amber"] .stg-count-big { color: #fef3c7 !important; }
-
-                .stg-target-sub {
-                    font-size: 0.70rem;
-                    color: var(--text-muted, #94a3b8);
-                    font-weight: 700;
-                }
-                [data-theme="light"] .stg-target-sub { color: #64748b !important; }
-                [data-theme="dark"] .stg-target-sub { color: #94a3b8 !important; }
-                [data-theme="ocean"] .stg-target-sub { color: #7dd3fc !important; }
-                [data-theme="amber"] .stg-target-sub { color: #fbbf24 !important; }
-
-                .badge.quota-reached {
-                    background: rgba(16, 185, 129, 0.2);
-                    color: #10b981;
-                    border: 1px solid rgba(16, 185, 129, 0.4);
-                }
-                .badge.intake-active {
-                    background: rgba(14, 165, 233, 0.2);
-                    color: #38bdf8;
-                    border: 1px solid rgba(14, 165, 233, 0.4);
-                }
-                .badge.buffer-empty {
-                    background: rgba(148, 163, 184, 0.15);
-                    color: #94a3b8;
-                    border: 1px solid rgba(148, 163, 184, 0.25);
-                }
-                [data-theme="light"] .badge.buffer-empty {
-                    background: #f1f5f9 !important;
-                    color: #64748b !important;
-                    border: 1px solid #cbd5e1 !important;
-                }
-            </style>
-
-            <div class="stg-studio-panel">
-                <!-- TOP HEADER -->
-                <div class="stg-top-header">
+            <!-- Recent Inbound GRN & Pallet Stock Receipts (Proof of Put-Away) -->
+            <div class="glass-panel">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid var(--border-light); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
                     <div>
-                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                            <h2 class="stg-title-text" style="margin:0; font-size:1.45rem; font-weight:800; letter-spacing:-0.5px;">
-                                🏢 Staging Area Live Perception Studio
-                            </h2>
-                            <span id="stgHeaderStatusBadge" class="badge buffer-empty" style="font-size:0.72rem; padding:4px 10px;">
-                                BUFFER EMPTY • AWAITING INTAKE
-                            </span>
-                        </div>
-                        <div class="stg-sub-text" style="font-size:0.82rem; margin-top:4px;">
-                            Autonomous Pick-and-Place Detection • Worker &amp; Forklift Classifier • 360° Multi-Angle Calibration • Sub-10ms Inference
-                        </div>
+                        <h3 style="margin:0; font-size:1.08rem; color:var(--text-main);">Recent Inbound Stock Receipts (Inventory Loop)</h3>
+                        <p style="color:var(--text-muted); margin:3px 0 0 0; font-size:0.78rem;">Authoritative stock additions from Dock GRNs &amp; Sealed Pallet Put-Aways.</p>
                     </div>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <span id="stgHeaderCountBadge" class="badge" style="background:rgba(14,165,233,0.15); color:#38bdf8; border:1px solid rgba(14,165,233,0.35); font-size:0.75rem; padding:6px 12px; font-weight:800; font-family:monospace;">
-                            0 / 30 Units (0%)
-                        </span>
-                        <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.35); font-size:0.75rem; padding:6px 12px; font-weight:800;">
-                            ⚡ <span id="stgLatencyVal">0.24ms</span> Sub-10ms Engine
-                        </span>
-                    </div>
+                    <button type="button" class="btn-secondary btn-sm" onclick="switchTab('inventory')" style="padding:5px 12px; font-size:0.76rem;">
+                        Open Full Inventory &rarr;
+                    </button>
                 </div>
-
-                <!-- 360 MULTI-CAMERA CALIBRATION ANGLE SELECTOR -->
-                <div class="stg-angles-bar" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
-                        <span style="font-size:0.72rem; text-transform:uppercase; font-weight:800; color:#94a3b8; letter-spacing:0.5px; margin-right:4px;">
-                            <i class="fas fa-camera-rotate text-sky"></i> 360° Perspective Matrix:
-                        </span>
-                        <button type="button" class="stg-angle-btn active" data-cam="CAM-STAGE-01" onclick="switchStagingCameraAngle('CAM-STAGE-01')">
-                            <i class="fas fa-arrows-down-to-line text-emerald"></i> Angle 1: Nadir 90° Overhead
-                        </button>
-                        <button type="button" class="stg-angle-btn" data-cam="CAM-STAGE-02" onclick="switchStagingCameraAngle('CAM-STAGE-02')">
-                            <i class="fas fa-cubes-stacked text-amber"></i> Angle 2: Oblique 45° Isometric
-                        </button>
-                        <button type="button" class="stg-angle-btn" data-cam="CAM-STAGE-03" onclick="switchStagingCameraAngle('CAM-STAGE-03')">
-                            <i class="fas fa-id-badge text-cyan"></i> Angle 3: Profile 0° Eye-Level
-                        </button>
-                        <button type="button" class="stg-angle-btn" data-cam="360_FUSED" onclick="switchStagingCameraAngle('360_FUSED')">
-                            <i class="fas fa-table-cells-large text-purple"></i> 360° Fused Matrix (Quad Sync)
-                        </button>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:6px;">
-                        <span style="font-size:0.70rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">
-                            <i class="fas fa-video text-emerald"></i> Staging Camera:
-                        </span>
-                        <select id="stgCameraAssignSelect" onchange="switchStagingCameraAngle(this.value)" style="padding:4px 10px; font-size:0.78rem; font-weight:700; background:var(--panel-bg); color:var(--text-main); border:1px solid var(--border-light); border-radius:6px; cursor:pointer;" title="Assign any camera stream to Staging Area">
-                            <option value="CAM-STAGE-01">Angle 1: Nadir 90° Overhead (CAM-STAGE-01)</option>
-                            <option value="CAM-STAGE-02">Angle 2: Oblique 45° Isometric (CAM-STAGE-02)</option>
-                            <option value="CAM-STAGE-03">Angle 3: Profile 0° Eye-Level (CAM-STAGE-03)</option>
-                            <option value="360_FUSED">360° Fused Matrix (Quad Sync)</option>
-                            <option value="CAM-TRUEVIEW">Trueview Wi-Fi Camera (CAM-TRUEVIEW)</option>
-                            <option value="CAM-002">Dock 02 Storage &amp; Staging (CAM-002)</option>
-                            <option value="CAM-001">Dock 01 Inbound Overhead (CAM-001)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- 2-COLUMN HERO WORKBENCH -->
-                <div class="stg-hero-grid">
-                    <!-- LEFT COLUMN: LIVE OPTICAL TELEMETRY STREAM & ACTION DECK -->
-                    <div>
-                        <div class="stg-stream-viewport" id="stgStreamViewport">
-                            <img id="stagingFeedImg" data-stream-src="/api/staging/feed.mjpg?cam=CAM-STAGE-01" alt="Staging Area Perception Live Stream">
-                            
-                            <!-- AR Corner Reticles -->
-                            <div class="gate-reticle-corner reticle-tl"></div>
-                            <div class="gate-reticle-corner reticle-tr"></div>
-                            <div class="gate-reticle-corner reticle-bl"></div>
-                            <div class="gate-reticle-corner reticle-br"></div>
-                            <div class="gate-laser-scan"></div>
-
-                            <!-- Top HUD Tag -->
-                            <div style="position:absolute; top:12px; left:14px; z-index:6; background:rgba(15,23,42,0.88); color:#38bdf8; font-size:0.70rem; font-weight:800; padding:4px 10px; border-radius:6px; display:flex; align-items:center; gap:8px; border:1px solid rgba(56,189,248,0.35); backdrop-filter:blur(4px);">
-                                <span style="width:8px; height:8px; background:#ef4444; border-radius:50%; display:inline-block; box-shadow:0 0 8px #ef4444;"></span>
-                                <span id="stgActiveAngleBadge">Nadir 90° Overhead</span> • 30 FPS ULTRA-SMOOTH
-                            </div>
-
-                            <!-- Bottom Zone Tag -->
-                            <div style="position:absolute; bottom:14px; left:14px; z-index:6; display:flex; align-items:center; gap:10px; background:rgba(3,7,18,0.85); padding:6px 12px; border-radius:8px; border:1px solid rgba(16,185,129,0.45); backdrop-filter:blur(6px);">
-                                <span style="color:#10b981; font-size:0.8rem;">📦</span>
-                                <span style="font-family:monospace; font-weight:800; font-size:0.85rem; color:#10b981;">ZONE-STAGE-01 ROI ACTIVE</span>
-                            </div>
-                        </div>
-
-                        <!-- PLACEMENT SIMULATION ACTION DECK -->
-                        <div class="stg-action-deck">
-                            <button type="button" class="stg-action-btn btn-worker-drop" onclick="recordStagingPlacement('HUMAN_WORKER', 1)" title="Simulate human worker carrying and laying down 1 unit in staging area">
-                                <i class="fas fa-person-digging"></i> Worker Drop (+1)
-                            </button>
-                            <button type="button" class="stg-action-btn btn-forklift-drop" onclick="recordStagingPlacement('FORKLIFT_MHE', 4)" title="Simulate forklift offloading pallet stack (+4 units)">
-                                <i class="fas fa-truck-ramp-box"></i> Forklift Drop (+4)
-                            </button>
-                            <button type="button" class="stg-action-btn btn-burst-test" onclick="runStagingBurstTest()" title="Rapid burst test (5 drops) verifying <10ms execution">
-                                <i class="fas fa-bolt"></i> Burst Test (+10)
-                            </button>
-                            <button type="button" class="stg-action-btn btn-reset-zone" onclick="resetStagingZone()" title="Reset staging count to 0 and clear buffer">
-                                <i class="fas fa-rotate"></i> Reset (0)
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- RIGHT COLUMN: QUOTA GAUGE, ACTOR TELEMETRY & AUDIT LOG -->
-                    <div class="stg-hud-card">
-                        <!-- Quota Donut Gauge Row -->
-                        <div>
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-size:0.72rem; text-transform:uppercase; font-weight:800; color:#38bdf8; letter-spacing:0.8px;">
-                                    🎯 TARGET QUOTA &amp; INTAKE LIMIT
-                                </span>
-                                <span id="stgGaugeStatusText" style="font-size:0.72rem; color:#94a3b8; font-weight:600;">
-                                    Buffer Ready For Inbound Placement
-                                </span>
-                            </div>
-
-                            <div class="stg-gauge-center">
-                                <div class="stg-donut-wrapper">
-                                    <svg class="stg-donut-svg" viewBox="0 0 104 104">
-                                        <circle class="donut-ring-bg" cx="52" cy="52" r="46"/>
-                                        <circle id="stgCircleGaugePath" class="donut-ring-val" cx="52" cy="52" r="46"/>
-                                    </svg>
-                                    <div class="stg-donut-text">
-                                        <span class="stg-countBig" id="stgNumericCount" style="font-size:1.6rem; font-weight:900; color:#f8fafc; font-family:monospace;">0</span>
-                                        <span class="stg-target-sub">/ <span id="stgNumericTarget">30</span></span>
-                                    </div>
-                                </div>
-                                <div style="flex:1;">
-                                    <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:6px;">
-                                        <span style="color:#94a3b8;">Intake Progress</span>
-                                        <span id="stgProgressPctText" style="color:#38bdf8; font-weight:800;">0%</span>
-                                    </div>
-                                    <div style="height:8px; background:rgba(30,41,59,0.8); border-radius:999px; overflow:hidden; border:1px solid rgba(255,255,255,0.06);">
-                                        <div id="stgProgressFill" style="width:0%; height:100%; background:linear-gradient(90deg, #0ea5e9, #0284c7); transition:width 0.3s ease;"></div>
-                                    </div>
-                                    <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
-                                        <input type="number" id="stgTargetQuotaInput" value="30" min="1" max="500" style="width:75px; padding:4px 8px; font-size:0.8rem; background: var(--panel-bg); border:1px solid rgba(255,255,255,0.15); color: var(--text-main); border-radius:6px; margin:0;" title="Target quota limit">
-                                        <select id="stgTargetSkuSelect" style="flex:1; padding:4px 8px; font-size:0.8rem; background: var(--panel-bg); border:1px solid rgba(255,255,255,0.15); color: var(--text-main); border-radius:6px; margin:0;">
-                                            <option value="SKU-AUTO-WIRE">SKU-AUTO-WIRE (Wire Harness)</option>
-                                            <option value="SKU-ELEC-001">SKU-ELEC-001 (Controller PCB)</option>
-                                            <option value="SKU-GLASS-001">SKU-GLASS-001 (Laminated Glass)</option>
-                                        </select>
-                                        <button type="button" class="btn-secondary btn-sm" onclick="configureStagingQuota()" style="padding:4px 10px; font-size:0.75rem;" title="Apply quota & SKU limit">
-                                            Update
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Active Actor Classification Telemetry Card -->
-                        <div id="stgActorTelemetryCard" style="background:var(--panel-subtle); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; margin:10px 0;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                <span style="font-size:0.68rem; text-transform:uppercase; color:#94a3b8; font-weight:800; letter-spacing:0.5px;">
-                                    👤 RECOGNIZED ACTOR TELEMETRY
-                                </span>
-                                <span id="stgActorConfidence" style="font-size:0.68rem; color:#10b981; font-weight:700;">
-                                    98.4% Confidence
-                                </span>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:12px;">
-                                <div id="stgActorIconWrap" style="width:36px; height:36px; border-radius:8px; background:rgba(30,41,59,0.8); display:flex; align-items:center; justify-content:center; font-size:1.1rem;">
-                                    <i class="fas fa-person-digging text-cyan"></i>
-                                </div>
-                                <div style="flex:1;">
-                                    <div style="display:flex; align-items:center; gap:8px;">
-                                        <strong id="stgActorName" style="color:#f8fafc; font-size:0.90rem;">Ramesh Kumar (W-104)</strong>
-                                        <span id="stgActorRole" class="badge" style="background:rgba(14,165,233,0.15); color:#38bdf8; font-size:0.65rem;">HUMAN WORKER</span>
-                                    </div>
-                                    <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">
-                                        Identified via: <span id="stgActorVestTag" style="color:#facc15; font-weight:600;">Hi-Vis Neon-Yellow Vest</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Real-Time Audit Log Table -->
-                        <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
-                            <div style="font-size:0.70rem; text-transform:uppercase; color:#94a3b8; font-weight:800; letter-spacing:0.5px; margin-bottom:6px;">
-                                📜 Real-Time Placement Ledger (< 10ms Engine)
-                            </div>
-                            <div style="max-height:140px; overflow-y:auto; background:rgba(3,7,18,0.5); border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
-                                <table style="width:100%; border-collapse:collapse; font-size:0.75rem;">
-                                    <thead>
-                                        <tr style="border-bottom:1px solid rgba(255,255,255,0.06); color:#94a3b8; text-align:left;">
-                                            <th style="padding:4px 8px;">Time</th>
-                                            <th style="padding:4px 8px;">Actor</th>
-                                            <th style="padding:4px 8px;">Qty</th>
-                                            <th style="padding:4px 8px;">Count</th>
-                                            <th style="padding:4px 8px;">Latency</th>
-                                            <th style="padding:4px 8px;">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="stgAuditEventsBody">
-                                        <tr>
-                                            <td colspan="6" style="text-align:center; color:#64748b; padding:12px;">No placements recorded yet. Click above to lay down stock.</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-                <!-- Live Bundle & Object Counting by Camera -->
-                <div class="glass-panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
-                        <h3 style="margin:0; font-size:1.1rem;">Spatial Matrix Camera Streams</h3>
-                        <span style="font-size:0.75rem; color:var(--text-muted);">Live Neural Clusters</span>
-                    </div>
-                    <div style="display:flex; flex-direction:column; gap:15px;" id="live-bundle-counts">
-                        <p style="color:var(--text-muted); font-size:0.85rem; padding: 20px; text-align:center;">Waiting for AI vision bounding box matrix clusters on unloading docks...</p>
-                    </div>
-                </div>
-
-                <!-- AI Operations Log -->
-                <div class="glass-panel">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-light); padding-bottom:10px;">
-                        <h3 style="margin:0; font-size:1.1rem;">Autonomous Operations Log</h3>
-                        <div style="display:flex; gap:6px;">
-                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="clearInboundLog()">Clear</button>
-                            <button type="button" class="btn-secondary" style="font-size:0.7rem; padding:3px 8px;" onclick="addManualLogEntry('Operator manual event check requested')">Test Event</button>
-                        </div>
-                    </div>
-                    <div id="ai-operations-log" style="height:420px; overflow-y:auto; background:#111; padding:15px; border-radius:6px; font-family:monospace; color:#10b981; font-size:0.82rem; display:flex; flex-direction:column; gap:8px;">
-                        <div><span style="color:#6366f1;">[STARTUP]</span> Matrix Engine Initialized. Listening for Vision streams on Gates and Docks...</div>
-                    </div>
+                <div class="table-container" style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.81rem;">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Reference</th>
+                                <th>SKU</th>
+                                <th>Bin</th>
+                                <th>Added Qty</th>
+                                <th>Operator</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inboundReceiptsBody">
+                            <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:18px;">Loading recent inbound stock movements...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
         
-        <!-- OUTBOUND VIEW -->
+        <!-- ENTERPRISE OUTBOUND DISPATCH CONTROL TOWER -->
         <div id="outbound-view" class="view-section">
-            <div style="display:flex; gap:2rem;">
-                <aside class="glass-panel" style="flex:0 0 400px; height:fit-content;">
-                    <h3>Create Outbound Order</h3>
-                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Generate a new picking requirement.</p>
+            <div class="glass-panel" style="margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+                    <div>
+                        <h2 style="margin:0; font-size:1.45rem; color:var(--text-main); display:flex; align-items:center; gap:10px;">
+                            <i class="fas fa-truck-fast" style="color:var(--accent);"></i>
+                            Outbound Dispatch Control Tower
+                        </h2>
+                        <p style="color:var(--text-muted); margin:4px 0 0 0; font-size:0.86rem;">
+                            End-to-end fulfillment loop: Order &rarr; FIFO Bin Pick &rarr; Truck Assignment &rarr; Gate ANPR &amp; Dock Loading &rarr; Dispatched.
+                        </p>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="btn-secondary" style="font-size:0.78rem; padding:7px 12px;" onclick="switchTab('inventory')">
+                            <i class="fas fa-boxes-stacked"></i> Bin Stock (FIFO)
+                        </button>
+                        <button type="button" class="btn-secondary" style="font-size:0.78rem; padding:7px 12px;" onclick="switchTab('gate-passes')">
+                            <i class="fas fa-shield-halved"></i> Gate Management
+                        </button>
+                        <button type="button" class="btn-secondary" style="font-size:0.78rem; padding:7px 12px;" onclick="switchTab('docks')">
+                            <i class="fas fa-anchor"></i> Loading Docks
+                        </button>
+                        <button type="button" class="btn-primary" style="font-size:0.78rem; padding:7px 14px;" onclick="window.fetchOutboundOrders()">
+                            <i class="fas fa-arrows-rotate"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 4-Stage Outbound Dispatch KPI Strip -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap:12px; margin-top:16px;">
+                    <div onclick="filterOutboundOrders('pick', this)" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">1. Pending FIFO Pick</div>
+                        <div id="ob-kpi-pending" style="font-size:1.5rem; font-weight:800; color:#f59e0b; margin-top:4px;">0</div>
+                    </div>
+                    <div onclick="filterOutboundOrders('truck', this)" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">2. Picked &bull; Assign Truck</div>
+                        <div id="ob-kpi-ready" style="font-size:1.5rem; font-weight:800; color:#0284c7; margin-top:4px;">0</div>
+                    </div>
+                    <div onclick="filterOutboundOrders('loading', this)" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">3. Gate &amp; Loading Dock</div>
+                        <div id="ob-kpi-transit" style="font-size:1.5rem; font-weight:800; color:#8b5cf6; margin-top:4px;">0</div>
+                    </div>
+                    <div onclick="filterOutboundOrders('dispatched', this)" style="cursor:pointer; background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px 14px; border-radius:10px;">
+                        <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">4. Dispatched</div>
+                        <div id="ob-kpi-dispatched" style="font-size:1.5rem; font-weight:800; color:#10b981; margin-top:4px;">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start;">
+                <aside class="glass-panel" style="flex:0 0 360px; max-width:100%; height:fit-content;">
+                    <h3 style="margin-top:0;">Create Outbound Order</h3>
+                    <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:1rem;">Generates an order backed by FIFO bin picking and Gate dispatch.</p>
                     <form id="formAddOutbound" onsubmit="event.preventDefault(); submitAddOutbound();">
-                        <div style="margin-bottom:1rem;">
+                        <div style="margin-bottom:0.9rem;">
                             <label>Customer Name *</label>
-                            <input type="text" id="outboundCustomer" required style="width:100%; margin-bottom:0;">
+                            <input type="text" id="outboundCustomer" required placeholder="e.g. Prestige Builders" style="width:100%; margin-bottom:0;">
                         </div>
-                        <div style="margin-bottom:1rem;">
+                        <div style="margin-bottom:0.9rem;">
                             <label>Destination *</label>
-                            <input type="text" id="outboundDest" required style="width:100%; margin-bottom:0;">
+                            <input type="text" id="outboundDest" required placeholder="e.g. Bengaluru Site B" style="width:100%; margin-bottom:0;">
                         </div>
-                        <div style="margin-bottom:1rem;">
+                        <div style="margin-bottom:0.9rem;">
                             <label>Select SKU *</label>
-                            <select id="outboundSku" required style="width:100%; margin-bottom:0;"></select>
+                            <select id="outboundSku" required onchange="updateOutboundStockHint()" style="width:100%; margin-bottom:0;"></select>
+                            <div id="outboundSkuStockHint" style="font-size:0.76rem; color:var(--text-muted); margin-top:5px;">Pick a product to check available bin stock.</div>
                         </div>
-                        <div style="margin-bottom:1.5rem;">
+                        <div style="margin-bottom:1.25rem;">
                             <label>Quantity to Pick *</label>
-                            <input type="number" id="outboundQty" required min="1" style="width:100%; margin-bottom:0;">
+                            <input type="number" id="outboundQty" required min="1" oninput="updateOutboundStockHint()" style="width:100%; margin-bottom:0;">
                         </div>
-                        <button type="submit" class="btn-primary" style="width:100%;">Create Order</button>
+                        <button type="submit" class="btn-primary" style="width:100%;"><i class="fas fa-plus"></i> Create Outbound Order</button>
                     </form>
                 </aside>
-                <div class="glass-panel" style="flex:1;">
-                    <h3>Active Outbound Orders</h3>
+                <div class="glass-panel" style="flex:1; min-width:340px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                        <h3 style="margin:0;">Active Outbound Orders &amp; Gate Dispatch</h3>
+                        <div id="obFilterBar" style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <button type="button" class="btn-primary btn-sm" onclick="filterOutboundOrders('all', this)" style="padding:4px 10px; font-size:0.74rem;">All</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="filterOutboundOrders('pick', this)" style="padding:4px 10px; font-size:0.74rem;">To Pick</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="filterOutboundOrders('truck', this)" style="padding:4px 10px; font-size:0.74rem;">Assign Truck</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="filterOutboundOrders('loading', this)" style="padding:4px 10px; font-size:0.74rem;">Gate &amp; Dock</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="filterOutboundOrders('dispatched', this)" style="padding:4px 10px; font-size:0.74rem;">Dispatched</button>
+                        </div>
+                    </div>
                     <div class="table-container">
-                        <table style="width:100%; margin-top:1rem;">
+                        <table style="width:100%; margin-top:0.5rem;">
                             <thead>
                                 <tr>
                                     <th>Order ID</th>
                                     <th>Customer</th>
                                     <th>Destination</th>
                                     <th>Items</th>
-                                    <th>Status</th>
+                                    <th>Dispatch Loop Progress</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>

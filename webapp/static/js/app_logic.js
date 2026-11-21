@@ -4529,64 +4529,209 @@
             `).join('');
         }
 
+        window._inboundStageFilter = 'all';
+        window.filterInboundPipeline = function(stage, btn) {
+            window._inboundStageFilter = stage || 'all';
+            const bar = document.getElementById('inboundFilterBar');
+            if (bar && btn) {
+                bar.querySelectorAll('button').forEach(b => {
+                    b.className = b === btn ? 'btn-primary btn-sm' : 'btn-secondary btn-sm';
+                });
+            }
+            if (window._lastInboundRenderArgs) renderInboundPipelineTable(...window._lastInboundRenderArgs);
+        };
+
+        function renderInboundPipelineTable(deliveries, passes, bins) {
+            const tbody = document.getElementById('inboundPipelineTableBody');
+            if (!tbody) return;
+            const filter = window._inboundStageFilter || 'all';
+            const defaultBin = (bins && bins[0]) ? bins[0].bin_id : 'BIN-A1';
+
+            // Merge Pre-Registered POs and Inbound Gate Passes by po_number
+            const rows = [];
+            const seenPo = new Set();
+            const inboundPasses = (passes || []).filter(p => String(p.activity || 'Unloading').toLowerCase() !== 'loading');
+
+            inboundPasses.forEach(gp => {
+                if (gp.po_number) seenPo.add(String(gp.po_number).trim());
+                const st = gp.status || 'Approved';
+                let stage = 'gate';
+                if (['Sent to Dock', 'Unloading'].includes(st)) stage = 'dock';
+                else if (st === 'Completed') stage = 'completed';
+
+                let skuCode = '';
+                let expectedQty = 0;
+                let itemSummary = gp.load || 'Assorted Goods';
+                try {
+                    const sheet = typeof gp.unloading_sheet === 'string' ? JSON.parse(gp.unloading_sheet) : gp.unloading_sheet;
+                    if (Array.isArray(sheet) && sheet.length > 0) {
+                        skuCode = sheet[0].sku || sheet[0].sku_id || '';
+                        expectedQty = sheet.reduce((s, r) => s + (Number(r.expected || r.expected_qty || r.qty) || 0), 0);
+                        itemSummary = sheet.map(r => `${r.sku || r.sku_id || 'SKU'} × ${r.expected || r.expected_qty || r.qty || 0}`).slice(0, 2).join(', ');
+                    }
+                } catch (e) {}
+
+                const verified = (gp.vision_unloaded_count > 0 ? gp.vision_unloaded_count : gp.unloaded_qty) || expectedQty || 0;
+                const binGuess = gp.bin_allocation || defaultBin;
+                rows.push({
+                    stage,
+                    po: gp.po_number || 'Direct Arrival',
+                    vendor: gp.vendor || 'Inbound Supplier',
+                    gpId: gp.id,
+                    plate: gp.plate || '—',
+                    driver: gp.driver_name || '',
+                    status: st,
+                    dock: gp.dock || '—',
+                    bin: binGuess,
+                    itemSummary,
+                    skuCode,
+                    verified,
+                    expectedQty,
+                    stepIdx: stage === 'completed' ? 4 : (stage === 'dock' ? 2 : 1)
+                });
+            });
+
+            (deliveries || []).forEach(del => {
+                const po = String(del.po_number || '').trim();
+                if (po && seenPo.has(po)) return;
+                if (String(del.status || '').toLowerCase() === 'received') return;
+                let itemSummary = del.items || 'Scheduled Consignment';
+                try {
+                    const sheet = typeof del.unloading_sheet === 'string' ? JSON.parse(del.unloading_sheet) : del.unloading_sheet;
+                    if (Array.isArray(sheet) && sheet.length > 0) {
+                        itemSummary = sheet.map(r => `${r.sku || r.sku_id || 'SKU'} × ${r.expected || r.expected_qty || r.qty || 0}`).slice(0, 2).join(', ');
+                    }
+                } catch (e) {}
+                rows.push({
+                    stage: 'po',
+                    po: po || `DEL-${del.id || ''}`,
+                    vendor: del.vendor || 'Pre-Registered Vendor',
+                    gpId: null,
+                    plate: del.expected_plate || 'Unassigned',
+                    driver: '',
+                    status: del.status || 'Expected',
+                    dock: 'Awaiting Gate',
+                    bin: defaultBin,
+                    itemSummary,
+                    skuCode: '',
+                    verified: 0,
+                    expectedQty: 0,
+                    stepIdx: 0
+                });
+            });
+
+            const filtered = filter === 'all' ? rows : rows.filter(r => r.stage === filter);
+            if (!filtered.length) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:24px;">No inbound consignments in this stage. Create a Pre-Registration PO or check a truck in at Gate Management.</td></tr>`;
+                return;
+            }
+
+            const steps = ['PO', 'Gate', 'Dock', 'Count', 'Stock'];
+            tbody.innerHTML = filtered.slice(0, 25).map(r => {
+                const track = `<div class="ob-track">${steps.map((lbl, i) => `<span class="ob-dot ${i <= r.stepIdx ? 'is-done' : ''} ${i === r.stepIdx ? 'is-now' : ''}" title="${lbl}"></span>`).join('<span class="ob-bar"></span>')}</div>`;
+                let nextBtns = '';
+                if (r.stage === 'po') {
+                    nextBtns = `<button type="button" class="btn-primary btn-sm" style="padding:4px 10px; font-size:0.74rem;" onclick="switchTab('gate-passes')"><i class="fas fa-car"></i> Gate Entry</button>`;
+                } else if (r.stage === 'gate') {
+                    nextBtns = `<button type="button" class="btn-primary btn-sm" style="padding:4px 10px; font-size:0.74rem;" onclick="switchTab('docks')"><i class="fas fa-anchor"></i> Assign Dock</button>`;
+                } else if (r.stage === 'dock') {
+                    nextBtns = `<div style="display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap;">
+                        <button type="button" class="btn-secondary btn-sm" style="padding:4px 9px; font-size:0.74rem;" onclick="switchTab('palletization')"><i class="fas fa-pallet"></i> Count</button>
+                        <button type="button" class="btn-primary btn-sm" style="padding:4px 10px; font-size:0.74rem; background:#10b981; border-color:#10b981;" onclick="completeInboundReceipt(${__js(r.gpId)}, ${__js(r.bin)}, ${Number(r.verified) || 0}, ${__js(r.skuCode)}, ${__js(r.vendor)})"><i class="fas fa-check"></i> Book GRN</button>
+                    </div>`;
+                } else {
+                    nextBtns = `<button type="button" class="btn-secondary btn-sm" style="padding:4px 10px; font-size:0.74rem;" onclick="switchTab('inventory')"><i class="fas fa-boxes-stacked"></i> View Stock</button>`;
+                }
+
+                return `<tr>
+                    <td><strong>${__h(r.po)}</strong><div style="font-size:0.74rem; color:var(--text-muted);">${__h(r.vendor)}</div></td>
+                    <td>${r.gpId ? `<span style="font-family:monospace; font-weight:700;">#${__h(r.gpId)}</span> &middot; <strong>${__h(r.plate)}</strong>` : `<span style="color:var(--text-muted);">No Gate Pass yet</span>`}<div style="font-size:0.72rem; color:var(--text-muted);">${__h(r.status)}</div></td>
+                    <td style="font-size:0.78rem;">${__h(r.itemSummary)}</td>
+                    <td><div>${__h(r.dock)}</div><div style="font-size:0.72rem; color:var(--text-muted);">Bin: ${__h(r.bin)}</div></td>
+                    <td>${track}</td>
+                    <td style="text-align:right;">${nextBtns}</td>
+                </tr>`;
+            }).join('');
+        }
+
         window.refreshInboundAutomation = async function() {
             try {
-                // Fetch Gate Passes, Cameras, and Deliveries in parallel
-                const [gpRes, camRes, delRes, binRes] = await Promise.all([
+                // Pull live Pre-Registrations, Gate Passes, Cameras, Pallets, Bins, and GRN Stock Movements in parallel
+                const [gpRes, camRes, delRes, binRes, palRes, movRes] = await Promise.all([
                     fetch('/api/gate_passes').catch(() => null),
                     fetch('/api/cameras').catch(() => null),
                     fetch('/api/deliveries').catch(() => null),
-                    fetch('/api/bins').catch(() => null)
+                    fetch('/api/bins').catch(() => null),
+                    fetch('/api/pallets').catch(() => null),
+                    fetch('/api/stock/movements?movement_type=receive&limit=12').catch(() => null)
                 ]);
 
                 const passes = gpRes ? await gpRes.json() : (window.globalGatePasses || []);
                 const cameras = camRes ? await camRes.json() : (window.lastCamerasData || []);
                 const deliveries = delRes ? await delRes.json() : (window.globalDeliveries || []);
                 const bins = binRes ? await binRes.json() : [];
+                const palRaw = palRes ? await palRes.json() : {};
+                const pallets = Array.isArray(palRaw) ? palRaw : (palRaw.pallets || []);
+                const movRaw = movRes ? await movRes.json() : {};
+                const movements = movRaw.movements || [];
 
                 window.globalGatePasses = passes;
                 window.lastCamerasData = cameras;
                 window.globalDeliveries = deliveries;
+                window._lastInboundRenderArgs = [deliveries, passes, bins];
 
-                // 1. Identify trucks actively at Docks
-                const dockedPasses = (passes || []).filter(p => ['Sent to Dock', 'Unloading'].includes(p.status));
-                
-                // 2. Update KPI metrics
+                const inboundPasses = (passes || []).filter(p => String(p.activity || 'Unloading').toLowerCase() !== 'loading');
+                const expectedPos = (deliveries || []).filter(d => String(d.status || '').toLowerCase() !== 'received');
+                const atGatePasses = inboundPasses.filter(p => ['Approved', 'Arrived'].includes(p.status));
+                const dockedPasses = inboundPasses.filter(p => ['Sent to Dock', 'Unloading'].includes(p.status));
+                const completedPasses = inboundPasses.filter(p => p.status === 'Completed');
+                const openPallets = pallets.filter(p => String(p.status || '').toUpperCase() !== 'PUT_AWAY');
+
                 let totalPiecesCounted = 0;
-                let activeBinsSet = new Set();
+                openPallets.forEach(p => { totalPiecesCounted += Number(p.total_units || 0); });
 
-                dockedPasses.forEach(p => {
-                    const cnt = p.vision_unloaded_count || p.unloaded_qty || 0;
-                    totalPiecesCounted += cnt;
-                });
+                const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+                setTxt('inbound-kpi-po', expectedPos.length);
+                setTxt('inbound-kpi-gate', atGatePasses.length);
+                setTxt('inbound-kpi-trucks', dockedPasses.length);
+                setTxt('inbound-kpi-pallets', openPallets.length);
+                setTxt('inbound-kpi-pieces', totalPiecesCounted.toLocaleString());
+                setTxt('inbound-kpi-received', completedPasses.length);
+                setTxt('inbound-kpi-bins', (bins || []).length);
+                setTxt('inbound-dock-count-badge', `${dockedPasses.length} Active ${dockedPasses.length === 1 ? 'Bay' : 'Bays'}`);
 
-                cameras.forEach(c => {
-                    if (c.bin_id) activeBinsSet.add(c.bin_id);
-                    totalPiecesCounted += (c.clustered_bundle_count || c.head_count || 0);
-                });
+                renderInboundPipelineTable(deliveries, passes, bins);
 
-                const kpiTrucks = document.getElementById('inbound-kpi-trucks');
-                const kpiPieces = document.getElementById('inbound-kpi-pieces');
-                const kpiBins = document.getElementById('inbound-kpi-bins');
-                const dockBadge = document.getElementById('inbound-dock-count-badge');
-
-                if (kpiTrucks) kpiTrucks.innerText = dockedPasses.length;
-                if (kpiPieces) kpiPieces.innerText = totalPiecesCounted;
-                if (kpiBins) kpiBins.innerText = activeBinsSet.size || (bins.length > 0 ? bins.length : 1);
-                if (dockBadge) dockBadge.innerText = `${dockedPasses.length} Active ${dockedPasses.length === 1 ? 'Bay' : 'Bays'}`;
+                // Recent Inbound Stock Movements (Real GRN + Put-Away Audit)
+                const recBody = document.getElementById('inboundReceiptsBody');
+                if (recBody) {
+                    if (!movements.length) {
+                        recBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:18px;">No inbound stock receipts booked yet.</td></tr>';
+                    } else {
+                        recBody.innerHTML = movements.slice(0, 12).map(m => `<tr>
+                            <td style="color:var(--text-muted); font-size:0.76rem;">${__h(String(m.created_at || '').slice(0, 16))}</td>
+                            <td><code>${__h(m.ref || m.movement_type || 'GRN')}</code></td>
+                            <td><strong>${__h(m.sku_id || '')}</strong></td>
+                            <td>${__h(m.bin_id || '')}</td>
+                            <td style="color:#10b981; font-weight:800;">+${Number(m.delta || 0)}</td>
+                            <td style="color:var(--text-muted);">${__h(m.actor || 'system')}</td>
+                        </tr>`).join('');
+                    }
+                }
 
                 // 3. Render Active Dock Unloading & Reconciliation Cards
                 const docksContainer = document.getElementById('inbound-docks-container');
                 if (docksContainer) {
                     if (dockedPasses.length === 0) {
                         docksContainer.innerHTML = `
-                            <div style="grid-column: 1 / -1; text-align:center; padding: 40px 20px; color:var(--text-muted); background:var(--panel-subtle); border-radius:8px; border:1px dashed var(--border-light);">
-                                <i class="fas fa-truck-loading" style="font-size:2.5rem; color:var(--text-muted); margin-bottom:12px; display:block;"></i>
-                                <p style="margin:0 0 8px 0; font-size:1.05rem; font-weight:700; color:var(--text-main);">No trucks are currently docked for unloading.</p>
-                                <p style="margin:0 0 16px 0; font-size:0.85rem; color:var(--text-muted);">Assign an arrived truck in Gate Management, or click below to simulate an active inbound delivery.</p>
-                                <button type="button" class="btn-primary" style="background:#10b981; color:#000; font-weight:bold; font-size:0.85rem; padding:8px 18px; border:none; cursor:pointer;" onclick="simulateInboundArrival()">
-                                    ⚡ Simulate Inbound Arrival &amp; Dock Unload
-                                </button>
+                            <div style="grid-column: 1 / -1; text-align:center; padding: 32px 20px; color:var(--text-muted); background:var(--panel-subtle); border-radius:8px; border:1px dashed var(--border-light);">
+                                <i class="fas fa-truck-loading" style="font-size:2.2rem; color:var(--text-muted); margin-bottom:10px; display:block;"></i>
+                                <p style="margin:0 0 6px 0; font-size:1rem; font-weight:700; color:var(--text-main);">No trucks are currently at an unloading bay.</p>
+                                <p style="margin:0 0 14px 0; font-size:0.84rem; color:var(--text-muted);">Check in an expected PO in Gate Management and dispatch it to a Dock to verify unloading here.</p>
+                                <div style="display:inline-flex; gap:8px; flex-wrap:wrap;">
+                                    <button type="button" class="btn-secondary" style="font-size:0.82rem; padding:7px 14px;" onclick="switchTab('deliveries')">Open Pre-Registration</button>
+                                    <button type="button" class="btn-primary" style="font-size:0.82rem; padding:7px 14px;" onclick="switchTab('gate-passes')">Open Gate Management</button>
+                                </div>
                             </div>
                         `;
                     } else {
@@ -4604,107 +4749,76 @@
                             const camName = matchedCam ? matchedCam.name : `${dockName} Vision Camera`;
 
                             // Parse Manifest & Expected Qty
-                            let expectedQty = 50;
-                            let skuCode = '';   // chosen in the receipt dialog when the sheet has none
+                            let expectedQty = 0;
+                            let skuCode = '';
                             let itemDesc = gp.load || 'Material Packages';
 
                             if (gp.unloading_sheet) {
                                 try {
                                     const sheet = typeof gp.unloading_sheet === 'string' ? JSON.parse(gp.unloading_sheet) : gp.unloading_sheet;
                                     if (Array.isArray(sheet) && sheet.length > 0) {
-                                        expectedQty = sheet[0].expected || 50;
+                                        expectedQty = Number(sheet[0].expected || sheet[0].expected_qty || 0);
                                         skuCode = sheet[0].sku || sheet[0].sku_id || skuCode;
-                                        itemDesc = sheet[0].desc || itemDesc;
+                                        itemDesc = sheet[0].description || sheet[0].desc || itemDesc;
                                     }
                                 } catch(e) {}
                             }
 
-                            // AI verified count
                             let verifiedCount = gp.vision_unloaded_count !== undefined && gp.vision_unloaded_count > 0 
                                 ? gp.vision_unloaded_count 
                                 : (gp.unloaded_qty || (matchedCam ? (matchedCam.head_count || matchedCam.clustered_bundle_count) : 0) || expectedQty);
 
                             const matchPercent = expectedQty > 0 ? Math.min(100, Math.round((verifiedCount / expectedQty) * 100)) : 100;
-                            const isMatched = verifiedCount >= expectedQty;
+                            const isMatched = expectedQty <= 0 || verifiedCount >= expectedQty;
                             const statusColor = isMatched ? '#10b981' : '#f59e0b';
-
                             const targetBin = (matchedCam && matchedCam.bin_id) ? matchedCam.bin_id : (bins.length > 0 ? bins[0].bin_id : 'BIN-A1');
 
                             return `
-                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:10px; padding:18px; display:flex; flex-direction:column; gap:14px; box-shadow:var(--card-shadow);">
-                                    <!-- Header Info -->
+                                <div style="background:var(--panel-bg); border:1px solid var(--border-light); border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:12px; box-shadow:var(--card-shadow);">
                                     <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
                                         <div>
                                             <div style="display:flex; align-items:center; gap:8px;">
-                                                <span class="badge" style="background:#1e3a8a; color:#93c5fd; font-weight:700; font-size:0.8rem; padding:4px 8px;">⚓ ${escapeHtml(dockName)}</span>
-                                                <h4 style="margin:0; font-size:1.1rem; color:var(--text-main);">${escapeHtml(gp.plate || 'No Plate')}</h4>
+                                                <span class="badge sent" style="font-weight:700; font-size:0.78rem; padding:4px 8px;">${escapeHtml(dockName)}</span>
+                                                <h4 style="margin:0; font-size:1.05rem; color:var(--text-main);">${escapeHtml(gp.plate || 'No Plate')}</h4>
                                             </div>
-                                            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
-                                                Driver: <strong>${escapeHtml(gp.driver_name || 'Assigned')}</strong> | PO: <strong>${escapeHtml(gp.po_number || 'N/A')}</strong>
-                                            </div>
-                                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
-                                                Vendor: ${escapeHtml(gp.vendor || 'Supplier')}
+                                            <div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">
+                                                Driver: <strong>${escapeHtml(gp.driver_name || 'Assigned')}</strong> | PO: <strong>${escapeHtml(gp.po_number || 'Direct')}</strong> | ${escapeHtml(gp.vendor || 'Supplier')}
                                             </div>
                                         </div>
-                                        <div style="text-align:right;">
-                                            <span class="badge ${gp.status === 'Unloading' ? 'pending' : 'sent'}" style="font-size:0.75rem;">${escapeHtml(gp.status)}</span>
-                                            <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">Pass #${gp.id}</div>
+                                        <span class="badge ${gp.status === 'Unloading' ? 'pending' : 'sent'}" style="font-size:0.74rem;">${escapeHtml(gp.status)} #${gp.id}</span>
+                                    </div>
+
+                                    <div style="position:relative; width:100%; border-radius:8px; overflow:hidden; background:#020617; border:1px solid var(--border-light); height:170px;">
+                                        <img src="/video_feed/${camId}" style="width:100%; height:100%; object-fit:cover;" alt="Dock Camera Stream"/>
+                                        <div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.75); color:#fff; font-size:0.72rem; padding:3px 8px; border-radius:4px;">
+                                            ${escapeHtml(camName)}
+                                        </div>
+                                        <div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.85); color:#10b981; font-family:monospace; font-weight:700; font-size:0.82rem; padding:4px 8px; border-radius:4px; border:1px solid #059669;">
+                                            Count: ${verifiedCount}
                                         </div>
                                     </div>
 
-                                    <!-- Live Dock Camera Viewport -->
-                                    <div style="position:relative; width:100%; border-radius:8px; overflow:hidden; background:#000; border:1px solid var(--border-light); height:180px;">
-                                        <img src="/video_feed/${camId}" onerror="this.src='/static/test_scenes/dock01_test.jpg'" style="width:100%; height:100%; object-fit:cover;" alt="Dock Camera Stream"/>
-                                        <div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.75); color:#fff; font-size:0.72rem; padding:3px 8px; border-radius:4px; display:flex; align-items:center; gap:5px;">
-                                            <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#ef4444; animation:pulse 1.5s infinite;"></span>
-                                            📹 ${escapeHtml(camName)}
-                                        </div>
-                                        <div style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.85); color:#10b981; font-family:monospace; font-weight:700; font-size:0.85rem; padding:4px 8px; border-radius:4px; border:1px solid #059669;">
-                                            AI Count: ${verifiedCount} units
-                                        </div>
-                                    </div>
-
-                                    <!-- Manifest vs AI Perception Reconciliation Meter -->
-                                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:12px; border-radius:8px;">
-                                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:0.82rem;">
+                                    <div style="background:var(--panel-subtle); border:1px solid var(--border-light); padding:10px 12px; border-radius:8px;">
+                                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:0.8rem;">
                                             <span style="font-weight:600; color:var(--text-main);">${escapeHtml(itemDesc)}</span>
-                                            <span style="font-weight:700; color:${statusColor}; font-size:0.85rem;">
-                                                ${verifiedCount} / ${expectedQty} (${matchPercent}%)
-                                            </span>
+                                            <span style="font-weight:700; color:${statusColor};">${verifiedCount}${expectedQty > 0 ? ` / ${expectedQty} (${matchPercent}%)` : ''}</span>
                                         </div>
-                                        <div style="width:100%; height:8px; background:#334155; border-radius:4px; overflow:hidden; margin-bottom:8px;">
+                                        <div style="width:100%; height:7px; background:var(--border-light); border-radius:4px; overflow:hidden;">
                                             <div style="width:${matchPercent}%; height:100%; background:${statusColor}; transition:width 0.4s ease;"></div>
                                         </div>
-                                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; color:var(--text-muted);">
-                                            <span>Expected Manifest: <strong>${expectedQty}</strong></span>
-                                            <span style="color:${statusColor}; font-weight:700;">
-                                                ${isMatched ? '✓ 100% Verified Match' : '⏳ In Progress Unloading'}
-                                            </span>
-                                        </div>
                                     </div>
 
-                                    <!-- Putaway Slot Recommendation -->
-                                    <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:10px 14px; border-radius:6px; border:1px solid #334155;">
-                                        <div>
-                                            <div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase;">Intelligent Putaway Slot</div>
-                                            <div style="font-size:0.95rem; font-weight:700; color:#38bdf8; margin-top:2px;">
-                                                📍 ${escapeHtml(targetBin)}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <button type="button" style="background:#334155; color:#cbd5e1; border:none; padding:4px 10px; font-size:0.72rem; border-radius:4px; cursor:pointer;" onclick="promptAssignCameraBin('${camId}')">
-                                                Change Bin
-                                            </button>
-                                        </div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--panel-subtle); padding:8px 12px; border-radius:6px; border:1px solid var(--border-light);">
+                                        <div style="font-size:0.78rem; color:var(--text-main);">Target Put-Away Bin: <strong style="color:var(--accent);">${escapeHtml(targetBin)}</strong></div>
+                                        <button type="button" class="btn-secondary btn-sm" style="padding:3px 9px; font-size:0.72rem;" onclick="promptAssignCameraBin('${camId}')">Change Bin</button>
                                     </div>
 
-                                    <!-- Operational Action Buttons -->
-                                    <div style="display:flex; gap:10px; margin-top:2px;">
-                                        <button type="button" class="btn-primary" style="flex:1; background:#10b981; color:#000; font-weight:700; font-size:0.8rem; padding:9px 12px; border:none; cursor:pointer;" onclick="syncCameraToBin('${camId}')">
-                                            ⚡ Sync to Bin (${targetBin})
+                                    <div style="display:flex; gap:8px; margin-top:2px;">
+                                        <button type="button" class="btn-secondary" style="flex:1; font-weight:700; font-size:0.78rem; padding:8px 10px;" onclick="switchTab('palletization')">
+                                            <i class="fas fa-pallet"></i> Count Photo
                                         </button>
-                                        <button type="button" class="btn-primary" style="flex:1; background:var(--accent); color:#fff; font-weight:700; font-size:0.8rem; padding:9px 12px; border:none; cursor:pointer;" onclick="completeInboundReceipt('${gp.id}', '${targetBin}', ${verifiedCount}, '${skuCode}', '${escapeHtml(gp.vendor || 'Inbound')}')">
-                                            ✅ Complete Receipt (GRN)
+                                        <button type="button" class="btn-primary" style="flex:1.4; background:#10b981; border-color:#10b981; color:#fff; font-weight:700; font-size:0.78rem; padding:8px 12px;" onclick="completeInboundReceipt('${gp.id}', '${targetBin}', ${verifiedCount}, '${skuCode}', '${escapeHtml(gp.vendor || 'Inbound')}')">
+                                            <i class="fas fa-check"></i> Complete Receipt (GRN)
                                         </button>
                                     </div>
                                 </div>
@@ -4713,10 +4827,6 @@
                     }
                 }
 
-                // 4. Render Spatial Matrix Camera Streams
-                renderInboundCamerasList(cameras);
-
-                // 5. Update Tab Badge
                 const badge = document.getElementById('inbound-badge');
                 if (badge) {
                     if (dockedPasses.length > 0) {
@@ -4728,7 +4838,7 @@
                 }
 
             } catch(e) {
-                console.error("Error refreshing Inbound Automation:", e);
+                console.error("Error refreshing Inbound Control Tower:", e);
             }
         };
 
@@ -5407,44 +5517,127 @@ function obStepIndex(status) {
     const i = OB_STEPS.findIndex(x => x[0] === s);
     return i;   // -1 = not picked yet (Pending / Partly picked / Truck rejected)
 }
+window._obFilter = 'all';
+window._obOrdersCache = [];
+window._obStockBySku = {};
+
+window.updateOutboundStockHint = function() {
+    const skuSel = document.getElementById('outboundSku');
+    const qtyIn = document.getElementById('outboundQty');
+    const hint = document.getElementById('outboundSkuStockHint');
+    if (!skuSel || !hint) return;
+    const sku = skuSel.value;
+    if (!sku) {
+        hint.style.color = 'var(--text-muted)';
+        hint.textContent = 'Pick a product to check available bin stock.';
+        return;
+    }
+    const info = window._obStockBySku[sku];
+    const avail = info ? info.qty : 0;
+    const binsTxt = info && info.bins.length ? ` (${info.bins.slice(0, 3).join(', ')})` : '';
+    const want = parseInt(qtyIn && qtyIn.value, 10) || 0;
+    if (avail <= 0) {
+        hint.style.color = '#ef4444';
+        hint.textContent = `Out of stock in active bins (${sku}). Receive or sync pallet stock first.`;
+    } else if (want > avail) {
+        hint.style.color = '#f59e0b';
+        hint.textContent = `Available: ${avail.toLocaleString()} pcs${binsTxt} — requested ${want} exceeds stock (partial pick).`;
+    } else {
+        hint.style.color = '#10b981';
+        hint.textContent = `Available for FIFO pick: ${avail.toLocaleString()} pcs${binsTxt}`;
+    }
+};
+
+window.filterOutboundOrders = function(stage, btn) {
+    window._obFilter = stage || 'all';
+    const bar = document.getElementById('obFilterBar');
+    if (bar && btn) {
+        bar.querySelectorAll('button').forEach(b => {
+            b.className = b === btn ? 'btn-primary btn-sm' : 'btn-secondary btn-sm';
+        });
+    }
+    renderOutboundTable(window._obOrdersCache);
+};
+
+function renderOutboundTable(orders) {
+    const tbody = document.getElementById('outboundTableBody');
+    if (!tbody || !Array.isArray(orders)) return;
+    const filter = window._obFilter || 'all';
+    const classified = orders.map(o => {
+        const items = (o.items || []);
+        const fully = items.length && items.every(i => (i.picked_quantity || 0) >= i.quantity);
+        let stage = 'pick';
+        if (o.status === 'Dispatched') stage = 'dispatched';
+        else if (['Truck assigned', 'Truck at gate', 'At loading dock', 'Loading', 'Loaded'].includes(o.status)) stage = 'loading';
+        else if (fully || ['Fulfilled', 'Picked', 'Truck rejected'].includes(o.status)) stage = 'truck';
+        return { o, items, fully, stage };
+    });
+
+    const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+    setTxt('ob-kpi-pending', classified.filter(x => x.stage === 'pick').length);
+    setTxt('ob-kpi-ready', classified.filter(x => x.stage === 'truck').length);
+    setTxt('ob-kpi-transit', classified.filter(x => x.stage === 'loading').length);
+    setTxt('ob-kpi-dispatched', classified.filter(x => x.stage === 'dispatched').length);
+
+    const visible = filter === 'all' ? classified : classified.filter(x => x.stage === filter);
+    if (!visible.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:18px;">No outbound orders match this stage.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = visible.map(({ o, items, fully }) => {
+        const itemsStr = items.map(i => `${Number(i.quantity)} × ${__h(i.sku_id)} <span style="color:var(--text-muted);">(picked ${Number(i.picked_quantity || 0)})</span>`).join('<br>');
+        const label = OB_LABEL[o.status] || o.status || 'Pending';
+        const idx = obStepIndex(o.status);
+        const color = o.status === 'Dispatched' ? '#059669' : (o.status === 'Truck rejected' ? '#dc2626' : (idx >= 0 ? '#2563eb' : '#b45309'));
+        const tracker = `<div class="ob-track">${OB_STEPS.map((st, i) => `<span class="ob-dot ${i <= idx ? 'is-done' : ''} ${i === idx ? 'is-now' : ''}" title="${__h(st[0])}"></span>`).join('<span class="ob-bar"></span>')}</div>`;
+        const truck = o.vehicle_plate ? `<div class="ob-truck"><i class="fas fa-truck"></i> <b>${__h(o.vehicle_plate)}</b> · <a href="javascript:void(0)" onclick="switchTab('gate-passes')" style="color:var(--accent); text-decoration:underline;">GP #${__h(o.gate_pass_id || '')}</a>${o.transporter ? ' · ' + __h(o.transporter) : ''}</div>` : '';
+        const sent = o.dispatched_at ? `<div class="ob-truck" style="color:#059669;"><i class="fas fa-circle-check"></i> Left the gate ${__h(String(o.dispatched_at).slice(0, 16))}</div>` : '';
+        const oid = __js(o.id);
+        let actions = '';
+        if (!fully && o.status !== 'Dispatched') {
+            actions += `<button class="btn-primary" onclick="pickOutboundOrder(${oid})"><i class="fas fa-hand-holding-box"></i> Pick items (FIFO)</button>`;
+        } else if (['Fulfilled', 'Picked', 'Truck rejected'].includes(o.status)) {
+            actions += `<button class="btn-primary" style="background:#2563eb;" onclick="assignOutboundTruck(${oid}, ${__js(o.customer_name || '')})"><i class="fas fa-truck"></i> ${o.status === 'Truck rejected' ? 'Assign another truck' : 'Assign truck'}</button>`;
+        } else if (o.status !== 'Dispatched') {
+            actions += `<button type="button" class="btn-secondary btn-sm" style="width:100%; font-size:0.74rem;" onclick="switchTab('gate-passes')"><i class="fas fa-shield-halved"></i> Track at Gate / Dock</button>`;
+        }
+        actions += `<button class="btn-primary" style="margin-top:4px; font-size:0.75rem; width:100%; background:var(--accent);" onclick="downloadOutboundManifest(${oid})">📄 PDF Manifest</button>`;
+        return `<tr>
+            <td><strong>${__h(o.id)}</strong></td>
+            <td>${__h(o.customer_name)}</td>
+            <td>${__h(o.destination)}</td>
+            <td style="font-size:0.8rem;">${itemsStr}</td>
+            <td><span class="ob-status" style="color:${color}; border-color:${color}33; background:${color}12;">${__h(label)}</span>${tracker}${truck}${sent}</td>
+            <td>${actions}</td></tr>`;
+    }).join('');
+}
+
 window.fetchOutboundOrders = async function() {
     try {
-        const res = await fetch('/api/outbound');
-        const orders = await res.json();
-        const tbody = document.getElementById('outboundTableBody');
-        if (!tbody || !Array.isArray(orders)) return;
-        if (!orders.length) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:18px;">No outbound orders yet. Create one on the left.</td></tr>';
-            return;
+        const [ordRes, ovRes] = await Promise.all([
+            fetch('/api/outbound'),
+            fetch('/api/stock/overview').catch(() => null)
+        ]);
+        const orders = await ordRes.json();
+        if (ovRes && ovRes.ok) {
+            const ov = await ovRes.json().catch(() => ({}));
+            const map = {};
+            (ov.lines || ov.inventory || []).forEach(l => {
+                const sid = l.sku_id;
+                if (!sid) return;
+                if (!map[sid]) map[sid] = { qty: 0, bins: [] };
+                const q = Number(l.quantity || 0);
+                map[sid].qty += q;
+                if (q > 0 && l.bin_id && !map[sid].bins.includes(l.bin_id)) map[sid].bins.push(String(l.bin_id) + ':' + q);
+            });
+            window._obStockBySku = map;
+            window.updateOutboundStockHint();
         }
-        tbody.innerHTML = orders.map(o => {
-            const items = (o.items || []);
-            const fully = items.length && items.every(i => (i.picked_quantity || 0) >= i.quantity);
-            const itemsStr = items.map(i => `${Number(i.quantity)} × ${__h(i.sku_id)} <span style="color:var(--text-muted);">(picked ${Number(i.picked_quantity || 0)})</span>`).join('<br>');
-            const label = OB_LABEL[o.status] || o.status || 'Pending';
-            const idx = obStepIndex(o.status);
-            const color = o.status === 'Dispatched' ? '#059669' : (o.status === 'Truck rejected' ? '#dc2626' : (idx >= 0 ? '#2563eb' : '#b45309'));
-            const tracker = `<div class="ob-track">${OB_STEPS.map((st, i) => `<span class="ob-dot ${i <= idx ? 'is-done' : ''} ${i === idx ? 'is-now' : ''}" title="${__h(st[0])}"></span>`).join('<span class="ob-bar"></span>')}</div>`;
-            const truck = o.vehicle_plate ? `<div class="ob-truck"><i class="fas fa-truck"></i> <b>${__h(o.vehicle_plate)}</b> · ${__h(o.gate_pass_id || '')}${o.transporter ? ' · ' + __h(o.transporter) : ''}</div>` : '';
-            const sent = o.dispatched_at ? `<div class="ob-truck" style="color:#059669;"><i class="fas fa-circle-check"></i> Left the gate ${__h(String(o.dispatched_at).slice(0, 16))}</div>` : '';
-            const oid = __js(o.id);
-            let actions = '';
-            if (!fully && o.status !== 'Dispatched') {
-                actions += `<button class="btn-primary" onclick="pickOutboundOrder(${oid})"><i class="fas fa-hand-holding-box"></i> Pick items</button>`;
-            } else if (['Fulfilled', 'Picked', 'Truck rejected'].includes(o.status)) {
-                actions += `<button class="btn-primary" style="background:#2563eb;" onclick="assignOutboundTruck(${oid}, ${__js(o.customer_name || '')})"><i class="fas fa-truck"></i> ${o.status === 'Truck rejected' ? 'Assign another truck' : 'Assign truck'}</button>`;
-            } else if (o.status !== 'Dispatched') {
-                actions += `<div style="font-size:0.75rem; color:var(--text-muted);">Truck is being handled at the gate / dock</div>`;
-            }
-            actions += `<button class="btn-primary" style="margin-top:4px; font-size:0.75rem; width:100%; background:var(--accent);" onclick="downloadOutboundManifest(${oid})">📄 PDF Manifest</button>`;
-            return `<tr>
-                <td><strong>${__h(o.id)}</strong></td>
-                <td>${__h(o.customer_name)}</td>
-                <td>${__h(o.destination)}</td>
-                <td style="font-size:0.8rem;">${itemsStr}</td>
-                <td><span class="ob-status" style="color:${color}; border-color:${color}33; background:${color}12;">${__h(label)}</span>${tracker}${truck}${sent}</td>
-                <td>${actions}</td></tr>`;
-        }).join('');
+        if (Array.isArray(orders)) {
+            window._obOrdersCache = orders;
+            renderOutboundTable(orders);
+        }
     } catch(e) { console.error(e); }
 }
 
