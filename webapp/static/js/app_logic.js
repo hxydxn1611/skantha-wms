@@ -731,6 +731,10 @@
                 if (typeof fetchVisionCameras === 'function') fetchVisionCameras();
                 if (typeof fetchVisionZones === 'function') fetchVisionZones();
             } else if (tabId === 'palletization') {
+                if (typeof window.switchPalletSubTab === 'function') {
+                    const activePanel = document.querySelector('#palletization-view .pallet-tab-panel[style*="block"], #palletization-view .pallet-tab-panel.active');
+                    if (!activePanel) window.switchPalletSubTab('wb');
+                }
                 if (window.palletModule) {
                     window.palletModule.loadPallets();
                     window.palletModule.loadPalletSkus();

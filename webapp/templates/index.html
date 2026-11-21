@@ -9376,90 +9376,6 @@ window.switchSubTab = switchSubTab;
             </div>
         </div>
 
-    </main>
-    </div> <!-- End #app-layout -->
-    <script src="{{ url_for('static', filename='js/app_logic.js') }}?v=3.7"></script>
-
-    <script>
-        window.manifestLineCount = 0;
-
-        window.updateManifestSummary = function() {
-            const container = document.getElementById('manifestLinesContainer');
-            if(!container) return;
-            const lines = container.children;
-            let totalUnits = 0;
-            let totalLines = 0;
-            for(let i = 0; i < lines.length; i++) {
-                if(!lines[i].id) continue;
-                const lineId = lines[i].id.split('_')[1];
-                const skuEl = document.getElementById(`manifestSku_${lineId}`);
-                const qtyEl = document.getElementById(`manifestQty_${lineId}`);
-                if(skuEl && skuEl.value) totalLines++;
-                if(qtyEl && qtyEl.value) {
-                    totalUnits += parseInt(qtyEl.value) || 0;
-                }
-            }
-            const itemsPill = document.getElementById('manifestSummaryItems');
-            const unitsPill = document.getElementById('manifestSummaryUnits');
-            if(itemsPill) itemsPill.innerText = totalLines;
-            if(unitsPill) unitsPill.innerText = totalUnits;
-        };
-
-        window.addManifestLine = async function() {
-            window.manifestLineCount++;
-            const id = window.manifestLineCount;
-            const container = document.getElementById('manifestLinesContainer');
-            if(!container) return;
-            
-            const lineDiv = document.createElement('div');
-            lineDiv.id = `manifestLine_${id}`;
-            lineDiv.className = 'manifest-line-row';
-            
-            let skuOptions = '<option value="">Select SKU Code...</option>';
-            if(window.globalSkus && window.globalSkus.length > 0) {
-                window.globalSkus.forEach(s => {
-                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} &bull; ${s.name || ''}</option>`;
-                });
-            } else {
-                try {
-                    const res = await fetch('/api/skus');
-                    const skus = await res.json();
-                    window.globalSkus = skus;
-                    skus.forEach(s => {
-                        skuOptions += `<option value="${s.sku_id}">${s.sku_id} &bull; ${s.name || ''}</option>`;
-                    });
-                } catch(e){}
-            }
-
-            // Inherit default vendor from expVendorName if already typed
-            const defaultVendor = (document.getElementById('expVendorName') && document.getElementById('expVendorName').value) || '';
-
-            lineDiv.innerHTML = `
-                <div style="display:flex; align-items:center; gap:4px; min-width:0;">
-                    <select id="manifestSku_${id}" required style="margin:0; padding:7px 10px; font-size:0.82rem; flex:1; min-width:0;" title="SKU" onchange="window.updateManifestSummary()">
-                        ${skuOptions}
-                    </select>
-                    <button type="button" onclick="document.getElementById('addSkuModal').style.display='flex'" style="background:var(--accent); color:white; border:none; padding:7px 10px; border-radius:6px; cursor:pointer; font-size:0.8rem; flex-shrink:0;" title="Quick Add SKU">+</button>
-                </div>
-                <input type="text" id="manifestVendor_${id}" placeholder="Vendor / Source" value="${escapeHtml(defaultVendor)}" required style="margin:0; padding:7px 10px; font-size:0.82rem; width:100%;" title="Vendor">
-                <input type="number" id="manifestQty_${id}" placeholder="Qty" required min="1" style="margin:0; padding:7px 10px; font-size:0.82rem; width:100%;" title="Expected Qty" oninput="window.updateManifestSummary()">
-                <button type="button" onclick="document.getElementById('manifestLine_${id}').remove(); window.updateManifestSummary();" style="background:none; border:none; color:var(--danger, #ef4444); cursor:pointer; font-size:1.25rem; padding:0; display:flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:6px;" title="Remove Line">&times;</button>
-            `;
-            container.appendChild(lineDiv);
-            window.updateManifestSummary();
-        };
-        
-        setTimeout(() => { 
-            if(document.getElementById('manifestLinesContainer') && document.getElementById('manifestLinesContainer').children.length === 0) {
-                window.addManifestLine(); 
-            }
-        }, 800);
-    </script>
-
-
-    
-            </div>
-
             <!-- TAB 4: STACKING PRESETS & BLUEPRINTS -->
             <div id="pallet-tab-presets-content" class="pallet-tab-panel" style="display:none;">
                 <div class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -9557,6 +9473,85 @@ window.switchSubTab = switchSubTab;
             </div>
 
         </div>
+
+    </main>
+    </div> <!-- End #app-layout -->
+    <script src="{{ url_for('static', filename='js/app_logic.js') }}?v={{ range(1000, 99999) | random }}"></script>
+
+    <script>
+        window.manifestLineCount = 0;
+
+        window.updateManifestSummary = function() {
+            const container = document.getElementById('manifestLinesContainer');
+            if(!container) return;
+            const lines = container.children;
+            let totalUnits = 0;
+            let totalLines = 0;
+            for(let i = 0; i < lines.length; i++) {
+                if(!lines[i].id) continue;
+                const lineId = lines[i].id.split('_')[1];
+                const skuEl = document.getElementById(`manifestSku_${lineId}`);
+                const qtyEl = document.getElementById(`manifestQty_${lineId}`);
+                if(skuEl && skuEl.value) totalLines++;
+                if(qtyEl && qtyEl.value) {
+                    totalUnits += parseInt(qtyEl.value) || 0;
+                }
+            }
+            const itemsPill = document.getElementById('manifestSummaryItems');
+            const unitsPill = document.getElementById('manifestSummaryUnits');
+            if(itemsPill) itemsPill.innerText = totalLines;
+            if(unitsPill) unitsPill.innerText = totalUnits;
+        };
+
+        window.addManifestLine = async function() {
+            window.manifestLineCount++;
+            const id = window.manifestLineCount;
+            const container = document.getElementById('manifestLinesContainer');
+            if(!container) return;
+            
+            const lineDiv = document.createElement('div');
+            lineDiv.id = `manifestLine_${id}`;
+            lineDiv.className = 'manifest-line-row';
+            
+            let skuOptions = '<option value="">Select SKU Code...</option>';
+            if(window.globalSkus && window.globalSkus.length > 0) {
+                window.globalSkus.forEach(s => {
+                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} &bull; ${s.name || ''}</option>`;
+                });
+            } else {
+                try {
+                    const res = await fetch('/api/skus');
+                    const skus = await res.json();
+                    window.globalSkus = skus;
+                    skus.forEach(s => {
+                        skuOptions += `<option value="${s.sku_id}">${s.sku_id} &bull; ${s.name || ''}</option>`;
+                    });
+                } catch(e){}
+            }
+
+            const defaultVendor = (document.getElementById('expVendorName') && document.getElementById('expVendorName').value) || '';
+
+            lineDiv.innerHTML = `
+                <div style="display:flex; align-items:center; gap:4px; min-width:0;">
+                    <select id="manifestSku_${id}" required style="margin:0; padding:7px 10px; font-size:0.82rem; flex:1; min-width:0;" title="SKU" onchange="window.updateManifestSummary()">
+                        ${skuOptions}
+                    </select>
+                    <button type="button" onclick="document.getElementById('addSkuModal').style.display='flex'" style="background:var(--accent); color:white; border:none; padding:7px 10px; border-radius:6px; cursor:pointer; font-size:0.8rem; flex-shrink:0;" title="Quick Add SKU">+</button>
+                </div>
+                <input type="text" id="manifestVendor_${id}" placeholder="Vendor / Source" value="${escapeHtml(defaultVendor)}" required style="margin:0; padding:7px 10px; font-size:0.82rem; width:100%;" title="Vendor">
+                <input type="number" id="manifestQty_${id}" placeholder="Qty" required min="1" style="margin:0; padding:7px 10px; font-size:0.82rem; width:100%;" title="Expected Qty" oninput="window.updateManifestSummary()">
+                <button type="button" onclick="document.getElementById('manifestLine_${id}').remove(); window.updateManifestSummary();" style="background:none; border:none; color:var(--danger, #ef4444); cursor:pointer; font-size:1.25rem; padding:0; display:flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:6px;" title="Remove Line">&times;</button>
+            `;
+            container.appendChild(lineDiv);
+            window.updateManifestSummary();
+        };
+        
+        setTimeout(() => { 
+            if(document.getElementById('manifestLinesContainer') && document.getElementById('manifestLinesContainer').children.length === 0) {
+                window.addManifestLine(); 
+            }
+        }, 800);
+    </script>
 
     <!-- Inspect Bin Modal -->
     <div id="inspectBinModal" class="modal-overlay" onclick="if(event.target===this) this.style.display='none'">

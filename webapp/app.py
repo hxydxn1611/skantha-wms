@@ -774,6 +774,17 @@ def _provision_registration_warehouse(company_name: str, warehouse_name: str, ci
         industry=_industry_name_for(blueprint_key, owner, prompt),
         company_name=owner_company
     )
+    if wh and wh.get('id'):
+        try:
+            apply_industry_blueprint(
+                blueprint_key=(blueprint_key or 'auto'),
+                warehouse_id=wh['id'],
+                custom_company_name=owner_company,
+                custom_prompt=prompt or owner_company,
+                include_samples=False,
+            )
+        except Exception as bp_err:
+            logger.warning(f"[Blueprint] Registration seed skipped for {wh.get('code')}: {bp_err}")
     return (wh or {}).get('code') or code
 
 
@@ -1153,7 +1164,28 @@ def api_create_warehouse():
             session['warehouse_id'] = wh.get('id')  # RBAC Phase 3A: this session only
             wh['is_active'] = 1
 
-        return jsonify({"success": True, "warehouse": wh, "message": f"Warehouse {wh['name']} ({wh['code']}) created successfully."})
+        # RBAC Phase 3B safe seed: add-only starter SKUs, bins, classes and zones for this facility only
+        seed_info = {}
+        try:
+            bp_for_wh = env_blueprint or ('general' if (data.get('industry') in (None, '', 'General', 'General Industrial Logistics')) else 'auto')
+            seed_info = apply_industry_blueprint(
+                blueprint_key=bp_for_wh,
+                warehouse_id=wh['id'],
+                custom_company_name=company_name,
+                custom_prompt=f"{name} {description}".strip() or industry,
+                include_samples=False,
+            ) or {}
+            rbac_scope.refresh_camera_map()
+        except Exception as seed_err:
+            logger.warning(f"[Warehouse Create] Starter SKU/bin seed skipped for {wh.get('code')}: {seed_err}")
+
+        return jsonify({
+            "success": True,
+            "warehouse": wh,
+            "skus_created": seed_info.get("skus_created", 0),
+            "message": f"Warehouse {wh['name']} ({wh['code']}) created successfully"
+                       + (f" with {seed_info['skus_created']} starter SKUs." if seed_info.get("skus_created") else ".")
+        })
     except Exception as e:
         logger.error(f"Error creating warehouse: {e}")
         return jsonify({"success": False, "error": _public_error(e)}), 500

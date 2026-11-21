@@ -88,7 +88,7 @@ def auto_detect_company_industry(company_name: str, description: str = "") -> Di
             "hindalco", "copper", "brass", "zinc", "nippon"
         ],
         "glass": [
-            "saint-gobain", "saint gobain", "asahi", "ais glass", "gold plus", "guardian glass",
+            "saint-gobain", "saint gobain", "saint-gobin", "saint gobin", "asahi", "ais glass", "gold plus", "guardian glass",
             "borosil", "corning", "pilkington", "schott", "glass", "glazing", "float glass",
             "toughened", "tempered glass", "laminated glass", "mirror", "dgu", "insulated glass",
             "fenestration", "architectural glass", "safety glass", "tinted glass", "frosted glass",
@@ -865,6 +865,21 @@ def get_blueprint_catalog() -> List[Dict[str, Any]]:
             "zones_count": len(bp.get("zones", [])),
             "sample_skus": sample_skus
         })
+    general_bp = _synthesize_custom_blueprint("General Industrial Logistics", "General Facility")
+    catalog.append({
+        "key": "general",
+        "name": general_bp["name"],
+        "badge_icon": "fa-warehouse",
+        "theme_color": "#0284c7",
+        "company_example": "General Industrial Warehouse",
+        "operating_mode": "DEDICATED",
+        "mode": "DEDICATED",
+        "description": "30-SKU General Industrial & Multi-Category Warehouse starter kit (Finished Goods, Raw Materials, Fasteners, Consumables).",
+        "sku_count": len(general_bp.get("skus", [])),
+        "vision_classes_count": len(general_bp.get("vision_classes", [])),
+        "zones_count": len(general_bp.get("zones", [])),
+        "sample_skus": [s["name"] for s in general_bp.get("skus", [])[:4]],
+    })
     return catalog
 
 
@@ -951,10 +966,13 @@ def apply_industry_blueprint(
         bp_key = detected["detected_key"]
 
     bp = INDUSTRY_BLUEPRINTS.get(bp_key)
-    if not bp and (bp_key == "custom" or not bp_key) and (custom_prompt or c_name):
+    if not bp and bp_key in ("custom", "general", "general_industrial", "general_logistics", ""):
+        bp = _synthesize_custom_blueprint(custom_prompt or c_name or "General Industrial Logistics", c_name or "General Facility")
+        bp["key"] = bp_key or "general"
+    elif not bp and (custom_prompt or c_name):
         bp = _synthesize_custom_blueprint(custom_prompt or c_name, c_name)
     elif not bp:
-        bp = INDUSTRY_BLUEPRINTS["automotive"]
+        bp = _synthesize_custom_blueprint("General Industrial Logistics", c_name or "General Facility")
 
     operating_mode = bp.get("operating_mode", "DEDICATED")
 
@@ -1131,6 +1149,30 @@ def apply_industry_blueprint(
                                description, status) VALUES (?, ?, ?, 'Warehouse A', ?, 'Active')""",
                             (z_code, z_name, z_type, z_desc))
             zones_created += cur.rowcount
+
+        # 4b. Seed starter storage bins if this warehouse has zero bins yet
+        existing_bins_cnt = cur.execute("SELECT COUNT(*) FROM bins WHERE warehouse_id = ?", (wid,)).fetchone()[0] if has_owner_cols else cur.execute("SELECT COUNT(*) FROM bins").fetchone()[0]
+        if existing_bins_cnt == 0:
+            starter_bins = [
+                ("BIN-A01", "Receiving & Bulk", 1000000.0, 100000.0),
+                ("BIN-A02", "Receiving & Bulk", 1000000.0, 100000.0),
+                ("BIN-B01", "Rack Picking", 1000000.0, 100000.0),
+                ("BIN-B02", "Rack Picking", 1000000.0, 100000.0),
+                ("BIN-C01", "Staging & Dispatch", 1000000.0, 100000.0),
+                ("BIN-C02", "Staging & Dispatch", 1000000.0, 100000.0),
+            ]
+            for b_base, b_zone, max_v, max_w in starter_bins:
+                b_code, _ = _company_code("bins", "bin_id", b_base)
+                if has_owner_cols:
+                    cur.execute("""
+                        INSERT OR IGNORE INTO bins (bin_id, zone, max_volume, max_weight, status, company_id, warehouse_id)
+                        VALUES (?, ?, ?, ?, 'Active', ?, ?)
+                    """, (b_code, b_zone, max_v, max_w, company_id, wid))
+                else:
+                    cur.execute("""
+                        INSERT OR IGNORE INTO bins (bin_id, zone, max_volume, max_weight, status)
+                        VALUES (?, ?, ?, ?, 'Active')
+                    """, (b_code, b_zone, max_v, max_w))
 
         created_deliveries, stock_rows, pallets_created = [], 0, 0
         if include_samples:
