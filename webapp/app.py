@@ -81,6 +81,7 @@ app.json = SafeNumpyJSONProvider(app)
 app.secret_key = _FLASK_SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # RBAC Phase 3A (H25): no request over 50 MB
+app.config['MAX_FORM_MEMORY_SIZE'] = 50 * 1024 * 1024  # Allow large multipart image/base64 payloads in Counting Studio / Pallets
 
 # RBAC Phase 4: users, invitations, passwords and companies
 from iam_routes import bp as iam_blueprint  # noqa: E402
