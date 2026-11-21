@@ -7611,7 +7611,8 @@ def _focus_on_main_stack(service, image_bgr, result):
     same step as an operator removing markers). Any problem -> the original result, unchanged."""
     try:
         mode = str(result.get('mode') or result.get('counting_mode') or '').lower()
-        if not result.get('pieces') or 'bundle' in mode or 'carton' in mode:
+        mat = str(result.get('material_type') or '').lower()
+        if not result.get('pieces') or any(k in mode for k in ('bundle', 'carton', 'box', 'multi')) or 'glass' in mat:
             return result
         import stack_focus
         kept, stats = stack_focus.main_stack(result['pieces'])

@@ -5568,6 +5568,7 @@ window.switchSubTab = switchSubTab;
                             <div class="cs-actions">
                                 <button type="button" class="uac-btn" id="csSaveExample" data-perm="sku.edit"><i class="fas fa-bookmark"></i> Save as example</button>
                                 <button type="button" class="uac-btn" id="csToWeight"><i class="fas fa-scale-balanced"></i> Check with weight</button>
+                                <button type="button" class="uac-btn uac-btn-primary" id="csSavePallet" data-perm="vision.counting.execute"><i class="fas fa-pallet"></i> Save to Pallet</button>
                             </div>
                         </div>
                         <div class="cs-engine" id="csEngine"></div>
@@ -6988,8 +6989,6 @@ window.switchSubTab = switchSubTab;
                             <!-- Action Buttons Group -->
                             <div style="display:flex; gap:8px; align-items:center;">
                                 <button type="button" class="btn-primary" id="btnRunValidation" onclick="runValidationTest()" style="flex:1.2; display:inline-flex; align-items:center; justify-content:center; gap:6px; font-size:0.85rem; padding:0.6rem 0.8rem; background:#10b981; border-color:#10b981;" title="Run full perception and validation pipeline">
-                                    <span>▶</span> Run Validation
-                                </button>
                             <div class="value" id="kpi-val-tracks" style="font-size:1.6rem; color:var(--accent);">0</div>
                             <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-val-tracks-sub">Session entities</span>
                         </div>
@@ -8783,8 +8782,8 @@ window.switchSubTab = switchSubTab;
                         <button type="button" id="wbBtnClearCount" onclick="clearWorkbenchCount()" style="background:#334155; color:#f8fafc; border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Clear counted markers and start again">
                             <i class="fas fa-xmark"></i> <span>Clear Count / Start Again</span>
                         </button>
-                        <label for="wbStackOnly" title="Other stacks behind or beside the one you are counting are left out. Untick to count everything in the photo." style="display:flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:700; color:var(--text-main); cursor:pointer; margin:0;">
-                            <input type="checkbox" id="wbStackOnly" checked style="width:auto; margin:0;"> Count only the stack in front
+                        <label for="wbStackOnly" title="Other stacks behind or beside the one you are counting are left out. Leave unchecked to count all stacks/items across the photo." style="display:flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:700; color:var(--text-main); cursor:pointer; margin:0;">
+                            <input type="checkbox" id="wbStackOnly" style="width:auto; margin:0;"> Count only the stack in front
                         </label>
                         <button type="button" id="btnRunWorkbenchCount" onclick="executeWorkbenchCount()" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; border:none; border-radius:6px; padding:7px 18px; font-size:0.8rem; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 3px 12px rgba(37,99,235,0.4);">
                             <i class="fas fa-bolt"></i> <span>Count Now</span>

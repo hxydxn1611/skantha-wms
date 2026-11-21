@@ -227,25 +227,37 @@
             }
 
             const bMatSelect = document.getElementById('wbBundleMaterialSelect');
+            const glassBar = document.getElementById('wbGlassProfileBar');
+            const textBlob = `${matched.sku_id} ${matched.name || ''} ${matched.description || ''} ${matched.category || ''}`.toLowerCase();
+            const isGlassSku = /\b(glass|float|dgu|igu|tempered|laminated|annealed|pane|mirror|glazing)\b/.test(textBlob) || String(matched.sku_id || '').toUpperCase().startsWith('GLS');
 
             if (bMatSelect) {
-
-                const textBlob = `${matched.sku_id} ${matched.name || ''} ${matched.category || ''}`.toLowerCase();
-
-                if (textBlob.includes('box') || textBlob.includes('carton')) {
-
+                if (isGlassSku) {
+                    bMatSelect.value = 'glass_bundles';
+                    window.loadWorkbenchGlassProfiles && window.loadWorkbenchGlassProfiles();
+                } else if (textBlob.includes('box') || textBlob.includes('carton')) {
                     bMatSelect.value = 'carton_boxes';
-
                 } else if (textBlob.includes('pipe') || textBlob.includes('tube') || textBlob.includes('steel') || textBlob.includes('metal') || textBlob.includes('rod') || textBlob.includes('profile') || textBlob.includes('bar')) {
-
                     bMatSelect.value = 'metal_bundles';
-
                 } else if (textBlob.includes('timber') || textBlob.includes('wood') || textBlob.includes('plank')) {
-
                     bMatSelect.value = 'timber_bundles';
-
                 }
+            }
 
+            if (isGlassSku) {
+                if (glassBar) glassBar.style.display = 'flex';
+                const mThk = textBlob.match(/(\d+(?:\.\d+)?)\s*mm\b/i);
+                const tIn = document.getElementById('wbGlassThicknessInput');
+                if (mThk && tIn) tIn.value = mThk[1];
+                const mDim = textBlob.match(/(\d{3,4})\s*[x×]\s*(\d{3,4})/i);
+                const lIn = document.getElementById('wbGlassLengthInput');
+                const wIn = document.getElementById('wbGlassWidthInput');
+                if (mDim) {
+                    if (lIn) lIn.value = mDim[1];
+                    if (wIn) wIn.value = mDim[2];
+                }
+            } else if (glassBar && wbMode !== 'bundles') {
+                glassBar.style.display = 'none';
             }
 
         } else {
@@ -2985,20 +2997,13 @@
 
 
         if (mode === 'pieces') {
-
             if (regBar) regBar.style.display = 'flex';
-
             if (matWrap) matWrap.style.display = 'none';
-
-            if (glassBar) glassBar.style.display = 'none';
-
             const wbSkuSel = document.getElementById('wbTargetSkuSelect');
-
-            if (wbSkuSel && wbSkuSel.value && wbSkuSel.value.startsWith('GLS-')) {
-
-                wbSkuSel.value = '';
-
-            }
+            const selSku = mappedVisionSkus.find(s => s.sku_id === (wbSkuSel ? wbSkuSel.value : ''));
+            const selText = selSku ? `${selSku.sku_id} ${selSku.name || ''} ${selSku.category || ''}`.toLowerCase() : '';
+            const isGlassActive = /\b(glass|float|dgu|igu|tempered|laminated|annealed|pane|mirror|glazing)\b/.test(selText) || (wbSkuSel && String(wbSkuSel.value || '').toUpperCase().startsWith('GLS'));
+            if (glassBar) glassBar.style.display = isGlassActive ? 'flex' : 'none';
 
         } else if (mode === 'cartons') {
 
@@ -4568,17 +4573,28 @@
                 formData.append('material_type', 'carton_boxes');
 
             } else {
+                const wbSkuSel = document.getElementById('wbTargetSkuSelect');
+                const selSku = mappedVisionSkus.find(s => s.sku_id === (wbSkuSel ? wbSkuSel.value : ''));
+                const selBlob = selSku ? `${selSku.sku_id} ${selSku.name || ''} ${selSku.category || ''}`.toLowerCase() : '';
+                const isGlassPiece = /\b(glass|float|dgu|igu|tempered|laminated|annealed|pane|mirror|glazing)\b/.test(selBlob) || (wbSkuSel && String(wbSkuSel.value || '').toUpperCase().startsWith('GLS'));
 
                 formData.append('counting_mode', 'pieces');
-
-                formData.append('material_type', 'individual_pieces');
-
-                if (wbRegions && wbRegions.length > 0) {
-
-                    formData.append('regions', JSON.stringify(wbRegions));
-
+                formData.append('material_type', isGlassPiece ? 'glass_sheets' : 'individual_pieces');
+                if (isGlassPiece) {
+                    const glassProf = {
+                        length: parseFloat(document.getElementById('wbGlassLengthInput')?.value || '2440'),
+                        width: parseFloat(document.getElementById('wbGlassWidthInput')?.value || '1830'),
+                        thickness: parseFloat(document.getElementById('wbGlassThicknessInput')?.value || '6'),
+                        unit: document.getElementById('wbGlassUnitSelect')?.value || 'mm',
+                        packaging_type: document.getElementById('wbGlassPackagingSelect')?.value || 'A_FRAME_STILLAGE',
+                        pieces_per_bundle: document.getElementById('wbGlassSheetsPerBundleInput')?.value ? parseInt(document.getElementById('wbGlassSheetsPerBundleInput').value, 10) : undefined,
+                        id: document.getElementById('wbGlassProfileSelect')?.value || undefined
+                    };
+                    formData.append('glass_profile', JSON.stringify(glassProf));
                 }
-
+                if (wbRegions && wbRegions.length > 0) {
+                    formData.append('regions', JSON.stringify(wbRegions));
+                }
             }
 
 

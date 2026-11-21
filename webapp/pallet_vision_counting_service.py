@@ -1432,8 +1432,8 @@ class PalletVisionCountingService:
                 manual_uom=manual_uom, manual_bundle_name=manual_bundle_name
             )
 
-        # 2. Strict target single-SKU mode when reference photo matcher is available
-        if sku_anchor and sku_anchor.get("matcher") and resolved_strategy != "individual_pieces":
+        # 2. Strict target single-SKU mode when reference photo matcher is available (skip for glass/piece edge detectors)
+        if sku_anchor and sku_anchor.get("matcher") and resolved_strategy not in ("individual_pieces", "glass_sheets"):
             target_res = self._count_targeted_single_sku(
                 image_bgr, sku_anchor=sku_anchor, roi=roi, sensitivity=sensitivity, raw_url=raw_url
             )
@@ -1525,7 +1525,7 @@ class PalletVisionCountingService:
                 is_glass = False
                 if scene_is_glass or resolved_strategy == "glass_sheets":
                     is_glass = True
-                elif sku_anchor and any(g in f"{sku_anchor.get('sku_id','')} {sku_anchor.get('name','')}".lower() for g in ("glass", "float", "dgu", "gls")):
+                elif sku_anchor and any(g in f"{sku_anchor.get('sku_id','')} {sku_anchor.get('name','')} {sku_anchor.get('category','')}".lower() for g in ("glass", "float", "dgu", "igu", "tempered", "laminated", "annealed", "pane", "glazing", "mirror", "gls")):
                     is_glass = True
                 elif material_type and any(g in str(material_type).lower() for g in ("glass", "sheet")):
                     # Only honor operator glass material_type if scene is not clearly metallic grey
@@ -4265,6 +4265,33 @@ class PalletVisionCountingService:
 
         view_is_thickness = any(t in str(view_label).lower() for t in ("side", "left", "right", "top", "profile", "thickness"))
 
+        # Resolve physical glass sheet thickness in mm (supports 6mm, 12mm, 20mm, 40mm, 60mm, laminated/DGU, etc.)
+        thickness_mm = 6.0
+        if glass_profile and isinstance(glass_profile, dict) and glass_profile.get("thickness"):
+            try:
+                t_val = float(glass_profile.get("thickness") or 6.0)
+                t_unit = str(glass_profile.get("unit") or "mm").lower()
+                scale_mm = {"mm": 1.0, "cm": 10.0, "in": 25.4, "ft": 304.8}.get(t_unit, 1.0)
+                if t_val > 0:
+                    thickness_mm = t_val * scale_mm
+            except (TypeError, ValueError):
+                pass
+        elif sku_anchor:
+            sku_txt = f"{sku_anchor.get('name', '')} {sku_anchor.get('description', '')} {sku_anchor.get('sku_id', '')}"
+            m_thk = re.search(r'(\d+(?:\.\d+)?)\s*mm\b', sku_txt, re.I)
+            if m_thk:
+                try:
+                    t_parsed = float(m_thk.group(1))
+                    if 1.0 <= t_parsed <= 150.0:
+                        thickness_mm = t_parsed
+                except ValueError:
+                    pass
+
+        # Thick glass sheets (20mm, 40mm, 60mm, laminated/IGU) show double bevel/interlayer reflections;
+        # scale peak separation and split threshold gently so one thick pane isn't split into two.
+        thick_step_bonus = int(min(6, max(0.0, (thickness_mm - 12.0) / 10.0)))
+        split_ratio = 1.85 if thickness_mm >= 20.0 else 1.65
+
         pieces = []
         idx = 1
 
@@ -4274,7 +4301,7 @@ class PalletVisionCountingService:
             if span_roi_x.shape[0] >= 10 and span_roi_x.shape[1] >= 10:
                 sobel_x = np.abs(cv2.Sobel(span_roi_x, cv2.CV_32F, 1, 0, ksize=3))
                 prof_x = gaussian_filter1d(np.mean(sobel_x, axis=0), sigma=1.2)
-                min_dist = max(3, int(4 + (1.0 - sensitivity) * 3))
+                min_dist = max(3, int(4 + (1.0 - sensitivity) * 3) + thick_step_bonus)
                 thresh_x = max(3.0, float(np.percentile(prof_x, 40)))
                 peaks_x, _ = find_peaks(prof_x, height=thresh_x, distance=min_dist, prominence=2)
                 raw_x = sorted([bx + int(bw * 0.05) + int(p) + offset_x for p in peaks_x])
@@ -4297,7 +4324,7 @@ class PalletVisionCountingService:
                         e_l = dedup_edges_x[k]
                         e_r = dedup_edges_x[k+1]
                         thick = e_r - e_l
-                        if thick >= 1.65 * med_s:
+                        if thick >= split_ratio * med_s:
                             mid = int(round((e_l + e_r) / 2.0))
                             sheet_intervals_x.append((e_l, mid))
                             sheet_intervals_x.append((mid, e_r))
@@ -4333,6 +4360,7 @@ class PalletVisionCountingService:
                             'is_uncertain': False,
                             'uncertainty_indicators': [],
                             'thickness_px': sheet_w,
+                            'thickness_mm': round(thickness_mm, 2),
                             'view_label': view_label
                         })
                         idx += 1
@@ -4375,7 +4403,7 @@ class PalletVisionCountingService:
             if band_crop.shape[0] >= 10 and band_crop.shape[1] >= 10:
                 band_sobel = np.abs(cv2.Sobel(band_crop, cv2.CV_32F, 0, 1, ksize=3))
                 band_prof = gaussian_filter1d(np.mean(band_sobel, axis=1), sigma=1.0)
-                min_dist = max(3, int(4 + (1.0 - sensitivity) * 3))
+                min_dist = max(3, int(4 + (1.0 - sensitivity) * 3) + thick_step_bonus)
                 peaks, _ = find_peaks(band_prof, height=max_v * 0.20, distance=min_dist, prominence=3)
                 raw_y = sorted([band_y1 + int(p) + offset_y for p in peaks])
 
@@ -4400,7 +4428,7 @@ class PalletVisionCountingService:
                         e_top = dedup_edges[k]
                         e_bot = dedup_edges[k+1]
                         thickness = e_bot - e_top
-                        if thickness >= 1.65 * med_s:
+                        if thickness >= split_ratio * med_s:
                             # Two compressed sheets with a subtle inner boundary
                             mid = int(round((e_top + e_bot) / 2.0))
                             sheet_intervals.append((e_top, mid))
@@ -4437,6 +4465,7 @@ class PalletVisionCountingService:
                             'is_uncertain': False,
                             'uncertainty_indicators': [],
                             'thickness_px': sheet_h,
+                            'thickness_mm': round(thickness_mm, 2),
                             'view_label': view_label
                         })
                         idx += 1
@@ -4449,7 +4478,7 @@ class PalletVisionCountingService:
             if band_crop.shape[0] >= 10 and band_crop.shape[1] >= 10:
                 band_sobel = np.abs(cv2.Sobel(band_crop, cv2.CV_32F, 1, 0, ksize=3))
                 band_prof = gaussian_filter1d(np.mean(band_sobel, axis=0), sigma=1.2)
-                min_dist = max(3, int(4 + (1.0 - sensitivity) * 4))
+                min_dist = max(3, int(4 + (1.0 - sensitivity) * 4) + thick_step_bonus)
                 peaks, _ = find_peaks(band_prof, height=10, distance=min_dist, prominence=3)
                 raw_x = sorted([band_x1 + int(p) + offset_x for p in peaks])
 
@@ -4472,7 +4501,7 @@ class PalletVisionCountingService:
                         e_l = dedup_edges_x[k]
                         e_r = dedup_edges_x[k+1]
                         thick = e_r - e_l
-                        if thick >= 1.65 * med_s:
+                        if thick >= split_ratio * med_s:
                             mid = int(round((e_l + e_r) / 2.0))
                             sheet_intervals_x.append((e_l, mid))
                             sheet_intervals_x.append((mid, e_r))
@@ -4508,6 +4537,7 @@ class PalletVisionCountingService:
                             'is_uncertain': False,
                             'uncertainty_indicators': [],
                             'thickness_px': sheet_w,
+                            'thickness_mm': round(thickness_mm, 2),
                             'view_label': view_label
                         })
                         idx += 1

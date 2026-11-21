@@ -161,6 +161,8 @@
         if ($('csDownloadBtn')) $('csDownloadBtn').disabled = !S.result;
         const save = $('csSaveExample');
         if (save) save.disabled = !($('csSku')?.value) || !n;
+        const savePal = $('csSavePallet');
+        if (savePal) savePal.disabled = !S.result || total() <= 0;
         if (!S.img) hint('Add a photo to begin.');
         else if (S.result) hint('<b>Check the markers.</b> Tap a marker to remove it, tap an empty spot to add one.');
         else if (S.mode === 'text') hint('Type what to look for (e.g. <b>steel pipe end</b>), then press <b>Count</b>.');
@@ -438,6 +440,44 @@
         loadExamples();
     }
 
+    async function saveToPallet() {
+        const cnt = total();
+        if (!cnt || cnt <= 0) return toast('Count items first before saving to a pallet.', 'warning');
+        const sku = ($('csSku')?.value || '').trim();
+        if (!sku) return toast('Pick the product in Step 1 first so we know which SKU to put on the pallet.', 'warning');
+        const btn = $('csSavePallet');
+        if (btn) btn.disabled = true;
+        try {
+            let pid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
+            if (!pid) {
+                const cRes = await fetch('/api/pallets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sku_id: sku, units_per_bundle: 1, target_bundles: 0 })
+                });
+                const cData = await cRes.json().catch(() => ({}));
+                if (!cRes.ok || !cData.pallet || !cData.pallet.pallet_id) {
+                    throw new Error(cData.error || cData.message || 'Could not create pallet');
+                }
+                pid = cData.pallet.pallet_id;
+            }
+            const uRes = await fetch(`/api/pallets/${encodeURIComponent(pid)}/count`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ counted_bundles: cnt, units_per_bundle: 1 })
+            });
+            const uData = await uRes.json().catch(() => ({}));
+            if (!uRes.ok || !uData.success) throw new Error(uData.error || uData.message || 'Could not save count to pallet');
+            if (typeof window.showPalletRecord === 'function' && uData.pallet) window.showPalletRecord(uData.pallet);
+            if (window.palletModule && typeof window.palletModule.loadPallets === 'function') window.palletModule.loadPallets();
+            toast(`Saved ${cnt} units of ${sku} to Pallet ${pid}. Open Palletization to sync into Bin Stock.`, 'success');
+        } catch (e) {
+            toast(e.message || 'Save to pallet failed.', 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
     function wireStudio() {
         studioWired = true;
         const c = $('csCanvas');
@@ -475,6 +515,7 @@
         $('csSku').addEventListener('change', loadExamples);
         $('csCountBtn').addEventListener('click', doCount);
         $('csSaveExample').addEventListener('click', saveExample);
+        $('csSavePallet')?.addEventListener('click', saveToPallet);
         $('csToWeight').addEventListener('click', () => {
             avShowTab('weight');
             $('wcCam').value = total();
