@@ -2774,7 +2774,7 @@ def get_all_skus():
     conn = get_db()
     _sf, _sp = rbac_scope.filter("skus")
     cursor = conn.execute(f"SELECT * FROM skus WHERE 1=1{_sf} ORDER BY sku_id ASC", _sp)
-    skus = [dict(r) for r in cursor.fetchall()]
+    skus = [with_count_as(dict(r)) for r in cursor.fetchall()]
     conn.close()
     return skus
 
@@ -3110,6 +3110,7 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
                COALESCE(s.uom, 'EA') as uom,
                COALESCE(s.units_per_bundle, 1) as units_per_bundle,
                COALESCE(s.bundle_name, 'Bundle') as bundle_name,
+               s.count_as, s.pack_contents,
                COALESCE(s.target_bundles_per_pallet, 10) as target_bundles_per_pallet,
                COALESCE(s.status, 'Active') as status,
                s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at,
@@ -3158,7 +3159,7 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
 
     items = []
     for r in rows:
-        d = dict(r)
+        d = with_count_as(dict(r))
         d['primary_image_path'] = d['primary_image_path'] or d['fallback_image_path']
         d['has_image'] = bool(d['image_count'] > 0)
         d['units_per_bundle'] = max(1, int(d.get('units_per_bundle') or 1))
@@ -3183,6 +3184,7 @@ def get_sku_by_id(sku_id):
                COALESCE(s.uom, 'EA') as uom,
                COALESCE(s.units_per_bundle, 1) as units_per_bundle,
                COALESCE(s.bundle_name, 'Bundle') as bundle_name,
+               s.count_as, s.pack_contents,
                COALESCE(s.target_bundles_per_pallet, 10) as target_bundles_per_pallet,
                COALESCE(s.status, 'Active') as status,
                s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at
@@ -3193,7 +3195,7 @@ def get_sku_by_id(sku_id):
         conn.close()
         return None
 
-    sku_dict = dict(row)
+    sku_dict = with_count_as(dict(row))
     sku_dict['units_per_bundle'] = max(1, int(sku_dict.get('units_per_bundle') or 1))
     sku_dict['target_bundles_per_pallet'] = max(1, int(sku_dict.get('target_bundles_per_pallet') or 10))
     sku_dict['bundle_name'] = sku_dict.get('bundle_name') or 'Bundle'
@@ -3207,6 +3209,21 @@ def get_sku_by_id(sku_id):
     sku_dict['image_count'] = len(sku_dict['images'])
     sku_dict['primary_image'] = next((img for img in sku_dict['images'] if img['is_primary']), (sku_dict['images'][0] if sku_dict['images'] else None))
     return sku_dict
+
+COUNT_AS_VALUES = ("pieces", "bundles", "cartons")
+
+
+def with_count_as(d):
+    """count_as for a product row (migration 017 fills it; rows from older paths get the same rule)."""
+    if d is not None and d.get("count_as") not in COUNT_AS_VALUES:
+        uom = str(d.get("uom") or "").upper()
+        upb = int(d.get("units_per_bundle") or 1)
+        d["count_as"] = ("cartons" if uom in ("BOX", "BOXES", "CARTON", "CARTONS", "CASE", "CASES")
+                         else "bundles" if upb > 1 else "pieces")
+    if d is not None and "pack_contents" in d and d["pack_contents"] is None:
+        d["pack_contents"] = ""
+    return d
+
 
 def save_sku_master_record(data):
     """Create or update single SKU master record without touching inventory balances."""
@@ -3229,6 +3246,20 @@ def save_sku_master_record(data):
         units_per_bundle = max(1, int(float(data.get('units_per_bundle', 1) or 1)))
     except (ValueError, TypeError):
         units_per_bundle = 1
+    # how the product is counted (None = leave as it is: older screens and Excel imports do not send it)
+    count_as = data.get('count_as')
+    if count_as is not None:
+        count_as = str(count_as).strip().lower()
+        if count_as not in COUNT_AS_VALUES:
+            return None, "How it is counted must be: individual pieces, bundles or cartons."
+        if count_as == 'pieces':
+            units_per_bundle = 1
+    pack_contents = data.get('pack_contents')
+    if pack_contents is not None:
+        pack_contents = str(pack_contents).strip()[:120]
+        if count_as == 'cartons' and not pack_contents:
+            return None, "Say what is inside each carton (e.g. Ceramic coffee mug 350ml)."
+
     try:
         target_bundles_per_pallet = max(1, int(float(data.get('target_bundles_per_pallet', 10) or 10)))
     except (ValueError, TypeError):
@@ -3249,10 +3280,12 @@ def save_sku_master_record(data):
             INSERT INTO skus (
                 sku_id, name, description, category, uom,
                 units_per_bundle, bundle_name, target_bundles_per_pallet,
-                unit_weight, unit_volume, status, created_at, updated_at
+                unit_weight, unit_volume, status, created_at, updated_at, count_as, pack_contents
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sku_id) DO UPDATE SET
+                count_as = COALESCE(excluded.count_as, skus.count_as),
+                pack_contents = COALESCE(excluded.pack_contents, skus.pack_contents),
                 name = excluded.name,
                 description = excluded.description,
                 category = excluded.category,
@@ -3267,7 +3300,7 @@ def save_sku_master_record(data):
         """, (
             sku_id, name, description, category, uom,
             units_per_bundle, bundle_name, target_bundles_per_pallet,
-            unit_weight, unit_volume, status, now, now
+            unit_weight, unit_volume, status, now, now, count_as, pack_contents
         ))
     conn.close()
     return get_sku_by_id(sku_id), None

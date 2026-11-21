@@ -9662,6 +9662,20 @@ window.switchSubTab = switchSubTab;
                         <textarea id="skuModalDesc" placeholder="Product specifications, packaging details, and visual identification cues" rows="2" style="width:100%; border:1px solid var(--border-light); border-radius:6px; padding:8px; font-size:0.85rem; margin-bottom:0; background:var(--input-bg); color:var(--text-color);"></textarea>
                     </div>
 
+                    <!-- How the product is counted: Palletization switches to this mode when it sees the product -->
+                    <div style="margin-bottom:1rem;">
+                        <label for="skuModalCountAs">How is it counted? *</label>
+                        <select id="skuModalCountAs" onchange="skuCountAsChanged()" style="margin-bottom:0; font-weight:700;">
+                            <option value="pieces">Individual pieces (each item counted: pipes, channels, beams)</option>
+                            <option value="bundles">Bundles / packs (strapped or wrapped packs: glass, studs, blocks)</option>
+                            <option value="cartons">Cartons / boxes (closed boxes with items inside)</option>
+                        </select>
+                        <small id="skuModalCountAsHint" style="color:var(--text-muted); font-size:0.72rem;">Palletization counts it this way and switches to this mode when it recognises the product.</small>
+                    </div>
+                    <div id="skuModalPackContentsRow" style="margin-bottom:1rem; display:none;">
+                        <label for="skuModalPackContents">What is inside 1 carton? *</label>
+                        <input type="text" id="skuModalPackContents" maxlength="120" placeholder="e.g. Ceramic coffee mug 350ml" style="margin-bottom:0;">
+                    </div>
                     <div style="display:grid; grid-template-columns: 1.1fr 1fr 1.1fr; gap:10px; margin-bottom:1rem;">
                         <div>
                             <label for="skuModalUom">Practical UOM *</label>
@@ -9685,7 +9699,7 @@ window.switchSubTab = switchSubTab;
                             </select>
                         </div>
                         <div>
-                            <label for="skuModalUnitsPerBundle">Individuals in 1 Bundle *</label>
+                            <label for="skuModalUnitsPerBundle" id="skuModalUnitsLabel">Individuals in 1 Bundle *</label>
                             <input type="number" id="skuModalUnitsPerBundle" step="1" min="1" value="1" placeholder="e.g. 25" style="margin-bottom:0; font-weight:700;" required>
                         </div>
                         <div>
@@ -11662,7 +11676,7 @@ window.switchSubTab = switchSubTab;
     <script src="{{ url_for('static', filename='js/vision_studio.js') }}?v={{ range(1000, 99999) | random }}"></script>
 
     <!-- SKU Master UI Logic -->
-    <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}?v=3"></script>
 
     <!-- Three.js 3D WebGL Engine & OrbitControls for 3D Pallet Matrix Digital Twin -->
     <script src="{{ url_for('static', filename='js/vendor/three.min.js') }}"></script>

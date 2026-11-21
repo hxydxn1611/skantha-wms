@@ -128,6 +128,8 @@ class PalletVisionCountingService:
                 "uom": (sku_info.get("uom") or "EA").upper(),
                 "units_per_bundle": upb,
                 "bundle_name": sku_info.get("bundle_name") or "Bundle",
+                "count_as": sku_info.get("count_as") or ("bundles" if upb > 1 else "pieces"),
+                "pack_contents": sku_info.get("pack_contents") or "",
                 "target_bundles_per_pallet": max(1, int(sku_info.get("target_bundles_per_pallet") or 10)),
                 "signature": sig,
                 "ref_img": (sig or {}).get("ref_img"),
@@ -411,6 +413,8 @@ class PalletVisionCountingService:
                     "uom": anchor["uom"],
                     "units_per_bundle": anchor["units_per_bundle"],
                     "bundle_name": anchor["bundle_name"],
+                    "count_as": anchor.get("count_as"),
+                    "pack_contents": anchor.get("pack_contents"),
                     "target_bundles_per_pallet": anchor["target_bundles_per_pallet"],
                     "image_url": anchor.get("image_url"),
                     "confidence": 0.25 if is_conflicting else 0.99,
@@ -536,6 +540,11 @@ class PalletVisionCountingService:
                 best_score = total_score
                 best_sku = sku
 
+        # The product whose own reference photo is clearly the closest wins over mode / material bonuses
+        # (in pieces mode a C-stud pack photo went to the channel product, whose name has 'channel').
+        ranked = sorted(photo_sims.items(), key=lambda kv: -kv[1])
+        if ranked and ranked[0][1] >= 0.85 and ranked[0][1] - (ranked[1][1] if len(ranked) > 1 else 0.0) >= 0.05:
+            best_sku = next((x for x in all_skus if x.get("sku_id") == ranked[0][0]), best_sku)
         if not best_sku:
             if is_metallic_grey:
                 return {
@@ -571,7 +580,7 @@ class PalletVisionCountingService:
         # is the answer even in a grey scene: concrete blocks or wrapped packs are grey but not steel.
         best_photo = photo_sims.get(best_sku.get("sku_id", ""), 0.0)
         runner_up = max([v for k, v in photo_sims.items() if k != best_sku.get("sku_id")] or [0.0])
-        strong_photo_match = best_photo >= 0.85 and best_photo - runner_up >= 0.1
+        strong_photo_match = best_photo >= 0.85 and best_photo - runner_up >= 0.05
         if is_metallic_grey and not is_best_metal and not strong_photo_match:
             if is_bundle_mode:
                 prod_type = "Structural Steel Bundle"
@@ -632,6 +641,8 @@ class PalletVisionCountingService:
             "uom": (best_sku.get("uom") or "EA").upper(),
             "units_per_bundle": max(1, int(best_sku.get("units_per_bundle") or 1)),
             "bundle_name": best_sku.get("bundle_name") or "Bundle",
+            "count_as": best_sku.get("count_as") or ("bundles" if int(best_sku.get("units_per_bundle") or 1) > 1 else "pieces"),
+            "pack_contents": best_sku.get("pack_contents") or "",
             "target_bundles_per_pallet": max(1, int(best_sku.get("target_bundles_per_pallet") or 10)),
             "image_url": image_url,
             "confidence": conf,
@@ -8022,6 +8033,13 @@ class PalletVisionCountingService:
             "pallet_base_meta": pallet_base_meta
         }
 
+        try:
+            rec_sku = self.recognize_product_from_skus(angle1_bgr, explicit_sku_id=sku_id, counting_mode="bundles",
+                                                       detected_count=total_bundles, is_bundle_mode=True)
+        except Exception as e:
+            logger.debug(f"Product recognition for wrapped packs skipped: {e}")
+            rec_sku = None
+
         return {
             "success": True,
             "session_id": sess_id,
@@ -8049,7 +8067,11 @@ class PalletVisionCountingService:
             "matrix_3d": matrix_3d,
             "boxes_3d": boxes_3d,
             "review_status": "AUTO_PROPOSED",
-            "views_submitted": ["front"] if not has_distinct_side else ["front", "side"]
+            "views_submitted": ["front"] if not has_distinct_side else ["front", "side"],
+            # which product this is (the other counts attach it too): Palletization switches to the product's
+            # own counting mode when it is not a wrapped pack (a channel stack counted as wrapped packs)
+            "recognized_sku": rec_sku,
+            "sku_info": rec_sku
         }
 
     def _detect_arbitrary_bundle_stacks(

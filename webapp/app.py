@@ -70,6 +70,9 @@ app.json = SafeNumpyJSONProvider(app)
 app.secret_key = _FLASK_SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # RBAC Phase 3A (H25): no request over 50 MB
+# Text form fields may carry a photo as a data URL (Palletization sends one); the framework's default
+# 500 KB limit refused every photo over ~370 KB with 413. Files themselves are limited by MAX_CONTENT_LENGTH.
+app.config['MAX_FORM_MEMORY_SIZE'] = 25 * 1024 * 1024
 
 # RBAC Phase 4: users, invitations, passwords and companies
 from iam_routes import bp as iam_blueprint  # noqa: E402
@@ -7350,6 +7353,8 @@ def api_get_vision_skus():
                 "uom": it.get("uom", "EA"),
                 "units_per_bundle": max(1, int(it.get("units_per_bundle") or 1)),
                 "bundle_name": it.get("bundle_name") or "Bundle",
+                "count_as": it.get("count_as") or "pieces",
+                "pack_contents": it.get("pack_contents") or "",
                 "target_bundles_per_pallet": max(1, int(it.get("target_bundles_per_pallet") or 10)),
                 "unit_weight": it.get("unit_weight", 0)
             })
@@ -7719,11 +7724,9 @@ def api_count_pallet_pieces():
         manual_uom = (request.form.get('uom') or data.get('uom') or '').strip().upper() or None
         manual_bundle_name = (request.form.get('bundle_name') or data.get('bundle_name') or '').strip() or None
 
-        if sku_id and sku_id != 'MULTI_ALL' and (manual_upb or manual_uom or manual_bundle_name):
-            try:
-                db.update_sku_bundle_config(sku_id, manual_upb or 1, uom=manual_uom, bundle_name=manual_bundle_name)
-            except Exception:
-                pass
+        # A count no longer writes these back into the product (it silently changed a product's pack
+        # size, e.g. counting C-studs in pieces mode set them to 1 per pack). The product in AI Vision is the
+        # source; the workbench values only apply to this count (its "save to product" button stays explicit).
 
         # Parse glass_profile if provided
         glass_profile = None
@@ -7973,11 +7976,9 @@ def api_count_pallet_bundles():
         manual_uom = (request.form.get('uom') or data.get('uom') or '').strip().upper() or None
         manual_bundle_name = (request.form.get('bundle_name') or data.get('bundle_name') or '').strip() or None
 
-        if sku_id and sku_id != 'MULTI_ALL' and (manual_upb or manual_uom or manual_bundle_name):
-            try:
-                db.update_sku_bundle_config(sku_id, manual_upb or 1, uom=manual_uom, bundle_name=manual_bundle_name)
-            except Exception:
-                pass
+        # A count no longer writes these back into the product (it silently changed a product's pack
+        # size, e.g. counting C-studs in pieces mode set them to 1 per pack). The product in AI Vision is the
+        # source; the workbench values only apply to this count (its "save to product" button stays explicit).
 
         # Parse glass_profile if provided or reconstruct from profile_id / fields
         glass_profile = None

@@ -192,6 +192,8 @@
 
         if (matched) {
 
+            wbApplyProductMode(matched);
+
             const upb = Math.max(1, parseInt(matched.units_per_bundle || 1, 10));
 
             const uom = (matched.uom || 'EA').toUpperCase();
@@ -265,36 +267,26 @@
 
 
     window.onWorkbenchBundleMultiplierChange = function() {
-        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
-        const upb = isPieces ? 1 : Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
+        // one source for packs and pieces (wbCountParts): bundle results are already in pieces,
+        // carton results are cartons - each is multiplied exactly once
         const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
-        const bname = isPieces ? 'Piece' : ((document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle');
+        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
         const pill = document.getElementById('wbRealizedUnitsPill');
         const totalBadge = document.getElementById('wbTotalBadge');
-
-        let baseCount = 0;
-        if (wbLatestResult) {
-            const qb = wbLatestResult.quantity_breakdown || {};
-            baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0));
-        }
-        const totalIndividual = baseCount * upb;
+        const parts = wbCountParts();
+        const prod = wbProduct(document.getElementById('wbTargetSkuSelect')?.value) || {};
+        const inside = wbMode === 'cartons' && prod.pack_contents ? ` ${__h(prod.pack_contents)}` : ` ${uom}`;
         if (pill) {
-            if (isPieces) {
-                pill.innerHTML = `${baseCount} Pieces (${uom}) &times; 1 = <span style="color:#fff; text-decoration:underline;">${baseCount} ${uom}</span>`;
-            } else {
-                pill.innerHTML = `${baseCount} ${bname}${baseCount === 1 ? '' : 's'} &times; ${upb} ${uom} = <span style="color:#fff; text-decoration:underline;">${totalIndividual} ${uom}</span>`;
-            }
+            pill.innerHTML = parts.packs
+                ? `${parts.packs} ${__h(bname)}${parts.packs === 1 ? '' : 's'} &times; ${parts.per}${inside} = <span style="text-decoration:underline;">${parts.pieces}${inside}</span>`
+                : `${parts.pieces} Pieces (${uom}) &times; 1 = <span style="text-decoration:underline;">${parts.pieces} ${uom}</span>`;
         }
         if (totalBadge && wbLatestResult) {
-            if (isPieces) {
-                totalBadge.textContent = `${baseCount} PIECES`;
-            } else {
-                totalBadge.textContent = upb > 1 ? `${baseCount} ${bname.toUpperCase()}S (${totalIndividual} ${uom})` : `${totalIndividual} ${uom}`;
-            }
+            totalBadge.textContent = parts.packs
+                ? `${parts.packs} ${bname.toUpperCase()}${parts.packs === 1 ? '' : 'S'} (${parts.pieces} ${uom})`
+                : `${parts.pieces} PIECES`;
         }
     };
-
-
 
     window.saveWorkbenchBundleConfigToSku = async function() {
 
@@ -2870,6 +2862,62 @@
 
     let wbLatestResult = null;
 
+    // ---- How a product is counted (AI Vision product: count_as pieces | bundles | cartons) --------------
+    // After a count, a recognised product that is counted another way switches the workbench to that mode
+    // and counts again, once per photo (glass recognised in Individual Pieces -> Bundles). Choosing a product
+    // switches at once. The operator may still change the mode by hand afterwards.
+    let wbAutoModeDone = false;
+    const WB_MODE_LABEL = { pieces: 'Individual Pieces', bundles: 'Bundles', cartons: 'Cartons / Boxes' };
+    function wbProduct(skuId) { return skuId ? mappedVisionSkus.find(s => s.sku_id === skuId) : null; }
+    function wbMaterialFor(p) {
+        const t = `${p.sku_id || ''} ${p.name || ''} ${p.category || ''}`.toLowerCase();
+        if (/glass|float|dgu|igu|mirror|pane/.test(t)) return 'glass_bundles';
+        if (/wrap|block|concrete|cement|brick|bag|film/.test(t)) return 'wrapped_bundles';
+        if (/timber|wood|plank|plywood|lumber/.test(t)) return 'timber_bundles';
+        if (/steel|metal|pipe|tube|rod|bar|stud|channel|profile|galvan|alumin/.test(t)) return 'metal_bundles';
+        return 'general_bundles';
+    }
+    function wbApplyProductMode(p) {
+        if (!p || !WB_MODE_LABEL[p.count_as]) return false;
+        const changed = p.count_as !== wbMode;
+        if (changed && typeof window.setWorkbenchMode === 'function') window.setWorkbenchMode(p.count_as);
+        const upbIn = document.getElementById('wbUnitsPerBundleInput');
+        if (upbIn) upbIn.value = p.count_as === 'pieces' ? 1 : Math.max(1, parseInt(p.units_per_bundle || 1, 10));
+        const bn = document.getElementById('wbBundleNameInput');
+        if (bn) bn.value = p.count_as === 'cartons' ? (p.bundle_name && p.bundle_name !== 'Bundle' ? p.bundle_name : 'Carton') : (p.bundle_name || 'Bundle');
+        const mat = document.getElementById('wbBundleMaterialSelect');
+        if (mat && p.count_as === 'bundles') {
+            const want = wbMaterialFor(p);
+            if ([...mat.options].some(o => o.value === want) && mat.value !== want) {
+                mat.value = want;
+                mat.dispatchEvent(new Event('change'));   // e.g. shows the glass sheet-size bar
+            }
+        }
+        const sel = document.getElementById('wbTargetSkuSelect');
+        if (sel && [...sel.options].some(o => o.value === p.sku_id)) sel.value = p.sku_id;
+        return changed;
+    }
+    // Packs and pieces of the latest count, the same way for the display and for "Save count to pallet":
+    // bundle counts come back as bundles (pieces already multiplied), carton counts as cartons (not multiplied).
+    function wbCountParts() {
+        const r = wbLatestResult || {};
+        const qb = r.quantity_breakdown || {};
+        const scr = parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10) || 1;
+        const pal = parseInt(document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10) || 1;
+        const per = Math.max(1, scr > 1 ? scr : pal);
+        const num = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
+        const piecesSeen = num(qb.total_units) || num(r.total_pieces) || 0;
+        if (wbMode === 'cartons') {
+            const cartons = num(qb.total_units) || num(r.total_pieces) || num(qb.visible_count);   // carton results are not multiplied
+            return { packs: cartons, per, pieces: cartons * per, kind: 'carton' };
+        }
+        if (wbMode === 'bundles') {
+            const packs = num(r.total_bundles) || num(qb.total_bundles) || num(qb.physical_bundles_count) || num(r.primary_count);
+            if (packs) return { packs, per, pieces: packs * per, kind: 'bundle' };
+        }
+        return { packs: 0, per: 1, pieces: piecesSeen, kind: 'piece' };
+    }
+
     let wbCurrentMatrix = { rows: 5, columns: 5, layers: 5 };
 
     let wbThreeScene, wbThreeCamera, wbThreeRenderer, wbThreeControls;
@@ -3439,7 +3487,7 @@
 
 
     window.removeWorkbenchImage = function() {
-
+        wbAutoModeDone = false;
         wbCountRequestId++; // Invalidate any pending in-flight requests
 
         wbSelectedFile = null;
@@ -3583,7 +3631,7 @@
 
 
     window.clearWorkbenchCount = function(silent = false) {
-
+        wbAutoModeDone = false;
         wbCountRequestId++; // Invalidate any pending in-flight requests
 
         // Purge detections, markers, geometry, results, and 3D visualization, preserving the loaded image
@@ -4117,6 +4165,7 @@
     
 
     window.previewWorkbenchUpload = function(inputOrFile) {
+        wbAutoModeDone = false;
 
         try {
 
@@ -4681,13 +4730,14 @@
 
 
 
-                    // Also attach image_data as fallback base64 payload if preview is available
+                    // the file above is the photo; the same photo again as a data URL is only needed when there is
+                    // no file (it doubled the upload and, as a text field, hit the server's form-field limit)
 
                     const previewImg = document.getElementById('wbPreviewImg');
 
                     if (previewImg && previewImg.src && previewImg.src.startsWith('data:image/')) {
 
-                        formData.append('image_data', previewImg.src);
+                        if (!targetFile) formData.append('image_data', previewImg.src);
 
                     }
 
@@ -4842,11 +4892,25 @@
 
 
             renderWorkbenchResults(data);
-
-
-
+            const recP = data.recognized_sku || data.sku_info || {};
+            const prodForMode = wbProduct(recP.sku_id) || (recP.count_as ? recP : null);
+            if (prodForMode && WB_MODE_LABEL[prodForMode.count_as] && prodForMode.count_as !== wbMode && !wbAutoModeDone
+                    && !(wbMultiViews && wbMultiViews.length >= 2)) {
+                wbAutoModeDone = true;
+                wbApplyProductMode(prodForMode);
+                if (typeof showToast === 'function') {
+                    showToast(`${prodForMode.name || prodForMode.sku_id} is counted as ${WB_MODE_LABEL[prodForMode.count_as]} (set in AI Vision) - switched and counting again.`, 'info');
+                }
+                setTimeout(() => window.executeWorkbenchCount(), 60);
+                return;
+            }
+            // packs x pieces in the badge (renderWorkbenchResults shows the raw count only)
+            if (wbMode !== 'pieces' && typeof window.onWorkbenchBundleMultiplierChange === 'function') window.onWorkbenchBundleMultiplierChange();
+            if (prodForMode && prodForMode.count_as === 'cartons' && typeof showToast === 'function') {
+                const parts = wbCountParts();
+                showToast(`${parts.packs} carton${parts.packs === 1 ? '' : 's'} × ${parts.per} ${prodForMode.pack_contents || 'items'} = ${parts.pieces}.`, 'info');
+            }
             const qb = data.quantity_breakdown || {};
-
             const total = qb.total_units !== undefined ? qb.total_units : (data.total_pieces !== undefined ? data.total_pieces : (data.total_bundles || 0));
 
             if (typeof showToast === 'function') {
@@ -7395,63 +7459,20 @@ function initWb3DPalletViewer(matrixData) {
     }
 
     window.applyVerifiedCountToActivePallet = function() {
-
-        const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
-
-        const baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult ? (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0)) : 0);
-
-        // pieces per pack: the counting screen's number, or else the pallet's own (choosing a product with no
-        // pack size sets the screen to 1, which lost the 36 blocks per pack the pallet was built with)
-        const wbUpb = parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10) || 1;
-        const palletUpb = parseInt(document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10) || 1;
-        const uPerB = Math.max(1, wbUpb > 1 ? wbUpb : palletUpb);
-
+        const parts = wbCountParts();
         const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
-
         const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
-
-        const totalIndividualUnits = baseCount * uPerB;
-
-
-
         const palletPcsElem = document.getElementById('palletTotalPieces');
-
         const palletBundlesElem = document.getElementById('palletCountBundles');
-
         const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
-
-        if (unitsPerBundleElem) unitsPerBundleElem.textContent = uPerB;
-
-
-
-        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
-        if (isPieces) {
-            if (palletPcsElem) palletPcsElem.textContent = baseCount;
-            if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
-            saveCountToPallet(baseCount, 1, `${baseCount} pieces`);
-        } else if (wbMode === 'bundles' || uPerB > 1) {
-            // total_units is already in pieces (bundles x pieces per bundle); save the BUNDLE count with
-            // the pieces per bundle, or the pieces would be multiplied twice (4 packs of 10 were saved as 400)
-            const r = wbLatestResult || {};
-            const bundles = [r.total_bundles, qb.total_bundles, qb.physical_bundles_count, r.primary_count]
-                .map(v => parseInt(v, 10)).find(v => Number.isFinite(v) && v > 0);
-            if (bundles) {
-                const pcs = bundles * uPerB;
-                if (palletBundlesElem) palletBundlesElem.textContent = bundles;
-                if (palletPcsElem) palletPcsElem.textContent = pcs;
-                saveCountToPallet(bundles, uPerB, `${bundles} ${bname}s × ${uPerB} = ${pcs} ${uom}`);
-            } else {
-                if (palletPcsElem) palletPcsElem.textContent = baseCount;
-                if (palletBundlesElem) palletBundlesElem.textContent = 0;
-                saveCountToPallet(baseCount, 1, `${baseCount} ${uom}`);
-            }
+        if (palletPcsElem) palletPcsElem.textContent = parts.pieces;
+        if (palletBundlesElem) palletBundlesElem.textContent = parts.packs;
+        if (unitsPerBundleElem) unitsPerBundleElem.textContent = parts.per;
+        if (parts.packs) {
+            saveCountToPallet(parts.packs, parts.per, `${parts.packs} ${bname}s × ${parts.per} = ${parts.pieces} ${uom}`);
         } else {
-            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`);
+            saveCountToPallet(parts.pieces, 1, `${parts.pieces} pieces`);
         }
-
     };
 
 

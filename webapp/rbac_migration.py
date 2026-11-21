@@ -479,6 +479,23 @@ def _step_location_products(conn: sqlite3.Connection) -> None:
         PRIMARY KEY (warehouse_id, sku_id))""")
 
 
+def _step_count_as(conn: sqlite3.Connection) -> None:
+    """How a product is counted (AI Vision product form; Palletization switches to it): 'pieces',
+    'bundles' (units_per_bundle pieces each) or 'cartons' (units_per_bundle of pack_contents each).
+    Existing products start from what they already say: a box/carton/case unit -> cartons, more than
+    one piece per bundle -> bundles, otherwise pieces."""
+    cols = _columns(conn, "skus")
+    if "count_as" not in cols:
+        conn.execute("ALTER TABLE skus ADD COLUMN count_as TEXT")
+    if "pack_contents" not in cols:
+        conn.execute("ALTER TABLE skus ADD COLUMN pack_contents TEXT")
+    conn.execute("""UPDATE skus SET count_as = CASE
+            WHEN UPPER(COALESCE(uom, '')) IN ('BOX', 'BOXES', 'CARTON', 'CARTONS', 'CASE', 'CASES') THEN 'cartons'
+            WHEN COALESCE(units_per_bundle, 1) > 1 THEN 'bundles'
+            ELSE 'pieces' END
+        WHERE count_as IS NULL OR count_as = ''""")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -757,6 +774,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("014_photo_queries", _step_photo_queries),
     ("015_outbound_dispatch", _step_outbound_dispatch),
     ("016_location_products", _step_location_products),
+    ("017_count_as", _step_count_as),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {

@@ -141,6 +141,10 @@
                                 <span style="font-size:0.74rem; color:var(--text-muted);">${safeUom} / ${escapeHtml(sku.bundle_name || 'Bundle')}</span>
                                 <button type="button" class="btn-secondary btn-sm" onclick="window.quickSaveBundleDeclaration && window.quickSaveBundleDeclaration('${safeSkuId}', document.getElementById('visionUpb_${safeSkuId}')?.value)" style="padding:3px 7px; font-size:0.7rem;" title="Save Individuals per Bundle">Save</button>
                             </div>
+                            <div style="margin-top:4px; font-size:0.72rem; font-weight:700; color:${({ pieces: '#0284c7', bundles: '#7c3aed', cartons: '#b45309' })[sku.count_as] || '#0284c7'};">
+                                <i class="fas ${({ pieces: 'fa-grip', bundles: 'fa-layer-group', cartons: 'fa-box' })[sku.count_as] || 'fa-grip'}"></i>
+                                Counted as ${({ pieces: 'individual pieces', bundles: 'bundles', cartons: 'cartons' })[sku.count_as] || 'individual pieces'}${sku.count_as === 'cartons' && sku.pack_contents ? ' · ' + escapeHtml(sku.pack_contents) : ''}
+                            </div>
                         </td>
                         <td>${statusBadge}</td>
                         <td>${imgStatusBadge}</td>
@@ -204,6 +208,25 @@
     // -------------------------------------------------------------------------
     // 2. Add / Edit SKU Modal
     // -------------------------------------------------------------------------
+    // How the product is counted: the quantity field means pieces per bundle or items per carton,
+    // and a carton also says what is inside it. Palletization switches to this mode for the product.
+    function skuCountAsChanged() {
+        const mode = document.getElementById('skuModalCountAs')?.value || 'pieces';
+        const upb = document.getElementById('skuModalUnitsPerBundle');
+        const label = document.getElementById('skuModalUnitsLabel');
+        const name = document.getElementById('skuModalBundleName');
+        const row = document.getElementById('skuModalPackContentsRow');
+        if (row) row.style.display = mode === 'cartons' ? '' : 'none';
+        if (label) label.textContent = mode === 'cartons' ? 'Items in 1 carton *' : (mode === 'bundles' ? 'Pieces in 1 bundle *' : 'Individuals in 1 Bundle *');
+        if (upb) {
+            upb.disabled = mode === 'pieces';
+            if (mode === 'pieces') upb.value = 1;
+        }
+        if (name && mode === 'cartons' && (!name.value || name.value === 'Bundle')) name.value = 'Carton';
+        if (name && mode === 'bundles' && name.value === 'Carton') name.value = 'Bundle';
+    }
+    window.skuCountAsChanged = skuCountAsChanged;
+
     function openAddSkuModal() {
         const modal = document.getElementById('modalAddSku');
         if (!modal) return;
@@ -211,6 +234,7 @@
         document.getElementById('modalSkuFormTitle').textContent = 'Add SKU Master Record';
         document.getElementById('skuModalCode').readOnly = false;
         document.getElementById('skuModalAlert').style.display = 'none';
+        skuCountAsChanged();
         modal.classList.add('active');
     }
 
@@ -249,6 +273,13 @@
                 if (document.getElementById('skuModalBundleName')) {
                     document.getElementById('skuModalBundleName').value = s.bundle_name || 'Bundle';
                 }
+                if (document.getElementById('skuModalCountAs')) document.getElementById('skuModalCountAs').value = s.count_as || 'pieces';
+                if (document.getElementById('skuModalPackContents')) document.getElementById('skuModalPackContents').value = s.pack_contents || '';
+                skuCountAsChanged();
+                if (document.getElementById('skuModalUnitsPerBundle')) {
+                    document.getElementById('skuModalUnitsPerBundle').value = Math.max(1, parseInt(s.units_per_bundle || 1, 10));
+                }
+                if (document.getElementById('skuModalBundleName')) document.getElementById('skuModalBundleName').value = s.bundle_name || 'Bundle';
                 if (document.getElementById('skuModalWeight')) document.getElementById('skuModalWeight').value = s.unit_weight || 0;
                 if (document.getElementById('skuModalVolume')) document.getElementById('skuModalVolume').value = s.unit_volume || 0;
                 document.getElementById('skuModalStatus').value = s.status || 'Active';
@@ -276,6 +307,23 @@
         const wt = parseFloat(document.getElementById('skuModalWeight')?.value || 0);
         const vol = parseFloat(document.getElementById('skuModalVolume')?.value || 0);
         const status = document.getElementById('skuModalStatus')?.value;
+        const countAs = document.getElementById('skuModalCountAs')?.value || 'pieces';
+        const packContents = (document.getElementById('skuModalPackContents')?.value || '').trim();
+
+        if (countAs === 'cartons' && !packContents) {
+            alertBox.style.display = 'block';
+            alertBox.style.background = '#fef2f2';
+            alertBox.style.color = '#ef4444';
+            alertBox.textContent = 'Say what is inside each carton (e.g. Ceramic coffee mug 350ml).';
+            return;
+        }
+        if (countAs !== 'pieces' && upb < 2) {
+            alertBox.style.display = 'block';
+            alertBox.style.background = '#fef2f2';
+            alertBox.style.color = '#ef4444';
+            alertBox.textContent = countAs === 'cartons' ? 'Enter how many items are in 1 carton.' : 'Enter how many pieces are in 1 bundle.';
+            return;
+        }
 
         if (!skuId || !name) {
             alertBox.style.display = 'block';
@@ -297,6 +345,8 @@
                     uom: uom,
                     units_per_bundle: upb,
                     bundle_name: bundleName,
+                    count_as: countAs,
+                    pack_contents: countAs === 'cartons' ? packContents : '',
                     unit_weight: wt,
                     unit_volume: vol,
                     status: status
