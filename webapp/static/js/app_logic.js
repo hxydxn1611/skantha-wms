@@ -4546,7 +4546,7 @@
 
                             // Parse Manifest & Expected Qty
                             let expectedQty = 50;
-                            let skuCode = 'SKU-INBOUND-01';
+                            let skuCode = '';   // chosen in the receipt dialog when the sheet has none
                             let itemDesc = gp.load || 'Material Packages';
 
                             if (gp.unloading_sheet) {
@@ -4760,32 +4760,78 @@
             }
         };
 
+        // Goods receipt: confirm (or correct) product, bin and quantity, then book it. The server ADDS the
+        // goods to the bin, needs a real product and a bin in this location, and receives a truck only once.
         window.completeInboundReceipt = async function(gpId, binId, quantity, skuId, vendor) {
-            if (!confirm(`Complete Inbound Receiving for Pass #${gpId}?\n\n• Verified Quantity: ${quantity}\n• Target Bin: ${binId}\n• SKU: ${skuId}\n\nThis will generate a Goods Receipt Note and update Bin inventory.`)) {
-                return;
-            }
-
+            const h = (v) => (window.__h ? window.__h(v) : String(v == null ? '' : v));
+            let skus = [], bins = [];
             try {
-                const res = await fetch('/api/inbound/complete_receipt', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ gp_id: gpId, bin_id: binId, quantity, sku_id: skuId, vendor })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    window.addInboundLog('RECEIPT-GRN', `Goods Receipt completed for Pass #${gpId}. ${quantity} units stored in ${binId}.`, '#10b981');
-                    alert(`✅ ${data.message}`);
+                const [rs, rb] = await Promise.all([fetch('/api/sku_master?limit=100&status=Active'), fetch('/api/bins')]);
+                skus = ((await rs.json()).data || {}).items || [];
+                bins = await rb.json();
+                if (!Array.isArray(bins)) bins = [];
+            } catch (e) { /* the dialog still opens; the server checks everything */ }
+            const known = skus.some(s => s.sku_id === skuId);
+            const wrap = document.createElement('div');
+            wrap.className = 'uac-modal-backdrop';
+            wrap.innerHTML = `<div class="uac-modal" role="dialog" aria-modal="true" style="max-width:480px;">
+                <div class="uac-modal-head"><div><h3>Goods receipt</h3>
+                    <div class="uac-modal-sub">Gate pass <b>${h(gpId)}</b> · ${h(vendor || '')}. The goods are added to the bin's stock.</div></div>
+                    <button class="uac-x" type="button" aria-label="Close">&times;</button></div>
+                <div class="uac-modal-body">
+                    <label class="uac-label" for="grnSku">Product received</label>
+                    <select id="grnSku" class="uac-input">
+                        ${known ? '' : '<option value="">Choose the product…</option>'}
+                        ${skus.map(s => `<option value="${h(s.sku_id)}" ${s.sku_id === skuId ? 'selected' : ''}>${h(s.name || s.sku_id)} · ${h(s.sku_id)}</option>`).join('')}
+                    </select>
+                    ${known || !skuId ? '' : `<div class="uac-hint" style="color:#b45309;">The unloading sheet says “${h(skuId)}”, which isn't in the product list. Choose the right product.</div>`}
+                    <label class="uac-label" for="grnBin">Into bin</label>
+                    <select id="grnBin" class="uac-input">
+                        ${bins.map(b => `<option value="${h(b.bin_id)}" ${b.bin_id === binId ? 'selected' : ''}>${h(b.bin_id)}${b.zone ? ' · zone ' + h(b.zone) : ''}</option>`).join('')}
+                    </select>
+                    <label class="uac-label" for="grnQty">Quantity received (pieces)</label>
+                    <input id="grnQty" class="uac-input" type="number" min="1" step="1" value="${Number(quantity) || ''}">
+                    <div class="uac-hint"><i class="fas fa-shield-halved"></i> Added to what is already in the bin. Recorded in the stock history as GRN-${h(gpId)}.</div>
+                </div>
+                <div class="uac-modal-msg"></div>
+                <div class="uac-modal-actions"><button class="uac-btn" type="button" data-x>Cancel</button>
+                    <button class="uac-btn uac-btn-primary" type="button" data-ok><i class="fas fa-check"></i> Book receipt</button></div></div>`;
+            document.body.appendChild(wrap);
+            const close = () => wrap.remove();
+            wrap.querySelector('.uac-x').onclick = close;
+            wrap.querySelector('[data-x]').onclick = close;
+            wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+            const msg = wrap.querySelector('.uac-modal-msg');
+            const ok = wrap.querySelector('[data-ok]');
+            ok.onclick = async () => {
+                const sku = wrap.querySelector('#grnSku').value;
+                const bin = wrap.querySelector('#grnBin').value;
+                const qty = parseInt(wrap.querySelector('#grnQty').value, 10);
+                const fail = (t) => { msg.textContent = t; msg.className = 'uac-modal-msg error'; };
+                if (!sku) return fail('Choose the product that was received.');
+                if (!bin) return fail('Choose the bin. Add bins in Master Data Hub > Bin Master.');
+                if (!(qty > 0)) return fail('Enter how many pieces were received.');
+                ok.disabled = true;
+                try {
+                    const res = await fetch('/api/inbound/complete_receipt', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ gp_id: gpId, bin_id: bin, quantity: qty, sku_id: sku, vendor })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.success) return fail(data.message || data.error || 'The receipt could not be booked.');
+                    close();
+                    window.addInboundLog('RECEIPT-GRN', `Goods receipt GRN-${gpId}: ${qty} of ${sku} added to ${bin}.`, '#10b981');
+                    if (window.warlogToast) window.warlogToast(data.message, 'success'); else alert(data.message);
                     await refreshInboundAutomation();
                     if (typeof fetchGatePasses === 'function') fetchGatePasses();
                     if (typeof fetchDeliveries === 'function') fetchDeliveries();
                     if (typeof fetchBins === 'function') fetchBins();
-                    if (typeof fetchInventoryMaster === 'function') fetchInventoryMaster();
-                } else {
-                    alert('Failed to complete receipt: ' + data.message);
-                }
-            } catch(e) {
-                alert('Error completing receipt: ' + e.message);
-            }
+                    if (typeof window.loadInventory === 'function') window.loadInventory();
+                } catch (e) {
+                    fail('Error completing receipt: ' + e.message);
+                } finally { ok.disabled = false; }
+            };
         };
 
         function renderInboundAutomation(cameras) {

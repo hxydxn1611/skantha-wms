@@ -341,7 +341,7 @@ def _public_error(e) -> str:
     (database errors, file paths, crashes) goes to the server log with a reference."""
     if isinstance(e, KeyError):
         return f"Missing field: {e.args[0] if e.args else ''}".strip()
-    if type(e) is ValueError or isinstance(e, (db.CodeInUseError, db.WarehouseOwnershipError)):
+    if type(e) is ValueError or isinstance(e, (db.CodeInUseError, db.WarehouseOwnershipError, db.ReceiveError)):
         return str(e)
     ref = uuid.uuid4().hex[:8]
     logger.warning(f"[ERROR ref={ref}] {request.method} {request.path}: {type(e).__name__}: {e}")
@@ -5268,46 +5268,59 @@ def pick_outbound(order_id):
         return jsonify({"success": False, "error": "Invalid or fulfilled order"})
         
     items = cursor.execute("SELECT * FROM outbound_items WHERE order_id = ?", (order_id,)).fetchall()
-    
-    # Simple picking logic: just find any bin with the SKU and deduct
+
+    # Pick only from THIS location's bins, oldest stock first (earliest expiry, then earliest
+    # received). A line counts as picked only for what was really taken off the shelf.
+    import rbac_scope
+    import inventory_routes
+    icond, iparams = rbac_scope.home_filter("inventory")
+    mark = cursor.execute("SELECT COALESCE(MAX(id), 0) FROM stock_movements").fetchone()[0]
+    touched_bins = set()
+    short = []
     for item in items:
-        needed = item['quantity'] - item['picked_quantity']
+        needed = (item['quantity'] or 0) - (item['picked_quantity'] or 0)
         if needed <= 0:
             continue
-            
-        invs = cursor.execute("SELECT * FROM inventory WHERE sku_id = ? AND quantity > 0", (item['sku_id'],)).fetchall()
+        invs = cursor.execute(f"""
+            SELECT id, bin_id, quantity FROM inventory
+             WHERE sku_id = ? AND quantity > 0{icond}
+             ORDER BY CASE WHEN expiry_date IS NULL OR TRIM(expiry_date) = '' THEN 1 ELSE 0 END,
+                      date(expiry_date), received_date, id""", (item['sku_id'],) + iparams).fetchall()
         for inv in invs:
             if needed <= 0:
                 break
-            
             take = min(inv['quantity'], needed)
-            # Update inventory
-            cursor.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (take, inv['id']))
-            # Update Bin capacities
-            sku = cursor.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (item['sku_id'],)).fetchone()
-            vol_red = sku['unit_volume'] * take
-            wt_red = sku['unit_weight'] * take
-            cursor.execute("UPDATE bins SET current_volume = MAX(0, current_volume - ?), current_weight = MAX(0, current_weight - ?) WHERE bin_id = ?", (vol_red, wt_red, inv['bin_id']))
-            
+            cur = cursor.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ? AND quantity >= ?",
+                                 (take, inv['id'], take))
+            if not cur.rowcount:
+                continue   # not changeable here (another location) or changed meanwhile: not picked
+            touched_bins.add(inv['bin_id'])
             needed -= take
-            
         cursor.execute("UPDATE outbound_items SET picked_quantity = ? WHERE id = ?", (item['quantity'] - needed, item['id']))
-    
+        if needed > 0:
+            short.append(f"{item['sku_id']}: {needed} short")
+    for b in touched_bins:
+        inventory_routes.recalc_bin(cursor.connection, b)
+    # stock history: these picks belong to this order
+    cursor.execute("UPDATE stock_movements SET ref = COALESCE(ref, ?) WHERE id > ?", (order_id, mark))
+
     # Check if fully picked
     all_picked = True
     rem_items = cursor.execute("SELECT * FROM outbound_items WHERE order_id = ?", (order_id,)).fetchall()
     for i in rem_items:
-        if i['picked_quantity'] < i['quantity']:
+        if (i['picked_quantity'] or 0) < (i['quantity'] or 0):
             all_picked = False
-            
+
     if all_picked:
         cursor.execute("UPDATE outbound_orders SET status = 'Fulfilled' WHERE id = ?", (order_id,))
     else:
         cursor.execute("UPDATE outbound_orders SET status = 'Partially Picked' WHERE id = ?", (order_id,))
-        
+
     conn.commit()
     conn.close()
-    return jsonify({"success": True, "status": "Fulfilled" if all_picked else "Partially Picked"})
+    return jsonify({"success": True, "status": "Fulfilled" if all_picked else "Partially Picked",
+                    "message": "Picked in full." if all_picked else "Not enough stock in this location: " + "; ".join(short),
+                    "short": short})
 
 # ============================================================================
 # PART 14 — SYSTEM INTEGRATION & ORCHESTRATION LAYER ENDPOINTS
@@ -6509,47 +6522,41 @@ def api_inbound_simulate():
 
 @app.route('/api/inbound/complete_receipt', methods=['POST'])
 def api_inbound_complete_receipt():
-    """Completes the dock unloading receipt, reconciles inventory to the designated bin, and closes the gate pass."""
+    """Completes the dock unloading receipt: the received goods are ADDED to the chosen bin (never
+    replacing what is there), the gate pass and its PO are closed. A truck is received only once."""
     data = request.get_json(silent=True) or {}
     gp_id = data.get('gp_id')
-    bin_id = data.get('bin_id') or 'BIN-A1'
-    quantity = int(data.get('quantity', 0))
-    sku_id = data.get('sku_id') or 'SKU-AUTO-WIRE'
-    vendor = data.get('vendor') or 'Inbound Supplier'
+    bin_id = (data.get('bin_id') or '').strip()
+    sku_id = (data.get('sku_id') or '').strip()
+    vendor = data.get('vendor') or None
 
     if not gp_id:
         return jsonify({"success": False, "message": "Gate Pass ID is required"}), 400
-
-    conn = db.get_db()
     try:
-        gp = conn.execute("SELECT * FROM gate_passes WHERE id = ?", (gp_id,)).fetchone()
-        if not gp:
-            return jsonify({"success": False, "message": "Gate pass not found"}), 404
+        quantity = int(data.get('quantity', 0))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "The received quantity must be a whole number."}), 400
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found"}), 404
 
-        # Sync inventory
-        sync_res = db.sync_bin_inventory(bin_id, quantity, sku_id=sku_id, vendor=vendor)
+    try:
+        receipt = db.receive_goods(bin_id, sku_id, quantity, vendor=vendor or gp.get('vendor'), ref=f"GRN-{gp_id}",
+                                   reason=f"Goods receipt{(' - PO ' + str(gp['po_number'])) if gp.get('po_number') else ''}")
+    except db.ReceiveError as e:
+        msg = _public_error(e)   # a ReceiveError explains itself (unknown product, other location, already received)
+        return jsonify({"success": False, "message": msg, "error": msg}), 400
 
-        # Update Gate pass status to Completed
-        conn.execute("""
-            UPDATE gate_passes 
-            SET status = 'Completed', unloaded_qty = ?
-            WHERE id = ?
-        """, (quantity, gp_id))
-
-        # Update associated delivery status in expected_deliveries
-        if gp['po_number']:
-            conn.execute("UPDATE expected_deliveries SET status = 'Completed' WHERE po_number = ?", (gp['po_number'],))
-
-        conn.commit()
-
-        return jsonify({
-            "success": True,
-            "message": f"Goods Receipt Note (GRN) generated! Synced {quantity} items to Bin {bin_id}.",
-            "sync_details": sync_res,
-            "gp_id": gp_id
-        })
-    finally:
-        conn.close()
+    # close the gate pass through the normal path (history, PO status); the receipt is already booked,
+    # so the dock "Completed" put-away sees GRN-<gate pass> and doesn't add it again
+    db.update_gate_pass(gp_id, {"status": "Completed", "unloaded_qty": quantity, "bin_allocation": bin_id})
+    return jsonify({
+        "success": True,
+        "message": f"Goods Receipt Note GRN-{gp_id} generated. Added {quantity} to bin {bin_id} "
+                   f"(now {receipt['line_quantity']} of {sku_id} on that stock line).",
+        "sync_details": receipt,
+        "gp_id": gp_id
+    })
 
 
 # ==============================================================================

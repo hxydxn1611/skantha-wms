@@ -1315,24 +1315,47 @@ def update_gate_pass(gp_id, data):
         except Exception:
             pass
               
-        # Execute putaway stock update when transitioning to Completed
-        if status == 'Completed' and curr['status'] != 'Completed' and bin_allocation:
-            vendor_name = vendor or 'UNKNOWN'
-            sku_id = 'SKU-' + vendor_name[:3].upper() + '01' if vendor_name != 'UNKNOWN' else 'UNKNOWN-SKU'
-            # Look up SKU from unloading_sheet if available
+        # Put-away when a truck is marked Completed: decided here, booked after this change is saved
+        # (a second connection can't write while this transaction is open - it used to wait 15 s and fail)
+        pending_receipt = None
+        if status == 'Completed' and curr['status'] != 'Completed' and bin_allocation and (unloaded_qty or 0):
             import json
+            sku_id = None
             try:
                 sheet = json.loads(sheet_str) if isinstance(sheet_str, str) else sheet_str
-                if sheet and len(sheet) > 0 and 'sku' in sheet[0]:
-                    sku_id = sheet[0]['sku']
-            except: pass
-            
-            try:
-                update_bin_stock(bin_allocation, vendor_name, unloaded_qty or 0, sku_id)
-            except Exception as e:
-                print("Failed to update bin stock automatically on completion:", e)
-              
+                if sheet and len(sheet) > 0 and sheet[0].get('sku'):
+                    sku_id = str(sheet[0]['sku']).strip()
+            except Exception:
+                pass
+            pending_receipt = (bin_allocation, sku_id, unloaded_qty, vendor, po_number)
+
     conn.close()
+    if pending_receipt:
+        bin_id, sku_id, count, vendor_name, po = pending_receipt
+        c0 = get_db()
+        try:
+            already = c0.execute("SELECT 1 FROM stock_movements WHERE ref = ? LIMIT 1", (f"GRN-{gp_id}",)).fetchone()
+        except sqlite3.OperationalError:
+            already = None
+        finally:
+            c0.close()
+        if already:
+            pass   # booked already (Inbound > Complete receipt)
+        elif not sku_id:
+            print(f"[Receipt] {gp_id}: no product on the unloading sheet - book it in Inbound > Complete receipt")
+        else:
+            try:
+                upb = 1
+                c2 = get_db()
+                try:
+                    r = c2.execute("SELECT units_per_bundle FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+                    upb = max(1, int((r["units_per_bundle"] if r else 1) or 1))
+                finally:
+                    c2.close()
+                receive_goods(bin_id, sku_id, int(count) * upb, vendor=vendor_name, ref=f"GRN-{gp_id}",
+                              reason=f"Unloaded at dock{(' - PO ' + str(po)) if po else ''}")
+            except ReceiveError as e:
+                print(f"[Receipt] {gp_id}: not booked - {e}")
     return get_gate_pass(gp_id)
 
 def delete_gate_pass(gp_id):
@@ -2557,6 +2580,69 @@ def add_sku(sku_id, name, description, category, unit_weight=0.0, unit_volume=0.
                 updated_at = CURRENT_TIMESTAMP
         ''', (sku_code, name, description, category, uom_val, wt_val, vol_val, upb_val, bname_val, tbp_val))
     conn.close()
+
+class ReceiveError(ValueError):
+    """A receipt that can't be booked (unknown product or bin, nothing to add, already received)."""
+
+
+def receive_goods(bin_id, sku_id, quantity, vendor=None, ref=None, batch_number=None, reason=None):
+    """Books received goods into a bin: stock is ADDED, never replaced.
+
+    One function for every way goods come in (Inbound "Complete receipt", a truck marked
+    Completed at the dock, an approved AI count posted to a bin):
+      * the product must already exist (no invented SKU codes) and the bin must be in this location
+      * `ref` (e.g. "GRN-<gate pass>") can be booked only once, so the same truck is never counted twice
+      * same bin + product + batch adds to that stock line; otherwise a new line is created
+      * bin fill is recalculated; the stock history line says "Received" with the ref and reason
+    """
+    import rbac_scope
+    try:
+        qty = int(quantity)
+    except (TypeError, ValueError):
+        raise ReceiveError("The received quantity must be a whole number.")
+    if qty <= 0:
+        raise ReceiveError("The received quantity must be more than 0.")
+    sku_id = str(sku_id or "").strip()
+    bin_id = str(bin_id or "").strip()
+    if not sku_id:
+        raise ReceiveError("Choose the product that was received.")
+    if not bin_id:
+        raise ReceiveError("Choose the bin the goods go into.")
+    conn = get_db()
+    try:
+        scond, sparams = rbac_scope.home_filter("skus")
+        if not conn.execute(f"SELECT 1 FROM skus WHERE sku_id = ?{scond}", (sku_id,) + sparams).fetchone():
+            raise ReceiveError(f"Product '{sku_id}' is not in the product list. Add it in AI Vision > Products, "
+                               f"or choose an existing product.")
+        bcond, bparams = rbac_scope.home_filter("bins")
+        b = conn.execute(f"SELECT bin_id, company_id, warehouse_id FROM bins WHERE bin_id = ?{bcond}",
+                         (bin_id,) + bparams).fetchone()
+        if not b:
+            raise ReceiveError(f"Bin '{bin_id}' was not found in this location.")
+        if ref and conn.execute("SELECT 1 FROM stock_movements WHERE ref = ? LIMIT 1", (str(ref),)).fetchone():
+            raise ReceiveError(f"{ref} has already been received into stock.")
+        with conn:
+            mark = conn.execute("SELECT COALESCE(MAX(id), 0) FROM stock_movements").fetchone()[0]
+            icond, iparams = rbac_scope.home_filter("inventory")
+            line = conn.execute(f"""SELECT id FROM inventory WHERE bin_id = ? AND sku_id = ? AND batch_number IS ?{icond}
+                                    ORDER BY id LIMIT 1""", (bin_id, sku_id, batch_number) + iparams).fetchone()
+            if line:
+                conn.execute("UPDATE inventory SET quantity = quantity + ? WHERE id = ?", (qty, line["id"]))
+                line_id = line["id"]
+            else:
+                line_id = conn.execute("""INSERT INTO inventory (bin_id, sku_id, quantity, batch_number, vendor, received_date,
+                                              company_id, warehouse_id)
+                                          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)""",
+                                       (bin_id, sku_id, qty, batch_number, vendor, b["company_id"], b["warehouse_id"])).lastrowid
+            import inventory_routes
+            inventory_routes.recalc_bin(conn, bin_id)
+            conn.execute("""UPDATE stock_movements SET movement_type = 'receive', ref = COALESCE(ref, ?),
+                                   reason = COALESCE(reason, ?) WHERE id > ?""", (ref, reason, mark))
+            total = conn.execute("SELECT quantity FROM inventory WHERE id = ?", (line_id,)).fetchone()[0]
+        return {"bin_id": bin_id, "sku_id": sku_id, "added": qty, "line_quantity": total, "inventory_id": line_id, "ref": ref}
+    finally:
+        conn.close()
+
 
 def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
     conn = get_db()
@@ -3973,8 +4059,10 @@ def record_vision_counting_submission(
             """, (physical_bundles, total_pieces, p_id))
             target_applied = {"type": "pallet", "pallet_id": p_id, "bundles": physical_bundles, "total_units": total_pieces}
         else:
-            b_id = str(bin_id or "BIN-A").strip()
-            sync_bin_inventory(b_id, total_pieces, sku_id=sku_id, vendor="AI Vision Approved Count")
+            b_id = str(bin_id or "").strip()
+            # the counted goods are ADDED to the bin (posting a count never wipes what was there)
+            receive_goods(b_id, sku_id, total_pieces, vendor="AI Vision Approved Count", ref=f"COUNT-{sess_id}",
+                          reason="Approved AI count posted to bin")
             target_applied = {"type": "bin", "bin_id": b_id, "sku_id": sku_id, "quantity": total_pieces}
 
         # 2. Insert into vision_counting_submissions
