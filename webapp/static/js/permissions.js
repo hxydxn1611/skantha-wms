@@ -401,7 +401,8 @@
     // ------------------------------------------------------------------ shared-PC hygiene (H21)
     // Device preferences survive; anything about the previous person does not.
     const KEEP_KEYS = new Set(['warlog_theme', 'skantha_theme', 'warlog_dock_collapsed', 'warlog_copilot_voice_muted',
-                               'skandha_vision_config', 'warlog_last_user']);
+                               'skandha_vision_config', 'warlog_last_user',
+                               'warlog_remember_username']);   // login page "Remember me" (username only)
     function clearUserStorage() {
         try {
             Object.keys(localStorage).forEach(k => { if (!KEEP_KEYS.has(k)) localStorage.removeItem(k); });
