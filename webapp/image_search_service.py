@@ -2,14 +2,17 @@
 Product photos from the internet, for registering products in AI Vision.
 
 Sources (free to use, including commercially):
-  * Pixabay           - needs PIXABAY_API_KEY in .env   (https://pixabay.com/api/docs/)
-  * Pexels            - needs PEXELS_API_KEY in .env    (https://www.pexels.com/api/)
-  * Wikimedia Commons - no key; always available as a fallback
+  * Pixabay   - needs PIXABAY_API_KEY in .env   (https://pixabay.com/api/docs/)
+  * Pexels    - needs PEXELS_API_KEY in .env    (new keys paused by Pexels; used if a key is set)
+  * Openverse - no key (https://api.openverse.org): openly licensed photos from Flickr,
+                Wikimedia Commons, museums and more. Only licences that allow commercial
+                use and changes (no "ND") are shown; each photo keeps its credit + licence.
 
 search() returns small previews from all enabled sources, mixed together and never
 repeating what the screen has already shown (`seen`). import_photo() downloads one chosen
-photo - only from the sources' own image hosts - checks it really is an image, re-encodes
-it as a clean JPEG (no metadata, at most 1600 px) and returns the bytes.
+photo - only from the sources' own image services (Openverse photos come through Openverse's
+own image proxy, never straight from the original website) - checks it really is an image,
+re-encodes it as a clean JPEG (no metadata, at most 1600 px) and returns the bytes.
 
 Only the search words (the product name) are sent to these services.
 """
@@ -32,7 +35,9 @@ MAX_SIDE = 1600
 PER_PAGE = 20
 
 # photos may only be downloaded from these hosts (no other address can be fetched)
-ALLOWED_IMAGE_HOSTS = ("pixabay.com", "cdn.pixabay.com", "images.pexels.com", "upload.wikimedia.org", "thumb.wikimedia.org")
+ALLOWED_IMAGE_HOSTS = ("pixabay.com", "cdn.pixabay.com", "images.pexels.com", "api.openverse.org")
+OPENVERSE_LICENSES = {"cc0": "CC0", "pdm": "Public Domain", "by": "CC BY", "by-sa": "CC BY-SA",
+                      "by-nc": None, "by-nd": None, "by-nc-sa": None, "by-nc-nd": None}   # None = not shown
 
 
 class PhotoSearchError(Exception):
@@ -48,7 +53,7 @@ def _key(name: str) -> str:
 
 
 def providers_status() -> Dict[str, bool]:
-    return {"pixabay": bool(_key("PIXABAY_API_KEY")), "pexels": bool(_key("PEXELS_API_KEY")), "wikimedia": True}
+    return {"pixabay": bool(_key("PIXABAY_API_KEY")), "pexels": bool(_key("PEXELS_API_KEY")), "openverse": True}
 
 
 def _get(url: str, **kw) -> requests.Response:
@@ -99,37 +104,32 @@ def _pexels(query: str, page: int) -> List[Dict]:
     return out
 
 
-def _wikimedia(query: str, page: int) -> List[Dict]:
-    r = _get("https://commons.wikimedia.org/w/api.php", params={
-        "action": "query", "format": "json", "generator": "search", "gsrnamespace": 6,
-        "gsrsearch": f"{query[:100]} filetype:bitmap", "gsrlimit": PER_PAGE, "gsroffset": (page - 1) * PER_PAGE,
-        # Wikimedia serves only its standard thumbnail sizes to apps (originals are rate-limited)
-        "prop": "imageinfo", "iiprop": "url|mime|size|extmetadata", "iiurlwidth": 1280})
-    if r.status_code != 200:
-        logger.warning(f"[PhotoSearch] Wikimedia answered {r.status_code}")
+def _openverse(query: str, page: int) -> List[Dict]:
+    if page > 12:   # anonymous access reaches the first 240 results (12 pages of 20)
         return []
-    pages = ((r.json().get("query") or {}).get("pages") or {}).values()
+    r = _get("https://api.openverse.org/v1/images/", params={
+        "q": query[:100], "page": page, "page_size": PER_PAGE, "license_type": "commercial", "mature": "false"})
+    if r.status_code != 200:
+        logger.warning(f"[PhotoSearch] Openverse answered {r.status_code}")
+        return []
     out = []
-    for p in sorted(pages, key=lambda x: x.get("index", 0)):
-        info = (p.get("imageinfo") or [{}])[0]
-        if not str(info.get("mime", "")).startswith(("image/jpeg", "image/png", "image/webp")):
-            continue
-        meta = info.get("extmetadata") or {}
-        author = (meta.get("Artist") or {}).get("value") or ""
-        # Artist is HTML; keep the plain text only
-        import re as _re
-        author = _re.sub(r"<[^>]+>", "", author).strip()[:80]
-        big = info.get("thumburl") or info.get("url") or ""
-        small = big.replace("/1280px-", "/500px-") if "/1280px-" in big else big
-        out.append({"id": f"wikimedia:{p.get('pageid')}", "provider": "Wikimedia Commons",
-                    "thumb": small, "url": big,
-                    "width": info.get("width"), "height": info.get("height"), "author": author,
-                    "page_url": info.get("descriptionurl") or "",
-                    "license": ((meta.get("LicenseShortName") or {}).get("value") or "Wikimedia Commons")[:60]})
+    for it in r.json().get("results", []):
+        lic = OPENVERSE_LICENSES.get(str(it.get("license") or "").lower())
+        thumb = it.get("thumbnail") or ""
+        if not lic or not thumb.startswith("https://api.openverse.org/"):
+            continue   # licence without commercial use + changes, or no proxied copy
+        version = it.get("license_version") or ""
+        source = str(it.get("source") or it.get("provider") or "").replace("_", " ").title()
+        out.append({"id": f"openverse:{it.get('id')}", "provider": f"Openverse ({source})" if source else "Openverse",
+                    "thumb": thumb, "url": thumb.split("?")[0] + "?full_size=true",
+                    "width": it.get("width"), "height": it.get("height"),
+                    "author": str(it.get("creator") or "")[:80], "page_url": it.get("foreign_landing_url") or "",
+                    "license": f"{lic} {version}".strip() if lic.startswith("CC ") else lic,
+                    "title": str(it.get("title") or "")[:120]})
     return out
 
 
-PROVIDERS = (("pixabay", _pixabay), ("pexels", _pexels), ("wikimedia", _wikimedia))
+PROVIDERS = (("pixabay", _pixabay), ("pexels", _pexels), ("openverse", _openverse))
 
 
 def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]] = None) -> Tuple[List[Dict], int]:
@@ -140,11 +140,8 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
     count = max(1, min(int(count or 10), 30))
     seen_set = set(seen or [])
     status = providers_status()
-    # Pixabay / Pexels when their keys are set; Wikimedia Commons only when neither is,
-    # or to top up when they have nothing new left for these words
-    keyed = [(n, fn) for n, fn in PROVIDERS if n in ("pixabay", "pexels") and status[n]]
-    wiki = [(n, fn) for n, fn in PROVIDERS if n == "wikimedia"]
-    active = keyed or wiki
+    # every enabled source, mixed: Pixabay / Pexels (when their keys are set) and Openverse
+    active = [(n, fn) for n, fn in PROVIDERS if status.get(n)]
     found: List[Dict] = []
     errors = 0
     page = max(1, int(page or 1))
@@ -166,18 +163,6 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
             return found[:count], p + (0 if len(found) > count else 1)
         if not any(batches):
             break
-    if len(found) < count and keyed and wiki:
-        for p in (1, 2):
-            try:
-                for it in wiki[0][1](query, p):
-                    if it["id"] not in seen_set and it.get("thumb") and it.get("url"):
-                        found.append(it)
-                        seen_set.add(it["id"])
-            except requests.RequestException as e:
-                errors += 1
-                logger.warning(f"[PhotoSearch] wikimedia unreachable: {e}")
-            if len(found) >= count:
-                break
     if not found and errors:
         raise PhotoSearchError("Couldn't reach the photo services. Check the internet connection and try again.")
     return found[:count], page + 3
@@ -196,7 +181,7 @@ def _allowed(url: str) -> bool:
 def import_photo(url: str, _hops: int = 0, _retry: bool = True) -> bytes:
     """Downloads one chosen photo from an allowed host and returns clean JPEG bytes."""
     if not _allowed(url):
-        raise PhotoSearchError("That photo address is not from Pixabay, Pexels or Wikimedia Commons.")
+        raise PhotoSearchError("That photo address is not from Pixabay, Pexels or Openverse.")
     try:
         with requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15, stream=True, allow_redirects=False) as r:
             if r.status_code in (301, 302, 303, 307, 308):

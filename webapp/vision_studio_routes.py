@@ -277,7 +277,9 @@ def api_photo_import():
         path = os.path.join(SKU_IMAGE_DIR, fname)
         with open(path, "wb") as fh:
             fh.write(data)
-        credit = f"{it.get('provider') or 'Web'} - {it.get('author') or 'unknown'}"[:120]
+        # shown under the photo in the product's photo window (licence credit, e.g. CC BY)
+        credit = " - ".join(x for x in (str(it.get("provider") or "Web"), str(it.get("author") or "unknown"),
+                                        str(it.get("license") or "")) if x)[:120]
         rec, err = db.add_sku_image(sku_id=sku_id, filename=fname, original_filename=credit,
                                     file_path=f"/static/uploads/sku_images/{fname}", file_size=len(data),
                                     mime_type="image/jpeg", is_primary=0)

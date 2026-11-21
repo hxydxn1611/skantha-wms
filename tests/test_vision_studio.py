@@ -50,7 +50,7 @@ class TestSchemaAndRoutes(StudioBase):
         body = r.get_json()
         self.assertTrue(body["success"])
         self.assertIn("photo_sources", body)
-        self.assertTrue(body["photo_sources"]["wikimedia"])
+        self.assertTrue(body["photo_sources"]["openverse"])
 
 
 @unittest.skipUnless(os.path.isfile(SAMPLE), "sample photo missing")
@@ -122,10 +122,12 @@ class TestPhotos(StudioBase):
     def test_only_photo_service_hosts_are_downloaded(self):
         import image_search_service as s
         for bad in ("http://cdn.pixabay.com/x.jpg", "https://evil.example.com/x.jpg", "https://pixabay.com.evil.io/x.jpg",
-                    "file:///etc/passwd", "https://127.0.0.1/x.jpg", "https://169.254.169.254/latest"):
+                    "file:///etc/passwd", "https://127.0.0.1/x.jpg", "https://169.254.169.254/latest",
+                    # Openverse photos come only through Openverse's own image service
+                    "https://live.staticflickr.com/1/x.jpg", "https://upload.wikimedia.org/a/b.jpg"):
             self.assertFalse(s._allowed(bad), bad)
         for good in ("https://cdn.pixabay.com/photo/x.jpg", "https://images.pexels.com/photos/1/x.jpeg",
-                     "https://upload.wikimedia.org/a/b.jpg", "https://thumb.wikimedia.org/a/1280px-b.jpg"):
+                     "https://api.openverse.org/v1/images/abc/thumb/?full_size=true"):
             self.assertTrue(s._allowed(good), good)
         d = self.client("david", self.glass_wh[0])
         r = self.send(d, "POST", "/api/vision/photos/import", {"sku_id": "GLS-FLT-04MM",
@@ -141,14 +143,31 @@ class TestPhotos(StudioBase):
                 return [{"id": f"{name}:{page}-{i}", "provider": name, "thumb": "https://cdn.pixabay.com/t.jpg",
                          "url": "https://cdn.pixabay.com/u.jpg", "author": "a"} for i in range(20)]
             return fn
-        with mock.patch.object(s, "PROVIDERS", (("pixabay", fake("pixabay")), ("pexels", fake("pexels")), ("wikimedia", fake("wiki")))), \
-                mock.patch.dict(os.environ, {"PIXABAY_API_KEY": "k1", "PEXELS_API_KEY": "k2"}):
+        with mock.patch.object(s, "PROVIDERS", (("pixabay", fake("pixabay")), ("pexels", fake("pexels")), ("openverse", fake("openverse")))), \
+                mock.patch.dict(os.environ, {"PIXABAY_API_KEY": "k1", "PEXELS_API_KEY": "your-pexels-key"}):
             first, nxt = s.search("wooden plank", count=10)
             self.assertEqual(len(first), 10)
-            self.assertEqual({p["provider"] for p in first}, {"pixabay", "pexels"})   # wikimedia only as a fallback
+            # Pixabay and Openverse mixed; a template value ("your-pexels-key") is no key
+            self.assertEqual({p["provider"] for p in first}, {"pixabay", "openverse"})
             more, _ = s.search("wooden plank", count=5, page=nxt, seen=[p["id"] for p in first])
             self.assertEqual(len(more), 5)
             self.assertFalse({p["id"] for p in more} & {p["id"] for p in first})
+
+    def test_openverse_keeps_only_reusable_licences(self):
+        import image_search_service as s
+
+        def item(i, lic):
+            return {"id": f"x{i}", "license": lic, "license_version": "2.0", "creator": "C", "source": "flickr",
+                    "thumbnail": f"https://api.openverse.org/v1/images/x{i}/thumb/", "foreign_landing_url": "https://f"}
+        fake = mock.Mock(status_code=200)
+        fake.json.return_value = {"results": [item(1, "by"), item(2, "by-nd"), item(3, "cc0"), item(4, "by-nc"),
+                                              item(5, "by-sa"), item(6, "pdm")]}
+        with mock.patch.object(s, "_get", return_value=fake):
+            got = s._openverse("plank", 1)
+        self.assertEqual([g["license"] for g in got], ["CC BY 2.0", "CC0", "CC BY-SA 2.0", "Public Domain"])
+        self.assertTrue(all(g["url"].startswith("https://api.openverse.org/") and g["url"].endswith("?full_size=true")
+                            for g in got))
+        self.assertEqual(got[0]["provider"], "Openverse (Flickr)")
 
     def test_import_needs_sku_edit(self):
         ex = self.role_user("executive", "vsexec")

@@ -4,7 +4,7 @@
  *   - Counting Studio: draw 1-3 example boxes (or type words), YOLOE counts the rest;
  *     tap a marker to remove it, tap empty space to add one; save an example per product
  *   - Weight Check: pieces = (loaded - empty) / weight of one piece, compared with the camera
- *   - Photo finder: product photos from Pixabay / Pexels / Wikimedia, pick several,
+ *   - Photo finder: product photos from Pixabay (/ Pexels) and Openverse, pick several,
  *     "Show 5 more" never repeats; used by the product dialog and the product photo window
  */
 (function () {
@@ -600,10 +600,10 @@
             if (!r.ok || !b.success) throw new Error(b.error || 'Search failed.');
             PF.page = b.next_page || PF.page + 1;
             const src = b.sources || {};
-            const keyed = [src.pixabay && 'Pixabay', src.pexels && 'Pexels'].filter(Boolean);
-            $('pfSources').innerHTML = 'Photos from ' + (keyed.length ? keyed : ['Wikimedia Commons']).map(x => `<b>${h(x)}</b>`).join(' · ')
-                + ' · free to use, even commercially'
-                + (!keyed.length ? ' <span class="pf-tip">Add the free Pixabay key for much better product photos.</span>' : '');
+            const names = [src.pixabay && 'Pixabay', src.pexels && 'Pexels', src.openverse && 'Openverse'].filter(Boolean);
+            $('pfSources').innerHTML = 'Photos from ' + names.map(x => `<b>${h(x)}</b>`).join(' · ')
+                + ' · free to use, even commercially · hover a photo for its licence'
+                + (!src.pixabay ? ' <span class="pf-tip">Add the free Pixabay key for more product photos.</span>' : '');
             (b.photos || []).forEach(p => {
                 PF.seen.push(p.id);
                 PF.items.push(p);
@@ -611,6 +611,7 @@
                 t.type = 'button';
                 t.className = 'pf-tile';
                 t.dataset.id = p.id;
+                t.title = [p.title, p.author && ('by ' + p.author), p.license].filter(Boolean).join(' · ');
                 t.innerHTML = `<img loading="lazy" src="${h(p.thumb)}" alt="">
                     <span class="pf-check"><i class="fas fa-check"></i></span>
                     <span class="pf-credit">${h(p.provider)}${p.author ? ' · ' + h(p.author) : ''}</span>`;
