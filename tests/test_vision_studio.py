@@ -27,6 +27,14 @@ def _model_ready():
 
 
 class StudioBase(Phase7Base):
+    def setUp(self):
+        super().setUp()
+        # the photo-search tests check the tag-based ranking exactly; CLIP is tested on its own
+        import clip_ranker
+        patcher = mock.patch.object(clip_ranker, "available", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def post_image(self, c, path, form, image=SAMPLE):
         headers = {"X-CSRF-Token": "t"}
         if c.wh is not None:
@@ -239,6 +247,43 @@ class TestSmartPhotoWords(StudioBase):
         # clearing them
         self.send(d, "PUT", "/api/vision/photos/query", {"sku_id": "GLS-FIR-BORO", "query": ""})
         self.assertFalse(self.sql("SELECT 1 FROM sku_photo_queries WHERE sku_id = 'GLS-FIR-BORO'"))
+
+
+class TestClipRanking(unittest.TestCase):
+    """CLIP + tags: CLIP-confident photos and tag matches CLIP doesn't reject are matches;
+    photos both reject are dropped; CLIP-confident matches come first."""
+
+    def test_clip_and_tags_combined(self):
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        import image_search_service as s
+        import clip_ranker
+        photos = [  # id, words (tags), CLIP probability
+            ("a", "sheet music, rose", 0.01), ("b", "close up of glass sheets", 0.99), ("c", "glass sheets on roof", 0.0),
+            ("d", "worker, factory", 0.92), ("e", "factory, building", 0.30), ("f", "cakes, sheet cake", 0.02)]
+        items = [{"id": f"openverse:{i}", "provider": "Openverse", "thumb": "/x", "url": "u", "words": w} for i, w, _ in photos]
+        probs = {f"openverse:{i}": p for i, _, p in photos}
+
+        def fake_score(query, images):
+            return [probs[k] for k in order]
+        order = []
+
+        def keep_working(items_):
+            order[:] = [x["id"] for x in items_]
+            return items_
+        with mock.patch.object(clip_ranker, "available", return_value=True), \
+                mock.patch.object(clip_ranker, "score", side_effect=fake_score), \
+                mock.patch.object(s, "_keep_working", side_effect=keep_working), \
+                mock.patch.object(s, "get_preview", return_value=(b"img", "image/jpeg")), \
+                mock.patch.object(s, "PROVIDERS", (("openverse", lambda q, p: [dict(x) for x in items] if p == 1 else []),)):
+            got, _ = s.search("glass sheets", count=10)
+        ids = [g["id"].split(":")[1] for g in got]
+        self.assertEqual(ids[:2], ["b", "d"])                        # CLIP-confident first
+        self.assertEqual({g["id"].split(":")[1]: g["match"] for g in got},
+                         {"b": "good", "d": "good", "c": "loose", "e": "loose"})
+        self.assertNotIn("a", ids)                                     # sheet music: both say no
+        self.assertNotIn("f", ids)                                     # cakes: both say no
+        self.assertTrue(all("clip" in g for g in got))
 
 
 class TestFrontendWiring(unittest.TestCase):

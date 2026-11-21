@@ -210,3 +210,5 @@
 .pf-match.loose { background: rgba(100, 116, 139, .85); }
 .pf-tile.is-loose:not(.is-picked) img { filter: saturate(.75); opacity: .82; }
 @media (max-width: 640px) { .pf-chips-modal { padding: 8px 14px 0; } }
+.pf-ai { color: #6366f1; }
+.pf-ai i { margin-right: 3px; }

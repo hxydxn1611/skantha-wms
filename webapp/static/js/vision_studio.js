@@ -594,6 +594,7 @@
         grid.querySelectorAll('.pf-empty').forEach(x => x.remove());
         pfSkeleton(count);
         $('pfMore').disabled = true;
+        $('pfSources').innerHTML = '<span class="pf-ai"><i class="fas fa-wand-magic-sparkles"></i> Finding photos and checking them with AI…</span> the first search for new words can take 10–20 seconds';
         try {
             const q = new URLSearchParams({ q: PF.query, count: String(count), page: String(PF.page), seen: PF.seen.join(',') });
             const r = await fetch('/api/vision/photos/search?' + q.toString());
@@ -604,7 +605,8 @@
             const src = b.sources || {};
             const names = [src.pixabay && 'Pixabay', src.pexels && 'Pexels', src.openverse && 'Openverse'].filter(Boolean);
             $('pfSources').innerHTML = 'Photos from ' + names.map(x => `<b>${h(x)}</b>`).join(' · ')
-                + ' · best matches first · free to use, even commercially · hover a photo for its licence'
+                + ((b.photos || []).some(x => x.clip != null) ? ' · <b class="pf-ai"><i class="fas fa-wand-magic-sparkles"></i> AI-checked</b>, best matches first' : ' · best matches first')
+                + ' · free to use, even commercially · hover a photo for its licence'
                 + (!src.pixabay ? ' <span class="pf-tip">Add the free Pixabay key for more product photos.</span>' : '');
             (b.photos || []).forEach(p => {
                 PF.seen.push(p.id);
@@ -616,8 +618,8 @@
                 t.title = [p.title, p.author && ('by ' + p.author), p.license].filter(Boolean).join(' · ');
                 t.innerHTML = `<img loading="lazy" src="${h(p.thumb)}" alt="">
                     <span class="pf-check"><i class="fas fa-check"></i></span>
-                    ${p.match === 'good' ? '<span class="pf-match"><i class="fas fa-circle-check"></i> match</span>'
-                        : p.match === 'loose' ? '<span class="pf-match loose">loose match</span>' : ''}
+                    ${p.match === 'good' ? `<span class="pf-match"><i class="fas fa-circle-check"></i> ${p.clip != null ? Math.round(p.clip * 100) + '% ' : ''}match</span>`
+                        : p.match === 'loose' ? `<span class="pf-match loose">${p.clip != null ? Math.round(p.clip * 100) + '% · ' : ''}loose match</span>` : ''}
                     <span class="pf-credit">${h(p.provider)}${p.author ? ' · ' + h(p.author) : ''}</span>`;
                 const img = t.querySelector('img');
                 img.onload = () => t.classList.add('is-loaded');

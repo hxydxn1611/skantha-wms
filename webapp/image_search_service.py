@@ -322,6 +322,30 @@ def _keep_working(items: List[Dict]) -> List[Dict]:
     return items
 
 
+def _rank_with_clip(query: str, candidates: List[Dict]) -> Optional[List[Dict]]:
+    """CLIP looks at each preview; returns the photos worth showing (clear mismatches dropped).
+    None = CLIP unusable (the caller keeps the tag ranking)."""
+    import clip_ranker
+    working = _keep_working(candidates)           # also caches each preview's bytes
+    imgs = [(get_preview(x["id"]) or (b"", ""))[0] for x in working]
+    probs = clip_ranker.score(query, imgs)
+    if probs is None:
+        return None
+    keep = []
+    for x, pr in zip(working, probs):
+        tag_good = x.get("match") == "good"      # the photo's own tags contain the search words
+        x["clip"] = pr
+        if pr >= clip_ranker.GOOD or (tag_good and pr >= clip_ranker.TAG_FLOOR):
+            x["match"] = "good"
+        elif pr >= clip_ranker.LOOSE or tag_good:
+            x["match"] = "loose"
+        else:
+            continue                              # both say it shows something else
+        x["score"] = round(pr + (0.35 if tag_good else 0.0), 4)
+        keep.append(x)
+    return keep
+
+
 def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]] = None) -> Tuple[List[Dict], int]:
     """Up to `count` photos not in `seen`, mixed across sources. Returns (photos, next_page)."""
     query = " ".join(str(query or "").split())[:100]
@@ -333,6 +357,13 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
     # every enabled source, mixed: Pixabay / Pexels (when their keys are set) and Openverse
     active = [(n, fn) for n, fn in PROVIDERS if status.get(n)]
     qterms = _terms(query)
+    import clip_ranker
+    use_clip = clip_ranker.available()
+    per_page = max(16, count + 6)        # candidates CLIP looks at per page of results
+    import time as _time
+    started = _time.time()
+    BUDGET = 15.0                        # seconds: show what's found rather than keep paging
+    kept: List[Dict] = []                # photos CLIP kept so far
     pool: List[Dict] = []
     errors = 0
     page = max(1, int(page or 1))
@@ -348,6 +379,7 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
 
     for p in range(page, page + 3):
         last = p
+        new_items: List[Dict] = []
         if not active:
             break
         batches = []
@@ -367,16 +399,33 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
                     good, score = relevance(b[i], qterms)
                     b[i]["match"], b[i]["score"] = ("good" if good else "loose"), round(score, 2)
                     pool.append(b[i])
+                    new_items.append(b[i])
                     seen_set.add(b[i]["id"])
         if not any(batches):
             exhausted = True
             break
-        if sum(1 for x in pool if x["match"] == "good") >= count:
+        if use_clip and new_items:
+            # CLIP checks this page's best candidates; if too few survive, look at the next page
+            cands = [x for _, x in sorted(enumerate(new_items), key=lambda t: (t[1]["match"] != "good", -t[1]["score"], t[0]))]
+            got = _rank_with_clip(query, cands[:per_page])
+            if got is None:
+                use_clip = False
+            else:
+                kept += got
+                if sum(1 for x in kept if x["match"] == "good") >= count:
+                    break
+                if kept and _time.time() - started > BUDGET:
+                    break
+                continue
+        if not use_clip and sum(1 for x in pool if x["match"] == "good") >= count:
             break
     if not pool and errors:
         raise PhotoSearchError("Couldn't reach the photo services. Check the internet connection and try again.")
     # good matches first (in the services' own order), then the closest loose ones; photos that share
     # no word with the search (sheet music for "glass sheet") are used only if nothing else is left
+    if use_clip:
+        kept.sort(key=lambda x: (x["match"] != "good", -x["score"]))
+        return kept[:count], (last + 1 if not exhausted else last + 1)
     ranked = [x for _, x in sorted(enumerate(pool), key=lambda t: (t[1]["match"] != "good", -t[1]["score"], t[0]))]
     usable = [x for x in ranked if x["match"] == "good" or x["score"] > 0] or ranked
     picked: List[Dict] = []
