@@ -1046,7 +1046,7 @@
                 if (window.autoSyncCameras && window.autoSyncCameras.size > 0) {
                     const now = Date.now();
                     window.lastSyncTimes = window.lastSyncTimes || {};
-                    cameras.forEach((cam, camIdx) => {
+                    cameras.forEach(cam => {
                         if (!cam.is_gate_camera && window.autoSyncCameras.has(cam.id) && cam.bin_id && ((cam.net_stock_count !== undefined && cam.net_stock_count > 0) || cam.clustered_bundle_count > 0 || cam.visible_packages > 0)) {
                             const last = window.lastSyncTimes[cam.id] || 0;
                             if (now - last > 3500) {
@@ -1066,7 +1066,7 @@
                 }
 
                 // Auto-create Passes and Sync Gate ANPR Evidence
-                cameras.forEach((cam, camIdx) => {
+                cameras.forEach(cam => {
                     const isGate = cam.is_gate_camera || cam.location === 'Gate' || cam.location === 'Dock' || !!cam.last_detected_plate;
                     if(isGate) {
                         // Reflect recognized plate in Gate Vision Evidence box
@@ -3473,42 +3473,14 @@
                     const canvasEl = document.createElement('canvas');
                     canvasEl.width = 640;
                     canvasEl.height = 480;
-                    const ctx = canvasEl.getContext('2d');
 
-                    let isSending = false;
-                    let lastFrameSentAt = 0;
-                    let streamStopped = false;
-                    const pushNextFrame = (ts) => {
-                        if (streamStopped || !activeDeviceStreams[camId]) return;
-                        requestAnimationFrame(pushNextFrame);
-                        if (isSending || videoEl.readyState < 2) return;
-                        if (ts - lastFrameSentAt < 8.0) return; // ~120 FPS target cadence
-                        lastFrameSentAt = ts;
-                        ctx.drawImage(videoEl, 0, 0, 640, 480);
-                        canvasEl.toBlob((blob) => {
-                            if (!blob) return;
-                            isSending = true;
-                            fetch(`/api/cameras/${camId}/frame`, {
-                                method: 'POST',
-                                headers: {'Content-Type': 'image/jpeg'},
-                                body: blob
-                            })
-                            .catch(() => {})
-                            .finally(() => { isSending = false; });
-                        }, 'image/jpeg', 0.72);
-                    };
-                    const intervalId = requestAnimationFrame(pushNextFrame);
-
-                    activeDeviceStreams[camId] = {
-                        stream: stream,
-                        intervalId: intervalId,
-                        videoEl: videoEl,
-                        canvasEl: canvasEl,
-                        facingMode: facingMode
-                    };
+                    startDeviceCameraFrameLoop(camId, videoEl, canvasEl, stream, facingMode);
 
                     e.target.reset();
                     handleCamTypeChange();
+                    if (typeof switchCamSubTab === 'function') {
+                        switchCamSubTab('view');
+                    }
                     pollData();
                 } catch(serverErr) {
                     alert("Failed to initialize camera on server: " + serverErr.message);
@@ -3613,47 +3585,102 @@
             }
         });
 
+        function startDeviceCameraFrameLoop(camId, videoEl, canvasEl, stream, facingMode) {
+            if (activeDeviceStreams[camId]) {
+                activeDeviceStreams[camId].stopped = true;
+                if (activeDeviceStreams[camId].intervalId) {
+                    cancelAnimationFrame(activeDeviceStreams[camId].intervalId);
+                }
+            }
+            const ctx = canvasEl.getContext('2d');
+            const state = {
+                stream: stream,
+                intervalId: 0,
+                videoEl: videoEl,
+                canvasEl: canvasEl,
+                facingMode: facingMode || 'user',
+                stopped: false
+            };
+            activeDeviceStreams[camId] = state;
+            let isSending = false;
+            let lastFrameSentAt = 0;
+            const pushNextFrame = (ts) => {
+                if (state.stopped || activeDeviceStreams[camId] !== state) return;
+                state.intervalId = requestAnimationFrame(pushNextFrame);
+                if (isSending || videoEl.readyState < 2) return;
+                if (ts - lastFrameSentAt < 8.0) return; // ~120 FPS target cadence
+                lastFrameSentAt = ts;
+                ctx.drawImage(videoEl, 0, 0, 640, 480);
+                canvasEl.toBlob((blob) => {
+                    if (!blob || state.stopped) return;
+                    isSending = true;
+                    fetch(`/api/cameras/${camId}/frame`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'image/jpeg'},
+                        body: blob
+                    })
+                    .catch(() => {})
+                    .finally(() => { isSending = false; });
+                }, 'image/jpeg', 0.72);
+            };
+            state.intervalId = requestAnimationFrame(pushNextFrame);
+            return state;
+        }
+
+        window.reconnectDeviceCamera = async function(camId) {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("Camera access requires http://localhost or HTTPS.");
+                return;
+            }
+            try {
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { ideal: 'user' }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 120, min: 30 } },
+                        audio: false
+                    });
+                } catch (_) {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                }
+                const videoEl = document.createElement('video');
+                videoEl.autoplay = true;
+                videoEl.playsInline = true;
+                videoEl.muted = true;
+                videoEl.srcObject = stream;
+                await videoEl.play();
+                const canvasEl = document.createElement('canvas');
+                canvasEl.width = 640;
+                canvasEl.height = 480;
+                startDeviceCameraFrameLoop(camId, videoEl, canvasEl, stream, 'user');
+                pollData();
+            } catch (err) {
+                alert("Could not start laptop/device camera: " + (err.message || err.name));
+            }
+        };
+
         async function flipDeviceCamera(camId) {
             const info = activeDeviceStreams[camId];
             if (!info) return;
 
+            info.stopped = true;
             info.stream.getTracks().forEach(t => t.stop());
-            clearInterval(info.intervalId);
+            if (info.intervalId) cancelAnimationFrame(info.intervalId);
 
             const nextFacing = (info.facingMode === 'environment') ? 'user' : 'environment';
-            info.facingMode = nextFacing;
 
             try {
                 const newStream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: { ideal: nextFacing },
                         width: { ideal: 640 },
-                        height: { ideal: 480 }
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 120, min: 30 }
                     },
                     audio: false
                 });
-                info.stream = newStream;
                 info.videoEl.srcObject = newStream;
                 await info.videoEl.play();
-
-                let isSending = false;
-                info.intervalId = setInterval(() => {
-                    if (isSending) return;
-                    if (info.videoEl.readyState < 2) return;
-                    const ctx = info.canvasEl.getContext('2d');
-                    ctx.drawImage(info.videoEl, 0, 0, 640, 480);
-                    info.canvasEl.toBlob((blob) => {
-                        if (!blob) return;
-                        isSending = true;
-                        fetch(`/api/cameras/${camId}/frame`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'image/jpeg'},
-                            body: blob
-                        })
-                        .catch(() => {})
-                        .finally(() => { isSending = false; });
-                    }, 'image/jpeg', 0.65);
-                }, 125);
+                startDeviceCameraFrameLoop(camId, info.videoEl, info.canvasEl, newStream, nextFacing);
             } catch(e) {
                 alert("Failed to flip camera lens: " + e.message);
             }
@@ -3662,8 +3689,9 @@
         async function deleteCamera(camId) {
             if (!confirm("Are you sure you want to disconnect this camera?")) return;
             if (activeDeviceStreams[camId]) {
+                activeDeviceStreams[camId].stopped = true;
                 activeDeviceStreams[camId].stream.getTracks().forEach(t => t.stop());
-                clearInterval(activeDeviceStreams[camId].intervalId);
+                if (activeDeviceStreams[camId].intervalId) cancelAnimationFrame(activeDeviceStreams[camId].intervalId);
                 delete activeDeviceStreams[camId];
             }
             await fetch(`/api/cameras/${camId}`, { method: 'DELETE' });
@@ -3775,6 +3803,14 @@
                 });
             }
 
+            // Allocate up to 4 concurrent live MJPEG slots, prioritizing user-connected / live external streams first
+            const livePriorityIds = new Set();
+            const isRealStream = (c) => !!activeDeviceStreams[c.id] || !!(c.url && c.url.trim() !== '');
+            cameras.filter(isRealStream).slice(0, 4).forEach(c => livePriorityIds.add(c.id));
+            cameras.forEach(c => {
+                if (livePriorityIds.size < 4) livePriorityIds.add(c.id);
+            });
+
             cameras.forEach((cam, camIdx) => {
                 const isLocalDevice = !!activeDeviceStreams[cam.id];
                 const pileCount = cam.clustered_bundle_count !== undefined ? cam.clustered_bundle_count : (cam.visible_packages || 0);
@@ -3807,7 +3843,9 @@
                         </div>
                         <div class="macos-window-header-right">
                             ${isGate ? '<span class="macos-badge badge-gate"><i class="fas fa-shield"></i> GATE ANPR</span>' : ''}
-                            ${cam.type === 'Device Camera' ? '<span class="macos-badge badge-device"><i class="fas fa-camera"></i> Device</span>' : ''}
+                            ${cam.type === 'Device Camera' ? (isLocalDevice
+                                ? '<span class="macos-badge badge-device"><i class="fas fa-camera"></i> Device Live</span>'
+                                : `<button class="macos-btn-subtle" onclick="reconnectDeviceCamera('${cam.id}')" title="Attach Laptop / Webcam to this Camera"><i class="fas fa-video"></i> Start Webcam</button>`) : ''}
                             ${!isGate && hasBin ? 
                                 `<span class="macos-badge badge-bin" onclick="promptAssignCameraBin('${cam.id}')" title="Click to reassign Bin"><i class="fas fa-location-dot"></i> ${escapeHtml(cam.bin_id)}</span>` : 
                                 (!isGate ? `<button class="macos-btn-subtle" onclick="promptAssignCameraBin('${cam.id}')"><i class="fas fa-plus"></i> Assign Bin</button>` : '')
@@ -3882,7 +3920,7 @@
 
                     let hdrEl = document.getElementById(`cam-hdr-${cam.id}`);
                     let ftrEl = document.getElementById(`cam-ftr-${cam.id}`);
-                    const useLiveMjpeg = (camIdx < 4 || isLocalDevice);
+                    const useLiveMjpeg = (livePriorityIds.has(cam.id) || isLocalDevice);
                     const camImgAttr = useLiveMjpeg
                         ? `data-stream-src="/video_feed/${cam.id}" src="/video_feed/${cam.id}"`
                         : `src="/api/vision/runtime/cameras/${cam.id}/preview.jpg?t=${Date.now()}" data-preview-cam="${cam.id}"`;
@@ -3921,9 +3959,23 @@
                     } else {
                         hdrEl.innerHTML = headerHtml;
                         ftrEl.innerHTML = footerHtml;
-                        const snapImg = card.querySelector('img[data-preview-cam]');
-                        if (snapImg && document.getElementById('cameras-view')?.classList.contains('active')) {
-                            snapImg.src = `/api/vision/runtime/cameras/${cam.id}/preview.jpg?t=${Date.now()}`;
+                        const camImg = card.querySelector('.macos-cam-img');
+                        if (camImg) {
+                            if (useLiveMjpeg) {
+                                camImg.removeAttribute('data-preview-cam');
+                                camImg.dataset.streamSrc = `/video_feed/${cam.id}`;
+                                if (document.getElementById('cameras-view')?.classList.contains('active') && !camImg.getAttribute('src')?.includes(`/video_feed/${cam.id}`)) {
+                                    camImg.src = `/video_feed/${cam.id}`;
+                                }
+                            } else {
+                                if (!camImg.hasAttribute('data-preview-cam')) {
+                                    camImg.removeAttribute('data-stream-src');
+                                    camImg.setAttribute('data-preview-cam', cam.id);
+                                }
+                                if (document.getElementById('cameras-view')?.classList.contains('active')) {
+                                    camImg.src = `/api/vision/runtime/cameras/${cam.id}/preview.jpg?t=${Date.now()}`;
+                                }
+                            }
                         }
                     }
                 }

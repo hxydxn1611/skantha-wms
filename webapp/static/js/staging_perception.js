@@ -30,7 +30,9 @@
         currentActiveAngle = camId;
         const imgEl = document.getElementById('stagingFeedImg');
         if (imgEl) {
-            imgEl.src = `/api/staging/feed.mjpg?cam=${encodeURIComponent(camId)}&t=${Date.now()}`;
+            const nextSrc = `/api/staging/feed.mjpg?cam=${encodeURIComponent(camId)}&t=${Date.now()}`;
+            imgEl.dataset.streamSrc = nextSrc;
+            imgEl.src = nextSrc;
         }
 
         // Update active tab button
@@ -338,7 +340,10 @@
         } else if (gateId === 'GATE-02') {
             if (singleViewport) singleViewport.style.display = 'block';
             if (dualViewport) dualViewport.style.display = 'none';
-            if (imgSingle) imgSingle.src = '/video_feed/CAM-004';
+            if (imgSingle) {
+                imgSingle.dataset.streamSrc = '/video_feed/CAM-004';
+                imgSingle.src = '/video_feed/CAM-004';
+            }
             if (checkOutBtn) checkOutBtn.style.display = 'inline-flex';
             if (laneTitle) laneTitle.innerHTML = '🚚 GATE 02 • OUTBOUND EXIT &amp; DWELL-TIME CLEARANCE';
 
@@ -349,7 +354,10 @@
             // Default: GATE-01 Entry
             if (singleViewport) singleViewport.style.display = 'block';
             if (dualViewport) dualViewport.style.display = 'none';
-            if (imgSingle) imgSingle.src = '/video_feed/CAM-001';
+            if (imgSingle) {
+                imgSingle.dataset.streamSrc = '/video_feed/CAM-001';
+                imgSingle.src = '/video_feed/CAM-001';
+            }
             if (checkOutBtn) checkOutBtn.style.display = 'none';
             if (laneTitle) laneTitle.innerHTML = '🚛 GATE 01 • INBOUND VEHICLE ADMISSION &amp; ANPR';
 

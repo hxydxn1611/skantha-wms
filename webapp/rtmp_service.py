@@ -99,24 +99,6 @@ class RTMPIngestService:
         except Exception as e:
             logger.warning(f"Error querying target cameras for RTMP: {e}")
 
-        # Also ensure any Gate / Inbound camera receives the RTMP video feed
-        try:
-            from db import get_db
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("SELECT camera_id, camera_code FROM cameras WHERE (location = 'Gate' OR location = 'Dock' OR name LIKE '%gate%') AND status != 'Inactive'")
-            for r in cur.fetchall():
-                if r[0] and r[0] not in target_ids:
-                    target_ids.append(r[0])
-                if r[1] and r[1] not in target_ids:
-                    target_ids.append(r[1])
-            conn.close()
-        except Exception:
-            pass
-
-        if "cam_inbound_01" not in target_ids:
-            target_ids.append("cam_inbound_01")
-
         self._cached_targets = target_ids
         self._last_targets_time = now
         return target_ids
@@ -245,24 +227,6 @@ class RTMPIngestService:
                             get_vision_runtime_manager().push_frame(cid, frame)
                         except Exception:
                             pass
-
-                        try:
-                            from app import active_cameras
-                            if cid in active_cameras:
-                                active_cameras[cid].raw_frame = frame
-                                active_cameras[cid].push_frame(frame)
-                        except Exception:
-                            pass
-
-                    # Also broadcast live feed directly to any active Gate cameras
-                    try:
-                        from app import active_cameras
-                        for ac_id, ac_cam in list(active_cameras.items()):
-                            if getattr(ac_cam, 'is_gate_camera', False) or ac_cam.location == 'Gate':
-                                ac_cam.raw_frame = frame
-                                ac_cam.push_frame(frame)
-                    except Exception:
-                        pass
 
                         try:
                             from app import active_cameras
