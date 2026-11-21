@@ -7465,21 +7465,122 @@ function initWb3DPalletViewer(matrixData) {
         }
     }
 
-    window.applyVerifiedCountToActivePallet = function() {
+    // "Save count to pallet": a dialog instead of writing silently onto whatever pallet was open (a mug carton
+    // count landed on a glass pallet and nothing reached stock). Only open pallets of the counted product are
+    // offered, or a new pallet in a chosen bin; ticking "Seal it and put it into stock" books it at once.
+    window.applyVerifiedCountToActivePallet = async function() {
         const parts = wbCountParts();
-        const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
-        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
-        const palletPcsElem = document.getElementById('palletTotalPieces');
-        const palletBundlesElem = document.getElementById('palletCountBundles');
-        const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
-        if (palletPcsElem) palletPcsElem.textContent = parts.pieces;
-        if (palletBundlesElem) palletBundlesElem.textContent = parts.packs;
-        if (unitsPerBundleElem) unitsPerBundleElem.textContent = parts.per;
-        if (parts.packs) {
-            saveCountToPallet(parts.packs, parts.per, `${parts.packs} ${bname}s × ${parts.per} = ${parts.pieces} ${uom}`);
-        } else {
-            saveCountToPallet(parts.pieces, 1, `${parts.pieces} pieces`);
+        if (!wbLatestResult || !parts.pieces) {
+            if (typeof showToast === 'function') showToast('Count a photo first, then save the count.', 'warning');
+            return;
         }
+        const skuSel = document.getElementById('wbTargetSkuSelect');
+        const recP = wbLatestResult.recognized_sku || wbLatestResult.sku_info || {};
+        const skuId = (skuSel && skuSel.value) || (recP.sku_id && !String(recP.sku_id).startsWith('INFERRED') ? recP.sku_id : '');
+        if (!skuId || ['AUTO', 'MULTI_ALL'].includes(skuId)) {
+            if (typeof showToast === 'function') showToast('Choose the product that was counted (SKU recognition list), then save.', 'warning');
+            return;
+        }
+        const prod = wbProduct(skuId) || recP || {};
+        const esc = (v) => (typeof __h === 'function' ? __h(v) : String(v == null ? '' : v));
+        let pallets = [], bins = [];
+        try {
+            const pr = await fetch('/api/pallets'); const pb = await pr.json().catch(() => ({}));
+            pallets = (Array.isArray(pb) ? pb : (pb.pallets || [])).filter(p => p.sku_id === skuId && String(p.status || '').toUpperCase() !== 'SEALED');
+            const br = await fetch('/api/bins'); const bb = await br.json().catch(() => []);
+            bins = Array.isArray(bb) ? bb : (bb.bins || []);
+        } catch (e) { /* the dialog still offers a new pallet */ }
+        const activeId = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
+        const can = (k) => (typeof window.hasPerm === 'function' ? window.hasPerm(k) : true);
+        const palOpts = pallets.map(p => `<option value="${esc(p.pallet_id)}" data-bin="${esc(p.assigned_bin_id || '')}"${p.pallet_id === activeId ? ' selected' : ''}>${esc(p.pallet_id)} · now ${esc(p.total_units || 0)} · bin ${esc(p.assigned_bin_id || '–')}</option>`).join('')
+            + (can('pallet.create') ? '<option value="__new">+ Build a new pallet…</option>' : '');
+        if (!palOpts) {
+            if (typeof showToast === 'function') showToast(`No open pallet of ${skuId} here, and you may not build one.`, 'warning');
+            return;
+        }
+        const binOpts = bins.map(b => `<option value="${esc(b.bin_id)}">${esc(b.bin_id)}${b.zone ? ' · zone ' + esc(b.zone) : ''}</option>`).join('');
+        const unit = (document.getElementById('wbUomSelect')?.value || prod.uom || 'EA').toUpperCase();
+        const inside = parts.kind === 'carton' && prod.pack_contents ? prod.pack_contents : unit;
+        const summary = parts.packs
+            ? `${parts.packs} ${parts.kind === 'carton' ? 'carton' : 'bundle'}${parts.packs === 1 ? '' : 's'} × ${parts.per} = ${parts.pieces} ${inside}`
+            : `${parts.pieces} ${unit}`;
+        const canStock = can('pallet.seal') && can('inventory.transfer');
+        const wrap = document.createElement('div');
+        wrap.className = 'uac-modal-backdrop';
+        wrap.innerHTML = `<div class="uac-modal inv-modal" role="dialog" aria-modal="true" aria-label="Save count to pallet">
+            <div class="uac-modal-head"><div><h3><i class="fas fa-pallet c-blue"></i> Save count to pallet</h3>
+                <div class="uac-modal-sub">${esc(prod.name || skuId)} · <b>${esc(summary)}</b></div></div>
+                <button class="uac-x" type="button" aria-label="Close">&times;</button></div>
+            <div class="uac-modal-body">
+                <label class="uac-label" for="wbSavePal">Pallet (only pallets of this product)</label>
+                <select id="wbSavePal" class="uac-input">${palOpts}</select>
+                <div id="wbSaveBinRow">
+                    <label class="uac-label" for="wbSaveBin">Bin it goes into</label>
+                    <select id="wbSaveBin" class="uac-input"><option value="">Choose a bin…</option>${binOpts}</select>
+                </div>
+                ${canStock ? `<label class="uac-label" style="display:flex; gap:8px; align-items:center; margin-top:10px;"><input type="checkbox" id="wbSaveStock" checked style="width:auto; flex:none; margin:0;"> Seal it and put it into stock now</label>
+                <div class="uac-hint"><i class="fas fa-triangle-exclamation"></i> Untick if these goods were already received at Inbound, or they are counted twice. You can seal it later in Palletization.</div>` : ''}
+            </div>
+            <div class="uac-modal-msg"></div>
+            <div class="uac-modal-actions"><button class="uac-btn" type="button" data-x>Cancel</button>
+                <button class="uac-btn uac-btn-primary" type="button" data-ok>Save</button></div></div>`;
+        const close = () => wrap.remove();
+        wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+        wrap.querySelector('.uac-x').onclick = close;
+        wrap.querySelector('[data-x]').onclick = close;
+        const palSel = wrap.querySelector('#wbSavePal'), binSel = wrap.querySelector('#wbSaveBin'), binRow = wrap.querySelector('#wbSaveBinRow');
+        const stockBox = wrap.querySelector('#wbSaveStock');
+        const sync = () => {
+            const opt = palSel.selectedOptions[0];
+            const palBin = opt && opt.dataset ? opt.dataset.bin : '';
+            // a bin is needed for a new pallet, or to put a pallet without a bin into stock
+            binRow.style.display = (palSel.value === '__new' || (!palBin && stockBox && stockBox.checked)) ? '' : 'none';
+            if (palBin && [...binSel.options].some(o => o.value === palBin)) binSel.value = palBin;
+        };
+        palSel.onchange = sync; if (stockBox) stockBox.onchange = sync; sync();
+        const msg = wrap.querySelector('.uac-modal-msg'), ok = wrap.querySelector('[data-ok]');
+        const send = async (url, body) => {
+            const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || j.success === false) throw new Error(j.error || j.message || `That did not work (${r.status}).`);
+            return j;
+        };
+        ok.onclick = async () => {
+            msg.className = 'uac-modal-msg'; msg.textContent = '';
+            ok.disabled = true;
+            try {
+                let pid = palSel.value;
+                const bin = binSel.value;
+                const per = parts.packs ? parts.per : 1;
+                if (pid === '__new') {
+                    if (!bin) throw new Error('Choose the bin for the new pallet.');
+                    const made = await send('/api/pallets', { sku_id: skuId, units_per_bundle: per, target_bundles: 0, assigned_bin_id: bin });
+                    pid = (made.pallet || {}).pallet_id || made.pallet_id;
+                    if (!pid) throw new Error('The pallet was not created.');
+                }
+                const saved = await send(`/api/pallets/${encodeURIComponent(pid)}/count`,
+                                         { counted_bundles: parts.packs || parts.pieces, units_per_bundle: per, sku_id: skuId });
+                let done = 'Saved on pallet ' + pid + ': ' + summary + '.';
+                if (stockBox && stockBox.checked) {
+                    const pal = saved.pallet || {};
+                    const target = pal.assigned_bin_id || bin;
+                    if (!target) throw new Error('Choose the bin it goes into.');
+                    await send(`/api/pallets/${encodeURIComponent(pid)}/seal`, target !== pal.assigned_bin_id ? { assigned_bin_id: target } : {});
+                    const put = await send(`/api/pallets/${encodeURIComponent(pid)}/putaway`, { bin_id: target });
+                    done = 'Pallet ' + pid + ' sealed. ' + (put.message || '');   // toast shows plain text
+                } else {
+                    done += ' Seal it when the pallet is complete.';
+                }
+                if (typeof window.showPalletRecord === 'function') {
+                    try { const pr = await fetch(`/api/pallets/${encodeURIComponent(pid)}`); const pj = await pr.json(); window.showPalletRecord(pj.pallet || pj); } catch (e) {}
+                }
+                close();
+                if (typeof showToast === 'function') showToast(done, 'success');
+            } catch (e) {
+                msg.textContent = e.message || String(e); msg.className = 'uac-modal-msg error';
+            } finally { ok.disabled = false; }
+        };
+        document.body.appendChild(wrap);
     };
 
 

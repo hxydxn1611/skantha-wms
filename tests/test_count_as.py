@@ -39,6 +39,20 @@ class TestCountAs(FlowBase):
         listed = {s["sku_id"]: s for s in self.get(d, "/api/pallets/vision-skus").get_json()["skus"]}
         self.assertEqual((listed["CA-MUG-12"]["count_as"], listed["CA-MUG-12"]["pack_contents"]), ("cartons", "Ceramic mug 350ml"))
 
+    def test_a_count_only_lands_on_an_open_pallet_of_the_same_product(self):
+        d = self.client("david", self.glass_wh[0])
+        body = self.send(d, "POST", "/api/pallets", {"sku_id": "GLS-FLT-04MM", "units_per_bundle": 40, "assigned_bin_id": "FLOW-A"}).get_json()
+        pid = (body.get("pallet") or {}).get("pallet_id") or body.get("pallet_id")
+        r = self.send(d, "POST", f"/api/pallets/{pid}/count", {"counted_bundles": 27, "units_per_bundle": 12, "sku_id": "GLS-FLT-06MM"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("holds GLS-FLT-04MM", r.get_json()["error"])
+        self.assertEqual(self.sql("SELECT counted_bundles, total_units FROM pallets WHERE pallet_id = ?", (pid,)), [(0, 0)])
+        self.assertEqual(self.send(d, "POST", f"/api/pallets/{pid}/count", {"counted_bundles": 2, "units_per_bundle": 40, "sku_id": "GLS-FLT-04MM"}).status_code, 200)
+        self.send(d, "POST", f"/api/pallets/{pid}/seal", {})
+        r = self.send(d, "POST", f"/api/pallets/{pid}/count", {"counted_bundles": 9, "units_per_bundle": 40})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.sql("SELECT total_units FROM pallets WHERE pallet_id = ?", (pid,)), [(80,)])
+
     def test_a_count_does_not_change_the_products_pack_size(self):
         import io
         import numpy as np

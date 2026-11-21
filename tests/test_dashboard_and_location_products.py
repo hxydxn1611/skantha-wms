@@ -59,7 +59,14 @@ class TestProductsPerLocation(FlowBase):
     def test_removed_here_only_and_back_when_added_again(self):
         other = self.other_location()
         here, there = self.client("david", other), self.client("david", self.glass_wh[0])
-        sku = "GLS-MIR-05MM"
+        # a product no location has taken out of its lists (live data may hide some)
+        rows = self.sql("SELECT sku_id FROM skus WHERE company_id = ? AND sku_id LIKE 'GLS-%' AND sku_id NOT IN "
+                        "(SELECT sku_id FROM warehouse_hidden_skus WHERE warehouse_id IN (?, ?)) AND sku_id NOT IN "
+                        "(SELECT sku_id FROM inventory WHERE quantity > 0 AND warehouse_id = ?) "
+                        "ORDER BY sku_id LIMIT 1", (self.glass_wh[1], other, self.glass_wh[0], other))
+        if not rows:
+            self.skipTest("no free product to test with")
+        sku = rows[0][0]
         qty_here = self.sql("SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE sku_id = ? AND warehouse_id = ?", (sku, other))[0][0]
         if qty_here:
             self.skipTest("that product has stock in the other location")

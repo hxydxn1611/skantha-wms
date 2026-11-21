@@ -6918,6 +6918,14 @@ def api_update_pallet_count(pallet_id):
     new_count = data.get('counted_bundles') if data.get('counted_bundles') is not None else data.get('current_bundles')
     if new_count is None:
         return jsonify({"success": False, "error": "counted_bundles is required"}), 400
+    # a count of one product must not land on a pallet of another (mug cartons were saved onto a glass
+    # pallet) or on a sealed pallet (its stock is already booked)
+    pal = db.get_pallet_by_id(pallet_id)
+    if pal and data.get('sku_id') and pal.get('sku_id') and str(data['sku_id']).strip() != pal['sku_id']:
+        return jsonify({"success": False, "error": f"Pallet {pallet_id} holds {pal['sku_id']}, but this count is for {data['sku_id']}. "
+                        "Choose a pallet of the same product or build a new one."}), 400
+    if pal and str(pal.get('status') or '').upper() == 'SEALED':
+        return jsonify({"success": False, "error": f"Pallet {pallet_id} is already sealed - build a new pallet for this count."}), 400
 
     rec = db.update_pallet_count(
         pallet_id=pallet_id,
