@@ -1468,7 +1468,10 @@ class PalletVisionCountingService:
             )
 
         # 2. Strict target single-SKU mode when reference photo matcher is available
-        if sku_anchor and sku_anchor.get("matcher") and resolved_strategy != "individual_pieces":
+        # (not for carton stacks: the carton counter rebuilds the 3D stack - rows x columns x layers, hidden
+        # inner cartons, the 3D model - while this shortcut only matched the front faces: 16 instead of 24)
+        is_carton_count = resolved_strategy == "carton_boxes" or normalized_mode in self.CARTON_BOX_MODES
+        if sku_anchor and sku_anchor.get("matcher") and resolved_strategy != "individual_pieces" and not is_carton_count:
             target_res = self._count_targeted_single_sku(
                 image_bgr, sku_anchor=sku_anchor, roi=roi, sensitivity=sensitivity, raw_url=raw_url
             )

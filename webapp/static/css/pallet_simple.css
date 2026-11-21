@@ -29,8 +29,8 @@
 .pzs-hint i { color: var(--accent); margin-top: 2px; }
 .pzs-hint b { font-weight: 700; }
 
-/* ---------------------------------------------------------------- Simple mode: fold the advanced parts away */
-#palletization-view.pz-simple div:has(> #pallet-tab-wb-btn),          /* sub-tabs: 3D twin, ledger, presets, QR studio */
+/* ---------------------------------------------------------------- Simple mode: fold the advanced parts away
+   (the sub-tabs - 3D twin, ledger, presets, QR - and the workbench 3D card stay visible: users looked for them) */
 #palletization-view.pz-simple .pallet-radial-gauges-card,              /* transport payload gauges */
 #palletization-view.pz-simple div:has(> #wbAutoGeometryFormula),       /* inferred geometry */
 #palletization-view.pz-simple div:has(> div > #wbStatInferred),        /* visible / inferred / formula / tare grid */
@@ -43,7 +43,6 @@
 #palletization-view.pz-simple #wbClustersPills,
 #palletization-view.pz-simple #wbGlassProfileBar,
 #palletization-view.pz-simple #wbRealizedUnitsPill,
-#palletization-view.pz-simple div:has(> #wbThreeJsContainer),          /* 3D digital twin card */
 #palletization-view.pz-simple div:has(#wbUnitsPerBundleInput):not(:has(#wbTargetSkuSelect)),  /* bundle declaration */
 #palletization-view.pz-simple .hud-item:has(#palletFillPct),
 #palletization-view.pz-simple #wbBtnReplaceImage,

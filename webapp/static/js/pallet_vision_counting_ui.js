@@ -2890,7 +2890,10 @@
             const want = wbMaterialFor(p);
             if ([...mat.options].some(o => o.value === want) && mat.value !== want) {
                 mat.value = want;
-                mat.dispatchEvent(new Event('change'));   // e.g. shows the glass sheet-size bar
+                // the glass sheet-size bar (not the change event: that starts a count of its own)
+                const glassBar = document.getElementById('wbGlassProfileBar');
+                if (glassBar) glassBar.style.display = want === 'glass_bundles' ? 'flex' : 'none';
+                if (want === 'glass_bundles' && typeof window.loadWorkbenchGlassProfiles === 'function') window.loadWorkbenchGlassProfiles();
             }
         }
         const sel = document.getElementById('wbTargetSkuSelect');
@@ -4904,6 +4907,9 @@
                 setTimeout(() => window.executeWorkbenchCount(), 60);
                 return;
             }
+            // same mode: still take the product's own pieces per pack / carton contents (the box kept an old
+            // value, e.g. 40 from a glass pallet: 24 cartons x 40 mugs instead of x 12)
+            if (prodForMode && prodForMode.count_as === wbMode) wbApplyProductMode(prodForMode);
             // packs x pieces in the badge (renderWorkbenchResults shows the raw count only)
             if (wbMode !== 'pieces' && typeof window.onWorkbenchBundleMultiplierChange === 'function') window.onWorkbenchBundleMultiplierChange();
             if (prodForMode && prodForMode.count_as === 'cartons' && typeof showToast === 'function') {
@@ -6891,6 +6897,7 @@
 
 
 function initWb3DPalletViewer(matrixData) {
+        window.lastPallet3DMatrix = matrixData || null;   // the 3D tab shows the same model, larger
 
         const container = document.getElementById('wbThreeJsContainer');
 
@@ -8428,6 +8435,41 @@ function initWb3DPalletViewer(matrixData) {
     }
 
 
+
+
+    // ---- Palletization > "3D Digital Twin" tab --------------------------------------------------------
+    // The tab used to call window.initWb3DPalletViewer, which was never exposed, so it stayed empty.
+    // It now shows the workbench's own 3D model (the last count) in its large stage: the viewer is moved
+    // there while the tab is open and back into the workbench card afterwards.
+    window.initWb3DPalletViewer = initWb3DPalletViewer;
+    window.showPallet3DStudio = function(open) {
+        const c = document.getElementById('wbThreeJsContainer');
+        const stage = document.getElementById('palletStudio3DStage');
+        if (!c || !stage) return;
+        if (!window.__wb3dHome) {
+            window.__wb3dHome = { parent: c.parentElement, next: c.nextSibling, height: c.style.height, intro: stage.firstElementChild };
+        }
+        const home = window.__wb3dHome;
+        const m = window.lastPallet3DMatrix;
+        const has = !!(m && m.boxes && m.boxes.length);
+        if (open) {
+            if (home.intro) {
+                home.intro.style.display = has ? 'none' : '';
+                const p = home.intro.querySelector('p');
+                if (p && !has) p.textContent = 'No 3D stack yet. Count a pallet of bundles or cartons in the Vision Workbench, then open this tab. Individual pieces are counted on the photo only.';
+            }
+            if (has) {
+                stage.appendChild(c);
+                c.style.height = '100%';
+                setTimeout(() => initWb3DPalletViewer(m), 30);
+            }
+        } else if (c.parentElement !== home.parent) {
+            home.parent.insertBefore(c, home.next);
+            c.style.height = home.height;
+            if (home.intro) home.intro.style.display = '';
+            setTimeout(() => initWb3DPalletViewer(m || null), 30);
+        }
+    };
 
 })();
 

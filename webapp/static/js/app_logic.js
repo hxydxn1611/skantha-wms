@@ -6985,11 +6985,9 @@ window.switchPalletSubTab = function(tab) {
         if (window.palletModule && typeof window.palletModule.loadPallets === 'function') {
             window.palletModule.loadPallets();
         }
-    } else if (tab === '3d') {
-        if (typeof window.initWb3DPalletViewer === 'function') {
-            window.initWb3DPalletViewer(window.lastPallet3DMatrix || null);
-        }
     }
+    // the 3D tab shows the workbench's 3D model in its big stage, and gives it back on any other tab
+    if (typeof window.showPallet3DStudio === 'function') window.showPallet3DStudio(tab === '3d');
 };
 
 window.setMatrix = function(cols) {
