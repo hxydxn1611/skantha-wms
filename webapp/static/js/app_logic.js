@@ -6647,11 +6647,11 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             const config = {
                 type: 'line',
                 data: {
-                    labels: ['12AM', '4AM', '8AM', '12PM', '4PM', '8PM', 'Now'],
+                    labels: [],
                     datasets: [
                         {
-                            label: 'Movement Events',
-                            data: [12, 18, 25, 42, 58, 38, 45],
+                            label: 'Stock movements',
+                            data: [],
                             borderColor: blueColor,
                             backgroundColor: blueGrad,
                             fill: true,
@@ -6663,13 +6663,26 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                             pointHoverRadius: 6
                         },
                         {
-                            label: 'Vision Detections',
-                            data: [8, 12, 16, 28, 40, 26, 32],
+                            label: 'Pallets sealed',
+                            data: [],
                             borderColor: purpleColor,
                             backgroundColor: purpleGrad,
                             fill: true,
                             tension: 0.42,
                             pointBackgroundColor: purpleColor,
+                            pointBorderColor: '#ffffff',
+                            pointBorderWidth: 2,
+                            pointRadius: 3,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Trucks in',
+                            data: [],
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                            fill: false,
+                            tension: 0.42,
+                            pointBackgroundColor: '#10b981',
                             pointBorderColor: '#ffffff',
                             pointBorderWidth: 2,
                             pointRadius: 3,
@@ -6702,9 +6715,9 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                         },
                         y: {
                             beginAtZero: true,
-                            max: 100,
+                            suggestedMax: 5,
                             grid: { color: gridColor },
-                            ticks: { stepSize: 25, color: textColor, font: { size: 10, weight: '600' } }
+                            ticks: { precision: 0, color: textColor, font: { size: 10, weight: '600' } }
                         }
                     }
                 }
@@ -6717,50 +6730,84 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
             await fetchLiveTelemetryData();
         }
 
+        // Real data only (/api/dashboard/live): stock movements, pallets sealed and trucks in per time slot,
+        // a health score from checks that can fail, and the newest events. Nothing on the dashboard is made up.
         async function fetchLiveTelemetryData() {
             if (!window.telemetryChartInstance) return;
             const range = document.getElementById('telemetryTimeRange')?.value || '24h';
             try {
-                const res = await fetch(`/api/telemetry/live?range=${range}`);
+                const res = await fetch(`/api/dashboard/live?range=${encodeURIComponent(range)}`);
                 const data = await res.json();
-                if (data.success) {
-                    window.telemetryChartInstance.data.labels = data.labels;
-                    window.telemetryChartInstance.data.datasets[0].data = data.movement_events;
-                    window.telemetryChartInstance.data.datasets[1].data = data.vision_detections;
-                    window.telemetryChartInstance.options.scales.y.max = data.y_max || 100;
-                    window.telemetryChartInstance.update();
-
-                    // Update live activity feed in Col 3
-                    renderLiveFeedData(data.feed);
-
-                    // Update camera counts in hero & health with real online feedback
-                    if (data.total_cameras !== undefined || data.camera_count !== undefined) {
-                        const total = data.total_cameras !== undefined ? data.total_cameras : (data.camera_count || 0);
-                        const online = data.cameras_online !== undefined ? data.cameras_online : (data.active_cameras || 0);
-                        const heroCam = document.getElementById('heroCameraCount');
-                        if (heroCam) heroCam.textContent = `${online} / ${total}`;
-                        const healthCam = document.getElementById('stat-cameras-online-health');
-                        if (healthCam) healthCam.textContent = `${online} / ${total}`;
-                    }
-                }
-            } catch(e) {
-                console.warn('Telemetry live poll notice:', e);
+                if (!data.success) return;
+                const ch = window.telemetryChartInstance;
+                ch.data.labels = data.labels;
+                ch.data.datasets[0].data = data.series.stock_movements;
+                ch.data.datasets[1].data = data.series.pallets_sealed;
+                ch.data.datasets[2].data = data.series.trucks_in;
+                ch.update();
+                renderLiveFeedData(data.feed);
+                renderHealth(data);
+                const t = data.today || {};
+                const plural = (n, word) => `${n || 0} ${word}${n === 1 ? '' : 's'}`;
+                const hero = document.getElementById('heroSummary');
+                if (hero) hero.textContent = `Today: ${plural(t.stock_movements, 'stock movement')}, `
+                    + `${plural(t.pallets_sealed, 'pallet')} sealed, ${plural(t.trucks_in, 'truck')} in at the gate.`;
+                const pal = document.getElementById('heroPalletsToday');
+                if (pal) pal.textContent = t.pallets_sealed || 0;
+                const heroCam = document.getElementById('heroCameraCount');
+                if (heroCam) heroCam.textContent = `${data.cameras_online} / ${data.cameras_total}`;
+            } catch (e) {
+                console.warn('Dashboard live poll notice:', e);
             }
         }
         window.updateTelemetryChart = fetchLiveTelemetryData;
 
+        function renderHealth(data) {
+            const score = document.getElementById('healthScore');
+            const label = document.getElementById('healthLabel');
+            const ring = document.getElementById('healthDonutRing');
+            const pct = Math.max(0, Math.min(100, Number(data.health) || 0));
+            if (score) score.textContent = `${pct % 1 ? pct.toFixed(1) : pct}%`;
+            const bad = (data.checks || []).filter(c => c.ok === false).length;
+            if (label) label.textContent = bad ? `${bad} check${bad > 1 ? 's' : ''} need attention` : 'All checks passed';
+            if (ring) {
+                ring.style.strokeDashoffset = String(314 * (1 - pct / 100));
+                ring.style.stroke = pct >= 90 ? '#10b981' : (pct >= 60 ? '#f59e0b' : '#ef4444');
+            }
+            const list = document.getElementById('healthChecks');
+            if (list) list.innerHTML = (data.checks || []).map(c => {
+                const icon = c.ok === true ? 'fa-circle-check text-emerald' : (c.ok === false ? 'fa-triangle-exclamation c-danger' : 'fa-circle-minus');
+                const idAttr = c.name === 'Cameras online' ? ' id="stat-cameras-online-health"' : '';
+                return `<div class="health-item"><i class="fas ${icon}"></i><span class="health-item-name">${__h(c.name)}</span>`
+                    + `<span class="health-item-val"${idAttr}>${__h(c.value)}</span></div>`;
+            }).join('');
+        }
+
+        function timeAgo(at) {
+            const t = new Date(String(at).replace(' ', 'T'));
+            const s = Math.max(0, (Date.now() - t.getTime()) / 1000);
+            if (!isFinite(s)) return '';
+            if (s < 60) return 'just now';
+            if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+            if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+            return t.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+        }
+
         function renderLiveFeedData(feedItems) {
             const feedContainer = document.getElementById('swmsActivityFeed');
-            if (!feedContainer || !Array.isArray(feedItems) || feedItems.length === 0) return;
-
+            if (!feedContainer || !Array.isArray(feedItems)) return;
+            if (feedItems.length === 0) {
+                feedContainer.innerHTML = '<div class="timeline-row"><div class="timeline-content"><div class="timeline-meta"><span>No activity yet in this location.</span></div></div></div>';
+                return;
+            }
             feedContainer.innerHTML = feedItems.map(item => `
                 <div class="timeline-row">
-                    <div class="timeline-icon-badge ${item.badge_class || 'icon-badge-blue'}">
-                        <i class="${item.icon || 'fas fa-info-circle'}"></i>
+                    <div class="timeline-icon-badge ${__h(item.badge_class || 'icon-badge-blue')}">
+                        <i class="${__h(item.icon || 'fas fa-info-circle')}"></i>
                     </div>
                     <div class="timeline-content">
                         <div class="timeline-title">${__h(item.title)}</div>
-                        <div class="timeline-meta"><span>${item.meta}</span></div>
+                        <div class="timeline-meta"><span>${__h([item.meta, timeAgo(item.at)].filter(Boolean).join(' • '))}</span></div>
                     </div>
                 </div>
             `).join('');
@@ -6942,11 +6989,9 @@ window.switchPalletSubTab = function(tab) {
         if (window.palletModule && typeof window.palletModule.loadPallets === 'function') {
             window.palletModule.loadPallets();
         }
-    } else if (tab === '3d') {
-        if (typeof window.initWb3DPalletViewer === 'function') {
-            window.initWb3DPalletViewer(window.lastPallet3DMatrix || null);
-        }
     }
+    // the 3D tab shows the workbench's 3D model in its big stage, and gives it back on any other tab
+    if (typeof window.showPallet3DStudio === 'function') window.showPallet3DStudio(tab === '3d');
 };
 
 window.setMatrix = function(cols) {
@@ -7200,5 +7245,22 @@ window.toggleCameraDeviceSidebar = function() {
             btn.classList.add('active');
             btn.innerHTML = '<i class="fas fa-list-ul"></i> Hide Devices';
         }
+    }
+};
+
+// Camera Junction > "No Active Camera Feeds" > "Use Device Camera" called openDeviceCamPrompt(), which never
+// existed (ReferenceError). It opens the camera form with "Device Camera (Laptop / Phone)" chosen, the same
+// form "Connect Network Camera" opens; the user names it and presses Connect as usual.
+window.openDeviceCamPrompt = function() {
+    if (typeof window.switchCameraSubTab === 'function') window.switchCameraSubTab('settings');
+    const type = document.getElementById('camType');
+    if (type) {
+        type.value = 'Device Camera';
+        type.dispatchEvent(new Event('change'));
+    }
+    const name = document.getElementById('camName');
+    if (name) {
+        if (!name.value.trim()) name.value = 'Laptop Camera';
+        setTimeout(() => { name.focus(); name.select(); }, 50);
     }
 };

@@ -36,6 +36,7 @@ rule,method,endpoint,access,permission,module,scope,sensitive,reason_required
 /api/cycle_count/activities,GET,get_cycle_count_activities,permission,cyclecount.view,Cycle count,warehouse,,
 /api/cycle_count/audit/<bin_id>,GET,audit_bin_cycle_count,permission,cyclecount.view,Cycle count,warehouse,,
 /api/cycle_count/audit/<bin_id>/simulate,POST,simulate_bin_cycle_count,permission,cyclecount.execute,Cycle count,warehouse,,
+/api/dashboard/live,GET,api_dashboard_live,permission,dashboard.view,Dashboard,warehouse,,
 /api/deliveries,GET,handle_deliveries,permission,deliveries.view|inbound.view|dock.view|gate.pass.view,Pre-registration,warehouse,,
 /api/deliveries,POST,handle_deliveries,permission,deliveries.create,Pre-registration,warehouse,,
 /api/deliveries/<po_number>,DELETE,handle_single_delivery,permission,deliveries.delete,Pre-registration,warehouse,,

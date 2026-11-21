@@ -253,6 +253,7 @@ RBAC_ADDED_KEYS = frozenset({
     "otp_failed_attempts",                 # hardening: wrong gate-OTP tries per pass
     "outbound_order_id", "gate_pass_id",   # outbound truck through the gate (migration 015)
     "vehicle_plate", "transporter", "dispatched_at",
+    "count_as", "pack_contents",           # how a product is counted (migration 017)
 })
 
 # Deliberate Phase 1 data changes, excluded from the "existing rows unchanged" check:

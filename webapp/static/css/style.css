@@ -8741,3 +8741,11 @@ body {
 #wbThreeJsContainer {
     background-color: #020617 !important;
 }
+
+/* Palletization: "Recognized Product" banner - readable in every theme */
+.wb-rec-id { font-family: monospace; font-weight: 800; color: #7dd3fc; }
+.wb-rec-name { font-weight: 700; color: #ffffff; }
+.wb-rec-tag { font-size: 0.74rem; color: #a7f3d0; }
+[data-theme="light"] .wb-rec-id { color: #6d28d9; }
+[data-theme="light"] .wb-rec-name { color: #111827; }
+[data-theme="light"] .wb-rec-tag { color: #047857; }

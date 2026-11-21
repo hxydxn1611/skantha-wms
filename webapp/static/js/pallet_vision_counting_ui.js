@@ -16,7 +16,7 @@
 
 
 
-(function() {
+(function () {
 
     let currentMode = 'pieces'; // 'pieces' or 'bundles'
 
@@ -32,7 +32,7 @@
 
 
 
-    window.toggleDemoPresets = function(drawerId) {
+    window.toggleDemoPresets = function (drawerId) {
 
         const el = document.getElementById(drawerId);
 
@@ -46,7 +46,7 @@
 
 
 
-    window.loadVisionSkus = async function(forceRefresh = false) {
+    window.loadVisionSkus = async function (forceRefresh = false) {
 
         try {
 
@@ -176,7 +176,7 @@
 
 
 
-    window.onWorkbenchSkuSelectChange = function(skuId) {
+    window.onWorkbenchSkuSelectChange = function (skuId) {
 
         const matched = mappedVisionSkus.find(s => s.sku_id === skuId);
 
@@ -276,7 +276,7 @@
 
 
 
-    window.onWorkbenchBundleMultiplierChange = function() {
+    window.onWorkbenchBundleMultiplierChange = function () {
         const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
         const upb = isPieces ? 1 : Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
         const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
@@ -308,7 +308,7 @@
 
 
 
-    window.saveWorkbenchBundleConfigToSku = async function() {
+    window.saveWorkbenchBundleConfigToSku = async function () {
 
         const selSku = document.getElementById('wbTargetSkuSelect')?.value || (wbLatestResult && wbLatestResult.sku_id) || '';
 
@@ -340,7 +340,7 @@
 
 
 
-    window.onVisionSkuSelected = function(mode, skuId) {
+    window.onVisionSkuSelected = function (mode, skuId) {
 
         const isPieces = mode === 'pieces';
 
@@ -470,7 +470,7 @@
 
 
 
-    window.openVisionCountingModal = function(initialMode = 'pieces') {
+    window.openVisionCountingModal = function (initialMode = 'pieces') {
 
         const modal = document.getElementById('modalVisionCounting');
 
@@ -492,7 +492,7 @@
 
 
 
-    window.closeVisionCountingModal = function() {
+    window.closeVisionCountingModal = function () {
 
         const modal = document.getElementById('modalVisionCounting');
 
@@ -508,13 +508,13 @@
 
     // Backward-compatibility alias
 
-    window.openMultiAngleAuditModal = function() {
+    window.openMultiAngleAuditModal = function () {
 
         window.openVisionCountingModal('bundles');
 
     };
 
-    window.closeMultiAngleAuditModal = function() {
+    window.closeMultiAngleAuditModal = function () {
 
         window.closeVisionCountingModal();
 
@@ -522,7 +522,7 @@
 
 
 
-    window.switchVisionCountingMode = function(mode) {
+    window.switchVisionCountingMode = function (mode) {
 
         currentMode = mode;
 
@@ -604,7 +604,7 @@
 
 
 
-    window.previewPiecesImage = function(input) {
+    window.previewPiecesImage = function (input) {
 
         if (!input.files || !input.files[0]) return;
 
@@ -612,7 +612,7 @@
 
         const reader = new FileReader();
 
-        reader.onload = function(e) {
+        reader.onload = function (e) {
 
             const previewImg = document.getElementById('piecesPreviewImg');
 
@@ -658,7 +658,7 @@
 
 
 
-    window.loadSamplePiecesImage = function(sampleFileName = 'sample_individual_pipes_229.jpg', mode = 'auto') {
+    window.loadSamplePiecesImage = function (sampleFileName = 'sample_individual_pipes_229.jpg', mode = 'auto') {
 
         const previewImg = document.getElementById('piecesPreviewImg');
 
@@ -700,7 +700,7 @@
 
 
 
-    window.executePieceCount = async function(useSample = false, sampleNameOverride = null, modeOverride = null) {
+    window.executePieceCount = async function (useSample = false, sampleNameOverride = null, modeOverride = null) {
 
         const btn = document.getElementById('btnRunPieceCount');
 
@@ -1300,7 +1300,7 @@
 
 
 
-    window.handleImageCanvasClick = function(event) {
+    window.handleImageCanvasClick = function (event) {
 
         const imgElem = document.getElementById('piecesResultImg');
 
@@ -1380,7 +1380,7 @@
 
 
 
-    window.removeManualPin = function(index) {
+    window.removeManualPin = function (index) {
 
         if (index >= 0 && index < manualPinsList.length) {
 
@@ -1402,9 +1402,9 @@
 
         if (!latestPiecesResult) return;
 
-        const directCount = latestPiecesResult.directly_detected_count !== undefined 
+        const directCount = latestPiecesResult.directly_detected_count !== undefined
 
-            ? latestPiecesResult.directly_detected_count 
+            ? latestPiecesResult.directly_detected_count
 
             : (latestPiecesResult.visible_pieces || latestPiecesResult.total_pieces || 0);
 
@@ -1432,7 +1432,7 @@
 
 
 
-    window.removePieceBadge = function(index) {
+    window.removePieceBadge = function (index) {
 
         if (index >= 0 && index < currentPiecesList.length) {
 
@@ -1512,7 +1512,7 @@
 
 
 
-    window.recertifyAndSavePieces = async function() {
+    window.recertifyAndSavePieces = async function () {
 
         if (!currentRawImageUrl || currentPiecesList.length === 0) {
 
@@ -1576,7 +1576,7 @@
 
 
 
-    window.syncPiecesCountToPallet = async function() {
+    window.syncPiecesCountToPallet = async function () {
 
         if (!latestPiecesResult && currentPiecesList.length === 0) {
 
@@ -1658,7 +1658,7 @@
 
 
 
-    window.previewBundleAngle = function(slotIndex, input) {
+    window.previewBundleAngle = function (slotIndex, input) {
 
         if (!input.files || !input.files[0]) return;
 
@@ -1666,7 +1666,7 @@
 
         const reader = new FileReader();
 
-        reader.onload = function(e) {
+        reader.onload = function (e) {
 
             const previewImg = document.getElementById(`bundleAnglePreview${slotIndex}`);
 
@@ -1694,7 +1694,7 @@
 
 
 
-    window.loadBundleSampleDemo = function(presetKey) {
+    window.loadBundleSampleDemo = function (presetKey) {
 
         const a1 = document.getElementById('bundleAnglePreview1');
 
@@ -1734,7 +1734,7 @@
 
 
 
-    window.executeBundleCount = async function(presetKey = null) {
+    window.executeBundleCount = async function (presetKey = null) {
 
         const btn = document.getElementById('btnRunBundleCount');
 
@@ -1946,7 +1946,7 @@
 
 
 
-    window.syncBundlesCountToPallet = async function() {
+    window.syncBundlesCountToPallet = async function () {
 
         if (!latestBundlesResult) {
 
@@ -2018,7 +2018,7 @@
 
 
 
-    window.openPiecesImageFullscreen = function() {
+    window.openPiecesImageFullscreen = function () {
 
         const imgElem = document.getElementById('piecesResultImg');
 
@@ -2030,7 +2030,7 @@
 
 
 
-    window.openBundleImageFullscreen = function() {
+    window.openBundleImageFullscreen = function () {
 
         const imgElem = document.getElementById('bundleAuditBoardImg');
 
@@ -2072,7 +2072,7 @@
 
 
 
-    window.adjust3DMatrixParam = function(param, delta) {
+    window.adjust3DMatrixParam = function (param, delta) {
 
         if (!currentMatrixParams) {
 
@@ -2084,7 +2084,7 @@
 
         currentMatrixParams[param] = Math.max(1, Math.min(12, (currentMatrixParams[param] || 1) + delta));
 
-        
+
 
         const elemMap = { layers: 'matrixValLayers', columns: 'matrixValColumns', depth: 'matrixValDepth' };
 
@@ -2096,7 +2096,7 @@
 
         }
 
-        
+
 
         // Re-execute piece count with custom matrix
 
@@ -2106,7 +2106,7 @@
 
 
 
-    window.toggleExplode3D = function() {
+    window.toggleExplode3D = function () {
 
         isExploded = !isExploded;
 
@@ -2114,7 +2114,7 @@
 
         if (btn) {
 
-            btn.innerHTML = isExploded ? 
+            btn.innerHTML = isExploded ?
 
                 '<i class="fas fa-compress-arrows-alt"></i> <span>Compact Stack</span>' :
 
@@ -2130,7 +2130,7 @@
 
 
 
-    window.toggleXRay3D = function() {
+    window.toggleXRay3D = function () {
 
         isXRay = !isXRay;
 
@@ -2138,9 +2138,9 @@
 
         if (btn) {
 
-            btn.innerHTML = isXRay ? 
+            btn.innerHTML = isXRay ?
 
-                '<i class="fas fa-eye-slash"></i> <span>Solid View</span>' : 
+                '<i class="fas fa-eye-slash"></i> <span>Solid View</span>' :
 
                 '<i class="fas fa-eye"></i> <span>X-Ray Glass</span>';
 
@@ -2174,7 +2174,7 @@
 
 
 
-    window.reset3DCamera = function() {
+    window.reset3DCamera = function () {
 
         if (!threeCamera || !threeControls) return;
 
@@ -2246,9 +2246,9 @@
 
         while (container.firstChild) {
 
-            if (container.firstChild.id === 'threeJsLoadingNotice' || 
+            if (container.firstChild.id === 'threeJsLoadingNotice' ||
 
-                container.firstChild.id === 'threeJsHoverInfo' || 
+                container.firstChild.id === 'threeJsHoverInfo' ||
 
                 container.firstChild.tagName === 'DIV') {
 
@@ -2688,7 +2688,7 @@
 
 
 
-        container.onmousemove = function(event) {
+        container.onmousemove = function (event) {
 
             const rect = container.getBoundingClientRect();
 
@@ -2746,7 +2746,7 @@
 
 
 
-        container.onmouseleave = function() {
+        container.onmouseleave = function () {
 
             if (tooltip) tooltip.style.display = 'none';
 
@@ -2756,7 +2756,7 @@
 
         // Resize handler
 
-        window.onresize = function() {
+        window.onresize = function () {
 
             if (!container || !threeCamera || !threeRenderer) return;
 
@@ -2912,7 +2912,7 @@
 
 
 
-    window.openPalletCountingWorkbench = function(initialMode = 'pieces', triggerUpload = false) {
+    window.openPalletCountingWorkbench = function (initialMode = 'pieces', triggerUpload = false) {
 
         const wb = document.getElementById('palletCountingWorkbench');
 
@@ -2922,7 +2922,7 @@
 
             window.setWorkbenchMode(initialMode);
 
-            
+
 
             // Synchronize cameras from palletCameraSelect
 
@@ -2958,7 +2958,7 @@
 
     // Override openVisionCountingModal to use the inline workbench directly
 
-    window.openVisionCountingModal = function(initialMode = 'pieces') {
+    window.openVisionCountingModal = function (initialMode = 'pieces') {
 
         window.openPalletCountingWorkbench(initialMode);
 
@@ -2966,7 +2966,7 @@
 
 
 
-    window.setWorkbenchMode = function(mode) {
+    window.setWorkbenchMode = function (mode) {
 
         wbMode = mode;
 
@@ -3051,7 +3051,7 @@
 
 
 
-    window.onWorkbenchBundleMaterialChange = function(mat) {
+    window.onWorkbenchBundleMaterialChange = function (mat) {
 
         const glassBar = document.getElementById('wbGlassProfileBar');
 
@@ -3079,7 +3079,7 @@
 
     let wbGlassProfilesCache = [];
 
-    window.loadWorkbenchGlassProfiles = async function() {
+    window.loadWorkbenchGlassProfiles = async function () {
 
         try {
 
@@ -3137,7 +3137,7 @@
 
 
 
-    window.onWorkbenchGlassProfileChange = function(profileId) {
+    window.onWorkbenchGlassProfileChange = function (profileId) {
 
         const p = wbGlassProfilesCache.find(x => x.id === profileId);
 
@@ -3195,7 +3195,7 @@
 
 
 
-    window.onWorkbenchGlassDimInput = function() {
+    window.onWorkbenchGlassDimInput = function () {
 
         if (wbRawImageUrl && wbMode === 'bundles') {
 
@@ -3213,7 +3213,7 @@
 
 
 
-    window.saveCurrentGlassProfilePrompt = async function() {
+    window.saveCurrentGlassProfilePrompt = async function () {
 
         const l = parseFloat(document.getElementById('wbGlassLengthInput')?.value || '2440');
 
@@ -3303,7 +3303,7 @@
 
 
 
-    window.triggerWorkbenchUpload = function() {
+    window.triggerWorkbenchUpload = function () {
 
         window.setWorkbenchSource('upload');
 
@@ -3319,7 +3319,7 @@
 
 
 
-    window.setWorkbenchSource = function(source) {
+    window.setWorkbenchSource = function (source) {
 
         wbSource = source;
 
@@ -3379,7 +3379,7 @@
 
 
 
-    window.onWorkbenchCameraChange = function() {
+    window.onWorkbenchCameraChange = function () {
 
         const camSelect = document.getElementById('wbCameraSelect');
 
@@ -3397,9 +3397,9 @@
 
 
 
-    
 
-    window.triggerWorkbenchFileInput = function(e) {
+
+    window.triggerWorkbenchFileInput = function (e) {
 
         if (e && e.target && e.target.id === 'wbFileInput') return;
 
@@ -3415,7 +3415,7 @@
 
 
 
-    window.replaceWorkbenchImage = function() {
+    window.replaceWorkbenchImage = function () {
 
         window.setWorkbenchSource('upload');
 
@@ -3443,7 +3443,7 @@
 
 
 
-    window.removeWorkbenchImage = function() {
+    window.removeWorkbenchImage = function () {
 
         wbCountRequestId++; // Invalidate any pending in-flight requests
 
@@ -3587,7 +3587,7 @@
 
 
 
-    window.clearWorkbenchCount = function(silent = false) {
+    window.clearWorkbenchCount = function (silent = false) {
 
         wbCountRequestId++; // Invalidate any pending in-flight requests
 
@@ -3675,7 +3675,7 @@
 
 
 
-    window.onWorkbenchDropZoneClick = function() {
+    window.onWorkbenchDropZoneClick = function () {
 
         if (wbSource === 'upload') {
 
@@ -3699,7 +3699,7 @@
 
 
 
-        // =========================================================================
+    // =========================================================================
 
     // STAGE 5: MULTI-VIEW SESSION STATE & WORKBENCH TRAY HELPERS
 
@@ -3709,7 +3709,7 @@
 
 
 
-    window.getWorkbenchMultiViews = function() {
+    window.getWorkbenchMultiViews = function () {
 
         return wbMultiViews;
 
@@ -3717,7 +3717,7 @@
 
 
 
-    window.renderWorkbenchMultiViewStrip = function() {
+    window.renderWorkbenchMultiViewStrip = function () {
 
         const strip = document.getElementById('wbMultiViewStrip');
 
@@ -3803,7 +3803,7 @@
 
             });
 
-            labelSel.onchange = function() {
+            labelSel.onchange = function () {
 
                 v.label = this.value;
 
@@ -3831,7 +3831,7 @@
 
             refBtn.textContent = v.isRef ? '★ REF' : 'Set Ref';
 
-            refBtn.onclick = function() {
+            refBtn.onclick = function () {
 
                 wbMultiViews.forEach(x => x.isRef = false);
 
@@ -3853,7 +3853,7 @@
 
             delBtn.title = 'Remove this view';
 
-            delBtn.onclick = function() {
+            delBtn.onclick = function () {
 
                 window.removeWorkbenchView(v.id);
 
@@ -3885,13 +3885,13 @@
 
 
 
-    window.addWorkbenchView = function(fileOrBlob, label = null, isRef = false) {
+    window.addWorkbenchView = function (fileOrBlob, label = null, isRef = false) {
 
         if (!fileOrBlob) return;
 
         const reader = new FileReader();
 
-        reader.onload = function(e) {
+        reader.onload = function (e) {
 
             const dataUrl = e.target.result;
 
@@ -3963,7 +3963,7 @@
 
 
 
-    window.removeWorkbenchView = function(viewId) {
+    window.removeWorkbenchView = function (viewId) {
 
         const wasRef = wbMultiViews.find(v => v.id === viewId)?.isRef;
 
@@ -3991,7 +3991,7 @@
 
 
 
-    window.clearAllWorkbenchViews = function() {
+    window.clearAllWorkbenchViews = function () {
 
         wbMultiViews = [];
 
@@ -4003,7 +4003,7 @@
 
 
 
-    window.handleWorkbenchAddViewUpload = function(inputOrFiles) {
+    window.handleWorkbenchAddViewUpload = function (inputOrFiles) {
 
         if (!inputOrFiles) return;
 
@@ -4017,7 +4017,7 @@
 
             files = Array.from(inputOrFiles.files);
 
-            try { inputOrFiles.value = ''; } catch(e) {}
+            try { inputOrFiles.value = ''; } catch (e) { }
 
         } else if (inputOrFiles.length !== undefined) {
 
@@ -4039,7 +4039,7 @@
 
 
 
-    window.captureWorkbenchCameraAsView = function() {
+    window.captureWorkbenchCameraAsView = function () {
 
         const camSel = document.getElementById('wbCameraSelect') || document.getElementById('palletCameraSelect');
 
@@ -4119,9 +4119,9 @@
 
 
 
-    
 
-    window.previewWorkbenchUpload = function(inputOrFile) {
+
+    window.previewWorkbenchUpload = function (inputOrFile) {
 
         try {
 
@@ -4313,7 +4313,7 @@
 
             const fileName = file.name || 'pallet_image.jpg';
 
-            const sizeFormatted = file.size >= (1024 * 1024) 
+            const sizeFormatted = file.size >= (1024 * 1024)
 
                 ? (file.size / (1024 * 1024)).toFixed(2) + ' MB'
 
@@ -4329,7 +4329,7 @@
 
             const reader = new FileReader();
 
-            reader.onerror = function(err) {
+            reader.onerror = function (err) {
 
                 console.error('[Workbench] FileReader error:', err);
 
@@ -4339,7 +4339,7 @@
 
             };
 
-            reader.onload = function(e) {
+            reader.onload = function (e) {
 
                 if (capturedReqId !== wbCountRequestId) return; // Discard if superseded
 
@@ -4351,7 +4351,7 @@
 
                 if (fi) {
 
-                    try { fi.value = ''; } catch(ex) {}
+                    try { fi.value = ''; } catch (ex) { }
 
                 }
 
@@ -4367,7 +4367,7 @@
 
                 const imgDim = new Image();
 
-                imgDim.onload = function() {
+                imgDim.onload = function () {
 
                     if (fnSpan) {
 
@@ -4385,7 +4385,7 @@
 
                     // Graceful fallback if browser cannot render format natively (e.g. TIFF)
 
-                    previewImg.onerror = function() {
+                    previewImg.onerror = function () {
 
                         console.info('[Workbench] Browser cannot natively preview raw image format; server will process and provide visual verification.');
 
@@ -4403,7 +4403,7 @@
 
                     };
 
-                    previewImg.onload = function() {
+                    previewImg.onload = function () {
 
                         previewImg.style.display = 'block';
 
@@ -4459,7 +4459,7 @@
 
             reader.readAsDataURL(file);
 
-        } catch(ex) {
+        } catch (ex) {
 
             console.error('[Workbench] previewWorkbenchUpload error:', ex);
 
@@ -4473,7 +4473,7 @@
 
 
 
-    window.executeWorkbenchCount = async function() {
+    window.executeWorkbenchCount = async function () {
 
         const btn = document.getElementById('btnRunWorkbenchCount');
 
@@ -4791,7 +4791,7 @@
 
                     sessionStorage.removeItem('wms_user');
 
-                } catch(e) {}
+                } catch (e) { }
 
                 setTimeout(() => { window.location.href = '/login?expired=1'; }, 1000);
 
@@ -4877,8 +4877,8 @@
                     const sf = data.stack_focus;
                     if (sf && (sf.background || sf.duplicates)) {
                         showToast(`Counted the stack in front only: ${sf.background} item(s) from other stacks in the photo` +
-                                  (sf.duplicates ? ` and ${sf.duplicates} double marker(s)` : '') +
-                                  ` were left out. Tap the photo to add any piece that was missed.`, 'info');
+                            (sf.duplicates ? ` and ${sf.duplicates} double marker(s)` : '') +
+                            ` were left out. Tap the photo to add any piece that was missed.`, 'info');
                     }
 
                 }
@@ -4887,7 +4887,7 @@
 
 
 
-        } catch(err) {
+        } catch (err) {
 
             if (thisRequestId !== wbCountRequestId) return;
 
@@ -5315,7 +5315,7 @@
 
                 boardTab.textContent = '★ Fused Audit Board';
 
-                boardTab.onclick = function() {
+                boardTab.onclick = function () {
 
                     Array.from(switcherTabs.children).forEach(t => t.style.background = '#1e293b');
 
@@ -5345,7 +5345,7 @@
 
                     vTab.textContent = `View: ${vLabel.toUpperCase()}`;
 
-                    vTab.onclick = function() {
+                    vTab.onclick = function () {
 
                         Array.from(switcherTabs.children).forEach(t => t.style.background = '#1e293b');
 
@@ -5664,85 +5664,85 @@
 
             statusBadge.style.background = hasUncertain ? 'rgba(245,158,11,0.15)' : 'rgba(6,182,212,0.15)';
 
-        } else 
+        } else
 
-        if (statusBadge) {
+            if (statusBadge) {
 
-            let stText = 'DIRECT INSTANCE DETECTION';
+                let stText = 'DIRECT INSTANCE DETECTION';
 
-            let stColor = '#10b981';
+                let stColor = '#10b981';
 
-            let stBorder = 'rgba(16,185,129,0.3)';
+                let stBorder = 'rgba(16,185,129,0.3)';
 
-            let stBg = 'rgba(16,185,129,0.15)';
+                let stBg = 'rgba(16,185,129,0.15)';
 
 
 
-            if (total === 0 || qb.verification_status === 'INSUFFICIENT_VISUAL_EVIDENCE') {
+                if (total === 0 || qb.verification_status === 'INSUFFICIENT_VISUAL_EVIDENCE') {
 
-                stText = 'INSUFFICIENT VISUAL EVIDENCE';
+                    stText = 'INSUFFICIENT VISUAL EVIDENCE';
 
-                stColor = '#f59e0b';
+                    stColor = '#f59e0b';
 
-                stBorder = 'rgba(245,158,11,0.3)';
+                    stBorder = 'rgba(245,158,11,0.3)';
 
-                stBg = 'rgba(245,158,11,0.15)';
+                    stBg = 'rgba(245,158,11,0.15)';
 
-            } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION (Total Unknown)' || autoGeom.is_depth_unknown) {
+                } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION (Total Unknown)' || autoGeom.is_depth_unknown) {
 
-                stText = 'DIRECT VISUAL (Interior Depth Unknown)';
+                    stText = 'DIRECT VISUAL (Interior Depth Unknown)';
 
-                stColor = '#10b981';
+                    stColor = '#10b981';
 
-                stBorder = 'rgba(16,185,129,0.3)';
+                    stBorder = 'rgba(16,185,129,0.3)';
 
-                stBg = 'rgba(16,185,129,0.15)';
+                    stBg = 'rgba(16,185,129,0.15)';
 
-            } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION' || qb.verification_status === 'DIRECT_VISUAL' || qb.verification_status === 'AUTOMATED_DETECTION' || (inferred === 0 && !qb.is_estimate)) {
+                } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION' || qb.verification_status === 'DIRECT_VISUAL' || qb.verification_status === 'AUTOMATED_DETECTION' || (inferred === 0 && !qb.is_estimate)) {
 
-                stText = 'DIRECT VISUAL (Confirmed)';
+                    stText = 'DIRECT VISUAL (Confirmed)';
 
-                stColor = '#10b981';
+                    stColor = '#10b981';
 
-                stBorder = 'rgba(16,185,129,0.3)';
+                    stBorder = 'rgba(16,185,129,0.3)';
 
-                stBg = 'rgba(16,185,129,0.15)';
+                    stBg = 'rgba(16,185,129,0.15)';
 
-            } else if (qb.verification_status === 'ESTIMATED_STACK' || qb.is_estimate) {
+                } else if (qb.verification_status === 'ESTIMATED_STACK' || qb.is_estimate) {
 
-                stText = qb.counting_strategy === 'STRUCTURED_PALLET_RECONSTRUCTION'
+                    stText = qb.counting_strategy === 'STRUCTURED_PALLET_RECONSTRUCTION'
 
-                    ? 'PROPOSED (Structured 3D Stack)'
+                        ? 'PROPOSED (Structured 3D Stack)'
 
-                    : 'PROPOSED (Estimated Stack)';
+                        : 'PROPOSED (Estimated Stack)';
 
-                stColor = '#f59e0b';
+                    stColor = '#f59e0b';
 
-                stBorder = 'rgba(245,158,11,0.3)';
+                    stBorder = 'rgba(245,158,11,0.3)';
 
-                stBg = 'rgba(245,158,11,0.15)';
+                    stBg = 'rgba(245,158,11,0.15)';
 
-            } else if (qb.verification_status === 'UNCERTAIN') {
+                } else if (qb.verification_status === 'UNCERTAIN') {
 
-                stText = 'UNCERTAIN (Verify Stack)';
+                    stText = 'UNCERTAIN (Verify Stack)';
 
-                stColor = '#ef4444';
+                    stColor = '#ef4444';
 
-                stBorder = 'rgba(239,68,68,0.3)';
+                    stBorder = 'rgba(239,68,68,0.3)';
 
-                stBg = 'rgba(239,68,68,0.15)';
+                    stBg = 'rgba(239,68,68,0.15)';
+
+                }
+
+                statusBadge.textContent = stText;
+
+                statusBadge.style.color = stColor;
+
+                statusBadge.style.borderColor = stBorder;
+
+                statusBadge.style.background = stBg;
 
             }
-
-            statusBadge.textContent = stText;
-
-            statusBadge.style.color = stColor;
-
-            statusBadge.style.borderColor = stBorder;
-
-            statusBadge.style.background = stBg;
-
-        }
 
 
 
@@ -6020,7 +6020,7 @@
 
 
 
-    window.handleWorkbenchCanvasClick = function(event) {
+    window.handleWorkbenchCanvasClick = function (event) {
 
         if (wbCurrentTool !== 'none') return;
 
@@ -6116,7 +6116,7 @@
 
 
 
-    window.removeWorkbenchBadge = function(index) {
+    window.removeWorkbenchBadge = function (index) {
 
         if (index >= 0 && index < wbCurrentPieces.length) {
 
@@ -6196,7 +6196,7 @@
 
 
 
-    window.recertifyWorkbenchMarkers = async function(silent = false) {
+    window.recertifyWorkbenchMarkers = async function (silent = false) {
 
         if (!wbRawImageUrl) {
 
@@ -6254,7 +6254,7 @@
 
             }
 
-        } catch(e) {
+        } catch (e) {
 
             console.error('Re-render error:', e);
 
@@ -6266,7 +6266,7 @@
 
 
 
-    
+
 
     // =========================================================================
 
@@ -6840,7 +6840,7 @@
 
 
 
-function initWb3DPalletViewer(matrixData) {
+    function initWb3DPalletViewer(matrixData) {
 
         const container = document.getElementById('wbThreeJsContainer');
 
@@ -7332,7 +7332,7 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-    window.toggleWbExplode3D = function() {
+    window.toggleWbExplode3D = function () {
 
         wbIsExploded = !wbIsExploded;
 
@@ -7358,7 +7358,7 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-    window.toggleWbXRay3D = function() {
+    window.toggleWbXRay3D = function () {
 
         wbIsXRay = !wbIsXRay;
 
@@ -7378,7 +7378,7 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-    window.resetWb3DCamera = function() {
+    window.resetWb3DCamera = function () {
 
         if (wbThreeCamera && wbThreeControls) {
 
@@ -7470,7 +7470,8 @@ function initWb3DPalletViewer(matrixData) {
         }
     }
 
-    window.applyVerifiedCountToActivePallet = function(syncInventory) {
+<<<<<<< HEAD
+    window.applyVerifiedCountToActivePallet = function (syncInventory) {
 
         const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
 
@@ -7510,11 +7511,53 @@ function initWb3DPalletViewer(matrixData) {
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
             if (palletBundlesElem) palletBundlesElem.textContent = 0;
             saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
+=======
+    window.applyVerifiedCountToActivePallet = function (syncInventory) {
+
+        const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
+
+        const baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult ? (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0)) : 0);
+
+        const uPerB = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10));
+
+        const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
+
+        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
+
+        const totalIndividualUnits = baseCount * uPerB;
+
+
+
+        const palletPcsElem = document.getElementById('palletTotalPieces');
+
+        const palletBundlesElem = document.getElementById('palletCountBundles');
+
+        const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
+
+        if (unitsPerBundleElem) unitsPerBundleElem.textContent = uPerB;
+
+
+
+        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
+        if (isPieces) {
+            if (palletPcsElem) palletPcsElem.textContent = baseCount;
+            if (palletBundlesElem) palletBundlesElem.textContent = 0;
+            if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
+            saveCountToPallet(baseCount, 1, `${baseCount} pieces`, Boolean(syncInventory));
+        } else if (wbMode === 'bundles' || uPerB > 1) {
+            if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
+            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
+            saveCountToPallet(baseCount, uPerB, `${baseCount} ${bname}s × ${uPerB} = ${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
+        } else {
+            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
+            if (palletBundlesElem) palletBundlesElem.textContent = 0;
+            saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
+>>>>>>> origin/feature/rbac
         }
 
     };
 
-    window.saveAndSyncPalletInventory = function() {
+    window.saveAndSyncPalletInventory = function () {
         return window.applyVerifiedCountToActivePallet(true);
     };
 
@@ -7688,7 +7731,7 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-    window.setWorkbenchRegionTool = function(toolName) {
+    window.setWorkbenchRegionTool = function (toolName) {
 
         wbCurrentTool = toolName || 'none';
 
@@ -7756,7 +7799,7 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-    window.clearWorkbenchRegions = function(silent = false) {
+    window.clearWorkbenchRegions = function (silent = false) {
 
         wbRegions = [];
 
@@ -8476,39 +8519,39 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-    // =========================================================================
+// =========================================================================
 
-    // STAGE 6: Multi-View Operator Review & Association Auditing Workflow
+// STAGE 6: Multi-View Operator Review & Association Auditing Workflow
 
-    // =========================================================================
+// =========================================================================
 
-    window.currentMultiViewSession = null;
-
-
-
-    function renderOperatorReviewDrawer(session) {
-
-        const listEl = document.getElementById('wbOperatorReviewObjectsList');
-
-        if (!listEl) return;
-
-        listEl.innerHTML = '';
+window.currentMultiViewSession = null;
 
 
 
-        const objects = session.fused_objects || session.pieces || [];
+function renderOperatorReviewDrawer(session) {
 
-        const ambiguous = session.ambiguous_candidates || [];
+    const listEl = document.getElementById('wbOperatorReviewObjectsList');
+
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
 
 
 
-        // Review Header Toolbar & Add Physical Bundle Button
+    const objects = session.fused_objects || session.pieces || [];
 
-        const headerToolbar = document.createElement('div');
+    const ambiguous = session.ambiguous_candidates || [];
 
-        headerToolbar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #334155;';
 
-        headerToolbar.innerHTML = `
+
+    // Review Header Toolbar & Add Physical Bundle Button
+
+    const headerToolbar = document.createElement('div');
+
+    headerToolbar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #334155;';
+
+    headerToolbar.innerHTML = `
 
             <span style="font-weight:700; color:#f8fafc; font-size:0.72rem;">
 
@@ -8524,67 +8567,67 @@ function initWb3DPalletViewer(matrixData) {
 
         `;
 
-        listEl.appendChild(headerToolbar);
+    listEl.appendChild(headerToolbar);
 
 
 
-        if (objects.length === 0 && ambiguous.length === 0) {
+    if (objects.length === 0 && ambiguous.length === 0) {
 
-            listEl.innerHTML = '<div style="color:#64748b; font-size:0.7rem; font-style:italic; padding:4px 0;">No grouped objects available for review.</div>';
+        listEl.innerHTML = '<div style="color:#64748b; font-size:0.7rem; font-style:italic; padding:4px 0;">No grouped objects available for review.</div>';
 
-            return;
+        return;
+
+    }
+
+
+
+    // Render Fused Object Cards
+
+    objects.forEach(obj => {
+
+        const card = document.createElement('div');
+
+        card.style.cssText = 'background:#1e293b; border:1px solid #334155; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
+
+
+
+        const left = document.createElement('div');
+
+        left.style.cssText = 'display:flex; align-items:center; gap:8px;';
+
+
+
+        if (obj.crop_url) {
+
+            const img = document.createElement('img');
+
+            img.src = obj.crop_url;
+
+            img.style.cssText = 'width:36px; height:36px; object-fit:cover; border-radius:4px; border:1px solid #475569;';
+
+            left.appendChild(img);
+
+        } else {
+
+            const iconBox = document.createElement('div');
+
+            iconBox.style.cssText = 'width:36px; height:36px; background:#0f172a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:0.9rem;';
+
+            iconBox.innerHTML = '<i class="fas fa-cube"></i>';
+
+            left.appendChild(iconBox);
 
         }
 
 
 
-        // Render Fused Object Cards
+        const info = document.createElement('div');
 
-        objects.forEach(obj => {
+        const contributing = (obj.contributing_views || [obj.primary_view || 'front']).join(' + ').toUpperCase();
 
-            const card = document.createElement('div');
+        const statusColor = (obj.status === 'CONFIRMED' && !obj.is_uncertain) ? '#34d399' : '#fbbf24';
 
-            card.style.cssText = 'background:#1e293b; border:1px solid #334155; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
-
-
-
-            const left = document.createElement('div');
-
-            left.style.cssText = 'display:flex; align-items:center; gap:8px;';
-
-
-
-            if (obj.crop_url) {
-
-                const img = document.createElement('img');
-
-                img.src = obj.crop_url;
-
-                img.style.cssText = 'width:36px; height:36px; object-fit:cover; border-radius:4px; border:1px solid #475569;';
-
-                left.appendChild(img);
-
-            } else {
-
-                const iconBox = document.createElement('div');
-
-                iconBox.style.cssText = 'width:36px; height:36px; background:#0f172a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:0.9rem;';
-
-                iconBox.innerHTML = '<i class="fas fa-cube"></i>';
-
-                left.appendChild(iconBox);
-
-            }
-
-
-
-            const info = document.createElement('div');
-
-            const contributing = (obj.contributing_views || [obj.primary_view || 'front']).join(' + ').toUpperCase();
-
-            const statusColor = (obj.status === 'CONFIRMED' && !obj.is_uncertain) ? '#34d399' : '#fbbf24';
-
-            info.innerHTML = `
+        info.innerHTML = `
 
                 <div style="font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:5px;">
 
@@ -8598,499 +8641,499 @@ function initWb3DPalletViewer(matrixData) {
 
             `;
 
-            left.appendChild(info);
+        left.appendChild(info);
 
 
 
-            const actions = document.createElement('div');
+        const actions = document.createElement('div');
 
-            actions.style.cssText = 'display:flex; gap:4px;';
+        actions.style.cssText = 'display:flex; gap:4px;';
 
 
 
-            // Confirm Button
+        // Confirm Button
 
-            if (obj.status !== 'CONFIRMED' || obj.is_uncertain) {
+        if (obj.status !== 'CONFIRMED' || obj.is_uncertain) {
 
-                const confirmBtn = document.createElement('button');
+            const confirmBtn = document.createElement('button');
 
-                confirmBtn.type = 'button';
+            confirmBtn.type = 'button';
 
-                confirmBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+            confirmBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-                confirmBtn.textContent = 'Confirm';
+            confirmBtn.textContent = 'Confirm';
 
-                confirmBtn.onclick = () => window.reviewWorkbenchSession('confirm_object', obj.object_id || obj.detection_id);
+            confirmBtn.onclick = () => window.reviewWorkbenchSession('confirm_object', obj.object_id || obj.detection_id);
 
-                actions.appendChild(confirmBtn);
+            actions.appendChild(confirmBtn);
 
-            }
+        }
 
 
 
-            // Separate Observations Button (enabled when > 1 contributing view)
+        // Separate Observations Button (enabled when > 1 contributing view)
 
-            if ((obj.contributing_views && obj.contributing_views.length > 1) || (obj.observations && Object.keys(obj.observations).length > 1)) {
+        if ((obj.contributing_views && obj.contributing_views.length > 1) || (obj.observations && Object.keys(obj.observations).length > 1)) {
 
-                const sepBtn = document.createElement('button');
+            const sepBtn = document.createElement('button');
 
-                sepBtn.type = 'button';
+            sepBtn.type = 'button';
 
-                sepBtn.style.cssText = 'background:#d97706; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+            sepBtn.style.cssText = 'background:#d97706; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-                sepBtn.textContent = 'Separate';
+            sepBtn.textContent = 'Separate';
 
-                sepBtn.title = 'Separate cross-view observations into distinct objects';
+            sepBtn.title = 'Separate cross-view observations into distinct objects';
 
-                sepBtn.onclick = () => window.reviewWorkbenchSession('separate_object', obj.object_id || obj.detection_id);
+            sepBtn.onclick = () => window.reviewWorkbenchSession('separate_object', obj.object_id || obj.detection_id);
 
-                actions.appendChild(sepBtn);
+            actions.appendChild(sepBtn);
 
-            }
+        }
 
 
 
-            // Mark Uncertain Button
+        // Mark Uncertain Button
 
-            if (obj.status !== 'UNCERTAIN' && !obj.is_uncertain) {
+        if (obj.status !== 'UNCERTAIN' && !obj.is_uncertain) {
 
-                const uncertBtn = document.createElement('button');
+            const uncertBtn = document.createElement('button');
 
-                uncertBtn.type = 'button';
+            uncertBtn.type = 'button';
 
-                uncertBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+            uncertBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-                uncertBtn.textContent = 'Flag';
+            uncertBtn.textContent = 'Flag';
 
-                uncertBtn.title = 'Mark as uncertain candidate without counting';
+            uncertBtn.title = 'Mark as uncertain candidate without counting';
 
-                uncertBtn.onclick = () => window.reviewWorkbenchSession('mark_uncertain', obj.object_id || obj.detection_id);
+            uncertBtn.onclick = () => window.reviewWorkbenchSession('mark_uncertain', obj.object_id || obj.detection_id);
 
-                actions.appendChild(uncertBtn);
+            actions.appendChild(uncertBtn);
 
-            }
+        }
 
 
 
-            // Reject Button (False Positive Removal)
+        // Reject Button (False Positive Removal)
 
-            if (obj.status !== 'REJECTED') {
+        if (obj.status !== 'REJECTED') {
 
-                const rejBtn = document.createElement('button');
+            const rejBtn = document.createElement('button');
 
-                rejBtn.type = 'button';
+            rejBtn.type = 'button';
 
-                rejBtn.style.cssText = 'background:#b91c1c; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+            rejBtn.style.cssText = 'background:#b91c1c; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-                rejBtn.textContent = 'Reject';
+            rejBtn.textContent = 'Reject';
 
-                rejBtn.title = 'Reject false positive candidate';
+            rejBtn.title = 'Reject false positive candidate';
 
-                rejBtn.onclick = () => window.reviewWorkbenchSession('reject_object', obj.object_id || obj.detection_id);
+            rejBtn.onclick = () => window.reviewWorkbenchSession('reject_object', obj.object_id || obj.detection_id);
 
-                actions.appendChild(rejBtn);
+            actions.appendChild(rejBtn);
 
-            }
+        }
 
 
 
-            card.appendChild(left);
+        card.appendChild(left);
 
-            card.appendChild(actions);
+        card.appendChild(actions);
 
-            listEl.appendChild(card);
+        listEl.appendChild(card);
 
-        });
+    });
 
 
 
-        // Render Ambiguous Candidates
+    // Render Ambiguous Candidates
 
-        ambiguous.forEach((amb, idx) => {
+    ambiguous.forEach((amb, idx) => {
 
-            const card = document.createElement('div');
+        const card = document.createElement('div');
 
-            card.style.cssText = 'background:#1e293b; border:1px dashed #ef4444; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
+        card.style.cssText = 'background:#1e293b; border:1px dashed #ef4444; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
 
 
 
-            const left = document.createElement('div');
+        const left = document.createElement('div');
 
-            left.style.cssText = 'display:flex; align-items:center; gap:8px;';
+        left.style.cssText = 'display:flex; align-items:center; gap:8px;';
 
 
 
-            const iconBox = document.createElement('div');
+        const iconBox = document.createElement('div');
 
-            iconBox.style.cssText = 'width:36px; height:36px; background:#450a0a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#f87171; font-size:0.9rem;';
+        iconBox.style.cssText = 'width:36px; height:36px; background:#450a0a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#f87171; font-size:0.9rem;';
 
-            iconBox.innerHTML = '<i class="fas fa-question-circle"></i>';
+        iconBox.innerHTML = '<i class="fas fa-question-circle"></i>';
 
-            left.appendChild(iconBox);
+        left.appendChild(iconBox);
 
 
 
-            const info = document.createElement('div');
+        const info = document.createElement('div');
 
-            info.innerHTML = `
+        info.innerHTML = `
 
-                <div style="font-weight:700; color:#fca5a5;">Ambiguous Candidate #${idx+1}</div>
+                <div style="font-weight:700; color:#fca5a5;">Ambiguous Candidate #${idx + 1}</div>
 
-                <div style="color:#94a3b8; font-size:0.62rem;">View: ${amb.view_label || 'secondary'} | Score: ${amb.best_score ? Math.round(amb.best_score*100)+'%' : 'N/A'}</div>
+                <div style="color:#94a3b8; font-size:0.62rem;">View: ${amb.view_label || 'secondary'} | Score: ${amb.best_score ? Math.round(amb.best_score * 100) + '%' : 'N/A'}</div>
 
             `;
 
-            left.appendChild(info);
+        left.appendChild(info);
 
 
 
-            const actions = document.createElement('div');
+        const actions = document.createElement('div');
 
-            actions.style.cssText = 'display:flex; gap:4px;';
-
-
-
-            const confBtn = document.createElement('button');
-
-            confBtn.type = 'button';
-
-            confBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
-
-            confBtn.textContent = 'Accept';
-
-            confBtn.title = 'Accept and confirm as distinct object';
-
-            confBtn.onclick = () => window.reviewWorkbenchSession('confirm_ambiguous', amb.candidate_obj_id);
-
-            actions.appendChild(confBtn);
+        actions.style.cssText = 'display:flex; gap:4px;';
 
 
 
-            const disBtn = document.createElement('button');
+        const confBtn = document.createElement('button');
 
-            disBtn.type = 'button';
+        confBtn.type = 'button';
 
-            disBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+        confBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-            disBtn.textContent = 'Dismiss';
+        confBtn.textContent = 'Accept';
 
-            disBtn.title = 'Dismiss ambiguous candidate';
+        confBtn.title = 'Accept and confirm as distinct object';
 
-            disBtn.onclick = () => window.reviewWorkbenchSession('reject_ambiguous', amb.candidate_obj_id);
+        confBtn.onclick = () => window.reviewWorkbenchSession('confirm_ambiguous', amb.candidate_obj_id);
 
-            actions.appendChild(disBtn);
+        actions.appendChild(confBtn);
 
 
 
-            card.appendChild(left);
+        const disBtn = document.createElement('button');
 
-            card.appendChild(actions);
+        disBtn.type = 'button';
 
-            listEl.appendChild(card);
+        disBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-        });
+        disBtn.textContent = 'Dismiss';
+
+        disBtn.title = 'Dismiss ambiguous candidate';
+
+        disBtn.onclick = () => window.reviewWorkbenchSession('reject_ambiguous', amb.candidate_obj_id);
+
+        actions.appendChild(disBtn);
+
+
+
+        card.appendChild(left);
+
+        card.appendChild(actions);
+
+        listEl.appendChild(card);
+
+    });
+
+}
+
+
+
+window.promptAddOperatorBundle = function () {
+
+    const layerStr = prompt("Enter Layer / Elevation for new physical bundle (1 for bottom, 2 for middle, 3 for top):", "2");
+
+    if (layerStr === null) return;
+
+    const lyr = Math.max(0, parseInt(layerStr, 10) - 1);
+
+    window.reviewWorkbenchSession('add_bundle', null, null, `Operator added physical bundle at Layer ${lyr + 1}`, { layer: lyr });
+
+};
+
+
+
+window.reviewWorkbenchSession = async function (action, objectId = null, secondaryView = null, notes = null, extraParams = {}) {
+
+    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+
+        console.warn('[ReviewWorkbench] No active multi-view session available for review.');
+
+        return;
 
     }
 
 
 
-    window.promptAddOperatorBundle = function() {
+    const sessId = window.currentMultiViewSession.session_id;
 
-        const layerStr = prompt("Enter Layer / Elevation for new physical bundle (1 for bottom, 2 for middle, 3 for top):", "2");
+    try {
 
-        if (layerStr === null) return;
+        const reqBody = {
 
-        const lyr = Math.max(0, parseInt(layerStr, 10) - 1);
+            session_id: sessId,
 
-        window.reviewWorkbenchSession('add_bundle', null, null, `Operator added physical bundle at Layer ${lyr + 1}`, { layer: lyr });
+            action: action,
 
-    };
+            object_id: objectId,
 
+            secondary_view: secondaryView,
 
+            notes: notes,
 
-    window.reviewWorkbenchSession = async function(action, objectId = null, secondaryView = null, notes = null, extraParams = {}) {
+            ...(extraParams || {})
 
-        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+        };
 
-            console.warn('[ReviewWorkbench] No active multi-view session available for review.');
+        const resp = await fetch('/api/pallets/multiview-review', {
 
-            return;
+            method: 'POST',
 
-        }
+            headers: { 'Content-Type': 'application/json' },
 
+            body: JSON.stringify(reqBody)
 
-
-        const sessId = window.currentMultiViewSession.session_id;
-
-        try {
-
-            const reqBody = {
-
-                session_id: sessId,
-
-                action: action,
-
-                object_id: objectId,
-
-                secondary_view: secondaryView,
-
-                notes: notes,
-
-                ...(extraParams || {})
-
-            };
-
-            const resp = await fetch('/api/pallets/multiview-review', {
-
-                method: 'POST',
-
-                headers: { 'Content-Type': 'application/json' },
-
-                body: JSON.stringify(reqBody)
-
-            });
+        });
 
 
 
-            const data = await resp.json();
+        const data = await resp.json();
 
-            if (data.success) {
+        if (data.success) {
 
-                window.currentMultiViewSession = data;
+            window.currentMultiViewSession = data;
 
-                // Re-render UI with updated session state
+            // Re-render UI with updated session state
 
-                renderWorkbenchResults(data);
-
-                if (typeof showToast === 'function') {
-
-                    showToast(`Review action '${action}' applied: primary count is now ${data.primary_count}.`, 'success');
-
-                }
-
-            } else {
-
-                console.error('[ReviewWorkbench] Error:', data.error);
-
-                if (typeof showToast === 'function') {
-
-                    showToast(`Review action failed: ${data.error}`, 'error');
-
-                }
-
-            }
-
-        } catch (err) {
-
-            console.error('[ReviewWorkbench] Network error:', err);
+            renderWorkbenchResults(data);
 
             if (typeof showToast === 'function') {
 
-                showToast(`Review action network error: ${err.message}`, 'error');
+                showToast(`Review action '${action}' applied: primary count is now ${data.primary_count}.`, 'success');
 
             }
-
-        }
-
-    };
-
-
-
-    window.recalculateWorkbenchMultiView = function() {
-
-        window.reviewWorkbenchSession('recalculate');
-
-    };
-
-
-
-    window.approveWorkbenchSession = async function() {
-
-        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
-
-            if (typeof showToast === 'function') showToast('No active counting session to approve.', 'warning');
-
-            return;
-
-        }
-
-        await window.reviewWorkbenchSession('approve_session', null, null, 'Operator formally approved count');
-
-        if (typeof showToast === 'function') {
-
-            showToast('Counting session APPROVED! You can now transfer this result directly to WMS Inventory.', 'success');
-
-        }
-
-    };
-
-
-
-    window.openTransferInventoryModal = function() {
-
-        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
-
-            if (typeof showToast === 'function') showToast('No active counting session.', 'warning');
-
-            return;
-
-        }
-
-        const sess = window.currentMultiViewSession;
-
-        const total = sess.primary_count || sess.confirmed_count || sess.total_pieces || sess.total_bundles || 0;
-
-        const uom = sess.uom || 'EA';
-
-        const sku = sess.sku_id || sess.selected_sku || 'GEN-STK-001';
-
-
-
-        const targetType = prompt(`Transfer approved count (${total} ${uom} of ${sku}) to WMS.\n\nEnter destination target type ('bin' or 'pallet'):`, 'bin');
-
-        if (!targetType) return;
-
-
-
-        let binId = null;
-
-        let palletId = null;
-
-        if (targetType.toLowerCase() === 'pallet') {
-
-            palletId = prompt('Enter destination Pallet ID:', 'PAL-001');
-
-            if (!palletId) return;
 
         } else {
 
-            binId = prompt('Enter destination Bin ID:', 'BIN-A-01');
-
-            if (!binId) return;
-
-        }
-
-
-
-        const notes = prompt('Audit notes (optional):', 'Approved via AI Vision Counting Workbench');
-
-        window.transferWorkbenchInventory(targetType.toLowerCase(), binId, palletId, notes);
-
-    };
-
-
-
-    window.transferWorkbenchInventory = async function(targetType = 'bin', binId = null, palletId = null, notes = null) {
-
-        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
-
-            if (typeof showToast === 'function') showToast('No active counting session to transfer.', 'warning');
-
-            return;
-
-        }
-
-        const sess = window.currentMultiViewSession;
-
-        const rSt = (sess.review_status || '').toUpperCase();
-
-        if (rSt !== 'APPROVED') {
+            console.error('[ReviewWorkbench] Error:', data.error);
 
             if (typeof showToast === 'function') {
 
-                showToast('Session must be APPROVED by operator before transferring to inventory. Click "Approve Count" first.', 'warning');
-
-            } else {
-
-                alert('Session must be APPROVED by operator before transferring to inventory.');
+                showToast(`Review action failed: ${data.error}`, 'error');
 
             }
 
-            return;
+        }
+
+    } catch (err) {
+
+        console.error('[ReviewWorkbench] Network error:', err);
+
+        if (typeof showToast === 'function') {
+
+            showToast(`Review action network error: ${err.message}`, 'error');
 
         }
 
+    }
+
+};
 
 
-        try {
 
-            const resp = await fetch('/api/pallets/transfer-inventory', {
+window.recalculateWorkbenchMultiView = function () {
 
-                method: 'POST',
+    window.reviewWorkbenchSession('recalculate');
 
-                headers: { 'Content-Type': 'application/json' },
+};
 
-                body: JSON.stringify({
 
-                    session_id: sess.session_id,
 
-                    target_type: targetType,
+window.approveWorkbenchSession = async function () {
 
-                    bin_id: binId,
+    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
 
-                    pallet_id: palletId,
+        if (typeof showToast === 'function') showToast('No active counting session to approve.', 'warning');
 
-                    operator_id: 'OP-VISION',
+        return;
 
-                    notes: notes || 'Transferred from AI Vision Pallet Workbench'
+    }
 
-                })
+    await window.reviewWorkbenchSession('approve_session', null, null, 'Operator formally approved count');
 
-            });
+    if (typeof showToast === 'function') {
 
-            const data = await resp.json();
+        showToast('Counting session APPROVED! You can now transfer this result directly to WMS Inventory.', 'success');
 
-            if (data.success) {
+    }
 
-                sess.inventory_transfer_status = 'TRANSFERRED';
+};
 
-                sess.receipt = data.receipt;
 
-                const transBtn = document.getElementById('wbTransferInventoryBtn');
 
-                if (transBtn) {
+window.openTransferInventoryModal = function () {
 
-                    transBtn.disabled = true;
+    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
 
-                    transBtn.style.opacity = '0.6';
+        if (typeof showToast === 'function') showToast('No active counting session.', 'warning');
 
-                    transBtn.innerHTML = '<i class="fas fa-check-double"></i> Transferred to WMS';
+        return;
 
-                }
+    }
 
-                if (typeof showToast === 'function') {
+    const sess = window.currentMultiViewSession;
 
-                    showToast(`WMS Inventory Updated: ${data.message}`, 'success');
+    const total = sess.primary_count || sess.confirmed_count || sess.total_pieces || sess.total_bundles || 0;
 
-                } else {
+    const uom = sess.uom || 'EA';
 
-                    alert(`Success: ${data.message}`);
+    const sku = sess.sku_id || sess.selected_sku || 'GEN-STK-001';
 
-                }
 
-            } else {
 
-                if (typeof showToast === 'function') {
+    const targetType = prompt(`Transfer approved count (${total} ${uom} of ${sku}) to WMS.\n\nEnter destination target type ('bin' or 'pallet'):`, 'bin');
 
-                    showToast(`Inventory transfer failed: ${data.error}`, 'error');
+    if (!targetType) return;
 
-                } else {
 
-                    alert(`Transfer failed: ${data.error}`);
 
-                }
+    let binId = null;
+
+    let palletId = null;
+
+    if (targetType.toLowerCase() === 'pallet') {
+
+        palletId = prompt('Enter destination Pallet ID:', 'PAL-001');
+
+        if (!palletId) return;
+
+    } else {
+
+        binId = prompt('Enter destination Bin ID:', 'BIN-A-01');
+
+        if (!binId) return;
+
+    }
+
+
+
+    const notes = prompt('Audit notes (optional):', 'Approved via AI Vision Counting Workbench');
+
+    window.transferWorkbenchInventory(targetType.toLowerCase(), binId, palletId, notes);
+
+};
+
+
+
+window.transferWorkbenchInventory = async function (targetType = 'bin', binId = null, palletId = null, notes = null) {
+
+    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+
+        if (typeof showToast === 'function') showToast('No active counting session to transfer.', 'warning');
+
+        return;
+
+    }
+
+    const sess = window.currentMultiViewSession;
+
+    const rSt = (sess.review_status || '').toUpperCase();
+
+    if (rSt !== 'APPROVED') {
+
+        if (typeof showToast === 'function') {
+
+            showToast('Session must be APPROVED by operator before transferring to inventory. Click "Approve Count" first.', 'warning');
+
+        } else {
+
+            alert('Session must be APPROVED by operator before transferring to inventory.');
+
+        }
+
+        return;
+
+    }
+
+
+
+    try {
+
+        const resp = await fetch('/api/pallets/transfer-inventory', {
+
+            method: 'POST',
+
+            headers: { 'Content-Type': 'application/json' },
+
+            body: JSON.stringify({
+
+                session_id: sess.session_id,
+
+                target_type: targetType,
+
+                bin_id: binId,
+
+                pallet_id: palletId,
+
+                operator_id: 'OP-VISION',
+
+                notes: notes || 'Transferred from AI Vision Pallet Workbench'
+
+            })
+
+        });
+
+        const data = await resp.json();
+
+        if (data.success) {
+
+            sess.inventory_transfer_status = 'TRANSFERRED';
+
+            sess.receipt = data.receipt;
+
+            const transBtn = document.getElementById('wbTransferInventoryBtn');
+
+            if (transBtn) {
+
+                transBtn.disabled = true;
+
+                transBtn.style.opacity = '0.6';
+
+                transBtn.innerHTML = '<i class="fas fa-check-double"></i> Transferred to WMS';
 
             }
 
-        } catch (e) {
+            if (typeof showToast === 'function') {
 
-            console.error('[TransferInventory] Error:', e);
+                showToast(`WMS Inventory Updated: ${data.message}`, 'success');
 
-            if (typeof showToast === 'function') showToast(`Transfer error: ${e.message}`, 'error');
+            } else {
+
+                alert(`Success: ${data.message}`);
+
+            }
+
+        } else {
+
+            if (typeof showToast === 'function') {
+
+                showToast(`Inventory transfer failed: ${data.error}`, 'error');
+
+            } else {
+
+                alert(`Transfer failed: ${data.error}`);
+
+            }
 
         }
 
-    };
+    } catch (e) {
+
+        console.error('[TransferInventory] Error:', e);
+
+        if (typeof showToast === 'function') showToast(`Transfer error: ${e.message}`, 'error');
+
+    }
+
+};
 
 
 
@@ -9098,7 +9141,7 @@ function initWb3DPalletViewer(matrixData) {
 
 // Global clipboard paste listener for Palletization workbench
 
-window.addEventListener('paste', function(e) {
+window.addEventListener('paste', function (e) {
 
     const tabPallet = document.getElementById('tab-palletization');
 

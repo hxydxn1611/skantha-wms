@@ -4,50 +4,219 @@
    delete this file, static/js/pallet_simple.js and their two lines in templates/index.html. */
 
 /* ---------------------------------------------------------------- step guide + mode switch */
-.pzs-bar, .pzs-hint { grid-column: 1 / -1; width: 100%; box-sizing: border-box; }
-.pzs-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-    margin: 0 0 14px; padding: 14px 18px; border-radius: 14px; background: var(--panel-bg);
-    border: 1px solid var(--border-light); box-shadow: var(--card-shadow, 0 1px 3px rgba(0,0,0,.05)); }
-.pzs-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
-.pzs-step { display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px 6px 6px; border-radius: 999px;
-    color: var(--text-muted); font-weight: 600; font-size: 0.88rem; white-space: nowrap; }
-.pzs-step-num { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 0.85rem; background: var(--panel-subtle); border: 1.5px solid var(--border-light); color: var(--text-muted); }
-.pzs-step-sub { display: block; font-size: 0.7rem; font-weight: 500; color: var(--text-muted); margin-top: 1px; }
-.pzs-step.is-current { background: var(--accent-light); color: var(--accent); }
-.pzs-step.is-current .pzs-step-num { background: var(--accent); border-color: var(--accent); color: #fff; }
-.pzs-step.is-done { color: #059669; }
-.pzs-step.is-done .pzs-step-num { background: #10b981; border-color: #10b981; color: #fff; }
-.pzs-line { flex: 0 1 36px; height: 2px; min-width: 14px; background: var(--border-light); border-radius: 2px; }
-.pzs-line.is-done { background: #10b981; }
-.pzs-mode { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--panel-subtle); border: 1px solid var(--border-light); flex: none; }
-.pzs-mode button { border: none; background: transparent; color: var(--text-muted); font-weight: 600; font-size: 0.82rem;
-    padding: 6px 12px; border-radius: 8px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
-.pzs-mode button.is-on { background: var(--panel-bg); color: var(--text-main); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
-.pzs-hint { margin: -4px 0 14px; padding: 10px 14px; border-radius: 12px; font-size: 0.86rem; color: var(--text-main);
-    background: var(--accent-light); border: 1px solid var(--accent-border); display: flex; gap: 10px; align-items: flex-start; }
-.pzs-hint i { color: var(--accent); margin-top: 2px; }
-.pzs-hint b { font-weight: 700; }
+.pzs-bar,
+.pzs-hint {
+    grid-column: 1 / -1;
+    width: 100%;
+    box-sizing: border-box;
+}
 
-/* ---------------------------------------------------------------- Compact mode (always keeps 3D twin, sub-tabs & counts visible) */
+.pzs-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 0 0 14px;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--card-shadow, 0 1px 3px rgba(0, 0, 0, .05));
+}
+
+.pzs-steps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.pzs-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 12px 6px 6px;
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.88rem;
+    white-space: nowrap;
+}
+
+.pzs-step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.85rem;
+    background: var(--panel-subtle);
+    border: 1.5px solid var(--border-light);
+    color: var(--text-muted);
+}
+
+.pzs-step-sub {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-top: 1px;
+}
+
+.pzs-step.is-current {
+    background: var(--accent-light);
+    color: var(--accent);
+}
+
+.pzs-step.is-current .pzs-step-num {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.pzs-step.is-done {
+    color: #059669;
+}
+
+.pzs-step.is-done .pzs-step-num {
+    background: #10b981;
+    border-color: #10b981;
+    color: #fff;
+}
+
+.pzs-line {
+    flex: 0 1 36px;
+    height: 2px;
+    min-width: 14px;
+    background: var(--border-light);
+    border-radius: 2px;
+}
+
+.pzs-line.is-done {
+    background: #10b981;
+}
+
+.pzs-mode {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--panel-subtle);
+    border: 1px solid var(--border-light);
+    flex: none;
+}
+
+.pzs-mode button {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.82rem;
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pzs-mode button.is-on {
+    background: var(--panel-bg);
+    color: var(--text-main);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+}
+
+.pzs-hint {
+    margin: -4px 0 14px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.86rem;
+    color: var(--text-main);
+    background: var(--accent-light);
+    border: 1px solid var(--accent-border);
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.pzs-hint i {
+    color: var(--accent);
+    margin-top: 2px;
+}
+
+.pzs-hint b {
+    font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- Compact mode (always keeps 3D twin, sub-tabs, glass profile & counts visible) */
 #palletization-view.pz-simple #wbRealizedUnitsPill,
-#palletization-view.pz-simple .pzs-advanced-only { display: none !important; }
+#palletization-view.pz-simple .pzs-advanced-only {
+    display: none !important;
+}
 
 /* calmer, larger main actions in Simple mode */
-#palletization-view.pz-simple #btnRunWorkbenchCount { font-size: 0.95rem; padding: 10px 18px; }
-#palletization-view.pz-simple #wbTotalBadge { font-size: 2.2rem; }
+#palletization-view.pz-simple #btnRunWorkbenchCount {
+    font-size: 0.95rem;
+    padding: 10px 18px;
+}
+
+#palletization-view.pz-simple #wbTotalBadge {
+    font-size: 2.2rem;
+}
 
 /* the hidden "state tracker" block must stay hidden on phones too (responsive.css forces the
    workbench's first child to display:flex, which showed "CAM: undefined / Pallet Progress") */
-#palletCountingWorkbench > div:has(> #palletFeedCamLabel) { display: none !important; }
+#palletCountingWorkbench>div:has(> #palletFeedCamLabel) {
+    display: none !important;
+}
 
 @media (max-width: 900px) {
-    #palletization-view.pz-simple #wbMainGrid { display: flex !important; flex-direction: column; gap: 14px; }
-    .pzs-bar { padding: 10px 12px; gap: 10px; }
-    .pzs-steps { flex: 1 1 100%; flex-wrap: nowrap; justify-content: space-between; gap: 2px; }
-    .pzs-step { padding: 4px 8px 4px 4px; gap: 6px; font-size: 0.8rem; }
-    .pzs-step-num { width: 24px; height: 24px; font-size: 0.78rem; }
-    .pzs-step-sub, .pzs-line { display: none; }
-    .pzs-mode { flex: 1 1 100%; }
-    .pzs-mode button { flex: 1; justify-content: center; }
+    #palletization-view.pz-simple #wbMainGrid {
+        display: flex !important;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .pzs-bar {
+        padding: 10px 12px;
+        gap: 10px;
+    }
+
+    .pzs-steps {
+        flex: 1 1 100%;
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        gap: 2px;
+    }
+
+    .pzs-step {
+        padding: 4px 8px 4px 4px;
+        gap: 6px;
+        font-size: 0.8rem;
+    }
+
+    .pzs-step-num {
+        width: 24px;
+        height: 24px;
+        font-size: 0.78rem;
+    }
+
+    .pzs-step-sub,
+    .pzs-line {
+        display: none;
+    }
+
+    .pzs-mode {
+        flex: 1 1 100%;
+    }
+
+    .pzs-mode button {
+        flex: 1;
+        justify-content: center;
+    }
 }

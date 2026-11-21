@@ -96,7 +96,7 @@
         }
         window.setAuthTab = setAuthTab;
     </script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=3.6">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=3.7">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v=3.6">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/pallet_violations.css') }}?v=1.0">
     <style>
@@ -1748,7 +1748,7 @@
                             </div>
                         </div>
                         <h1 class="hero-title">Welcome back, <span id="heroUserNameDisplay">{{ current_user.username | capitalize if current_user and current_user.username else 'Admin' }}</span><span class="hero-title-slash">/</span></h1>
-                        <p class="hero-desc">Your warehouse operations and edge vision tracking are operating at <strong class="text-highlight-cyan">peak efficiency</strong>.</p>
+                        <p class="hero-desc" id="heroSummary">Loading today's activity…</p>
                     </div>
                     <div class="hero-telemetry-col">
                         <div class="hero-stat-pill">
@@ -1761,8 +1761,8 @@
                         <div class="hero-stat-pill">
                             <i class="fas fa-bolt text-emerald"></i>
                             <div>
-                                <strong>60 FPS</strong>
-                                <span>Neural Vision Matrix</span>
+                                <strong id="heroPalletsToday">0</strong>
+                                <span>Pallets sealed today</span>
                             </div>
                         </div>
                     </div>
@@ -1858,8 +1858,9 @@
                         </div>
                     </div>
                     <div class="chart-legend-bar">
-                        <span class="legend-item"><span class="legend-dot dot-blue"></span> Movement Events</span>
-                        <span class="legend-item"><span class="legend-dot dot-purple"></span> AI Vision Detections</span>
+                        <span class="legend-item"><span class="legend-dot dot-blue"></span> Stock movements</span>
+                        <span class="legend-item"><span class="legend-dot dot-purple"></span> Pallets sealed</span>
+                        <span class="legend-item"><span class="legend-dot" style="background:#10b981;"></span> Trucks in</span>
                     </div>
                     <div class="chart-canvas-container">
                         <canvas id="warlogTelemetryCanvas"></canvas>
@@ -1878,29 +1879,19 @@
                         <div class="health-donut-wrapper">
                             <svg class="donut-svg" viewBox="0 0 120 120">
                                 <circle class="donut-ring-bg" cx="60" cy="60" r="50"/>
-                                <circle class="donut-ring-val" cx="60" cy="60" r="50"/>
+                                <circle class="donut-ring-val" id="healthDonutRing" cx="60" cy="60" r="50"/>
                             </svg>
                             <div class="donut-text-stack">
-                                <span class="donut-val-number">98.7%</span>
-                                <span class="donut-val-label">Operational</span>
+                                <span class="donut-val-number" id="healthScore">–</span>
+                                <span class="donut-val-label" id="healthLabel">Checking…</span>
                             </div>
                         </div>
                     </div>
-                    <div class="health-checklist-stack">
+                    <div class="health-checklist-stack" id="healthChecks">
                         <div class="health-item">
-                            <i class="fas fa-circle-check text-emerald"></i>
+                            <i class="fas fa-circle-notch fa-spin"></i>
                             <span class="health-item-name">Cameras Online</span>
                             <span class="health-item-val" id="stat-cameras-online-health">0 / 0</span>
-                        </div>
-                        <div class="health-item">
-                            <i class="fas fa-circle-check text-emerald"></i>
-                            <span class="health-item-name">Models Deployed</span>
-                            <span class="health-item-val">Edge Neural Core</span>
-                        </div>
-                        <div class="health-item">
-                            <i class="fas fa-circle-check text-emerald"></i>
-                            <span class="health-item-name">Data Pipeline</span>
-                            <span class="health-item-val text-emerald">Active</span>
                         </div>
                     </div>
                 </div>
@@ -1915,42 +1906,7 @@
                         <span class="feed-live-indicator"><span class="pulse-emerald"></span> LIVE</span>
                     </div>
                     <div class="activity-timeline-list" id="swmsActivityFeed">
-                        <div class="timeline-row">
-                            <div class="timeline-icon-badge icon-badge-cyan">
-                                <i class="fas fa-truck-moving"></i>
-                            </div>
-                            <div class="timeline-content">
-                                <div class="timeline-title">Truck <strong>KA-04-E-8891</strong> Arrived</div>
-                                <div class="timeline-meta"><span>Gate 1</span> &bull; <span>Just now</span></div>
-                            </div>
-                        </div>
-                        <div class="timeline-row">
-                            <div class="timeline-icon-badge icon-badge-purple">
-                                <i class="fas fa-eye"></i>
-                            </div>
-                            <div class="timeline-content">
-                                <div class="timeline-title">AI Vision: Pallet Unloading</div>
-                                <div class="timeline-meta"><span>Dock 2 &bull; 4 mins ago</span></div>
-                            </div>
-                        </div>
-                        <div class="timeline-row">
-                            <div class="timeline-icon-badge icon-badge-blue">
-                                <i class="fas fa-dolly"></i>
-                            </div>
-                            <div class="timeline-content">
-                                <div class="timeline-title">Forklift Assigned to Bay 3</div>
-                                <div class="timeline-meta"><span>Internal Transit &bull; 12 mins ago</span></div>
-                            </div>
-                        </div>
-                        <div class="timeline-row">
-                            <div class="timeline-icon-badge icon-badge-emerald">
-                                <i class="fas fa-shield-check"></i>
-                            </div>
-                            <div class="timeline-content">
-                                <div class="timeline-title">Consignment PO #8839 Cleared</div>
-                                <div class="timeline-meta"><span>Verified &bull; 25 mins ago</span></div>
-                            </div>
-                        </div>
+                        <div class="timeline-row"><div class="timeline-content"><div class="timeline-meta"><span>Loading recent activity…</span></div></div></div>
                     </div>
                 </div>
             </div>
@@ -5568,7 +5524,7 @@ window.switchSubTab = switchSubTab;
                             <div class="cs-actions">
                                 <button type="button" class="uac-btn" id="csSaveExample" data-perm="sku.edit"><i class="fas fa-bookmark"></i> Save as example</button>
                                 <button type="button" class="uac-btn" id="csToWeight"><i class="fas fa-scale-balanced"></i> Check with weight</button>
-                                <button type="button" class="uac-btn uac-btn-primary" id="csSavePallet" data-perm="vision.counting.execute"><i class="fas fa-pallet"></i> Save to Pallet</button>
+                                <button type="button" class="uac-btn uac-btn-primary" id="csToPallet" data-perm="vision.counting.execute"><i class="fas fa-pallet"></i> Save to pallet</button>
                             </div>
                         </div>
                         <div class="cs-engine" id="csEngine"></div>
@@ -9376,6 +9332,7 @@ window.switchSubTab = switchSubTab;
             </div>
         </div>
 
+
             <!-- TAB 4: STACKING PRESETS & BLUEPRINTS -->
             <div id="pallet-tab-presets-content" class="pallet-tab-panel" style="display:none;">
                 <div class="glass-panel" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -9712,6 +9669,20 @@ window.switchSubTab = switchSubTab;
                         <textarea id="skuModalDesc" placeholder="Product specifications, packaging details, and visual identification cues" rows="2" style="width:100%; border:1px solid var(--border-light); border-radius:6px; padding:8px; font-size:0.85rem; margin-bottom:0; background:var(--input-bg); color:var(--text-color);"></textarea>
                     </div>
 
+                    <!-- How the product is counted: Palletization switches to this mode when it sees the product -->
+                    <div style="margin-bottom:1rem;">
+                        <label for="skuModalCountAs">How is it counted? *</label>
+                        <select id="skuModalCountAs" onchange="skuCountAsChanged()" style="margin-bottom:0; font-weight:700;">
+                            <option value="pieces">Individual pieces (each item counted: pipes, channels, beams)</option>
+                            <option value="bundles">Bundles / packs (strapped or wrapped packs: glass, studs, blocks)</option>
+                            <option value="cartons">Cartons / boxes (closed boxes with items inside)</option>
+                        </select>
+                        <small id="skuModalCountAsHint" style="color:var(--text-muted); font-size:0.72rem;">Palletization counts it this way and switches to this mode when it recognises the product.</small>
+                    </div>
+                    <div id="skuModalPackContentsRow" style="margin-bottom:1rem; display:none;">
+                        <label for="skuModalPackContents">What is inside 1 carton? *</label>
+                        <input type="text" id="skuModalPackContents" maxlength="120" placeholder="e.g. Ceramic coffee mug 350ml" style="margin-bottom:0;">
+                    </div>
                     <div style="display:grid; grid-template-columns: 1.1fr 1fr 1.1fr; gap:10px; margin-bottom:1rem;">
                         <div>
                             <label for="skuModalUom">Practical UOM *</label>
@@ -9735,7 +9706,7 @@ window.switchSubTab = switchSubTab;
                             </select>
                         </div>
                         <div>
-                            <label for="skuModalUnitsPerBundle">Individuals in 1 Bundle *</label>
+                            <label for="skuModalUnitsPerBundle" id="skuModalUnitsLabel">Individuals in 1 Bundle *</label>
                             <input type="number" id="skuModalUnitsPerBundle" step="1" min="1" value="1" placeholder="e.g. 25" style="margin-bottom:0; font-weight:700;" required>
                         </div>
                         <div>
@@ -11712,7 +11683,7 @@ window.switchSubTab = switchSubTab;
     <script src="{{ url_for('static', filename='js/vision_studio.js') }}?v={{ range(1000, 99999) | random }}"></script>
 
     <!-- SKU Master UI Logic -->
-    <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}?v=3"></script>
 
     <!-- Three.js 3D WebGL Engine & OrbitControls for 3D Pallet Matrix Digital Twin -->
     <script src="{{ url_for('static', filename='js/vendor/three.min.js') }}"></script>

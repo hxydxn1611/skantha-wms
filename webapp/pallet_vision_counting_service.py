@@ -58,6 +58,23 @@ STACK_COLORS = {
 }
 
 
+
+# Count pictures (piece_count_*, box_grid_*) made by THIS server run; only these are cleaned up, keeping the
+# newest 20. Pictures already in static/uploads (earlier runs, backups, other users' saved results) are never
+# deleted - the old cleanup removed any file with these names, including ones still in use.
+_RECENT_OUTPUTS: List[str] = []
+_KEEP_OUTPUTS = 20
+
+
+def _keep_recent_outputs(path: str) -> None:
+    _RECENT_OUTPUTS.append(path)
+    while len(_RECENT_OUTPUTS) > _KEEP_OUTPUTS:
+        old = _RECENT_OUTPUTS.pop(0)
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+
 class PalletVisionCountingService:
     """
     Universal, material-agnostic counting engine for palletization.
@@ -111,6 +128,8 @@ class PalletVisionCountingService:
                 "uom": (sku_info.get("uom") or "EA").upper(),
                 "units_per_bundle": upb,
                 "bundle_name": sku_info.get("bundle_name") or "Bundle",
+                "count_as": sku_info.get("count_as") or ("bundles" if upb > 1 else "pieces"),
+                "pack_contents": sku_info.get("pack_contents") or "",
                 "target_bundles_per_pallet": max(1, int(sku_info.get("target_bundles_per_pallet") or 10)),
                 "signature": sig,
                 "ref_img": (sig or {}).get("ref_img"),
@@ -394,6 +413,8 @@ class PalletVisionCountingService:
                     "uom": anchor["uom"],
                     "units_per_bundle": anchor["units_per_bundle"],
                     "bundle_name": anchor["bundle_name"],
+                    "count_as": anchor.get("count_as"),
+                    "pack_contents": anchor.get("pack_contents"),
                     "target_bundles_per_pallet": anchor["target_bundles_per_pallet"],
                     "image_url": anchor.get("image_url"),
                     "confidence": 0.25 if is_conflicting else 0.99,
@@ -457,6 +478,7 @@ class PalletVisionCountingService:
 
         best_sku = None
         best_score = -1.0
+        photo_sims: Dict[str, float] = {}   # how close each product's own photo is to this one
 
         for sku in all_skus:
             sid = sku.get("sku_id", "")
@@ -472,6 +494,7 @@ class PalletVisionCountingService:
                     raw_sim = matcher.compute_similarity(roi_crop, sid)
                     if raw_sim > 0:
                         vis_sim = float(raw_sim)
+                        photo_sims[sid] = vis_sim
                 except Exception:
                     pass
 
@@ -517,6 +540,11 @@ class PalletVisionCountingService:
                 best_score = total_score
                 best_sku = sku
 
+        # The product whose own reference photo is clearly the closest wins over mode / material bonuses
+        # (in pieces mode a C-stud pack photo went to the channel product, whose name has 'channel').
+        ranked = sorted(photo_sims.items(), key=lambda kv: -kv[1])
+        if ranked and ranked[0][1] >= 0.85 and ranked[0][1] - (ranked[1][1] if len(ranked) > 1 else 0.0) >= 0.05:
+            best_sku = next((x for x in all_skus if x.get("sku_id") == ranked[0][0]), best_sku)
         if not best_sku:
             if is_metallic_grey:
                 return {
@@ -548,7 +576,12 @@ class PalletVisionCountingService:
 
         is_best_glass = any(k in f"{best_sku.get('sku_id','')} {best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("glass", "float", "dgu", "igu", "mirror", "glazing", "laminated", "toughened", "tempered")) or str(best_sku.get("sku_id","")).upper().startswith("GLS-")
         is_best_metal = any(k in f"{best_sku.get('sku_id','')} {best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("metal", "steel", "pipe", "tube", "profile", "rebar", "framing", "c-stud")) and not is_best_glass and not any(k in f"{best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("strut", "damper", "suspension", "steering", "engine", "brake", "exhaust", "intake", "door skin", "body & trim"))
-        if is_metallic_grey and not is_best_metal:
+        # A product whose own photo matches this one closely (and clearly better than any other product)
+        # is the answer even in a grey scene: concrete blocks or wrapped packs are grey but not steel.
+        best_photo = photo_sims.get(best_sku.get("sku_id", ""), 0.0)
+        runner_up = max([v for k, v in photo_sims.items() if k != best_sku.get("sku_id")] or [0.0])
+        strong_photo_match = best_photo >= 0.85 and best_photo - runner_up >= 0.05
+        if is_metallic_grey and not is_best_metal and not strong_photo_match:
             if is_bundle_mode:
                 prod_type = "Structural Steel Bundle"
                 mat_label = "Structural steel"
@@ -608,6 +641,8 @@ class PalletVisionCountingService:
             "uom": (best_sku.get("uom") or "EA").upper(),
             "units_per_bundle": max(1, int(best_sku.get("units_per_bundle") or 1)),
             "bundle_name": best_sku.get("bundle_name") or "Bundle",
+            "count_as": best_sku.get("count_as") or ("bundles" if int(best_sku.get("units_per_bundle") or 1) > 1 else "pieces"),
+            "pack_contents": best_sku.get("pack_contents") or "",
             "target_bundles_per_pallet": max(1, int(best_sku.get("target_bundles_per_pallet") or 10)),
             "image_url": image_url,
             "confidence": conf,
@@ -1327,8 +1362,8 @@ class PalletVisionCountingService:
 
         if resolved_strategy in ("wrapped_bundles", "wrapped_pallet") or (material_type and any(w in str(material_type).lower() for w in ("wrap", "film", "stretch"))):
             return self.count_wrapped_bundles(
-                angle1_bgr=angle1_bgr,
-                angle2_bgr=angle2_bgr if has_distinct_side_view else None,
+                angle1_bgr=image_bgr,
+                angle2_bgr=None,  # one photo in this count (the names used here before did not exist: NameError)
                 sku_id=sku_id,
                 manual_units_per_bundle=manual_units_per_bundle,
                 manual_uom=manual_uom,
@@ -1343,13 +1378,13 @@ class PalletVisionCountingService:
 
         if resolved_strategy == "glass_bundles":
             # Guard against routing non-glass wrapped pallets into glass stillages
-            hsv_g_chk = cv2.cvtColor(angle1_bgr, cv2.COLOR_BGR2HSV)
+            hsv_g_chk = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
             green_g_chk = cv2.inRange(hsv_g_chk, (35, 30, 20), (85, 255, 255))
-            has_glass_tint = (float(np.sum(green_g_chk > 0)) / float(angle1_bgr.shape[0] * angle1_bgr.shape[1])) > 0.05
+            has_glass_tint = (float(np.sum(green_g_chk > 0)) / float(image_bgr.shape[0] * image_bgr.shape[1])) > 0.05
             if not has_glass_tint and not (material_type and "glass" in str(material_type).lower()):
                 return self.count_wrapped_bundles(
-                    angle1_bgr=angle1_bgr,
-                    angle2_bgr=angle2_bgr if has_distinct_side_view else None,
+                    angle1_bgr=image_bgr,
+                    angle2_bgr=None,  # one photo in this count (the names used here before did not exist: NameError)
                     sku_id=sku_id,
                     manual_units_per_bundle=manual_units_per_bundle,
                     manual_uom=manual_uom,
@@ -1432,8 +1467,10 @@ class PalletVisionCountingService:
                 manual_uom=manual_uom, manual_bundle_name=manual_bundle_name
             )
 
-        # 2. Strict target single-SKU mode when reference photo matcher is available (skip for glass/piece edge detectors)
-        if sku_anchor and sku_anchor.get("matcher") and resolved_strategy not in ("individual_pieces", "glass_sheets"):
+        # 2. Strict target single-SKU mode when reference photo matcher is available
+        # (skip for individual pieces, glass edge detectors, and carton stacks so 3D reconstruction & edge periodicity always run)
+        is_carton_count = resolved_strategy == "carton_boxes" or normalized_mode in self.CARTON_BOX_MODES
+        if sku_anchor and sku_anchor.get("matcher") and resolved_strategy not in ("individual_pieces", "glass_sheets") and not is_carton_count:
             target_res = self._count_targeted_single_sku(
                 image_bgr, sku_anchor=sku_anchor, roi=roi, sensitivity=sensitivity, raw_url=raw_url
             )
@@ -1741,25 +1778,10 @@ class PalletVisionCountingService:
             regions=valid_regions, excluded_count=excluded_count, uncertain_count=uncertain_count
         )
 
-        # Prune old temporary piece count test images to prevent bloat (keep latest 20)
-        try:
-            test_files = [
-                os.path.join(UPLOAD_DIR, f) for f in os.listdir(UPLOAD_DIR)
-                if (f.startswith("piece_count_") or f.startswith("box_grid_")) and os.path.isfile(os.path.join(UPLOAD_DIR, f))
-            ]
-            if len(test_files) > 20:
-                test_files.sort(key=lambda p: os.path.getmtime(p))
-                for old_f in test_files[:-20]:
-                    try:
-                        os.remove(old_f)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
-
         filename = f"piece_count_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         save_path = os.path.join(UPLOAD_DIR, filename)
         cv2.imwrite(save_path, annotated_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        _keep_recent_outputs(save_path)
         rel_url = f"/static/uploads/{filename}"
 
         clean_clusters = []
@@ -3782,6 +3804,7 @@ class PalletVisionCountingService:
         filename = f"box_grid_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         save_path = os.path.join(UPLOAD_DIR, filename)
         cv2.imwrite(save_path, vis, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        _keep_recent_outputs(save_path)
         rel_url = f"/static/uploads/{filename}"
 
         quantity_breakdown = {
@@ -4844,7 +4867,16 @@ class PalletVisionCountingService:
         if sku_anchor and sku_anchor.get("signature"):
             sku_cat_name = f"{sku_anchor.get('category','')} {sku_anchor.get('name','')}".lower()
             is_incompatible_sku = any(k in sku_cat_name for k in ("strut", "damper", "suspension", "steering", "engine", "brake", "glass", "carton"))
-            if not is_incompatible_sku:
+            # Bare metal is grey: it has almost no colour, so a colour filter built from the product photo
+            # throws away the very steel ends being counted (a U-channel stack went from 27 to 17, a pipe
+            # bundle photo kept only 19% of its pixels). Skip it for metal products and grey metal scenes.
+            sku_is_metal = bool(re.search(r"(?<![a-z])(steel|metal|metals|pipes?|tubes?|channels?|studs?|profiles?|beams?|angles?|rods?|rebar|ms|gi|galvani[sz]ed|alumin(?:i)?um|iron)(?![a-z])", sku_cat_name + " " + str(sku_anchor.get("sku_id", "")).lower().replace("-", " ")))
+            try:
+                _hsv_c = cv2.cvtColor(work_img[int(work_img.shape[0] * 0.15):int(work_img.shape[0] * 0.85), int(work_img.shape[1] * 0.15):int(work_img.shape[1] * 0.85)], cv2.COLOR_BGR2HSV)
+                scene_is_grey_metal = float(np.mean(_hsv_c[:, :, 1])) < 52
+            except Exception:
+                scene_is_grey_metal = False
+            if not is_incompatible_sku and not sku_is_metal and not scene_is_grey_metal:
                 try:
                     sig = sku_anchor["signature"]
                     hsv_work = cv2.cvtColor(work_img, cv2.COLOR_BGR2HSV)
@@ -8033,6 +8065,13 @@ class PalletVisionCountingService:
             "pallet_base_meta": pallet_base_meta
         }
 
+        try:
+            rec_sku = self.recognize_product_from_skus(angle1_bgr, explicit_sku_id=sku_id, counting_mode="bundles",
+                                                       detected_count=total_bundles, is_bundle_mode=True)
+        except Exception as e:
+            logger.debug(f"Product recognition for wrapped packs skipped: {e}")
+            rec_sku = None
+
         return {
             "success": True,
             "session_id": sess_id,
@@ -8060,7 +8099,11 @@ class PalletVisionCountingService:
             "matrix_3d": matrix_3d,
             "boxes_3d": boxes_3d,
             "review_status": "AUTO_PROPOSED",
-            "views_submitted": ["front"] if not has_distinct_side else ["front", "side"]
+            "views_submitted": ["front"] if not has_distinct_side else ["front", "side"],
+            # which product this is (the other counts attach it too): Palletization switches to the product's
+            # own counting mode when it is not a wrapped pack (a channel stack counted as wrapped packs)
+            "recognized_sku": rec_sku,
+            "sku_info": rec_sku
         }
 
     def _detect_arbitrary_bundle_stacks(

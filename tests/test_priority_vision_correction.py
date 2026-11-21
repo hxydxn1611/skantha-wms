@@ -34,7 +34,9 @@ class TestPriorityVisionCorrection(unittest.TestCase):
         # SKU recognition check: must NEVER assign AUTO-DOOR-SKIN
         rec = self.service.recognize_product_from_skus(im, counting_mode="individual_pieces")
         self.assertNotEqual(rec.get("sku_id"), "AUTO-DOOR-SKIN")
-        self.assertIn("STEEL", str(rec.get("sku_id", "")))
+        # the generic steel profile, or a real steel product of the warehouse once one has a matching photo
+        text = f"{rec.get('sku_id', '')} {rec.get('name', '')} {rec.get('category', '')}".upper()
+        self.assertTrue(any(w in text for w in ("STEEL", "CHANNEL", "PIPE", "PROFILE", "TUBE")), rec)
 
         # Explicit SKU mismatch check
         rec_mismatch = self.service.recognize_product_from_skus(

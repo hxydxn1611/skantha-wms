@@ -1786,6 +1786,8 @@ def api_get_sku_detail(sku_id):
 @app.route('/api/sku_master', methods=['POST'])
 def api_save_sku():
     data = request.json or {}
+    # a product this location had removed from its lists comes back when it is added here again
+    db.show_sku_in_warehouse(data.get('sku_id'), rbac_service.current_warehouse_id())
     saved, err = db.save_sku_master_record(data)
     if err:
         return jsonify({'success': False, 'message': err}), 400
@@ -1793,6 +1795,14 @@ def api_save_sku():
 
 @app.route('/api/sku_master/<sku_id>', methods=['DELETE'])
 def api_delete_sku(sku_id):
+    # ?where=here: take the product out of this location's lists only; the company's other
+    # locations keep it (products are shared by all of a company's locations)
+    if (request.args.get('where') or '').lower() == 'here':
+        ok, err = db.hide_sku_in_warehouse(sku_id, rbac_service.current_warehouse_id(),
+                                           (getattr(g, 'current_user', None) or {}).get('username'))
+        if not ok:
+            return jsonify({'success': False, 'message': err}), 400
+        return jsonify({'success': True, 'message': f"SKU '{sku_id}' removed from this location. Your other locations keep it."})
     ok, err = db.delete_sku_master_record(sku_id)
     if not ok:
         return jsonify({'success': False, 'message': err}), 400
@@ -6961,6 +6971,14 @@ def api_update_pallet_count(pallet_id):
     new_count = data.get('counted_bundles') if data.get('counted_bundles') is not None else data.get('current_bundles')
     if new_count is None:
         return jsonify({"success": False, "error": "counted_bundles is required"}), 400
+    # a count of one product must not land on a pallet of another (mug cartons were saved onto a glass
+    # pallet) or on a sealed pallet (its stock is already booked)
+    pal = db.get_pallet_by_id(pallet_id)
+    if pal and data.get('sku_id') and pal.get('sku_id') and str(data['sku_id']).strip() != pal['sku_id']:
+        return jsonify({"success": False, "error": f"Pallet {pallet_id} holds {pal['sku_id']}, but this count is for {data['sku_id']}. "
+                        "Choose a pallet of the same product or build a new one."}), 400
+    if pal and str(pal.get('status') or '').upper() == 'SEALED':
+        return jsonify({"success": False, "error": f"Pallet {pallet_id} is already sealed - build a new pallet for this count."}), 400
 
     rec = db.update_pallet_count(
         pallet_id=pallet_id,
@@ -7418,6 +7436,8 @@ def api_get_vision_skus():
                 "uom": it.get("uom", "EA"),
                 "units_per_bundle": max(1, int(it.get("units_per_bundle") or 1)),
                 "bundle_name": it.get("bundle_name") or "Bundle",
+                "count_as": it.get("count_as") or "pieces",
+                "pack_contents": it.get("pack_contents") or "",
                 "target_bundles_per_pallet": max(1, int(it.get("target_bundles_per_pallet") or 10)),
                 "unit_weight": it.get("unit_weight", 0)
             })
@@ -7788,11 +7808,9 @@ def api_count_pallet_pieces():
         manual_uom = (request.form.get('uom') or data.get('uom') or '').strip().upper() or None
         manual_bundle_name = (request.form.get('bundle_name') or data.get('bundle_name') or '').strip() or None
 
-        if sku_id and sku_id != 'MULTI_ALL' and (manual_upb or manual_uom or manual_bundle_name):
-            try:
-                db.update_sku_bundle_config(sku_id, manual_upb or 1, uom=manual_uom, bundle_name=manual_bundle_name)
-            except Exception:
-                pass
+        # A count no longer writes these back into the product (it silently changed a product's pack
+        # size, e.g. counting C-studs in pieces mode set them to 1 per pack). The product in AI Vision is the
+        # source; the workbench values only apply to this count (its "save to product" button stays explicit).
 
         # Parse glass_profile if provided
         glass_profile = None
@@ -8042,11 +8060,9 @@ def api_count_pallet_bundles():
         manual_uom = (request.form.get('uom') or data.get('uom') or '').strip().upper() or None
         manual_bundle_name = (request.form.get('bundle_name') or data.get('bundle_name') or '').strip() or None
 
-        if sku_id and sku_id != 'MULTI_ALL' and (manual_upb or manual_uom or manual_bundle_name):
-            try:
-                db.update_sku_bundle_config(sku_id, manual_upb or 1, uom=manual_uom, bundle_name=manual_bundle_name)
-            except Exception:
-                pass
+        # A count no longer writes these back into the product (it silently changed a product's pack
+        # size, e.g. counting C-studs in pieces mode set them to 1 per pack). The product in AI Vision is the
+        # source; the workbench values only apply to this count (its "save to product" button stays explicit).
 
         # Parse glass_profile if provided or reconstruct from profile_id / fields
         glass_profile = None
@@ -8473,6 +8489,29 @@ def api_transfer_vision_inventory():
                 "error_code": "unapproved_session"
             }), 400
 
+        # The product must be a real one (no made-up "GEN-STK-001" fallback); the screen may send the one picked.
+        sku_id = str(session.get("sku_id") or session.get("selected_sku") or data.get("sku_id") or "").strip()
+        if sku_id.upper() in ("", "AUTO", "MULTI_ALL", "GEN-STK-001") and data.get("sku_id"):
+            sku_id = str(data.get("sku_id")).strip()
+        if sku_id.upper() in ("", "AUTO", "MULTI_ALL", "GEN-STK-001") or not db.get_sku_by_id(sku_id):
+            return jsonify({"success": False, "error": "Pick the product for this count first (it is not known which product was counted).",
+                            "error_code": "missing_sku"}), 400
+        session["sku_id"] = sku_id
+        # The stock change is recorded under the person signed in, not a fixed "OP-VISION".
+        operator_id = (getattr(g, "current_user", None) or {}).get("username") or operator_id
+        if target_type == "pallet" or pallet_id:
+            pal = db.get_pallet_by_id(str(pallet_id or "").strip()) if pallet_id else None
+            wid = rbac_service.current_warehouse_id()
+            if not pal or (wid and pal.get("warehouse_id") and int(pal["warehouse_id"]) != int(wid)):
+                return jsonify({"success": False, "error": f"Pallet '{pallet_id or ''}' was not found in this location.",
+                                "error_code": "pallet_not_found"}), 404
+            if str(pal.get("status") or "").upper() in ("SEALED", "PUT_AWAY", "PUTAWAY", "STORED", "DISPATCHED"):
+                return jsonify({"success": False, "error": f"Pallet {pal['pallet_id']} is already sealed - its count can no longer be changed.",
+                                "error_code": "pallet_sealed"}), 400
+            if pal.get("sku_id") and pal["sku_id"] != sku_id:
+                return jsonify({"success": False, "error": f"Pallet {pal['pallet_id']} holds {pal['sku_id']}, but this count is for {sku_id}.",
+                                "error_code": "pallet_sku_mismatch"}), 400
+
         receipt = db.record_vision_counting_submission(
             session_data=session,
             target_type=target_type,
@@ -8557,6 +8596,64 @@ def decode_ocr_endpoint():
         return jsonify({"success": False, "text": "", "message": "No barcode/QR found"})
     except Exception as e:
         logger.exception("Error decoding image QR")
+        return jsonify({"success": False, "error": _public_error(e)}), 500
+
+
+def _cameras_online(cameras):
+    """Cameras that are really delivering frames now (the same test as /api/telemetry/live)."""
+    online = 0
+    try:
+        from vision_runtime_service import get_vision_runtime_manager
+        mgr = get_vision_runtime_manager()
+        for c in cameras:
+            cid = c.get('camera_id')
+            ac = active_cameras.get(cid)
+            sess = mgr.get_session(cid) if mgr else None
+            if (ac and getattr(ac, 'is_running', False) and getattr(ac, 'raw_frame', None) is not None) or (sess and getattr(sess, 'is_connected', False)):
+                online += 1
+    except Exception:
+        online = 0
+    return online
+
+
+@app.route('/api/dashboard/live', methods=['GET'])
+def api_dashboard_live():
+    """Dashboard chart, health and feed from real records only (no made-up numbers):
+    stock movements, trucks in at the gate and pallets sealed per time slot; a health score from
+    checks that can actually fail; the newest events. Same scope as the KPI cards (/api/stats)."""
+    try:
+        act = db.get_dashboard_activity(request.args.get('range', '24h'))
+        cameras = db.get_all_cameras() or []
+        online = _cameras_online(cameras)
+        checks = [{"name": "Database", "ok": True, "value": "Reachable", "weight": 1.0}]
+        if cameras:
+            checks.append({"name": "Cameras online", "ok": online == len(cameras), "value": f"{online} / {len(cameras)}",
+                           "weight": 1.0, "score": online / len(cameras)})
+        else:
+            checks.append({"name": "Cameras online", "ok": None, "value": "None set up", "weight": 0.0})
+        try:
+            import counting_studio_service
+            studio_ready = bool(counting_studio_service.status().get("model_ready"))
+        except Exception:
+            studio_ready = False
+        here = os.path.dirname(os.path.abspath(__file__))
+        detector_ready = os.path.exists(os.path.join(here, 'yolo11s.pt'))
+        models_ok = studio_ready and detector_ready
+        checks.append({"name": "AI counting models", "ok": models_ok, "weight": 1.0,
+                       "value": "Ready" if models_ok else ("Counting Studio model missing" if not studio_ready else "Detector missing")})
+        neg = act["negative_stock_lines"]
+        checks.append({"name": "Stock records", "ok": neg == 0, "weight": 1.0,
+                       "value": "Consistent" if neg == 0 else f"{neg} line{'s' if neg != 1 else ''} below zero"})
+        total_w = sum(c["weight"] for c in checks)
+        got = sum(c["weight"] * (c.get("score", 1.0 if c["ok"] else 0.0)) for c in checks if c["ok"] is not None)
+        health = round(100.0 * got / total_w, 1) if total_w else 100.0
+        for c in checks:
+            c.pop("weight", None)
+            c.pop("score", None)
+        return jsonify({"success": True, **act, "health": health, "checks": checks,
+                        "cameras_total": len(cameras), "cameras_online": online})
+    except Exception as e:
+        logger.exception("Error in dashboard live endpoint")
         return jsonify({"success": False, "error": _public_error(e)}), 500
 
 

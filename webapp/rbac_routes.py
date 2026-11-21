@@ -81,6 +81,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     # ------------------------------------------------------------ dashboard
     "get_stats": "dashboard.view",
     "get_live_telemetry_endpoint": "dashboard.view",
+    "api_dashboard_live": "dashboard.view",
     "get_alerts": "violations.view|gate.violation.view|dashboard.view",
 
     # ------------------------------------------------------------ pre-registration

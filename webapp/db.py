@@ -1533,6 +1533,114 @@ def get_stats():
         "at_dock": at_dock
     }
 
+def _utc_to_local(text):
+    """'YYYY-MM-DD HH:MM:SS' stored by SQLite CURRENT_TIMESTAMP (UTC) -> local naive datetime."""
+    from datetime import timezone
+    try:
+        return datetime.strptime(str(text)[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+    except (TypeError, ValueError):
+        return None
+
+
+def _local(text):
+    try:
+        return datetime.strptime(str(text)[:19], "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def get_dashboard_activity(range_key="24h", feed_limit=8):
+    """Real activity for the Dashboard, in the caller's scope (the same scope as the KPI cards):
+    stock movements, trucks in at the gate and pallets sealed per time slot, today's totals,
+    the newest events for the feed, and stock lines below zero (a data health check).
+    Stock movements and the vehicle log store UTC (CURRENT_TIMESTAMP); sealed_at is local time."""
+    from datetime import timedelta
+    now = datetime.now()
+    if range_key == "7d":
+        start = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        step, n = timedelta(days=1), 7
+        label = lambda t: t.strftime("%a %d")
+    elif range_key == "30d":
+        start = (now - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
+        step, n = timedelta(days=1), 30
+        label = lambda t: t.strftime("%d %b")
+    else:
+        range_key = "24h"
+        start = (now - timedelta(hours=22)).replace(minute=0, second=0, microsecond=0)
+        start = start.replace(hour=start.hour - start.hour % 2)
+        step, n = timedelta(hours=2), 12
+        label = lambda t: t.strftime("%H:00")
+    utc_from = (start - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")   # wide; filtered exactly below
+
+    conn = get_db()
+    try:
+        mf, mp = rbac_scope.filter("stock_movements")
+        moves = conn.execute(f"SELECT ts, movement_type, sku_id, bin_id, delta, actor, ref FROM stock_movements "
+                             f"WHERE ts >= ?{mf} ORDER BY id DESC", (utc_from,) + mp).fetchall()
+        vf, vp = rbac_scope.filter("vehicle_log")
+        trucks = conn.execute(f"SELECT entry_time, exit_time, plate, gp_id FROM vehicle_log "
+                              f"WHERE (entry_time >= ? OR exit_time >= ?){vf}", (utc_from, utc_from) + vp).fetchall()
+        pf, pp = rbac_scope.filter("pallets")
+        sealed = conn.execute(f"SELECT sealed_at, pallet_id, sku_id, total_units FROM pallets "
+                              f"WHERE sealed_at IS NOT NULL AND sealed_at >= ?{pf}", (utc_from,) + pp).fetchall()
+        inf, inp = rbac_scope.filter("inventory")
+        negative = conn.execute(f"SELECT COUNT(*) FROM inventory WHERE quantity < 0{inf}", inp).fetchone()[0]
+    finally:
+        conn.close()
+
+    events = []   # (local time, kind, row)
+    for r in moves:
+        t = _utc_to_local(r["ts"])
+        if t:
+            events.append((t, "move", r))
+    for r in trucks:
+        t = _utc_to_local(r["entry_time"])
+        if t:
+            events.append((t, "truck_in", r))
+        t2 = _utc_to_local(r["exit_time"]) if r["exit_time"] else None
+        if t2:
+            events.append((t2, "truck_out", r))
+    for r in sealed:
+        t = _local(r["sealed_at"])
+        if t:
+            events.append((t, "sealed", r))
+
+    series = {"stock_movements": [0] * n, "trucks_in": [0] * n, "pallets_sealed": [0] * n}
+    key = {"move": "stock_movements", "truck_in": "trucks_in", "sealed": "pallets_sealed"}
+    for t, kind, _ in events:
+        if kind in key and start <= t <= now:
+            i = min(n - 1, int((t - start) / step))
+            series[key[kind]][i] += 1
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    totals_today = {
+        "stock_movements": sum(1 for t, k, _ in events if k == "move" and t >= today),
+        "trucks_in": sum(1 for t, k, _ in events if k == "truck_in" and t >= today),
+        "pallets_sealed": sum(1 for t, k, _ in events if k == "sealed" and t >= today),
+    }
+
+    words = {"receive": "received into", "pick": "picked from", "transfer_in": "moved into", "transfer_out": "moved out of",
+             "created": "added to", "change": "changed in", "removed": "removed from",
+             "adjust": "count corrected in"}
+    feed = []
+    for t, kind, r in sorted(events, key=lambda e: e[0], reverse=True)[:feed_limit]:
+        if kind == "move":
+            qty = abs(int(r["delta"] or 0))
+            verb = words.get(r["movement_type"], r["movement_type"] or "changed")
+            title = f"{qty} {r['sku_id']} {verb} {r['bin_id']}"
+            feed.append({"type": "stock", "icon": "fas fa-boxes-stacked", "badge_class": "icon-badge-blue", "title": title,
+                         "meta": " • ".join(x for x in (r["actor"], r["ref"]) if x), "at": t.strftime("%Y-%m-%d %H:%M:%S")})
+        elif kind == "sealed":
+            feed.append({"type": "pallet", "icon": "fas fa-pallet", "badge_class": "icon-badge-purple",
+                         "title": f"Pallet {r['pallet_id']} sealed ({r['total_units'] or 0} {r['sku_id']})",
+                         "meta": "Palletization", "at": t.strftime("%Y-%m-%d %H:%M:%S")})
+        else:
+            feed.append({"type": "truck", "icon": "fas fa-truck-moving", "badge_class": "icon-badge-cyan",
+                         "title": f"Truck {r['plate']} {'arrived' if kind == 'truck_in' else 'left'}",
+                         "meta": f"Gate pass {r['gp_id']}" if r["gp_id"] else "Gate", "at": t.strftime("%Y-%m-%d %H:%M:%S")})
+    return {"range": range_key, "labels": [label(start + step * i) for i in range(n)], "series": series,
+            "today": totals_today, "feed": feed, "negative_stock_lines": int(negative or 0)}
+
+
 # ----------------- Vehicle Log & Invoices -----------------
 
 def get_all_vehicle_logs():
@@ -2666,7 +2774,7 @@ def get_all_skus():
     conn = get_db()
     _sf, _sp = rbac_scope.filter("skus")
     cursor = conn.execute(f"SELECT * FROM skus WHERE 1=1{_sf} ORDER BY sku_id ASC", _sp)
-    skus = [dict(r) for r in cursor.fetchall()]
+    skus = [with_count_as(dict(r)) for r in cursor.fetchall()]
     conn.close()
     return skus
 
@@ -3002,6 +3110,7 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
                COALESCE(s.uom, 'EA') as uom,
                COALESCE(s.units_per_bundle, 1) as units_per_bundle,
                COALESCE(s.bundle_name, 'Bundle') as bundle_name,
+               s.count_as, s.pack_contents,
                COALESCE(s.target_bundles_per_pallet, 10) as target_bundles_per_pallet,
                COALESCE(s.status, 'Active') as status,
                s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at,
@@ -3050,7 +3159,7 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
 
     items = []
     for r in rows:
-        d = dict(r)
+        d = with_count_as(dict(r))
         d['primary_image_path'] = d['primary_image_path'] or d['fallback_image_path']
         d['has_image'] = bool(d['image_count'] > 0)
         d['units_per_bundle'] = max(1, int(d.get('units_per_bundle') or 1))
@@ -3075,6 +3184,7 @@ def get_sku_by_id(sku_id):
                COALESCE(s.uom, 'EA') as uom,
                COALESCE(s.units_per_bundle, 1) as units_per_bundle,
                COALESCE(s.bundle_name, 'Bundle') as bundle_name,
+               s.count_as, s.pack_contents,
                COALESCE(s.target_bundles_per_pallet, 10) as target_bundles_per_pallet,
                COALESCE(s.status, 'Active') as status,
                s.created_at, COALESCE(s.updated_at, s.created_at) as updated_at
@@ -3085,7 +3195,7 @@ def get_sku_by_id(sku_id):
         conn.close()
         return None
 
-    sku_dict = dict(row)
+    sku_dict = with_count_as(dict(row))
     sku_dict['units_per_bundle'] = max(1, int(sku_dict.get('units_per_bundle') or 1))
     sku_dict['target_bundles_per_pallet'] = max(1, int(sku_dict.get('target_bundles_per_pallet') or 10))
     sku_dict['bundle_name'] = sku_dict.get('bundle_name') or 'Bundle'
@@ -3099,6 +3209,21 @@ def get_sku_by_id(sku_id):
     sku_dict['image_count'] = len(sku_dict['images'])
     sku_dict['primary_image'] = next((img for img in sku_dict['images'] if img['is_primary']), (sku_dict['images'][0] if sku_dict['images'] else None))
     return sku_dict
+
+COUNT_AS_VALUES = ("pieces", "bundles", "cartons")
+
+
+def with_count_as(d):
+    """count_as for a product row (migration 017 fills it; rows from older paths get the same rule)."""
+    if d is not None and d.get("count_as") not in COUNT_AS_VALUES:
+        uom = str(d.get("uom") or "").upper()
+        upb = int(d.get("units_per_bundle") or 1)
+        d["count_as"] = ("cartons" if uom in ("BOX", "BOXES", "CARTON", "CARTONS", "CASE", "CASES")
+                         else "bundles" if upb > 1 else "pieces")
+    if d is not None and "pack_contents" in d and d["pack_contents"] is None:
+        d["pack_contents"] = ""
+    return d
+
 
 def save_sku_master_record(data):
     """Create or update single SKU master record without touching inventory balances."""
@@ -3121,6 +3246,20 @@ def save_sku_master_record(data):
         units_per_bundle = max(1, int(float(data.get('units_per_bundle', 1) or 1)))
     except (ValueError, TypeError):
         units_per_bundle = 1
+    # how the product is counted (None = leave as it is: older screens and Excel imports do not send it)
+    count_as = data.get('count_as')
+    if count_as is not None:
+        count_as = str(count_as).strip().lower()
+        if count_as not in COUNT_AS_VALUES:
+            return None, "How it is counted must be: individual pieces, bundles or cartons."
+        if count_as == 'pieces':
+            units_per_bundle = 1
+    pack_contents = data.get('pack_contents')
+    if pack_contents is not None:
+        pack_contents = str(pack_contents).strip()[:120]
+        if count_as == 'cartons' and not pack_contents:
+            return None, "Say what is inside each carton (e.g. Ceramic coffee mug 350ml)."
+
     try:
         target_bundles_per_pallet = max(1, int(float(data.get('target_bundles_per_pallet', 10) or 10)))
     except (ValueError, TypeError):
@@ -3141,10 +3280,12 @@ def save_sku_master_record(data):
             INSERT INTO skus (
                 sku_id, name, description, category, uom,
                 units_per_bundle, bundle_name, target_bundles_per_pallet,
-                unit_weight, unit_volume, status, created_at, updated_at
+                unit_weight, unit_volume, status, created_at, updated_at, count_as, pack_contents
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sku_id) DO UPDATE SET
+                count_as = COALESCE(excluded.count_as, skus.count_as),
+                pack_contents = COALESCE(excluded.pack_contents, skus.pack_contents),
                 name = excluded.name,
                 description = excluded.description,
                 category = excluded.category,
@@ -3159,7 +3300,7 @@ def save_sku_master_record(data):
         """, (
             sku_id, name, description, category, uom,
             units_per_bundle, bundle_name, target_bundles_per_pallet,
-            unit_weight, unit_volume, status, now, now
+            unit_weight, unit_volume, status, now, now, count_as, pack_contents
         ))
     conn.close()
     return get_sku_by_id(sku_id), None
@@ -3213,6 +3354,43 @@ def delete_sku_master_record(sku_id):
         conn.execute("DELETE FROM skus WHERE sku_id = ?", (str(sku_id),))
     conn.close()
     return True, None
+
+def hide_sku_in_warehouse(sku_id, warehouse_id, actor=None):
+    """Takes a product out of one location's lists (product list, dropdowns, photo recognition);
+    the company's other locations keep it. Refused while this location still holds stock of it."""
+    sku_id = str(sku_id or '').strip()
+    if not sku_id or not warehouse_id:
+        return False, "Choose a location first."
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT 1 FROM skus WHERE sku_id = ?", (sku_id,)).fetchone():
+            return False, f"SKU '{sku_id}' was not found."
+        qty = conn.execute("SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE sku_id = ? AND warehouse_id = ?",
+                           (sku_id, int(warehouse_id))).fetchone()[0]
+        if qty and qty > 0:
+            return False, f"This location still holds {qty} of '{sku_id}'. Move or adjust that stock first."
+        with conn:
+            conn.execute("INSERT OR IGNORE INTO warehouse_hidden_skus (warehouse_id, sku_id, hidden_by) VALUES (?, ?, ?)",
+                         (int(warehouse_id), sku_id, actor))
+        return True, None
+    finally:
+        conn.close()
+
+
+def show_sku_in_warehouse(sku_id, warehouse_id):
+    """Undo hide_sku_in_warehouse (the product is added to this location again)."""
+    if not sku_id or not warehouse_id:
+        return
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("DELETE FROM warehouse_hidden_skus WHERE warehouse_id = ? AND sku_id = ?",
+                         (int(warehouse_id), str(sku_id).strip()))
+    except sqlite3.OperationalError:
+        pass   # before migration 016
+    finally:
+        conn.close()
+
 
 def batch_import_sku_records(skus_list, duplicate_policy='skip'):
     """
@@ -3399,7 +3577,6 @@ def generate_pallet_id():
         "SELECT pallet_id FROM pallets WHERE pallet_id LIKE ? ORDER BY pallet_id DESC LIMIT 1",
         (f"{prefix}%",)
     ).fetchone()
-    conn.close()
     if row and row['pallet_id']:
         try:
             last_num = int(row['pallet_id'].split('-')[-1])
@@ -3408,6 +3585,19 @@ def generate_pallet_id():
             new_num = 1
     else:
         new_num = 1
+    # A deleted pallet's number is not handed out again: its stock history (ref PALLET-<id>) and its printed
+    # label PDF would attach to the new pallet (the label file was overwritten).
+    label_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'invoices')
+    try:
+        for _ in range(10000):
+            pid = f"{prefix}{new_num:04d}"
+            used = conn.execute("SELECT 1 FROM pallets WHERE pallet_id = ? UNION ALL "
+                                "SELECT 1 FROM stock_movements WHERE ref = ? LIMIT 1", (pid, f"PALLET-{pid}")).fetchone()
+            if not used and not os.path.exists(os.path.join(label_dir, f"Pallet_Label_{pid}.pdf")):
+                break
+            new_num += 1
+    finally:
+        conn.close()
     return f"{prefix}{new_num:04d}"
 
 
@@ -4299,11 +4489,17 @@ def record_vision_counting_submission(
         # 1. Update WMS Inventory or Pallet Record
         if target_type == "pallet" or pallet_id:
             p_id = str(pallet_id or session_data.get("target_id") or "PAL-001").strip()
+            # pallets has no updated_at column (this UPDATE failed every time, so an AI count never reached
+            # a pallet); the pallet keeps its status so it can be sealed and put into stock as usual
+            if counting_mode == "bundles" and physical_bundles > 0:
+                pal_bundles, pal_upb = physical_bundles, units_per_bundle
+            else:
+                pal_bundles, pal_upb = total_pieces, 1
             conn.execute("""
                 UPDATE pallets
-                SET counted_bundles = ?, total_units = ?, status = 'COUNTED', updated_at = CURRENT_TIMESTAMP
+                SET counted_bundles = ?, units_per_bundle = ?, total_units = ?
                 WHERE pallet_id = ?
-            """, (physical_bundles, total_pieces, p_id))
+            """, (pal_bundles, pal_upb, total_pieces, p_id))
             target_applied = {"type": "pallet", "pallet_id": p_id, "bundles": physical_bundles, "total_units": total_pieces}
         else:
             b_id = str(bin_id or "").strip()
@@ -4318,8 +4514,8 @@ def record_vision_counting_submission(
                 session_id, target_id, sku_id, material_type, inferred_material,
                 counting_mode, confirmed_count, uncertain_count, physical_bundles_count,
                 units_per_bundle, total_pieces, uom, bin_id, pallet_id, operator_id,
-                review_status, source_images, audit_image_url, sync_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED')
+                review_status, source_images, audit_image_url, sync_status, submitted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED', datetime('now', 'localtime'))
         """, (
             sess_id,
             session_data.get("target_id"),
