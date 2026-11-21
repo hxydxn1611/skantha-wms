@@ -8676,17 +8676,17 @@ window.switchSubTab = switchSubTab;
                 </div>
 
                 <!-- 2. Unified Vision Counting Toolbar -->
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background: var(--panel-bg); border-radius:8px; padding:8px 12px; margin-bottom:1.25rem; border:1px solid rgba(255,255,255,0.06);">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background: var(--panel-bg); border-radius:8px; padding:8px 12px; margin-bottom:1.25rem; border:1px solid var(--border-light);">
                     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                         <!-- Mode Selector -->
                         <div style="background: var(--panel-subtle); border: 1px solid var(--border-light); border-radius:6px; padding:2px; display:inline-flex; gap:2px;">
                             <button type="button" id="wbModePiecesBtn" onclick="setWorkbenchMode('pieces')" style="background:#0284c7; color:#fff; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
                                 <i class="fas fa-cubes-stacked"></i> Individual Pieces
                             </button>
-                            <button type="button" id="wbModeBundlesBtn" onclick="setWorkbenchMode('bundles')" style="background:transparent; color:#94a3b8; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
+                            <button type="button" id="wbModeBundlesBtn" onclick="setWorkbenchMode('bundles')" style="background:transparent; color:var(--text-muted); border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
                                 <i class="fas fa-layer-group"></i> Bundles
                             </button>
-                            <button type="button" id="wbModeCartonsBtn" onclick="setWorkbenchMode('cartons')" style="background:transparent; color:#94a3b8; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;" title="Count Carton / Box Stacks with 3D Digital Twin Reconstruction">
+                            <button type="button" id="wbModeCartonsBtn" onclick="setWorkbenchMode('cartons')" style="background:transparent; color:var(--text-muted); border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;" title="Count Carton / Box Stacks with 3D Digital Twin Reconstruction">
                                 <i class="fas fa-box"></i> Cartons / Boxes
                             </button>
                         </div>
@@ -8696,7 +8696,7 @@ window.switchSubTab = switchSubTab;
                             <label for="wbBundleMaterialSelect" style="font-size:0.7rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; margin:0; white-space:nowrap;">
                                 <i class="fas fa-cubes" style="color:#f59e0b; margin-right:3px;"></i>Material:
                             </label>
-                            <select id="wbBundleMaterialSelect" onchange="onWorkbenchBundleMaterialChange(this.value)" style="background: var(--panel-bg); color:#38bdf8; border:1px solid #0284c7; border-radius:5px; font-size:0.74rem; padding:4px 8px; font-weight:700;">
+                            <select id="wbBundleMaterialSelect" onchange="onWorkbenchBundleMaterialChange(this.value)" style="background: var(--panel-bg); color:var(--accent); border:1px solid var(--accent); border-radius:5px; font-size:0.74rem; padding:4px 8px; font-weight:700;">
                                 <option value="metal_bundles" selected>🔩 Metal Bundles (Rods, Tubes, Profiles)</option>
                                 <option value="carton_boxes">📦 Carton / Box Stack (3D Grid)</option>
                                 <option value="timber_bundles">🌲 Timber / Wood Bundles</option>
@@ -8711,7 +8711,7 @@ window.switchSubTab = switchSubTab;
                             <button type="button" id="wbSourceUploadBtn" onclick="triggerWorkbenchUpload()" style="background:#10b981; color:#fff; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
                                 <i class="fas fa-upload"></i> Upload Image
                             </button>
-                            <button type="button" id="wbSourceCameraBtn" onclick="setWorkbenchSource('camera')" style="background:transparent; color:#94a3b8; border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
+                            <button type="button" id="wbSourceCameraBtn" onclick="setWorkbenchSource('camera')" style="background:transparent; color:var(--text-muted); border:none; border-radius:5px; padding:5px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; transition:all 0.2s;">
                                 <i class="fas fa-video"></i> Live Camera
                             </button>
                         </div>
@@ -8729,13 +8729,13 @@ window.switchSubTab = switchSubTab;
 
                     <!-- Action Buttons: Replace Image, Remove Image, Clear Count, Count Now -->
                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                        <button type="button" id="wbBtnReplaceImage" onclick="replaceWorkbenchImage()" style="background:#334155; color:#f8fafc; border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Select a new image and clear previous results">
+                        <button type="button" id="wbBtnReplaceImage" onclick="replaceWorkbenchImage()" style="background:var(--panel-subtle); color:var(--text-main); border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Select a new image and clear previous results">
                             <i class="fas fa-arrow-rotate-right"></i> <span>Replace Image</span>
                         </button>
-                        <button type="button" id="wbBtnRemoveImage" onclick="removeWorkbenchImage()" style="background:#334155; color:#f87171; border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Remove current image and reset view">
+                        <button type="button" id="wbBtnRemoveImage" onclick="removeWorkbenchImage()" style="background:var(--panel-subtle); color:#ef4444; border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Remove current image and reset view">
                             <i class="fas fa-trash-can"></i> <span>Remove Image</span>
                         </button>
-                        <button type="button" id="wbBtnClearCount" onclick="clearWorkbenchCount()" style="background:#334155; color:#f8fafc; border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Clear counted markers and start again">
+                        <button type="button" id="wbBtnClearCount" onclick="clearWorkbenchCount()" style="background:var(--panel-subtle); color:var(--text-main); border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Clear counted markers and start again">
                             <i class="fas fa-xmark"></i> <span>Clear Count / Start Again</span>
                         </button>
                         <label for="wbStackOnly" title="Other stacks behind or beside the one you are counting are left out. Leave unchecked to count all stacks/items across the photo." style="display:flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:700; color:var(--text-main); cursor:pointer; margin:0;">
@@ -8747,10 +8747,10 @@ window.switchSubTab = switchSubTab;
                     </div>
                 </div>
 
-                <!-- 2A-Glass. Dedicated Glass Measurement Profile Bar (Visible when Glass Bundles selected) -->
-                <div id="wbGlassProfileBar" style="display:none; flex-direction:column; gap:8px; background:linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(15,23,42,0.85) 100%); border:1px solid rgba(6,182,212,0.38); border-radius:8px; padding:10px 14px; margin-bottom:1.1rem; box-shadow:0 2px 10px rgba(6,182,212,0.1);">
+                <!-- 2A-Glass. Dedicated Glass Measurement Profile Bar (Visible when Glass selected) -->
+                <div id="wbGlassProfileBar" style="display:none; flex-direction:column; gap:8px; background:var(--panel-subtle); border:1px solid var(--accent-border, rgba(6,182,212,0.38)); border-radius:8px; padding:10px 14px; margin-bottom:1.1rem; box-shadow:0 2px 10px rgba(6,182,212,0.08);">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                        <span style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:#22d3ee; letter-spacing:0.5px; display:inline-flex; align-items:center; gap:6px;">
+                        <span style="font-size:0.72rem; font-weight:800; text-transform:uppercase; color:#0891b2; letter-spacing:0.5px; display:inline-flex; align-items:center; gap:6px;">
                             <i class="fas fa-ruler-combined"></i> Glass Measurement Profile &amp; Dimensions:
                         </span>
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -8853,7 +8853,7 @@ window.switchSubTab = switchSubTab;
                             <span style="background:#10b981; color:#052e16; font-size:0.68rem; font-weight:900; padding:2px 7px; border-radius:4px; text-transform:uppercase; letter-spacing:0.5px;">AI SKU READY</span>
                             <span id="wbRecognizedSkuText" style="font-size:0.8rem; font-weight:700; color: var(--text-main);">Select or upload any Glass, Timber, Pipe, or Carton image — AI Vision will recognize the exact SKU and calculate total individual units.</span>
                         </div>
-                        <div id="wbRealizedUnitsPill" style="font-family:monospace; font-size:0.84rem; font-weight:800; color:#34d399; background:rgba(6,78,59,0.7); padding:4px 10px; border-radius:5px; border:1px solid rgba(52,211,153,0.4);">
+                        <div id="wbRealizedUnitsPill" style="font-family:monospace; font-size:0.84rem; font-weight:800; color:#10b981; background:rgba(16,185,129,0.14); padding:4px 10px; border-radius:5px; border:1px solid rgba(16,185,129,0.4);">
                             0 Bundles &times; 1 EA = 0 EA
                         </div>
                     </div>
@@ -8943,7 +8943,7 @@ window.switchSubTab = switchSubTab;
                         <div id="wbViewsNeededBanner" style="display:none; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:0.75rem; color: var(--text-main);">
                         </div>
                         <!-- Interactive Annotated Image Stage -->
-                        <div id="wbInteractiveStageCard" style="display:none; background:#020617; border-radius:8px; border: 1px solid var(--border-light); padding:12px;">
+                        <div id="wbInteractiveStageCard" style="display:none; background:var(--panel-subtle); border-radius:8px; border: 1px solid var(--border-light); padding:12px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
                                 <div style="display:flex; align-items:center; gap:8px;">
                                     <span style="font-size:0.76rem; color: var(--text-main); font-weight:700;">Numbered Markers Canvas</span>
@@ -8952,12 +8952,6 @@ window.switchSubTab = switchSubTab;
                                     </span>
                                 </div>
                                 <div style="display:flex; align-items:center; gap:6px;">
-                                    <button type="button" onclick="replaceWorkbenchImage()" style="background:#334155; color: var(--text-main); border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Replace current image">
-                                        <i class="fas fa-arrow-rotate-right"></i> Replace
-                                    </button>
-                                    <button type="button" onclick="clearWorkbenchCount()" style="background:#334155; color: var(--text-main); border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Clear counted markers">
-                                        <i class="fas fa-xmark"></i> Clear
-                                    </button>
                                     <button type="button" onclick="recertifyWorkbenchMarkers()" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer;" title="Re-render annotations with manual additions/deletions">
                                         <i class="fas fa-arrows-rotate"></i> Re-Render
                                     </button>
@@ -8965,16 +8959,16 @@ window.switchSubTab = switchSubTab;
                             </div>
 
                             <!-- Multi-View Results View Switcher Bar -->
-                            <div id="wbViewSwitcherBar" style="display:none; align-items:center; gap:8px; margin-bottom:8px; padding:6px 10px; background: var(--panel-bg); border-radius:6px; border:1px solid #1e293b; overflow-x:auto;">
+                            <div id="wbViewSwitcherBar" style="display:none; align-items:center; gap:8px; margin-bottom:8px; padding:6px 10px; background: var(--panel-bg); border-radius:6px; border:1px solid var(--border-light); overflow-x:auto;">
                                 <span style="font-size:0.68rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; white-space:nowrap;">
-                                    <i class="fas fa-layer-group" style="color:#38bdf8; margin-right:4px;"></i>Inspect View:
+                                    <i class="fas fa-layer-group" style="color:#0284c7; margin-right:4px;"></i>Inspect View:
                                 </span>
                                 <div id="wbViewSwitcherTabs" style="display:flex; align-items:center; gap:6px; flex-wrap:nowrap;">
                                 </div>
                             </div>
 
                             <!-- Interactive Include/Exclude Region Selection Toolbar -->
-                            <div id="wbRegionControlsBar" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:8px; padding:6px 10px; background: var(--panel-bg); border-radius:6px; border:1px solid #1e293b;">
+                            <div id="wbRegionControlsBar" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:8px; padding:6px 10px; background: var(--panel-bg); border-radius:6px; border:1px solid var(--border-light);">
                                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                                     <span style="font-size:0.7rem; color: var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
                                         <i class="fas fa-vector-square" style="color:#10b981;"></i> Counting Regions:
@@ -8982,38 +8976,38 @@ window.switchSubTab = switchSubTab;
                                     <button type="button" id="wbBtnToolPointer" onclick="setWorkbenchRegionTool('none')" style="background:#0284c7; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Standard Pointer (Click badges / markers)">
                                         <i class="fas fa-mouse-pointer"></i> Pins
                                     </button>
-                                    <button type="button" id="wbBtnToolIncludeRect" onclick="setWorkbenchRegionTool('include_rect')" style="background:#334155; color:#f8fafc; border:1px solid rgba(16,185,129,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Include Rectangle">
+                                    <button type="button" id="wbBtnToolIncludeRect" onclick="setWorkbenchRegionTool('include_rect')" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid rgba(16,185,129,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Include Rectangle">
                                         <i class="fas fa-square-plus" style="color:#10b981;"></i> + Include Box
                                     </button>
-                                    <button type="button" id="wbBtnToolExcludeRect" onclick="setWorkbenchRegionTool('exclude_rect')" style="background:#334155; color:#f8fafc; border:1px solid rgba(239,68,68,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Exclude Rectangle">
+                                    <button type="button" id="wbBtnToolExcludeRect" onclick="setWorkbenchRegionTool('exclude_rect')" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid rgba(239,68,68,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Exclude Rectangle">
                                         <i class="fas fa-square-minus" style="color:#ef4444;"></i> - Exclude Box
                                     </button>
-                                    <button type="button" id="wbBtnToolIncludePoly" onclick="setWorkbenchRegionTool('include_poly')" style="background:#334155; color:#f8fafc; border:1px solid rgba(16,185,129,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Include Polygon">
+                                    <button type="button" id="wbBtnToolIncludePoly" onclick="setWorkbenchRegionTool('include_poly')" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid rgba(16,185,129,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Include Polygon">
                                         <i class="fas fa-draw-polygon" style="color:#10b981;"></i> + Include Poly
                                     </button>
-                                    <button type="button" id="wbBtnToolExcludePoly" onclick="setWorkbenchRegionTool('exclude_poly')" style="background:#334155; color:#f8fafc; border:1px solid rgba(239,68,68,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Exclude Polygon">
+                                    <button type="button" id="wbBtnToolExcludePoly" onclick="setWorkbenchRegionTool('exclude_poly')" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid rgba(239,68,68,0.4); border-radius:4px; padding:3px 8px; font-size:0.7rem; font-weight:600; cursor:pointer;" title="Draw Exclude Polygon">
                                         <i class="fas fa-draw-polygon" style="color:#ef4444;"></i> - Exclude Poly
                                     </button>
                                 </div>
                                 <div style="display:flex; align-items:center; gap:6px;">
                                     <span id="wbActiveRegionStatusText" style="font-size:0.68rem; color: var(--text-muted); font-style:italic;">No regions drawn</span>
-                                    <button type="button" id="wbBtnClearRegions" onclick="clearWorkbenchRegions()" style="background:transparent; color:#94a3b8; border: 1px solid var(--border-light); border-radius:4px; padding:3px 7px; font-size:0.68rem; cursor:pointer;" title="Clear all drawn regions">
+                                    <button type="button" id="wbBtnClearRegions" onclick="clearWorkbenchRegions()" style="background:transparent; color:var(--text-muted); border: 1px solid var(--border-light); border-radius:4px; padding:3px 7px; font-size:0.68rem; cursor:pointer;" title="Clear all drawn regions">
                                         <i class="fas fa-trash-can"></i> Clear Regions
                                     </button>
                                 </div>
                             </div>
                             <!-- Visual Legend: Directly Detected vs Inferred Hidden -->
-                            <div style="display:flex; align-items:center; gap:14px; margin-bottom:8px; padding:4px 8px; background:rgba(255,255,255,0.03); border-radius:4px; font-size:0.68rem; flex-wrap:wrap;">
-                                <div style="display:flex; align-items:center; gap:5px; color:#38bdf8;">
+                            <div style="display:flex; align-items:center; gap:14px; margin-bottom:8px; padding:4px 8px; background:var(--panel-bg); border:1px solid var(--border-light); border-radius:4px; font-size:0.68rem; flex-wrap:wrap;">
+                                <div style="display:flex; align-items:center; gap:5px; color:#0284c7;">
                                     <span style="width:10px; height:10px; border-radius:50%; background:#0284c7; border:1px solid #fff; display:inline-block;"></span>
                                     <span><b>Directly Detected (Surface):</b> Visible on image</span>
                                 </div>
-                                <div style="display:flex; align-items:center; gap:5px; color:#f59e0b;">
+                                <div style="display:flex; align-items:center; gap:5px; color:#d97706;">
                                     <span style="width:10px; height:10px; border-radius:50%; background:rgba(245,158,11,0.3); border:1px dashed #f59e0b; display:inline-block;"></span>
                                     <span><b>Inferred Hidden Core:</b> Represented in 3D Digital Twin</span>
                                 </div>
                             </div>
-                            <div id="wbInteractiveStage" style="position:relative; width:100%; max-height:460px; overflow:auto; border-radius:6px; border:1px solid #1e293b; background:#000;">
+                            <div id="wbInteractiveStage" style="position:relative; width:100%; max-height:460px; overflow:auto; border-radius:6px; border:1px solid var(--border-light); background:#000;">
                                 <div style="position:relative; width:100%; display:block;">
                                     <img id="wbResultImg" src="" onclick="handleWorkbenchCanvasClick(event)" style="width:100%; height:auto; display:block; cursor:pointer;" alt="Annotated Pallet Canvas">
                                     <svg id="wbRegionsSvgOverlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:10;"></svg>
@@ -9081,39 +9075,39 @@ window.switchSubTab = switchSubTab;
                                         0 PIECES
                                     </div>
                                 </div>
-                                <span id="wbVerificationStatusBadge" style="font-size:0.68rem; background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); padding:3px 8px; border-radius:4px; font-weight:700;">
+                                <span id="wbVerificationStatusBadge" style="font-size:0.68rem; background:rgba(99,102,241,0.15); color:var(--accent, #6366f1); border:1px solid rgba(99,102,241,0.3); padding:3px 8px; border-radius:4px; font-weight:700;">
                                     PROPOSED (Idle)
                                 </span>
                             </div>
 
                             <!-- Automated Stack Geometry Recognition (Read-Only) -->
-                            <div style="margin-top:10px; padding:8px 10px; background: var(--panel-bg); border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                            <div style="margin-top:10px; padding:8px 10px; background: var(--panel-bg); border-radius:6px; border:1px solid var(--border-light);">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                                     <span style="font-size:0.7rem; color: var(--text-muted); font-weight:700; text-transform:uppercase;">
-                                        <i class="fas fa-brain" style="color:#38bdf8; margin-right:4px;"></i> Inferred Geometry (Read-Only)
+                                        <i class="fas fa-brain" style="color:#0284c7; margin-right:4px;"></i> Inferred Geometry (Read-Only)
                                     </span>
                                     <span id="wbCountingMethodBadge" style="font-size:0.65rem; color:#10b981; font-weight:700;">AUTOMATED_CV</span>
                                 </div>
-                                <div id="wbAutoGeometryFormula" style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#38bdf8; font-weight:700;">
+                                <div id="wbAutoGeometryFormula" style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#0284c7; font-weight:700;">
                                     Awaiting Pallet Detection...
                                 </div>
                             </div>
 
                             <!-- 4-Stat Mathematical Semantic Grid -->
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:8px; font-size:0.74rem;">
-                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid var(--border-light);">
                                     <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;" id="wbLabelStatVisible">Visible Detected:</div>
-                                    <div style="font-size:1.05rem; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;" id="wbStatVisible">0</div>
+                                    <div style="font-size:1.05rem; font-weight:800; color:#0284c7; font-family:'JetBrains Mono',monospace;" id="wbStatVisible">0</div>
                                 </div>
-                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid var(--border-light);">
                                     <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;" id="wbLabelStatInferred">Inferred (Hidden):</div>
                                     <div style="font-size:1.05rem; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace;" id="wbStatInferred">0</div>
                                 </div>
-                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid var(--border-light);">
                                     <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;">Arrangement Formula:</div>
                                     <div style="font-size:0.72rem; font-weight:700; color: var(--text-muted); font-family:'JetBrains Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="wbStatFormula">--</div>
                                 </div>
-                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid var(--border-light);">
                                     <div style="color: var(--text-muted); font-size:0.66rem; font-weight:600;">Tare Packaging:</div>
                                     <div style="font-size:0.72rem; font-weight:700; color:#10b981;" id="wbStatTare">0 Pallet Base</div>
                                 </div>
@@ -9123,14 +9117,14 @@ window.switchSubTab = switchSubTab;
                         <!-- Multi-View Fusion Traceability & Operator Review Card (Stage 6) -->
                         <div id="wbMultiViewTraceabilityCard" style="display:none; background: var(--panel-subtle); border-radius:10px; border: 1px solid var(--border-light); padding:12px 16px; margin-bottom:12px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                                <span style="font-size:0.72rem; color:#38bdf8; font-weight:800; text-transform:uppercase; letter-spacing:0.5px;">
+                                <span style="font-size:0.72rem; color:#0284c7; font-weight:800; text-transform:uppercase; letter-spacing:0.5px;">
                                     <i class="fas fa-network-wired" style="margin-right:4px;"></i> Multi-View Cross-View Fusion &amp; Audit
                                 </span>
                                 <div style="display:flex; align-items:center; gap:6px;">
-                                    <span id="wbFusionStatusBadge" style="font-size:0.68rem; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:4px; font-weight:700;">
+                                    <span id="wbFusionStatusBadge" style="font-size:0.68rem; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:4px; font-weight:700;">
                                         COMPLETE
                                     </span>
-                                    <span id="wbReviewStatusBadge" style="font-size:0.68rem; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:4px; font-weight:700;">
+                                    <span id="wbReviewStatusBadge" style="font-size:0.68rem; background:rgba(2,132,199,0.15); color:#0284c7; border:1px solid rgba(2,132,199,0.3); padding:3px 8px; border-radius:4px; font-weight:700;">
                                         PROPOSAL
                                     </span>
                                 </div>
@@ -9138,29 +9132,29 @@ window.switchSubTab = switchSubTab;
 
                             <!-- Fusion Metrics Summary -->
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:8px; font-size:0.74rem;">
-                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid var(--border-light);">
                                     <div style="color: var(--text-muted); font-size:0.65rem; font-weight:600;">Deduplicated Items:</div>
                                     <div style="font-size:0.95rem; font-weight:800; color:#10b981; font-family:'JetBrains Mono',monospace;" id="wbFusionDupsRemoved">0 Merged</div>
                                 </div>
-                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                                <div style="background: var(--panel-bg); padding:6px 10px; border-radius:6px; border:1px solid var(--border-light);">
                                     <div style="color: var(--text-muted); font-size:0.65rem; font-weight:600;">Heuristic Score:</div>
-                                    <div style="font-size:0.95rem; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;" id="wbFusionConfidenceVal">100%</div>
+                                    <div style="font-size:0.95rem; font-weight:800; color:#0284c7; font-family:'JetBrains Mono',monospace;" id="wbFusionConfidenceVal">100%</div>
                                 </div>
                             </div>
 
                             <!-- Stage 6: Honest Confidence Breakdown & Geometric Limitations -->
-                            <div id="wbHonestConfidenceCard" style="background: var(--panel-bg); padding:8px 10px; border-radius:6px; border:1px solid rgba(56,189,248,0.15); margin-bottom:8px; font-size:0.7rem;">
+                            <div id="wbHonestConfidenceCard" style="background: var(--panel-bg); padding:8px 10px; border-radius:6px; border:1px solid rgba(56,189,248,0.2); margin-bottom:8px; font-size:0.7rem;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                                     <span style="color: var(--text-muted); font-weight:700; text-transform:uppercase; font-size:0.65rem;">Confidence Semantics:</span>
-                                    <span id="wbAssocQualityPill" style="font-size:0.62rem; padding:1px 6px; border-radius:3px; font-weight:700; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);">HIGH QUALITY</span>
+                                    <span id="wbAssocQualityPill" style="font-size:0.62rem; padding:1px 6px; border-radius:3px; font-weight:700; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">HIGH QUALITY</span>
                                 </div>
                                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px; margin-bottom:6px; font-size:0.67rem;">
                                     <div><span style="color: var(--text-muted);">Confidence Nature:</span> <span id="wbConfNatureVal" style="color: var(--text-muted); font-family:monospace;">HEURISTIC_ASSOCIATION_SCORE</span></div>
                                     <div><span style="color: var(--text-muted);">Calibration Status:</span> <span id="wbCalibStatusVal" style="color: var(--text-muted); font-family:monospace;">UNCALIBRATED</span></div>
-                                    <div><span style="color: var(--text-muted);">Detector Confidence:</span> <span id="wbDetectorConfMeanVal" style="color:#38bdf8; font-family:monospace;">0.92</span></div>
-                                    <div><span style="color: var(--text-muted);">Conflicts Flagged:</span> <span id="wbConflictsCountVal" style="color:#f87171; font-family:monospace;">0</span></div>
+                                    <div><span style="color: var(--text-muted);">Detector Confidence:</span> <span id="wbDetectorConfMeanVal" style="color:#0284c7; font-family:monospace;">0.92</span></div>
+                                    <div><span style="color: var(--text-muted);">Conflicts Flagged:</span> <span id="wbConflictsCountVal" style="color:#ef4444; font-family:monospace;">0</span></div>
                                 </div>
-                                <div style="color: var(--text-muted); font-size:0.64rem; line-height:1.3; font-style:italic; border-top:1px dashed #334155; padding-top:4px;">
+                                <div style="color: var(--text-muted); font-size:0.64rem; line-height:1.3; font-style:italic; border-top:1px dashed var(--border-light); padding-top:4px;">
                                     <i class="fas fa-info-circle" style="color:#38bdf8; margin-right:3px;"></i>
                                     <span id="wbGeoLimitsNote">Camera calibration unavailable. Sensor coordinates represent local 2D view frames rather than metric 3D Euclidean space. Association corroborated via appearance &amp; relative tier constraints.</span>
                                 </div>
@@ -9214,40 +9208,34 @@ window.switchSubTab = switchSubTab;
                                     <i class="fas fa-cube" style="color:#10b981;"></i> Localized 3D Digital Twin (WebGL)
                                 </span>
                                 <div style="display:flex; align-items:center; gap:6px;">
-                                    <button type="button" onclick="toggleWbExplode3D()" style="background:#334155; color:#fff; border: 1px solid var(--border-light); border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="Explode / Collapse 3D Layers">
+                                    <button type="button" onclick="toggleWbExplode3D()" style="background:var(--panel-bg); color:var(--text-main); border: 1px solid var(--border-light); border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="Explode / Collapse 3D Layers">
                                         <i class="fas fa-arrows-split-up-and-left"></i> Explode
                                     </button>
-                                    <button type="button" onclick="toggleWbXRay3D()" style="background:#334155; color:#fff; border: 1px solid var(--border-light); border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="X-Ray View for Hidden Interior Boxes">
+                                    <button type="button" onclick="toggleWbXRay3D()" style="background:var(--panel-bg); color:var(--text-main); border: 1px solid var(--border-light); border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="X-Ray View for Hidden Interior Boxes">
                                         <i class="fas fa-eye"></i> X-Ray
                                     </button>
-                                    <button type="button" onclick="resetWb3DCamera()" style="background:#334155; color:#fff; border: 1px solid var(--border-light); border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="Reset Orbit View">
+                                    <button type="button" onclick="resetWb3DCamera()" style="background:var(--panel-bg); color:var(--text-main); border: 1px solid var(--border-light); border-radius:4px; padding:3px 8px; font-size:0.68rem; cursor:pointer;" title="Reset Orbit View">
                                         <i class="fas fa-rotate"></i> Reset
                                     </button>
                                 </div>
                             </div>
                             <div id="wbThreeJsContainer" style="position:relative; width:100%; height:250px; background:#020617; border-radius:6px; border: 1px solid var(--border-light); overflow:hidden;">
-                                <div id="wbThreeJsDepthBanner" style="display:none; position:absolute; top:6px; left:8px; right:8px; background:rgba(15,23,42,0.88); border:1px solid rgba(56,189,248,0.35); border-radius:4px; padding:3px 8px; font-size:0.66rem; color:#38bdf8; pointer-events:none; z-index:10;"></div>
-                                <div id="wbThreeJsPlaceholder" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: var(--text-muted); font-size:0.74rem; text-align:center; pointer-events:none; width:85%;">
-                                    <i class="fas fa-cube" style="font-size:1.8rem; margin-bottom:6px; opacity:0.4; display:block;"></i>
+                                <div id="wbThreeJsDepthBanner" style="display:none; position:absolute; top:6px; left:8px; right:8px; background:var(--panel-bg); border:1px solid var(--border-light); border-radius:4px; padding:3px 8px; font-size:0.66rem; color:var(--accent, #0284c7); pointer-events:none; z-index:10;"></div>
+                                <div id="wbThreeJsPlaceholder" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: #94a3b8; font-size:0.74rem; text-align:center; pointer-events:none; width:85%;">
+                                    <i class="fas fa-cube" style="font-size:1.8rem; margin-bottom:6px; opacity:0.5; display:block;"></i>
                                     3D Digital Twin automatically reconstructs upon pallet stack detection
                                 </div>
                                 <div id="wbThreeJsLoading" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:#38bdf8; font-size:0.75rem;">
                                     <i class="fas fa-circle-notch fa-spin"></i> Rendering 3D Pallet Space...
                                 </div>
-                                <div id="wbThreeJsHover" style="position:absolute; bottom:8px; left:8px; background:rgba(15,23,42,0.9); border: 1px solid var(--border-light); padding:4px 8px; border-radius:4px; font-size:0.7rem; color: var(--text-main); pointer-events:none; display:none; z-index:10;"></div>
+                                <div id="wbThreeJsHover" style="position:absolute; bottom:8px; left:8px; background:var(--panel-bg); border: 1px solid var(--border-light); padding:4px 8px; border-radius:4px; font-size:0.7rem; color: var(--text-main); pointer-events:none; display:none; z-index:10;"></div>
                             </div>
                         </div>
 
-                        <!-- 3. Pallet Build Session Action & Live Inventory Sync -->
+                        <!-- 3. Save Count to Pallet & Inventory Stock -->
                         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                            <button type="button" onclick="applyVerifiedCountToActivePallet(false)" style="flex:1; min-width:170px; background:#10b981; color:#fff; border:none; border-radius:6px; padding:10px 14px; font-size:0.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 3px 12px rgba(16,185,129,0.35);">
-                                <i class="fas fa-check-double"></i> <span>Apply Count to Pallet Session</span>
-                            </button>
-                            <select id="wbSyncBinSelect" style="background:var(--panel-bg); color:var(--text-main); border:1px solid var(--border-light); border-radius:6px; padding:9px 10px; font-size:0.78rem; font-weight:600; min-width:140px;" title="Destination bin for updating live inventory">
-                                <option value="">-- Pick Bin --</option>
-                            </select>
-                            <button type="button" onclick="saveAndSyncPalletInventory()" style="flex:1; min-width:190px; background:linear-gradient(135deg,#0284c7,#2563eb); color:#fff; border:none; border-radius:6px; padding:10px 14px; font-size:0.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 3px 12px rgba(37,99,235,0.35);">
-                                <i class="fas fa-boxes-stacked"></i> <span>Save &amp; Update Inventory</span>
+                            <button type="button" id="wbBtnSaveCountPallet" onclick="applyVerifiedCountToActivePallet()" style="flex:1; min-width:220px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; border-radius:6px; padding:10px 14px; font-size:0.84rem; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 3px 12px rgba(16,185,129,0.35);">
+                                <i class="fas fa-check-double"></i> <span>Save Count to Pallet &amp; Stock</span>
                             </button>
                         </div>
 
@@ -9282,11 +9270,11 @@ window.switchSubTab = switchSubTab;
                     </div>
 
                     <!-- Interactive Studio 3D Canvas Viewport -->
-                    <div style="position:relative; width:100%; height:520px; background:linear-gradient(180deg, #0f172a 0%, #070d18 100%); border:1px solid rgba(56,189,248,0.25); border-radius:12px; overflow:hidden; display:flex; align-items:center; justify-content:center;" id="palletStudio3DStage">
+                    <div style="position:relative; width:100%; height:520px; background:var(--panel-subtle); border:1px solid var(--border-light); border-radius:12px; overflow:hidden; display:flex; align-items:center; justify-content:center;" id="palletStudio3DStage">
                         <div style="text-align:center; padding:2rem;">
-                            <i class="fas fa-cube" style="font-size:3.5rem; color:#38bdf8; opacity:0.8; margin-bottom:12px; display:block;"></i>
+                            <i class="fas fa-cube" style="font-size:3.5rem; color:var(--accent, #0284c7); opacity:0.85; margin-bottom:12px; display:block;"></i>
                             <h4 style="margin:0 0 6px; color:var(--text-main); font-size:1.1rem;">Live 3D Euro-Pallet Digital Twin</h4>
-                            <p style="margin:0 auto 1.5rem; color:#94a3b8; font-size:0.85rem; max-width:480px;">Synchronized with the active vision workbench. Change layers or execute an optical count to render localized physical bundle stacks.</p>
+                            <p style="margin:0 auto 1.5rem; color:var(--text-muted); font-size:0.85rem; max-width:480px;">Synchronized with the active vision workbench. Change layers or execute an optical count to render localized physical bundle stacks.</p>
                             <div style="display:inline-flex; gap:8px;">
                                 <button type="button" class="btn-primary" onclick="switchPalletSubTab('wb')" style="padding:6px 14px; font-size:0.8rem;">
                                     <i class="fas fa-camera"></i> Open Active Vision Workbench

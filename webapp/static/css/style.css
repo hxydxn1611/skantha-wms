@@ -8737,9 +8737,12 @@ body {
 #dtAnnotatedContainer,
 #threeJsCanvasContainer,
 #wbCameraViewWrap,
-#wbInteractiveStage,
 #wbThreeJsContainer {
     background-color: #020617 !important;
+}
+
+#wbInteractiveStage {
+    background-color: var(--panel-subtle) !important;
 }
 
 /* Palletization: "Recognized Product" banner - readable in every theme */

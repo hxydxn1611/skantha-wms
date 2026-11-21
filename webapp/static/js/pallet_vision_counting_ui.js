@@ -16,7 +16,7 @@
 
 
 
-(function () {
+(function() {
 
     let currentMode = 'pieces'; // 'pieces' or 'bundles'
 
@@ -32,7 +32,7 @@
 
 
 
-    window.toggleDemoPresets = function (drawerId) {
+    window.toggleDemoPresets = function(drawerId) {
 
         const el = document.getElementById(drawerId);
 
@@ -46,7 +46,7 @@
 
 
 
-    window.loadVisionSkus = async function (forceRefresh = false) {
+    window.loadVisionSkus = async function(forceRefresh = false) {
 
         try {
 
@@ -176,7 +176,7 @@
 
 
 
-    window.onWorkbenchSkuSelectChange = function (skuId) {
+    window.onWorkbenchSkuSelectChange = function(skuId) {
 
         const matched = mappedVisionSkus.find(s => s.sku_id === skuId);
 
@@ -191,6 +191,8 @@
 
 
         if (matched) {
+
+            wbApplyProductMode(matched);
 
             const upb = Math.max(1, parseInt(matched.units_per_bundle || 1, 10));
 
@@ -276,39 +278,29 @@
 
 
 
-    window.onWorkbenchBundleMultiplierChange = function () {
-        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
-        const upb = isPieces ? 1 : Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10));
+    window.onWorkbenchBundleMultiplierChange = function() {
+        // one source for packs and pieces (wbCountParts): bundle results are already in pieces,
+        // carton results are cartons - each is multiplied exactly once
         const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
-        const bname = isPieces ? 'Piece' : ((document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle');
+        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
         const pill = document.getElementById('wbRealizedUnitsPill');
         const totalBadge = document.getElementById('wbTotalBadge');
-
-        let baseCount = 0;
-        if (wbLatestResult) {
-            const qb = wbLatestResult.quantity_breakdown || {};
-            baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0));
-        }
-        const totalIndividual = baseCount * upb;
+        const parts = wbCountParts();
+        const prod = wbProduct(document.getElementById('wbTargetSkuSelect')?.value) || {};
+        const inside = wbMode === 'cartons' && prod.pack_contents ? ` ${__h(prod.pack_contents)}` : ` ${uom}`;
         if (pill) {
-            if (isPieces) {
-                pill.innerHTML = `${baseCount} Pieces (${uom}) &times; 1 = <span style="color:#fff; text-decoration:underline;">${baseCount} ${uom}</span>`;
-            } else {
-                pill.innerHTML = `${baseCount} ${bname}${baseCount === 1 ? '' : 's'} &times; ${upb} ${uom} = <span style="color:#fff; text-decoration:underline;">${totalIndividual} ${uom}</span>`;
-            }
+            pill.innerHTML = parts.packs
+                ? `${parts.packs} ${__h(bname)}${parts.packs === 1 ? '' : 's'} &times; ${parts.per}${inside} = <span style="text-decoration:underline;">${parts.pieces}${inside}</span>`
+                : `${parts.pieces} Pieces (${uom}) &times; 1 = <span style="text-decoration:underline;">${parts.pieces} ${uom}</span>`;
         }
         if (totalBadge && wbLatestResult) {
-            if (isPieces) {
-                totalBadge.textContent = `${baseCount} PIECES`;
-            } else {
-                totalBadge.textContent = upb > 1 ? `${baseCount} ${bname.toUpperCase()}S (${totalIndividual} ${uom})` : `${totalIndividual} ${uom}`;
-            }
+            totalBadge.textContent = parts.packs
+                ? `${parts.packs} ${bname.toUpperCase()}${parts.packs === 1 ? '' : 'S'} (${parts.pieces} ${uom})`
+                : `${parts.pieces} PIECES`;
         }
     };
 
-
-
-    window.saveWorkbenchBundleConfigToSku = async function () {
+    window.saveWorkbenchBundleConfigToSku = async function() {
 
         const selSku = document.getElementById('wbTargetSkuSelect')?.value || (wbLatestResult && wbLatestResult.sku_id) || '';
 
@@ -340,7 +332,7 @@
 
 
 
-    window.onVisionSkuSelected = function (mode, skuId) {
+    window.onVisionSkuSelected = function(mode, skuId) {
 
         const isPieces = mode === 'pieces';
 
@@ -470,7 +462,7 @@
 
 
 
-    window.openVisionCountingModal = function (initialMode = 'pieces') {
+    window.openVisionCountingModal = function(initialMode = 'pieces') {
 
         const modal = document.getElementById('modalVisionCounting');
 
@@ -492,7 +484,7 @@
 
 
 
-    window.closeVisionCountingModal = function () {
+    window.closeVisionCountingModal = function() {
 
         const modal = document.getElementById('modalVisionCounting');
 
@@ -508,13 +500,13 @@
 
     // Backward-compatibility alias
 
-    window.openMultiAngleAuditModal = function () {
+    window.openMultiAngleAuditModal = function() {
 
         window.openVisionCountingModal('bundles');
 
     };
 
-    window.closeMultiAngleAuditModal = function () {
+    window.closeMultiAngleAuditModal = function() {
 
         window.closeVisionCountingModal();
 
@@ -522,7 +514,7 @@
 
 
 
-    window.switchVisionCountingMode = function (mode) {
+    window.switchVisionCountingMode = function(mode) {
 
         currentMode = mode;
 
@@ -604,7 +596,7 @@
 
 
 
-    window.previewPiecesImage = function (input) {
+    window.previewPiecesImage = function(input) {
 
         if (!input.files || !input.files[0]) return;
 
@@ -612,7 +604,7 @@
 
         const reader = new FileReader();
 
-        reader.onload = function (e) {
+        reader.onload = function(e) {
 
             const previewImg = document.getElementById('piecesPreviewImg');
 
@@ -658,7 +650,7 @@
 
 
 
-    window.loadSamplePiecesImage = function (sampleFileName = 'sample_individual_pipes_229.jpg', mode = 'auto') {
+    window.loadSamplePiecesImage = function(sampleFileName = 'sample_individual_pipes_229.jpg', mode = 'auto') {
 
         const previewImg = document.getElementById('piecesPreviewImg');
 
@@ -700,7 +692,7 @@
 
 
 
-    window.executePieceCount = async function (useSample = false, sampleNameOverride = null, modeOverride = null) {
+    window.executePieceCount = async function(useSample = false, sampleNameOverride = null, modeOverride = null) {
 
         const btn = document.getElementById('btnRunPieceCount');
 
@@ -1300,7 +1292,7 @@
 
 
 
-    window.handleImageCanvasClick = function (event) {
+    window.handleImageCanvasClick = function(event) {
 
         const imgElem = document.getElementById('piecesResultImg');
 
@@ -1380,7 +1372,7 @@
 
 
 
-    window.removeManualPin = function (index) {
+    window.removeManualPin = function(index) {
 
         if (index >= 0 && index < manualPinsList.length) {
 
@@ -1402,9 +1394,9 @@
 
         if (!latestPiecesResult) return;
 
-        const directCount = latestPiecesResult.directly_detected_count !== undefined
+        const directCount = latestPiecesResult.directly_detected_count !== undefined 
 
-            ? latestPiecesResult.directly_detected_count
+            ? latestPiecesResult.directly_detected_count 
 
             : (latestPiecesResult.visible_pieces || latestPiecesResult.total_pieces || 0);
 
@@ -1432,7 +1424,7 @@
 
 
 
-    window.removePieceBadge = function (index) {
+    window.removePieceBadge = function(index) {
 
         if (index >= 0 && index < currentPiecesList.length) {
 
@@ -1512,7 +1504,7 @@
 
 
 
-    window.recertifyAndSavePieces = async function () {
+    window.recertifyAndSavePieces = async function() {
 
         if (!currentRawImageUrl || currentPiecesList.length === 0) {
 
@@ -1576,7 +1568,7 @@
 
 
 
-    window.syncPiecesCountToPallet = async function () {
+    window.syncPiecesCountToPallet = async function() {
 
         if (!latestPiecesResult && currentPiecesList.length === 0) {
 
@@ -1658,7 +1650,7 @@
 
 
 
-    window.previewBundleAngle = function (slotIndex, input) {
+    window.previewBundleAngle = function(slotIndex, input) {
 
         if (!input.files || !input.files[0]) return;
 
@@ -1666,7 +1658,7 @@
 
         const reader = new FileReader();
 
-        reader.onload = function (e) {
+        reader.onload = function(e) {
 
             const previewImg = document.getElementById(`bundleAnglePreview${slotIndex}`);
 
@@ -1694,7 +1686,7 @@
 
 
 
-    window.loadBundleSampleDemo = function (presetKey) {
+    window.loadBundleSampleDemo = function(presetKey) {
 
         const a1 = document.getElementById('bundleAnglePreview1');
 
@@ -1734,7 +1726,7 @@
 
 
 
-    window.executeBundleCount = async function (presetKey = null) {
+    window.executeBundleCount = async function(presetKey = null) {
 
         const btn = document.getElementById('btnRunBundleCount');
 
@@ -1946,7 +1938,7 @@
 
 
 
-    window.syncBundlesCountToPallet = async function () {
+    window.syncBundlesCountToPallet = async function() {
 
         if (!latestBundlesResult) {
 
@@ -2018,7 +2010,7 @@
 
 
 
-    window.openPiecesImageFullscreen = function () {
+    window.openPiecesImageFullscreen = function() {
 
         const imgElem = document.getElementById('piecesResultImg');
 
@@ -2030,7 +2022,7 @@
 
 
 
-    window.openBundleImageFullscreen = function () {
+    window.openBundleImageFullscreen = function() {
 
         const imgElem = document.getElementById('bundleAuditBoardImg');
 
@@ -2072,7 +2064,7 @@
 
 
 
-    window.adjust3DMatrixParam = function (param, delta) {
+    window.adjust3DMatrixParam = function(param, delta) {
 
         if (!currentMatrixParams) {
 
@@ -2084,7 +2076,7 @@
 
         currentMatrixParams[param] = Math.max(1, Math.min(12, (currentMatrixParams[param] || 1) + delta));
 
-
+        
 
         const elemMap = { layers: 'matrixValLayers', columns: 'matrixValColumns', depth: 'matrixValDepth' };
 
@@ -2096,7 +2088,7 @@
 
         }
 
-
+        
 
         // Re-execute piece count with custom matrix
 
@@ -2106,7 +2098,7 @@
 
 
 
-    window.toggleExplode3D = function () {
+    window.toggleExplode3D = function() {
 
         isExploded = !isExploded;
 
@@ -2114,7 +2106,7 @@
 
         if (btn) {
 
-            btn.innerHTML = isExploded ?
+            btn.innerHTML = isExploded ? 
 
                 '<i class="fas fa-compress-arrows-alt"></i> <span>Compact Stack</span>' :
 
@@ -2130,7 +2122,7 @@
 
 
 
-    window.toggleXRay3D = function () {
+    window.toggleXRay3D = function() {
 
         isXRay = !isXRay;
 
@@ -2138,9 +2130,9 @@
 
         if (btn) {
 
-            btn.innerHTML = isXRay ?
+            btn.innerHTML = isXRay ? 
 
-                '<i class="fas fa-eye-slash"></i> <span>Solid View</span>' :
+                '<i class="fas fa-eye-slash"></i> <span>Solid View</span>' : 
 
                 '<i class="fas fa-eye"></i> <span>X-Ray Glass</span>';
 
@@ -2174,7 +2166,7 @@
 
 
 
-    window.reset3DCamera = function () {
+    window.reset3DCamera = function() {
 
         if (!threeCamera || !threeControls) return;
 
@@ -2246,9 +2238,9 @@
 
         while (container.firstChild) {
 
-            if (container.firstChild.id === 'threeJsLoadingNotice' ||
+            if (container.firstChild.id === 'threeJsLoadingNotice' || 
 
-                container.firstChild.id === 'threeJsHoverInfo' ||
+                container.firstChild.id === 'threeJsHoverInfo' || 
 
                 container.firstChild.tagName === 'DIV') {
 
@@ -2688,7 +2680,7 @@
 
 
 
-        container.onmousemove = function (event) {
+        container.onmousemove = function(event) {
 
             const rect = container.getBoundingClientRect();
 
@@ -2746,7 +2738,7 @@
 
 
 
-        container.onmouseleave = function () {
+        container.onmouseleave = function() {
 
             if (tooltip) tooltip.style.display = 'none';
 
@@ -2756,7 +2748,7 @@
 
         // Resize handler
 
-        window.onresize = function () {
+        window.onresize = function() {
 
             if (!container || !threeCamera || !threeRenderer) return;
 
@@ -2838,7 +2830,7 @@
 
                 dropZone.style.borderColor = '#0284c7';
 
-                dropZone.style.background = '#1e293b';
+                dropZone.style.background = 'var(--panel-subtle)';
 
             }, false);
 
@@ -2882,6 +2874,65 @@
 
     let wbLatestResult = null;
 
+    // ---- How a product is counted (AI Vision product: count_as pieces | bundles | cartons) --------------
+    // After a count, a recognised product that is counted another way switches the workbench to that mode
+    // and counts again, once per photo (glass recognised in Individual Pieces -> Bundles). Choosing a product
+    // switches at once. The operator may still change the mode by hand afterwards.
+    let wbAutoModeDone = false;
+    const WB_MODE_LABEL = { pieces: 'Individual Pieces', bundles: 'Bundles', cartons: 'Cartons / Boxes' };
+    function wbProduct(skuId) { return skuId ? mappedVisionSkus.find(s => s.sku_id === skuId) : null; }
+    function wbMaterialFor(p) {
+        const t = `${p.sku_id || ''} ${p.name || ''} ${p.category || ''}`.toLowerCase();
+        if (/glass|float|dgu|igu|mirror|pane/.test(t)) return 'glass_bundles';
+        if (/wrap|block|concrete|cement|brick|bag|film/.test(t)) return 'wrapped_bundles';
+        if (/timber|wood|plank|plywood|lumber/.test(t)) return 'timber_bundles';
+        if (/steel|metal|pipe|tube|rod|bar|stud|channel|profile|galvan|alumin/.test(t)) return 'metal_bundles';
+        return 'general_bundles';
+    }
+    function wbApplyProductMode(p) {
+        if (!p || !WB_MODE_LABEL[p.count_as]) return false;
+        const changed = p.count_as !== wbMode;
+        if (changed && typeof window.setWorkbenchMode === 'function') window.setWorkbenchMode(p.count_as);
+        const upbIn = document.getElementById('wbUnitsPerBundleInput');
+        if (upbIn) upbIn.value = p.count_as === 'pieces' ? 1 : Math.max(1, parseInt(p.units_per_bundle || 1, 10));
+        const bn = document.getElementById('wbBundleNameInput');
+        if (bn) bn.value = p.count_as === 'cartons' ? (p.bundle_name && p.bundle_name !== 'Bundle' ? p.bundle_name : 'Carton') : (p.bundle_name || 'Bundle');
+        const mat = document.getElementById('wbBundleMaterialSelect');
+        if (mat && p.count_as === 'bundles') {
+            const want = wbMaterialFor(p);
+            if ([...mat.options].some(o => o.value === want) && mat.value !== want) {
+                mat.value = want;
+                // the glass sheet-size bar (not the change event: that starts a count of its own)
+                const glassBar = document.getElementById('wbGlassProfileBar');
+                if (glassBar) glassBar.style.display = want === 'glass_bundles' ? 'flex' : 'none';
+                if (want === 'glass_bundles' && typeof window.loadWorkbenchGlassProfiles === 'function') window.loadWorkbenchGlassProfiles();
+            }
+        }
+        const sel = document.getElementById('wbTargetSkuSelect');
+        if (sel && [...sel.options].some(o => o.value === p.sku_id)) sel.value = p.sku_id;
+        return changed;
+    }
+    // Packs and pieces of the latest count, the same way for the display and for "Save count to pallet":
+    // bundle counts come back as bundles (pieces already multiplied), carton counts as cartons (not multiplied).
+    function wbCountParts() {
+        const r = wbLatestResult || {};
+        const qb = r.quantity_breakdown || {};
+        const scr = parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10) || 1;
+        const pal = parseInt(document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10) || 1;
+        const per = Math.max(1, scr > 1 ? scr : pal);
+        const num = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
+        const piecesSeen = num(qb.total_units) || num(r.total_pieces) || 0;
+        if (wbMode === 'cartons') {
+            const cartons = num(qb.total_units) || num(r.total_pieces) || num(qb.visible_count);   // carton results are not multiplied
+            return { packs: cartons, per, pieces: cartons * per, kind: 'carton' };
+        }
+        if (wbMode === 'bundles') {
+            const packs = num(r.total_bundles) || num(qb.total_bundles) || num(qb.physical_bundles_count) || num(r.primary_count);
+            if (packs) return { packs, per, pieces: packs * per, kind: 'bundle' };
+        }
+        return { packs: 0, per: 1, pieces: piecesSeen, kind: 'piece' };
+    }
+
     let wbCurrentMatrix = { rows: 5, columns: 5, layers: 5 };
 
     let wbThreeScene, wbThreeCamera, wbThreeRenderer, wbThreeControls;
@@ -2912,7 +2963,7 @@
 
 
 
-    window.openPalletCountingWorkbench = function (initialMode = 'pieces', triggerUpload = false) {
+    window.openPalletCountingWorkbench = function(initialMode = 'pieces', triggerUpload = false) {
 
         const wb = document.getElementById('palletCountingWorkbench');
 
@@ -2922,7 +2973,7 @@
 
             window.setWorkbenchMode(initialMode);
 
-
+            
 
             // Synchronize cameras from palletCameraSelect
 
@@ -2958,7 +3009,7 @@
 
     // Override openVisionCountingModal to use the inline workbench directly
 
-    window.openVisionCountingModal = function (initialMode = 'pieces') {
+    window.openVisionCountingModal = function(initialMode = 'pieces') {
 
         window.openPalletCountingWorkbench(initialMode);
 
@@ -2966,7 +3017,7 @@
 
 
 
-    window.setWorkbenchMode = function (mode) {
+    window.setWorkbenchMode = function(mode) {
 
         wbMode = mode;
 
@@ -2988,13 +3039,11 @@
 
 
 
-        if (btnP) { btnP.style.background = (mode === 'pieces') ? '#0284c7' : 'transparent'; btnP.style.color = (mode === 'pieces') ? '#fff' : '#94a3b8'; }
+        if (btnP) { btnP.style.background = (mode === 'pieces') ? '#0284c7' : 'transparent'; btnP.style.color = (mode === 'pieces') ? '#fff' : 'var(--text-muted)'; }
 
-        if (btnB) { btnB.style.background = (mode === 'bundles') ? '#0284c7' : 'transparent'; btnB.style.color = (mode === 'bundles') ? '#fff' : '#94a3b8'; }
+        if (btnB) { btnB.style.background = (mode === 'bundles') ? '#0284c7' : 'transparent'; btnB.style.color = (mode === 'bundles') ? '#fff' : 'var(--text-muted)'; }
 
-        if (btnC) { btnC.style.background = (mode === 'cartons') ? '#0284c7' : 'transparent'; btnC.style.color = (mode === 'cartons') ? '#fff' : '#94a3b8'; }
-
-
+        if (btnC) { btnC.style.background = (mode === 'cartons') ? '#0284c7' : 'transparent'; btnC.style.color = (mode === 'cartons') ? '#fff' : 'var(--text-muted)'; }
 
         if (mode === 'pieces') {
             if (regBar) regBar.style.display = 'flex';
@@ -3051,7 +3100,7 @@
 
 
 
-    window.onWorkbenchBundleMaterialChange = function (mat) {
+    window.onWorkbenchBundleMaterialChange = function(mat) {
 
         const glassBar = document.getElementById('wbGlassProfileBar');
 
@@ -3079,7 +3128,7 @@
 
     let wbGlassProfilesCache = [];
 
-    window.loadWorkbenchGlassProfiles = async function () {
+    window.loadWorkbenchGlassProfiles = async function() {
 
         try {
 
@@ -3137,7 +3186,7 @@
 
 
 
-    window.onWorkbenchGlassProfileChange = function (profileId) {
+    window.onWorkbenchGlassProfileChange = function(profileId) {
 
         const p = wbGlassProfilesCache.find(x => x.id === profileId);
 
@@ -3195,7 +3244,7 @@
 
 
 
-    window.onWorkbenchGlassDimInput = function () {
+    window.onWorkbenchGlassDimInput = function() {
 
         if (wbRawImageUrl && wbMode === 'bundles') {
 
@@ -3213,7 +3262,7 @@
 
 
 
-    window.saveCurrentGlassProfilePrompt = async function () {
+    window.saveCurrentGlassProfilePrompt = async function() {
 
         const l = parseFloat(document.getElementById('wbGlassLengthInput')?.value || '2440');
 
@@ -3303,7 +3352,7 @@
 
 
 
-    window.triggerWorkbenchUpload = function () {
+    window.triggerWorkbenchUpload = function() {
 
         window.setWorkbenchSource('upload');
 
@@ -3319,7 +3368,7 @@
 
 
 
-    window.setWorkbenchSource = function (source) {
+    window.setWorkbenchSource = function(source) {
 
         wbSource = source;
 
@@ -3379,7 +3428,7 @@
 
 
 
-    window.onWorkbenchCameraChange = function () {
+    window.onWorkbenchCameraChange = function() {
 
         const camSelect = document.getElementById('wbCameraSelect');
 
@@ -3397,9 +3446,9 @@
 
 
 
+    
 
-
-    window.triggerWorkbenchFileInput = function (e) {
+    window.triggerWorkbenchFileInput = function(e) {
 
         if (e && e.target && e.target.id === 'wbFileInput') return;
 
@@ -3415,7 +3464,7 @@
 
 
 
-    window.replaceWorkbenchImage = function () {
+    window.replaceWorkbenchImage = function() {
 
         window.setWorkbenchSource('upload');
 
@@ -3443,8 +3492,8 @@
 
 
 
-    window.removeWorkbenchImage = function () {
-
+    window.removeWorkbenchImage = function() {
+        wbAutoModeDone = false;
         wbCountRequestId++; // Invalidate any pending in-flight requests
 
         wbSelectedFile = null;
@@ -3587,8 +3636,8 @@
 
 
 
-    window.clearWorkbenchCount = function (silent = false) {
-
+    window.clearWorkbenchCount = function(silent = false) {
+        wbAutoModeDone = false;
         wbCountRequestId++; // Invalidate any pending in-flight requests
 
         // Purge detections, markers, geometry, results, and 3D visualization, preserving the loaded image
@@ -3675,7 +3724,7 @@
 
 
 
-    window.onWorkbenchDropZoneClick = function () {
+    window.onWorkbenchDropZoneClick = function() {
 
         if (wbSource === 'upload') {
 
@@ -3699,7 +3748,7 @@
 
 
 
-    // =========================================================================
+        // =========================================================================
 
     // STAGE 5: MULTI-VIEW SESSION STATE & WORKBENCH TRAY HELPERS
 
@@ -3709,7 +3758,7 @@
 
 
 
-    window.getWorkbenchMultiViews = function () {
+    window.getWorkbenchMultiViews = function() {
 
         return wbMultiViews;
 
@@ -3717,7 +3766,7 @@
 
 
 
-    window.renderWorkbenchMultiViewStrip = function () {
+    window.renderWorkbenchMultiViewStrip = function() {
 
         const strip = document.getElementById('wbMultiViewStrip');
 
@@ -3803,7 +3852,7 @@
 
             });
 
-            labelSel.onchange = function () {
+            labelSel.onchange = function() {
 
                 v.label = this.value;
 
@@ -3831,7 +3880,7 @@
 
             refBtn.textContent = v.isRef ? '★ REF' : 'Set Ref';
 
-            refBtn.onclick = function () {
+            refBtn.onclick = function() {
 
                 wbMultiViews.forEach(x => x.isRef = false);
 
@@ -3853,7 +3902,7 @@
 
             delBtn.title = 'Remove this view';
 
-            delBtn.onclick = function () {
+            delBtn.onclick = function() {
 
                 window.removeWorkbenchView(v.id);
 
@@ -3885,13 +3934,13 @@
 
 
 
-    window.addWorkbenchView = function (fileOrBlob, label = null, isRef = false) {
+    window.addWorkbenchView = function(fileOrBlob, label = null, isRef = false) {
 
         if (!fileOrBlob) return;
 
         const reader = new FileReader();
 
-        reader.onload = function (e) {
+        reader.onload = function(e) {
 
             const dataUrl = e.target.result;
 
@@ -3963,7 +4012,7 @@
 
 
 
-    window.removeWorkbenchView = function (viewId) {
+    window.removeWorkbenchView = function(viewId) {
 
         const wasRef = wbMultiViews.find(v => v.id === viewId)?.isRef;
 
@@ -3991,7 +4040,7 @@
 
 
 
-    window.clearAllWorkbenchViews = function () {
+    window.clearAllWorkbenchViews = function() {
 
         wbMultiViews = [];
 
@@ -4003,7 +4052,7 @@
 
 
 
-    window.handleWorkbenchAddViewUpload = function (inputOrFiles) {
+    window.handleWorkbenchAddViewUpload = function(inputOrFiles) {
 
         if (!inputOrFiles) return;
 
@@ -4017,7 +4066,7 @@
 
             files = Array.from(inputOrFiles.files);
 
-            try { inputOrFiles.value = ''; } catch (e) { }
+            try { inputOrFiles.value = ''; } catch(e) {}
 
         } else if (inputOrFiles.length !== undefined) {
 
@@ -4039,7 +4088,7 @@
 
 
 
-    window.captureWorkbenchCameraAsView = function () {
+    window.captureWorkbenchCameraAsView = function() {
 
         const camSel = document.getElementById('wbCameraSelect') || document.getElementById('palletCameraSelect');
 
@@ -4119,9 +4168,10 @@
 
 
 
+    
 
-
-    window.previewWorkbenchUpload = function (inputOrFile) {
+    window.previewWorkbenchUpload = function(inputOrFile) {
+        wbAutoModeDone = false;
 
         try {
 
@@ -4313,7 +4363,7 @@
 
             const fileName = file.name || 'pallet_image.jpg';
 
-            const sizeFormatted = file.size >= (1024 * 1024)
+            const sizeFormatted = file.size >= (1024 * 1024) 
 
                 ? (file.size / (1024 * 1024)).toFixed(2) + ' MB'
 
@@ -4329,7 +4379,7 @@
 
             const reader = new FileReader();
 
-            reader.onerror = function (err) {
+            reader.onerror = function(err) {
 
                 console.error('[Workbench] FileReader error:', err);
 
@@ -4339,7 +4389,7 @@
 
             };
 
-            reader.onload = function (e) {
+            reader.onload = function(e) {
 
                 if (capturedReqId !== wbCountRequestId) return; // Discard if superseded
 
@@ -4351,7 +4401,7 @@
 
                 if (fi) {
 
-                    try { fi.value = ''; } catch (ex) { }
+                    try { fi.value = ''; } catch(ex) {}
 
                 }
 
@@ -4367,7 +4417,7 @@
 
                 const imgDim = new Image();
 
-                imgDim.onload = function () {
+                imgDim.onload = function() {
 
                     if (fnSpan) {
 
@@ -4385,7 +4435,7 @@
 
                     // Graceful fallback if browser cannot render format natively (e.g. TIFF)
 
-                    previewImg.onerror = function () {
+                    previewImg.onerror = function() {
 
                         console.info('[Workbench] Browser cannot natively preview raw image format; server will process and provide visual verification.');
 
@@ -4403,7 +4453,7 @@
 
                     };
 
-                    previewImg.onload = function () {
+                    previewImg.onload = function() {
 
                         previewImg.style.display = 'block';
 
@@ -4459,7 +4509,7 @@
 
             reader.readAsDataURL(file);
 
-        } catch (ex) {
+        } catch(ex) {
 
             console.error('[Workbench] previewWorkbenchUpload error:', ex);
 
@@ -4473,7 +4523,7 @@
 
 
 
-    window.executeWorkbenchCount = async function () {
+    window.executeWorkbenchCount = async function() {
 
         const btn = document.getElementById('btnRunWorkbenchCount');
 
@@ -4697,13 +4747,14 @@
 
 
 
-                    // Also attach image_data as fallback base64 payload if preview is available
+                    // the file above is the photo; the same photo again as a data URL is only needed when there is
+                    // no file (it doubled the upload and, as a text field, hit the server's form-field limit)
 
                     const previewImg = document.getElementById('wbPreviewImg');
 
                     if (previewImg && previewImg.src && previewImg.src.startsWith('data:image/')) {
 
-                        formData.append('image_data', previewImg.src);
+                        if (!targetFile) formData.append('image_data', previewImg.src);
 
                     }
 
@@ -4791,7 +4842,7 @@
 
                     sessionStorage.removeItem('wms_user');
 
-                } catch (e) { }
+                } catch(e) {}
 
                 setTimeout(() => { window.location.href = '/login?expired=1'; }, 1000);
 
@@ -4858,11 +4909,28 @@
 
 
             renderWorkbenchResults(data);
-
-
-
+            const recP = data.recognized_sku || data.sku_info || {};
+            const prodForMode = wbProduct(recP.sku_id) || (recP.count_as ? recP : null);
+            if (prodForMode && WB_MODE_LABEL[prodForMode.count_as] && prodForMode.count_as !== wbMode && !wbAutoModeDone
+                    && !(wbMultiViews && wbMultiViews.length >= 2)) {
+                wbAutoModeDone = true;
+                wbApplyProductMode(prodForMode);
+                if (typeof showToast === 'function') {
+                    showToast(`${prodForMode.name || prodForMode.sku_id} is counted as ${WB_MODE_LABEL[prodForMode.count_as]} (set in AI Vision) - switched and counting again.`, 'info');
+                }
+                setTimeout(() => window.executeWorkbenchCount(), 60);
+                return;
+            }
+            // same mode: still take the product's own pieces per pack / carton contents (the box kept an old
+            // value, e.g. 40 from a glass pallet: 24 cartons x 40 mugs instead of x 12)
+            if (prodForMode && prodForMode.count_as === wbMode) wbApplyProductMode(prodForMode);
+            // packs x pieces in the badge (renderWorkbenchResults shows the raw count only)
+            if (wbMode !== 'pieces' && typeof window.onWorkbenchBundleMultiplierChange === 'function') window.onWorkbenchBundleMultiplierChange();
+            if (prodForMode && prodForMode.count_as === 'cartons' && typeof showToast === 'function') {
+                const parts = wbCountParts();
+                showToast(`${parts.packs} carton${parts.packs === 1 ? '' : 's'} × ${parts.per} ${prodForMode.pack_contents || 'items'} = ${parts.pieces}.`, 'info');
+            }
             const qb = data.quantity_breakdown || {};
-
             const total = qb.total_units !== undefined ? qb.total_units : (data.total_pieces !== undefined ? data.total_pieces : (data.total_bundles || 0));
 
             if (typeof showToast === 'function') {
@@ -4877,8 +4945,8 @@
                     const sf = data.stack_focus;
                     if (sf && (sf.background || sf.duplicates)) {
                         showToast(`Counted the stack in front only: ${sf.background} item(s) from other stacks in the photo` +
-                            (sf.duplicates ? ` and ${sf.duplicates} double marker(s)` : '') +
-                            ` were left out. Tap the photo to add any piece that was missed.`, 'info');
+                                  (sf.duplicates ? ` and ${sf.duplicates} double marker(s)` : '') +
+                                  ` were left out. Tap the photo to add any piece that was missed.`, 'info');
                     }
 
                 }
@@ -4887,7 +4955,7 @@
 
 
 
-        } catch (err) {
+        } catch(err) {
 
             if (thisRequestId !== wbCountRequestId) return;
 
@@ -5315,7 +5383,7 @@
 
                 boardTab.textContent = '★ Fused Audit Board';
 
-                boardTab.onclick = function () {
+                boardTab.onclick = function() {
 
                     Array.from(switcherTabs.children).forEach(t => t.style.background = '#1e293b');
 
@@ -5345,7 +5413,7 @@
 
                     vTab.textContent = `View: ${vLabel.toUpperCase()}`;
 
-                    vTab.onclick = function () {
+                    vTab.onclick = function() {
 
                         Array.from(switcherTabs.children).forEach(t => t.style.background = '#1e293b');
 
@@ -5482,7 +5550,7 @@
 
             const mismatchWarn = recSku.mismatch_warning || data.mismatch_warning;
 
-            let matchTag = `<span style="color:#a7f3d0; font-size:0.74rem;">[${scat} &bull; ${confPct}% Precision Match]</span>`;
+            let matchTag = `<span class="wb-rec-tag">[${(typeof __h === 'function' ? __h(scat) : scat)} &bull; ${confPct}% Precision Match]</span>`;
 
             if (mismatchWarn) {
 
@@ -5504,7 +5572,9 @@
 
             }
 
-            recTextEl.innerHTML = `Recognized Product: <b style="color:#38bdf8; font-family:monospace;">${sid}</b> &mdash; <span style="color:#fff;">${sname}</span> ${matchTag}`;
+            // colours follow the theme (wb-rec-* in style.css): the name was white, unreadable in the light theme
+            const esc = (v) => (typeof __h === 'function' ? __h(v) : String(v == null ? '' : v));
+            recTextEl.innerHTML = `Recognized Product: <b class="wb-rec-id">${esc(sid)}</b> &mdash; <span class="wb-rec-name">${esc(sname)}</span> ${matchTag}`;
 
         }
 
@@ -5664,85 +5734,85 @@
 
             statusBadge.style.background = hasUncertain ? 'rgba(245,158,11,0.15)' : 'rgba(6,182,212,0.15)';
 
-        } else
+        } else 
 
-            if (statusBadge) {
+        if (statusBadge) {
 
-                let stText = 'DIRECT INSTANCE DETECTION';
+            let stText = 'DIRECT INSTANCE DETECTION';
 
-                let stColor = '#10b981';
+            let stColor = '#10b981';
 
-                let stBorder = 'rgba(16,185,129,0.3)';
+            let stBorder = 'rgba(16,185,129,0.3)';
 
-                let stBg = 'rgba(16,185,129,0.15)';
+            let stBg = 'rgba(16,185,129,0.15)';
 
 
 
-                if (total === 0 || qb.verification_status === 'INSUFFICIENT_VISUAL_EVIDENCE') {
+            if (total === 0 || qb.verification_status === 'INSUFFICIENT_VISUAL_EVIDENCE') {
 
-                    stText = 'INSUFFICIENT VISUAL EVIDENCE';
+                stText = 'INSUFFICIENT VISUAL EVIDENCE';
 
-                    stColor = '#f59e0b';
+                stColor = '#f59e0b';
 
-                    stBorder = 'rgba(245,158,11,0.3)';
+                stBorder = 'rgba(245,158,11,0.3)';
 
-                    stBg = 'rgba(245,158,11,0.15)';
+                stBg = 'rgba(245,158,11,0.15)';
 
-                } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION (Total Unknown)' || autoGeom.is_depth_unknown) {
+            } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION (Total Unknown)' || autoGeom.is_depth_unknown) {
 
-                    stText = 'DIRECT VISUAL (Interior Depth Unknown)';
+                stText = 'DIRECT VISUAL (Interior Depth Unknown)';
 
-                    stColor = '#10b981';
+                stColor = '#10b981';
 
-                    stBorder = 'rgba(16,185,129,0.3)';
+                stBorder = 'rgba(16,185,129,0.3)';
 
-                    stBg = 'rgba(16,185,129,0.15)';
+                stBg = 'rgba(16,185,129,0.15)';
 
-                } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION' || qb.verification_status === 'DIRECT_VISUAL' || qb.verification_status === 'AUTOMATED_DETECTION' || (inferred === 0 && !qb.is_estimate)) {
+            } else if (qb.verification_status === 'DIRECT_VISUAL_DETECTION' || qb.verification_status === 'DIRECT_VISUAL' || qb.verification_status === 'AUTOMATED_DETECTION' || (inferred === 0 && !qb.is_estimate)) {
 
-                    stText = 'DIRECT VISUAL (Confirmed)';
+                stText = 'DIRECT VISUAL (Confirmed)';
 
-                    stColor = '#10b981';
+                stColor = '#10b981';
 
-                    stBorder = 'rgba(16,185,129,0.3)';
+                stBorder = 'rgba(16,185,129,0.3)';
 
-                    stBg = 'rgba(16,185,129,0.15)';
+                stBg = 'rgba(16,185,129,0.15)';
 
-                } else if (qb.verification_status === 'ESTIMATED_STACK' || qb.is_estimate) {
+            } else if (qb.verification_status === 'ESTIMATED_STACK' || qb.is_estimate) {
 
-                    stText = qb.counting_strategy === 'STRUCTURED_PALLET_RECONSTRUCTION'
+                stText = qb.counting_strategy === 'STRUCTURED_PALLET_RECONSTRUCTION'
 
-                        ? 'PROPOSED (Structured 3D Stack)'
+                    ? 'PROPOSED (Structured 3D Stack)'
 
-                        : 'PROPOSED (Estimated Stack)';
+                    : 'PROPOSED (Estimated Stack)';
 
-                    stColor = '#f59e0b';
+                stColor = '#f59e0b';
 
-                    stBorder = 'rgba(245,158,11,0.3)';
+                stBorder = 'rgba(245,158,11,0.3)';
 
-                    stBg = 'rgba(245,158,11,0.15)';
+                stBg = 'rgba(245,158,11,0.15)';
 
-                } else if (qb.verification_status === 'UNCERTAIN') {
+            } else if (qb.verification_status === 'UNCERTAIN') {
 
-                    stText = 'UNCERTAIN (Verify Stack)';
+                stText = 'UNCERTAIN (Verify Stack)';
 
-                    stColor = '#ef4444';
+                stColor = '#ef4444';
 
-                    stBorder = 'rgba(239,68,68,0.3)';
+                stBorder = 'rgba(239,68,68,0.3)';
 
-                    stBg = 'rgba(239,68,68,0.15)';
-
-                }
-
-                statusBadge.textContent = stText;
-
-                statusBadge.style.color = stColor;
-
-                statusBadge.style.borderColor = stBorder;
-
-                statusBadge.style.background = stBg;
+                stBg = 'rgba(239,68,68,0.15)';
 
             }
+
+            statusBadge.textContent = stText;
+
+            statusBadge.style.color = stColor;
+
+            statusBadge.style.borderColor = stBorder;
+
+            statusBadge.style.background = stBg;
+
+        }
 
 
 
@@ -6020,7 +6090,7 @@
 
 
 
-    window.handleWorkbenchCanvasClick = function (event) {
+    window.handleWorkbenchCanvasClick = function(event) {
 
         if (wbCurrentTool !== 'none') return;
 
@@ -6116,7 +6186,7 @@
 
 
 
-    window.removeWorkbenchBadge = function (index) {
+    window.removeWorkbenchBadge = function(index) {
 
         if (index >= 0 && index < wbCurrentPieces.length) {
 
@@ -6196,7 +6266,7 @@
 
 
 
-    window.recertifyWorkbenchMarkers = async function (silent = false) {
+    window.recertifyWorkbenchMarkers = async function(silent = false) {
 
         if (!wbRawImageUrl) {
 
@@ -6254,7 +6324,7 @@
 
             }
 
-        } catch (e) {
+        } catch(e) {
 
             console.error('Re-render error:', e);
 
@@ -6266,7 +6336,7 @@
 
 
 
-
+    
 
     // =========================================================================
 
@@ -6840,7 +6910,8 @@
 
 
 
-    function initWb3DPalletViewer(matrixData) {
+function initWb3DPalletViewer(matrixData) {
+        window.lastPallet3DMatrix = matrixData || null;   // the 3D tab shows the same model, larger
 
         const container = document.getElementById('wbThreeJsContainer');
 
@@ -6972,7 +7043,7 @@
 
 
 
-        const w = container.clientWidth || 460;
+        const w = container.clientWidth || 360;
 
         const h = container.clientHeight || 250;
 
@@ -7332,7 +7403,7 @@
 
 
 
-    window.toggleWbExplode3D = function () {
+    window.toggleWbExplode3D = function() {
 
         wbIsExploded = !wbIsExploded;
 
@@ -7358,7 +7429,7 @@
 
 
 
-    window.toggleWbXRay3D = function () {
+    window.toggleWbXRay3D = function() {
 
         wbIsXRay = !wbIsXRay;
 
@@ -7378,7 +7449,7 @@
 
 
 
-    window.resetWb3DCamera = function () {
+    window.resetWb3DCamera = function() {
 
         if (wbThreeCamera && wbThreeControls) {
 
@@ -7394,42 +7465,12 @@
 
 
 
-    // saves the verified count on the open pallet (auto-creating one from workbench SKU if needed), and optionally syncs straight into Inventory
-    async function saveCountToPallet(counted, perBundle, label, syncInventory) {
-        let pid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
-        const binSel = document.getElementById('wbSyncBinSelect');
-        let chosenBin = (binSel && binSel.value) ? binSel.value.trim() : '';
-
+    // saves the verified count on the open pallet (server), so it survives a reload and can be sealed/put away
+    async function saveCountToPallet(counted, perBundle, label) {
+        const pid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
         if (!pid) {
-            const skuSelect = document.getElementById('wbTargetSkuSelect');
-            const chosenSku = (wbMatchedSkuObj && wbMatchedSkuObj.sku_id) || (skuSelect && skuSelect.value) || '';
-            if (!chosenSku) {
-                if (typeof showToast === 'function') showToast('Pick a SKU in the workbench or create a pallet first.', 'warning');
-                return;
-            }
-            try {
-                const cRes = await fetch('/api/pallets', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        sku_id: chosenSku,
-                        units_per_bundle: perBundle,
-                        target_bundles: 0,
-                        assigned_bin_id: chosenBin || null
-                    })
-                });
-                const cData = await cRes.json().catch(() => ({}));
-                if (cRes.ok && cData.pallet && cData.pallet.pallet_id) {
-                    pid = cData.pallet.pallet_id;
-                    if (typeof window.showPalletRecord === 'function') window.showPalletRecord(cData.pallet);
-                } else {
-                    if (typeof showToast === 'function') showToast(`Could not create pallet: ${cData.error || cRes.status}`, 'error');
-                    return;
-                }
-            } catch (e) {
-                if (typeof showToast === 'function') showToast(`Could not create pallet: ${e.message}`, 'error');
-                return;
-            }
+            if (typeof showToast === 'function') showToast('Pick or build a pallet first (Step 1), then save the count to it.', 'warning');
+            return;
         }
         try {
             const res = await fetch(`/api/pallets/${encodeURIComponent(pid)}/count`, {
@@ -7439,29 +7480,7 @@
             const data = await res.json().catch(() => ({}));
             if (res.ok && data.success) {
                 if (typeof window.showPalletRecord === 'function') window.showPalletRecord(data.pallet);
-                if (!syncInventory) {
-                    if (typeof showToast === 'function') showToast(`Saved on pallet ${pid}: ${label}.`, 'success');
-                } else {
-                    const targetBin = chosenBin || (data.pallet && data.pallet.assigned_bin_id) || (binSel && binSel.options[1] && binSel.options[1].value) || '';
-                    if (!targetBin) {
-                        if (typeof showToast === 'function') showToast('Saved count on pallet. Pick a Bin in the dropdown to update Inventory.', 'warning');
-                        return;
-                    }
-                    const sRes = await fetch(`/api/pallets/${encodeURIComponent(pid)}/sync-inventory`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ bin_id: targetBin, seal: true })
-                    });
-                    const sData = await sRes.json().catch(() => ({}));
-                    if (sRes.ok && sData.success) {
-                        if (typeof window.showPalletRecord === 'function' && sData.pallet) window.showPalletRecord(sData.pallet);
-                        if (typeof window.loadInventory === 'function') window.loadInventory();
-                        if (typeof window.fetchBins === 'function') window.fetchBins();
-                        if (typeof showToast === 'function') showToast(sData.message || `Inventory updated for pallet ${pid}.`, 'success');
-                    } else if (typeof showToast === 'function') {
-                        showToast(`Inventory sync failed: ${sData.error || sData.message || sRes.status}`, 'error');
-                    }
-                }
+                if (typeof showToast === 'function') showToast(`Saved on pallet ${pid}: ${label}. Seal the pallet when it is complete.`, 'success');
             } else if (typeof showToast === 'function') {
                 showToast(`Count not saved: ${data.error || data.message || res.status}`, 'error');
             }
@@ -7470,96 +7489,125 @@
         }
     }
 
-<<<<<<< HEAD
-    window.applyVerifiedCountToActivePallet = function (syncInventory) {
-
-        const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
-
-        const baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult ? (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0)) : 0);
-
-        const uPerB = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10));
-
-        const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
-
-        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
-
-        const totalIndividualUnits = baseCount * uPerB;
-
-
-
-        const palletPcsElem = document.getElementById('palletTotalPieces');
-
-        const palletBundlesElem = document.getElementById('palletCountBundles');
-
-        const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
-
-        if (unitsPerBundleElem) unitsPerBundleElem.textContent = uPerB;
-
-
-
-        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
-        if (isPieces) {
-            if (palletPcsElem) palletPcsElem.textContent = baseCount;
-            if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
-            saveCountToPallet(baseCount, 1, `${baseCount} pieces`, Boolean(syncInventory));
-        } else if (wbMode === 'bundles' || uPerB > 1) {
-            if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
-            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            saveCountToPallet(baseCount, uPerB, `${baseCount} ${bname}s × ${uPerB} = ${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
-        } else {
-            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
-=======
-    window.applyVerifiedCountToActivePallet = function (syncInventory) {
-
-        const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
-
-        const baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult ? (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0)) : 0);
-
-        const uPerB = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10));
-
-        const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
-
-        const bname = (document.getElementById('wbBundleNameInput')?.value || 'Bundle').trim() || 'Bundle';
-
-        const totalIndividualUnits = baseCount * uPerB;
-
-
-
-        const palletPcsElem = document.getElementById('palletTotalPieces');
-
-        const palletBundlesElem = document.getElementById('palletCountBundles');
-
-        const unitsPerBundleElem = document.getElementById('palletUnitsPerBundle');
-
-        if (unitsPerBundleElem) unitsPerBundleElem.textContent = uPerB;
-
-
-
-        const isPieces = (wbMode === 'pieces' || wbLatestResult?.mode === 'INDIVIDUAL_PIECES' || wbLatestResult?.counting_mode === 'individual_pieces');
-        if (isPieces) {
-            if (palletPcsElem) palletPcsElem.textContent = baseCount;
-            if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
-            saveCountToPallet(baseCount, 1, `${baseCount} pieces`, Boolean(syncInventory));
-        } else if (wbMode === 'bundles' || uPerB > 1) {
-            if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
-            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            saveCountToPallet(baseCount, uPerB, `${baseCount} ${bname}s × ${uPerB} = ${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
-        } else {
-            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
->>>>>>> origin/feature/rbac
+    // "Save count to pallet": a dialog instead of writing silently onto whatever pallet was open (a mug carton
+    // count landed on a glass pallet and nothing reached stock). Only open pallets of the counted product are
+    // offered, or a new pallet in a chosen bin; ticking "Seal it and put it into stock" books it at once.
+    window.applyVerifiedCountToActivePallet = async function() {
+        const parts = wbCountParts();
+        if (!wbLatestResult || !parts.pieces) {
+            if (typeof showToast === 'function') showToast('Count a photo first, then save the count.', 'warning');
+            return;
         }
-
+        const skuSel = document.getElementById('wbTargetSkuSelect');
+        const recP = wbLatestResult.recognized_sku || wbLatestResult.sku_info || {};
+        const skuId = (skuSel && skuSel.value) || (recP.sku_id && !String(recP.sku_id).startsWith('INFERRED') ? recP.sku_id : '');
+        if (!skuId || ['AUTO', 'MULTI_ALL'].includes(skuId)) {
+            if (typeof showToast === 'function') showToast('Choose the product that was counted (SKU recognition list), then save.', 'warning');
+            return;
+        }
+        const prod = wbProduct(skuId) || recP || {};
+        const esc = (v) => (typeof __h === 'function' ? __h(v) : String(v == null ? '' : v));
+        let pallets = [], bins = [];
+        try {
+            const pr = await fetch('/api/pallets'); const pb = await pr.json().catch(() => ({}));
+            pallets = (Array.isArray(pb) ? pb : (pb.pallets || [])).filter(p => p.sku_id === skuId && String(p.status || '').toUpperCase() !== 'SEALED');
+            const br = await fetch('/api/bins'); const bb = await br.json().catch(() => []);
+            bins = Array.isArray(bb) ? bb : (bb.bins || []);
+        } catch (e) { /* the dialog still offers a new pallet */ }
+        const activeId = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
+        const can = (k) => (typeof window.hasPerm === 'function' ? window.hasPerm(k) : true);
+        const palOpts = pallets.map(p => `<option value="${esc(p.pallet_id)}" data-bin="${esc(p.assigned_bin_id || '')}"${p.pallet_id === activeId ? ' selected' : ''}>${esc(p.pallet_id)} · now ${esc(p.total_units || 0)} · bin ${esc(p.assigned_bin_id || '–')}</option>`).join('')
+            + (can('pallet.create') ? '<option value="__new">+ Build a new pallet…</option>' : '');
+        if (!palOpts) {
+            if (typeof showToast === 'function') showToast(`No open pallet of ${skuId} here, and you may not build one.`, 'warning');
+            return;
+        }
+        const binOpts = bins.map(b => `<option value="${esc(b.bin_id)}">${esc(b.bin_id)}${b.zone ? ' · zone ' + esc(b.zone) : ''}</option>`).join('');
+        const unit = (document.getElementById('wbUomSelect')?.value || prod.uom || 'EA').toUpperCase();
+        const inside = parts.kind === 'carton' && prod.pack_contents ? prod.pack_contents : unit;
+        const summary = parts.packs
+            ? `${parts.packs} ${parts.kind === 'carton' ? 'carton' : 'bundle'}${parts.packs === 1 ? '' : 's'} × ${parts.per} = ${parts.pieces} ${inside}`
+            : `${parts.pieces} ${unit}`;
+        const canStock = can('pallet.seal') && can('inventory.transfer');
+        const wrap = document.createElement('div');
+        wrap.className = 'uac-modal-backdrop';
+        wrap.innerHTML = `<div class="uac-modal inv-modal" role="dialog" aria-modal="true" aria-label="Save count to pallet">
+            <div class="uac-modal-head"><div><h3><i class="fas fa-pallet c-blue"></i> Save count to pallet</h3>
+                <div class="uac-modal-sub">${esc(prod.name || skuId)} · <b>${esc(summary)}</b></div></div>
+                <button class="uac-x" type="button" aria-label="Close">&times;</button></div>
+            <div class="uac-modal-body">
+                <label class="uac-label" for="wbSavePal">Pallet (only pallets of this product)</label>
+                <select id="wbSavePal" class="uac-input">${palOpts}</select>
+                <div id="wbSaveBinRow">
+                    <label class="uac-label" for="wbSaveBin">Bin it goes into</label>
+                    <select id="wbSaveBin" class="uac-input"><option value="">Choose a bin…</option>${binOpts}</select>
+                </div>
+                ${canStock ? `<label class="uac-label" style="display:flex; gap:8px; align-items:center; margin-top:10px;"><input type="checkbox" id="wbSaveStock" checked style="width:auto; flex:none; margin:0;"> Seal it and put it into stock now</label>
+                <div class="uac-hint"><i class="fas fa-triangle-exclamation"></i> Untick if these goods were already received at Inbound, or they are counted twice. You can seal it later in Palletization.</div>` : ''}
+            </div>
+            <div class="uac-modal-msg"></div>
+            <div class="uac-modal-actions"><button class="uac-btn" type="button" data-x>Cancel</button>
+                <button class="uac-btn uac-btn-primary" type="button" data-ok>Save</button></div></div>`;
+        const close = () => wrap.remove();
+        wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+        wrap.querySelector('.uac-x').onclick = close;
+        wrap.querySelector('[data-x]').onclick = close;
+        const palSel = wrap.querySelector('#wbSavePal'), binSel = wrap.querySelector('#wbSaveBin'), binRow = wrap.querySelector('#wbSaveBinRow');
+        const stockBox = wrap.querySelector('#wbSaveStock');
+        const sync = () => {
+            const opt = palSel.selectedOptions[0];
+            const palBin = opt && opt.dataset ? opt.dataset.bin : '';
+            // a bin is needed for a new pallet, or to put a pallet without a bin into stock
+            binRow.style.display = (palSel.value === '__new' || (!palBin && stockBox && stockBox.checked)) ? '' : 'none';
+            if (palBin && [...binSel.options].some(o => o.value === palBin)) binSel.value = palBin;
+        };
+        palSel.onchange = sync; if (stockBox) stockBox.onchange = sync; sync();
+        const msg = wrap.querySelector('.uac-modal-msg'), ok = wrap.querySelector('[data-ok]');
+        const send = async (url, body) => {
+            const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || j.success === false) throw new Error(j.error || j.message || `That did not work (${r.status}).`);
+            return j;
+        };
+        ok.onclick = async () => {
+            msg.className = 'uac-modal-msg'; msg.textContent = '';
+            ok.disabled = true;
+            try {
+                let pid = palSel.value;
+                const bin = binSel.value;
+                const per = parts.packs ? parts.per : 1;
+                if (pid === '__new') {
+                    if (!bin) throw new Error('Choose the bin for the new pallet.');
+                    const made = await send('/api/pallets', { sku_id: skuId, units_per_bundle: per, target_bundles: 0, assigned_bin_id: bin });
+                    pid = (made.pallet || {}).pallet_id || made.pallet_id;
+                    if (!pid) throw new Error('The pallet was not created.');
+                }
+                const saved = await send(`/api/pallets/${encodeURIComponent(pid)}/count`,
+                                         { counted_bundles: parts.packs || parts.pieces, units_per_bundle: per, sku_id: skuId });
+                let done = 'Saved on pallet ' + pid + ': ' + summary + '.';
+                if (stockBox && stockBox.checked) {
+                    const pal = saved.pallet || {};
+                    const target = pal.assigned_bin_id || bin;
+                    if (!target) throw new Error('Choose the bin it goes into.');
+                    await send(`/api/pallets/${encodeURIComponent(pid)}/seal`, target !== pal.assigned_bin_id ? { assigned_bin_id: target } : {});
+                    const put = await send(`/api/pallets/${encodeURIComponent(pid)}/putaway`, { bin_id: target });
+                    done = 'Pallet ' + pid + ' sealed. ' + (put.message || '');   // toast shows plain text
+                } else {
+                    done += ' Seal it when the pallet is complete.';
+                }
+                if (typeof window.showPalletRecord === 'function') {
+                    try { const pr = await fetch(`/api/pallets/${encodeURIComponent(pid)}`); const pj = await pr.json(); window.showPalletRecord(pj.pallet || pj); } catch (e) {}
+                }
+                close();
+                if (typeof showToast === 'function') showToast(done, 'success');
+            } catch (e) {
+                msg.textContent = e.message || String(e); msg.className = 'uac-modal-msg error';
+            } finally { ok.disabled = false; }
+        };
+        document.body.appendChild(wrap);
     };
 
-    window.saveAndSyncPalletInventory = function () {
-        return window.applyVerifiedCountToActivePallet(true);
-    };
+    window.saveAndSyncPalletInventory = window.applyVerifiedCountToActivePallet;
 
 
 
@@ -7607,7 +7655,7 @@
 
                 dropZone.style.borderColor = '#0284c7';
 
-                dropZone.style.background = '#1e293b';
+                dropZone.style.background = 'var(--panel-subtle)';
 
                 dropZone.style.boxShadow = 'none';
 
@@ -7731,7 +7779,7 @@
 
 
 
-    window.setWorkbenchRegionTool = function (toolName) {
+    window.setWorkbenchRegionTool = function(toolName) {
 
         wbCurrentTool = toolName || 'none';
 
@@ -7799,7 +7847,7 @@
 
 
 
-    window.clearWorkbenchRegions = function (silent = false) {
+    window.clearWorkbenchRegions = function(silent = false) {
 
         wbRegions = [];
 
@@ -8515,43 +8563,78 @@
 
 
 
+
+    // ---- Palletization > "3D Digital Twin" tab --------------------------------------------------------
+    // The tab used to call window.initWb3DPalletViewer, which was never exposed, so it stayed empty.
+    // It now shows the workbench's own 3D model (the last count) in its large stage: the viewer is moved
+    // there while the tab is open and back into the workbench card afterwards.
+    window.initWb3DPalletViewer = initWb3DPalletViewer;
+    window.showPallet3DStudio = function(open) {
+        const c = document.getElementById('wbThreeJsContainer');
+        const stage = document.getElementById('palletStudio3DStage');
+        if (!c || !stage) return;
+        if (!window.__wb3dHome) {
+            window.__wb3dHome = { parent: c.parentElement, next: c.nextSibling, height: c.style.height, intro: stage.firstElementChild };
+        }
+        const home = window.__wb3dHome;
+        const m = window.lastPallet3DMatrix;
+        const has = !!(m && m.boxes && m.boxes.length);
+        if (open) {
+            if (home.intro) {
+                home.intro.style.display = has ? 'none' : '';
+                const p = home.intro.querySelector('p');
+                if (p && !has) p.textContent = 'No 3D stack yet. Count a pallet of bundles or cartons in the Vision Workbench, then open this tab. Individual pieces are counted on the photo only.';
+            }
+            if (has) {
+                stage.appendChild(c);
+                c.style.height = '100%';
+                setTimeout(() => initWb3DPalletViewer(m), 30);
+            }
+        } else if (c.parentElement !== home.parent) {
+            home.parent.insertBefore(c, home.next);
+            c.style.height = home.height;
+            if (home.intro) home.intro.style.display = '';
+            setTimeout(() => initWb3DPalletViewer(m || null), 30);
+        }
+    };
+
 })();
 
 
 
-// =========================================================================
+    // =========================================================================
 
-// STAGE 6: Multi-View Operator Review & Association Auditing Workflow
+    // STAGE 6: Multi-View Operator Review & Association Auditing Workflow
 
-// =========================================================================
+    // =========================================================================
 
-window.currentMultiViewSession = null;
-
-
-
-function renderOperatorReviewDrawer(session) {
-
-    const listEl = document.getElementById('wbOperatorReviewObjectsList');
-
-    if (!listEl) return;
-
-    listEl.innerHTML = '';
+    window.currentMultiViewSession = null;
 
 
 
-    const objects = session.fused_objects || session.pieces || [];
+    function renderOperatorReviewDrawer(session) {
 
-    const ambiguous = session.ambiguous_candidates || [];
+        const listEl = document.getElementById('wbOperatorReviewObjectsList');
+
+        if (!listEl) return;
+
+        listEl.innerHTML = '';
 
 
 
-    // Review Header Toolbar & Add Physical Bundle Button
+        const objects = session.fused_objects || session.pieces || [];
 
-    const headerToolbar = document.createElement('div');
+        const ambiguous = session.ambiguous_candidates || [];
 
-    headerToolbar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #334155;';
 
-    headerToolbar.innerHTML = `
+
+        // Review Header Toolbar & Add Physical Bundle Button
+
+        const headerToolbar = document.createElement('div');
+
+        headerToolbar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #334155;';
+
+        headerToolbar.innerHTML = `
 
             <span style="font-weight:700; color:#f8fafc; font-size:0.72rem;">
 
@@ -8567,67 +8650,67 @@ function renderOperatorReviewDrawer(session) {
 
         `;
 
-    listEl.appendChild(headerToolbar);
+        listEl.appendChild(headerToolbar);
 
 
 
-    if (objects.length === 0 && ambiguous.length === 0) {
+        if (objects.length === 0 && ambiguous.length === 0) {
 
-        listEl.innerHTML = '<div style="color:#64748b; font-size:0.7rem; font-style:italic; padding:4px 0;">No grouped objects available for review.</div>';
+            listEl.innerHTML = '<div style="color:#64748b; font-size:0.7rem; font-style:italic; padding:4px 0;">No grouped objects available for review.</div>';
 
-        return;
-
-    }
-
-
-
-    // Render Fused Object Cards
-
-    objects.forEach(obj => {
-
-        const card = document.createElement('div');
-
-        card.style.cssText = 'background:#1e293b; border:1px solid #334155; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
-
-
-
-        const left = document.createElement('div');
-
-        left.style.cssText = 'display:flex; align-items:center; gap:8px;';
-
-
-
-        if (obj.crop_url) {
-
-            const img = document.createElement('img');
-
-            img.src = obj.crop_url;
-
-            img.style.cssText = 'width:36px; height:36px; object-fit:cover; border-radius:4px; border:1px solid #475569;';
-
-            left.appendChild(img);
-
-        } else {
-
-            const iconBox = document.createElement('div');
-
-            iconBox.style.cssText = 'width:36px; height:36px; background:#0f172a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:0.9rem;';
-
-            iconBox.innerHTML = '<i class="fas fa-cube"></i>';
-
-            left.appendChild(iconBox);
+            return;
 
         }
 
 
 
-        const info = document.createElement('div');
+        // Render Fused Object Cards
 
-        const contributing = (obj.contributing_views || [obj.primary_view || 'front']).join(' + ').toUpperCase();
+        objects.forEach(obj => {
 
-        const statusColor = (obj.status === 'CONFIRMED' && !obj.is_uncertain) ? '#34d399' : '#fbbf24';
+            const card = document.createElement('div');
 
-        info.innerHTML = `
+            card.style.cssText = 'background:#1e293b; border:1px solid #334155; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
+
+
+
+            const left = document.createElement('div');
+
+            left.style.cssText = 'display:flex; align-items:center; gap:8px;';
+
+
+
+            if (obj.crop_url) {
+
+                const img = document.createElement('img');
+
+                img.src = obj.crop_url;
+
+                img.style.cssText = 'width:36px; height:36px; object-fit:cover; border-radius:4px; border:1px solid #475569;';
+
+                left.appendChild(img);
+
+            } else {
+
+                const iconBox = document.createElement('div');
+
+                iconBox.style.cssText = 'width:36px; height:36px; background:#0f172a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:0.9rem;';
+
+                iconBox.innerHTML = '<i class="fas fa-cube"></i>';
+
+                left.appendChild(iconBox);
+
+            }
+
+
+
+            const info = document.createElement('div');
+
+            const contributing = (obj.contributing_views || [obj.primary_view || 'front']).join(' + ').toUpperCase();
+
+            const statusColor = (obj.status === 'CONFIRMED' && !obj.is_uncertain) ? '#34d399' : '#fbbf24';
+
+            info.innerHTML = `
 
                 <div style="font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:5px;">
 
@@ -8641,499 +8724,506 @@ function renderOperatorReviewDrawer(session) {
 
             `;
 
-        left.appendChild(info);
+            left.appendChild(info);
 
 
 
-        const actions = document.createElement('div');
+            const actions = document.createElement('div');
 
-        actions.style.cssText = 'display:flex; gap:4px;';
+            actions.style.cssText = 'display:flex; gap:4px;';
 
 
 
-        // Confirm Button
+            // Confirm Button
 
-        if (obj.status !== 'CONFIRMED' || obj.is_uncertain) {
+            if (obj.status !== 'CONFIRMED' || obj.is_uncertain) {
 
-            const confirmBtn = document.createElement('button');
+                const confirmBtn = document.createElement('button');
 
-            confirmBtn.type = 'button';
+                confirmBtn.type = 'button';
 
-            confirmBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                confirmBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-            confirmBtn.textContent = 'Confirm';
+                confirmBtn.textContent = 'Confirm';
 
-            confirmBtn.onclick = () => window.reviewWorkbenchSession('confirm_object', obj.object_id || obj.detection_id);
+                confirmBtn.onclick = () => window.reviewWorkbenchSession('confirm_object', obj.object_id || obj.detection_id);
 
-            actions.appendChild(confirmBtn);
+                actions.appendChild(confirmBtn);
 
-        }
+            }
 
 
 
-        // Separate Observations Button (enabled when > 1 contributing view)
+            // Separate Observations Button (enabled when > 1 contributing view)
 
-        if ((obj.contributing_views && obj.contributing_views.length > 1) || (obj.observations && Object.keys(obj.observations).length > 1)) {
+            if ((obj.contributing_views && obj.contributing_views.length > 1) || (obj.observations && Object.keys(obj.observations).length > 1)) {
 
-            const sepBtn = document.createElement('button');
+                const sepBtn = document.createElement('button');
 
-            sepBtn.type = 'button';
+                sepBtn.type = 'button';
 
-            sepBtn.style.cssText = 'background:#d97706; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                sepBtn.style.cssText = 'background:#d97706; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-            sepBtn.textContent = 'Separate';
+                sepBtn.textContent = 'Separate';
 
-            sepBtn.title = 'Separate cross-view observations into distinct objects';
+                sepBtn.title = 'Separate cross-view observations into distinct objects';
 
-            sepBtn.onclick = () => window.reviewWorkbenchSession('separate_object', obj.object_id || obj.detection_id);
+                sepBtn.onclick = () => window.reviewWorkbenchSession('separate_object', obj.object_id || obj.detection_id);
 
-            actions.appendChild(sepBtn);
+                actions.appendChild(sepBtn);
 
-        }
+            }
 
 
 
-        // Mark Uncertain Button
+            // Mark Uncertain Button
 
-        if (obj.status !== 'UNCERTAIN' && !obj.is_uncertain) {
+            if (obj.status !== 'UNCERTAIN' && !obj.is_uncertain) {
 
-            const uncertBtn = document.createElement('button');
+                const uncertBtn = document.createElement('button');
 
-            uncertBtn.type = 'button';
+                uncertBtn.type = 'button';
 
-            uncertBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                uncertBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-            uncertBtn.textContent = 'Flag';
+                uncertBtn.textContent = 'Flag';
 
-            uncertBtn.title = 'Mark as uncertain candidate without counting';
+                uncertBtn.title = 'Mark as uncertain candidate without counting';
 
-            uncertBtn.onclick = () => window.reviewWorkbenchSession('mark_uncertain', obj.object_id || obj.detection_id);
+                uncertBtn.onclick = () => window.reviewWorkbenchSession('mark_uncertain', obj.object_id || obj.detection_id);
 
-            actions.appendChild(uncertBtn);
+                actions.appendChild(uncertBtn);
 
-        }
+            }
 
 
 
-        // Reject Button (False Positive Removal)
+            // Reject Button (False Positive Removal)
 
-        if (obj.status !== 'REJECTED') {
+            if (obj.status !== 'REJECTED') {
 
-            const rejBtn = document.createElement('button');
+                const rejBtn = document.createElement('button');
 
-            rejBtn.type = 'button';
+                rejBtn.type = 'button';
 
-            rejBtn.style.cssText = 'background:#b91c1c; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+                rejBtn.style.cssText = 'background:#b91c1c; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-            rejBtn.textContent = 'Reject';
+                rejBtn.textContent = 'Reject';
 
-            rejBtn.title = 'Reject false positive candidate';
+                rejBtn.title = 'Reject false positive candidate';
 
-            rejBtn.onclick = () => window.reviewWorkbenchSession('reject_object', obj.object_id || obj.detection_id);
+                rejBtn.onclick = () => window.reviewWorkbenchSession('reject_object', obj.object_id || obj.detection_id);
 
-            actions.appendChild(rejBtn);
+                actions.appendChild(rejBtn);
 
-        }
+            }
 
 
 
-        card.appendChild(left);
+            card.appendChild(left);
 
-        card.appendChild(actions);
+            card.appendChild(actions);
 
-        listEl.appendChild(card);
+            listEl.appendChild(card);
 
-    });
+        });
 
 
 
-    // Render Ambiguous Candidates
+        // Render Ambiguous Candidates
 
-    ambiguous.forEach((amb, idx) => {
+        ambiguous.forEach((amb, idx) => {
 
-        const card = document.createElement('div');
+            const card = document.createElement('div');
 
-        card.style.cssText = 'background:#1e293b; border:1px dashed #ef4444; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
+            card.style.cssText = 'background:#1e293b; border:1px dashed #ef4444; border-radius:5px; padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.68rem;';
 
 
 
-        const left = document.createElement('div');
+            const left = document.createElement('div');
 
-        left.style.cssText = 'display:flex; align-items:center; gap:8px;';
+            left.style.cssText = 'display:flex; align-items:center; gap:8px;';
 
 
 
-        const iconBox = document.createElement('div');
+            const iconBox = document.createElement('div');
 
-        iconBox.style.cssText = 'width:36px; height:36px; background:#450a0a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#f87171; font-size:0.9rem;';
+            iconBox.style.cssText = 'width:36px; height:36px; background:#450a0a; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#f87171; font-size:0.9rem;';
 
-        iconBox.innerHTML = '<i class="fas fa-question-circle"></i>';
+            iconBox.innerHTML = '<i class="fas fa-question-circle"></i>';
 
-        left.appendChild(iconBox);
+            left.appendChild(iconBox);
 
 
 
-        const info = document.createElement('div');
+            const info = document.createElement('div');
 
-        info.innerHTML = `
+            info.innerHTML = `
 
-                <div style="font-weight:700; color:#fca5a5;">Ambiguous Candidate #${idx + 1}</div>
+                <div style="font-weight:700; color:#fca5a5;">Ambiguous Candidate #${idx+1}</div>
 
-                <div style="color:#94a3b8; font-size:0.62rem;">View: ${amb.view_label || 'secondary'} | Score: ${amb.best_score ? Math.round(amb.best_score * 100) + '%' : 'N/A'}</div>
+                <div style="color:#94a3b8; font-size:0.62rem;">View: ${amb.view_label || 'secondary'} | Score: ${amb.best_score ? Math.round(amb.best_score*100)+'%' : 'N/A'}</div>
 
             `;
 
-        left.appendChild(info);
+            left.appendChild(info);
 
 
 
-        const actions = document.createElement('div');
+            const actions = document.createElement('div');
 
-        actions.style.cssText = 'display:flex; gap:4px;';
-
-
-
-        const confBtn = document.createElement('button');
-
-        confBtn.type = 'button';
-
-        confBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
-
-        confBtn.textContent = 'Accept';
-
-        confBtn.title = 'Accept and confirm as distinct object';
-
-        confBtn.onclick = () => window.reviewWorkbenchSession('confirm_ambiguous', amb.candidate_obj_id);
-
-        actions.appendChild(confBtn);
+            actions.style.cssText = 'display:flex; gap:4px;';
 
 
 
-        const disBtn = document.createElement('button');
+            const confBtn = document.createElement('button');
 
-        disBtn.type = 'button';
+            confBtn.type = 'button';
 
-        disBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
+            confBtn.style.cssText = 'background:#059669; color:#fff; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-        disBtn.textContent = 'Dismiss';
+            confBtn.textContent = 'Accept';
 
-        disBtn.title = 'Dismiss ambiguous candidate';
+            confBtn.title = 'Accept and confirm as distinct object';
 
-        disBtn.onclick = () => window.reviewWorkbenchSession('reject_ambiguous', amb.candidate_obj_id);
+            confBtn.onclick = () => window.reviewWorkbenchSession('confirm_ambiguous', amb.candidate_obj_id);
 
-        actions.appendChild(disBtn);
-
-
-
-        card.appendChild(left);
-
-        card.appendChild(actions);
-
-        listEl.appendChild(card);
-
-    });
-
-}
+            actions.appendChild(confBtn);
 
 
 
-window.promptAddOperatorBundle = function () {
+            const disBtn = document.createElement('button');
 
-    const layerStr = prompt("Enter Layer / Elevation for new physical bundle (1 for bottom, 2 for middle, 3 for top):", "2");
+            disBtn.type = 'button';
 
-    if (layerStr === null) return;
+            disBtn.style.cssText = 'background:#475569; color:#fca5a5; border:none; border-radius:3px; padding:2px 6px; font-size:0.62rem; cursor:pointer; font-weight:600;';
 
-    const lyr = Math.max(0, parseInt(layerStr, 10) - 1);
+            disBtn.textContent = 'Dismiss';
 
-    window.reviewWorkbenchSession('add_bundle', null, null, `Operator added physical bundle at Layer ${lyr + 1}`, { layer: lyr });
+            disBtn.title = 'Dismiss ambiguous candidate';
 
-};
+            disBtn.onclick = () => window.reviewWorkbenchSession('reject_ambiguous', amb.candidate_obj_id);
 
-
-
-window.reviewWorkbenchSession = async function (action, objectId = null, secondaryView = null, notes = null, extraParams = {}) {
-
-    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
-
-        console.warn('[ReviewWorkbench] No active multi-view session available for review.');
-
-        return;
-
-    }
+            actions.appendChild(disBtn);
 
 
 
-    const sessId = window.currentMultiViewSession.session_id;
+            card.appendChild(left);
 
-    try {
+            card.appendChild(actions);
 
-        const reqBody = {
-
-            session_id: sessId,
-
-            action: action,
-
-            object_id: objectId,
-
-            secondary_view: secondaryView,
-
-            notes: notes,
-
-            ...(extraParams || {})
-
-        };
-
-        const resp = await fetch('/api/pallets/multiview-review', {
-
-            method: 'POST',
-
-            headers: { 'Content-Type': 'application/json' },
-
-            body: JSON.stringify(reqBody)
+            listEl.appendChild(card);
 
         });
 
+    }
 
 
-        const data = await resp.json();
 
-        if (data.success) {
+    window.promptAddOperatorBundle = function() {
 
-            window.currentMultiViewSession = data;
+        const layerStr = prompt("Enter Layer / Elevation for new physical bundle (1 for bottom, 2 for middle, 3 for top):", "2");
 
-            // Re-render UI with updated session state
+        if (layerStr === null) return;
 
-            renderWorkbenchResults(data);
+        const lyr = Math.max(0, parseInt(layerStr, 10) - 1);
 
-            if (typeof showToast === 'function') {
+        window.reviewWorkbenchSession('add_bundle', null, null, `Operator added physical bundle at Layer ${lyr + 1}`, { layer: lyr });
 
-                showToast(`Review action '${action}' applied: primary count is now ${data.primary_count}.`, 'success');
+    };
 
-            }
 
-        } else {
 
-            console.error('[ReviewWorkbench] Error:', data.error);
+    window.reviewWorkbenchSession = async function(action, objectId = null, secondaryView = null, notes = null, extraParams = {}) {
 
-            if (typeof showToast === 'function') {
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
 
-                showToast(`Review action failed: ${data.error}`, 'error');
+            console.warn('[ReviewWorkbench] No active multi-view session available for review.');
 
-            }
+            return;
 
         }
 
-    } catch (err) {
 
-        console.error('[ReviewWorkbench] Network error:', err);
 
-        if (typeof showToast === 'function') {
+        const sessId = window.currentMultiViewSession.session_id;
 
-            showToast(`Review action network error: ${err.message}`, 'error');
+        try {
 
-        }
+            const reqBody = {
 
-    }
+                session_id: sessId,
 
-};
+                action: action,
 
+                object_id: objectId,
 
+                secondary_view: secondaryView,
 
-window.recalculateWorkbenchMultiView = function () {
+                notes: notes,
 
-    window.reviewWorkbenchSession('recalculate');
+                ...(extraParams || {})
 
-};
+            };
 
+            const resp = await fetch('/api/pallets/multiview-review', {
 
+                method: 'POST',
 
-window.approveWorkbenchSession = async function () {
+                headers: { 'Content-Type': 'application/json' },
 
-    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+                body: JSON.stringify(reqBody)
 
-        if (typeof showToast === 'function') showToast('No active counting session to approve.', 'warning');
+            });
 
-        return;
 
-    }
 
-    await window.reviewWorkbenchSession('approve_session', null, null, 'Operator formally approved count');
+            const data = await resp.json();
 
-    if (typeof showToast === 'function') {
+            if (data.success) {
 
-        showToast('Counting session APPROVED! You can now transfer this result directly to WMS Inventory.', 'success');
+                window.currentMultiViewSession = data;
 
-    }
+                // Re-render UI with updated session state
 
-};
+                renderWorkbenchResults(data);
 
+                if (typeof showToast === 'function') {
 
+                    showToast(`Review action '${action}' applied: primary count is now ${data.primary_count}.`, 'success');
 
-window.openTransferInventoryModal = function () {
-
-    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
-
-        if (typeof showToast === 'function') showToast('No active counting session.', 'warning');
-
-        return;
-
-    }
-
-    const sess = window.currentMultiViewSession;
-
-    const total = sess.primary_count || sess.confirmed_count || sess.total_pieces || sess.total_bundles || 0;
-
-    const uom = sess.uom || 'EA';
-
-    const sku = sess.sku_id || sess.selected_sku || 'GEN-STK-001';
-
-
-
-    const targetType = prompt(`Transfer approved count (${total} ${uom} of ${sku}) to WMS.\n\nEnter destination target type ('bin' or 'pallet'):`, 'bin');
-
-    if (!targetType) return;
-
-
-
-    let binId = null;
-
-    let palletId = null;
-
-    if (targetType.toLowerCase() === 'pallet') {
-
-        palletId = prompt('Enter destination Pallet ID:', 'PAL-001');
-
-        if (!palletId) return;
-
-    } else {
-
-        binId = prompt('Enter destination Bin ID:', 'BIN-A-01');
-
-        if (!binId) return;
-
-    }
-
-
-
-    const notes = prompt('Audit notes (optional):', 'Approved via AI Vision Counting Workbench');
-
-    window.transferWorkbenchInventory(targetType.toLowerCase(), binId, palletId, notes);
-
-};
-
-
-
-window.transferWorkbenchInventory = async function (targetType = 'bin', binId = null, palletId = null, notes = null) {
-
-    if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
-
-        if (typeof showToast === 'function') showToast('No active counting session to transfer.', 'warning');
-
-        return;
-
-    }
-
-    const sess = window.currentMultiViewSession;
-
-    const rSt = (sess.review_status || '').toUpperCase();
-
-    if (rSt !== 'APPROVED') {
-
-        if (typeof showToast === 'function') {
-
-            showToast('Session must be APPROVED by operator before transferring to inventory. Click "Approve Count" first.', 'warning');
-
-        } else {
-
-            alert('Session must be APPROVED by operator before transferring to inventory.');
-
-        }
-
-        return;
-
-    }
-
-
-
-    try {
-
-        const resp = await fetch('/api/pallets/transfer-inventory', {
-
-            method: 'POST',
-
-            headers: { 'Content-Type': 'application/json' },
-
-            body: JSON.stringify({
-
-                session_id: sess.session_id,
-
-                target_type: targetType,
-
-                bin_id: binId,
-
-                pallet_id: palletId,
-
-                operator_id: 'OP-VISION',
-
-                notes: notes || 'Transferred from AI Vision Pallet Workbench'
-
-            })
-
-        });
-
-        const data = await resp.json();
-
-        if (data.success) {
-
-            sess.inventory_transfer_status = 'TRANSFERRED';
-
-            sess.receipt = data.receipt;
-
-            const transBtn = document.getElementById('wbTransferInventoryBtn');
-
-            if (transBtn) {
-
-                transBtn.disabled = true;
-
-                transBtn.style.opacity = '0.6';
-
-                transBtn.innerHTML = '<i class="fas fa-check-double"></i> Transferred to WMS';
-
-            }
-
-            if (typeof showToast === 'function') {
-
-                showToast(`WMS Inventory Updated: ${data.message}`, 'success');
+                }
 
             } else {
 
-                alert(`Success: ${data.message}`);
+                console.error('[ReviewWorkbench] Error:', data.error);
+
+                if (typeof showToast === 'function') {
+
+                    showToast(`Review action failed: ${data.error}`, 'error');
+
+                }
 
             }
 
-        } else {
+        } catch (err) {
+
+            console.error('[ReviewWorkbench] Network error:', err);
 
             if (typeof showToast === 'function') {
 
-                showToast(`Inventory transfer failed: ${data.error}`, 'error');
-
-            } else {
-
-                alert(`Transfer failed: ${data.error}`);
+                showToast(`Review action network error: ${err.message}`, 'error');
 
             }
 
         }
 
-    } catch (e) {
+    };
 
-        console.error('[TransferInventory] Error:', e);
 
-        if (typeof showToast === 'function') showToast(`Transfer error: ${e.message}`, 'error');
 
-    }
+    window.recalculateWorkbenchMultiView = function() {
 
-};
+        window.reviewWorkbenchSession('recalculate');
+
+    };
+
+
+
+    window.approveWorkbenchSession = async function() {
+
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+
+            if (typeof showToast === 'function') showToast('No active counting session to approve.', 'warning');
+
+            return;
+
+        }
+
+        await window.reviewWorkbenchSession('approve_session', null, null, 'Operator formally approved count');
+
+        if (typeof showToast === 'function') {
+
+            showToast('Counting session APPROVED! You can now transfer this result directly to WMS Inventory.', 'success');
+
+        }
+
+    };
+
+
+
+    window.openTransferInventoryModal = function() {
+
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+
+            if (typeof showToast === 'function') showToast('No active counting session.', 'warning');
+
+            return;
+
+        }
+
+        const sess = window.currentMultiViewSession;
+
+        const total = sess.primary_count || sess.confirmed_count || sess.total_pieces || sess.total_bundles || 0;
+
+        const uom = sess.uom || 'EA';
+
+        // the product picked on the screen when the count itself has none (never a made-up product)
+        const sku = sess.sku_id || sess.selected_sku || document.getElementById('wbTargetSkuSelect')?.value || '';
+        if (!sku || ['AUTO', 'MULTI_ALL'].includes(sku)) {
+            if (typeof showToast === 'function') showToast('Pick the product that was counted first.', 'warning');
+            return;
+        }
+        sess.sku_id = sku;
+        const activePid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
+
+
+
+        const targetType = prompt(`Transfer approved count (${total} ${uom} of ${sku}) to WMS.\n\nEnter destination target type ('bin' or 'pallet'):` + (activePid ? `\n\nTip: choose 'pallet' to put it on pallet ${activePid} and seal it then - do not ALSO put the same goods into a bin, or they are counted twice.` : ''), activePid ? 'pallet' : 'bin');
+
+        if (!targetType) return;
+
+
+
+        let binId = null;
+
+        let palletId = null;
+
+        if (targetType.toLowerCase() === 'pallet') {
+
+            palletId = prompt('Enter destination Pallet ID:', activePid || '');
+
+            if (!palletId) return;
+
+        } else {
+
+            binId = prompt('Enter destination Bin ID:', '');
+
+            if (!binId) return;
+
+        }
+
+
+
+        const notes = prompt('Audit notes (optional):', 'Approved via AI Vision Counting Workbench');
+
+        window.transferWorkbenchInventory(targetType.toLowerCase(), binId, palletId, notes);
+
+    };
+
+
+
+    window.transferWorkbenchInventory = async function(targetType = 'bin', binId = null, palletId = null, notes = null) {
+
+        if (!window.currentMultiViewSession || !window.currentMultiViewSession.session_id) {
+
+            if (typeof showToast === 'function') showToast('No active counting session to transfer.', 'warning');
+
+            return;
+
+        }
+
+        const sess = window.currentMultiViewSession;
+
+        const rSt = (sess.review_status || '').toUpperCase();
+
+        if (rSt !== 'APPROVED') {
+
+            if (typeof showToast === 'function') {
+
+                showToast('Session must be APPROVED by operator before transferring to inventory. Click "Approve Count" first.', 'warning');
+
+            } else {
+
+                alert('Session must be APPROVED by operator before transferring to inventory.');
+
+            }
+
+            return;
+
+        }
+
+
+
+        try {
+
+            const resp = await fetch('/api/pallets/transfer-inventory', {
+
+                method: 'POST',
+
+                headers: { 'Content-Type': 'application/json' },
+
+                body: JSON.stringify({
+
+                    session_id: sess.session_id,
+
+                    target_type: targetType,
+
+                    bin_id: binId,
+
+                    pallet_id: palletId,
+
+                    sku_id: sess.sku_id || null,
+
+                    notes: notes || 'Transferred from AI Vision Pallet Workbench'
+
+                })
+
+            });
+
+            const data = await resp.json();
+
+            if (data.success) {
+
+                sess.inventory_transfer_status = 'TRANSFERRED';
+
+                sess.receipt = data.receipt;
+
+                const transBtn = document.getElementById('wbTransferInventoryBtn');
+
+                if (transBtn) {
+
+                    transBtn.disabled = true;
+
+                    transBtn.style.opacity = '0.6';
+
+                    transBtn.innerHTML = '<i class="fas fa-check-double"></i> Transferred to WMS';
+
+                }
+
+                if (typeof showToast === 'function') {
+
+                    showToast(`WMS Inventory Updated: ${data.message}`, 'success');
+
+                } else {
+
+                    alert(`Success: ${data.message}`);
+
+                }
+
+            } else {
+
+                if (typeof showToast === 'function') {
+
+                    showToast(`Inventory transfer failed: ${data.error}`, 'error');
+
+                } else {
+
+                    alert(`Transfer failed: ${data.error}`);
+
+                }
+
+            }
+
+        } catch (e) {
+
+            console.error('[TransferInventory] Error:', e);
+
+            if (typeof showToast === 'function') showToast(`Transfer error: ${e.message}`, 'error');
+
+        }
+
+    };
 
 
 
@@ -9141,7 +9231,7 @@ window.transferWorkbenchInventory = async function (targetType = 'bin', binId = 
 
 // Global clipboard paste listener for Palletization workbench
 
-window.addEventListener('paste', function (e) {
+window.addEventListener('paste', function(e) {
 
     const tabPallet = document.getElementById('tab-palletization');
 
