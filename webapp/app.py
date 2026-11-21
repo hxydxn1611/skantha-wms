@@ -81,9 +81,7 @@ app.json = SafeNumpyJSONProvider(app)
 app.secret_key = _FLASK_SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # RBAC Phase 3A (H25): no request over 50 MB
-# Text form fields may carry a photo as a data URL (Palletization sends one); the framework's default
-# 500 KB limit refused every photo over ~370 KB with 413. Files themselves are limited by MAX_CONTENT_LENGTH.
-app.config['MAX_FORM_MEMORY_SIZE'] = 25 * 1024 * 1024
+app.config['MAX_FORM_MEMORY_SIZE'] = 50 * 1024 * 1024  # Allow large multipart image/base64 payloads in Counting Studio / Pallets
 
 # RBAC Phase 4: users, invitations, passwords and companies
 from iam_routes import bp as iam_blueprint  # noqa: E402
