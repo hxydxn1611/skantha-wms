@@ -520,10 +520,33 @@
         }
         panel.style.display = '';
         document.getElementById('uacNewRoleBtn').style.display = roles.can_manage ? 'inline-flex' : 'none';
+        const packBtn = document.getElementById('uacApplyPackBtn');
+        const packSel = document.getElementById('uacRolePackSelect');
+        if (packBtn) packBtn.style.display = roles.can_manage ? 'inline-flex' : 'none';
+        if (packSel) packSel.style.display = roles.can_manage ? '' : 'none';
+        try {
+            const cov = await api('GET', '/api/iam/roles/coverage');
+            const meter = document.getElementById('uacCoverageMeter');
+            if (meter && cov && typeof cov.coverage_pct !== 'undefined') {
+                meter.textContent = `Coverage: ${cov.covered_permissions}/${cov.total_permissions} (${cov.coverage_pct}%)`;
+            }
+        } catch (e) {}
         renderRolesTable();
         updateSummary();
         refreshTabs();
     }
+
+    window.uacApplyRolePack = async function () {
+        const pack = document.getElementById('uacRolePackSelect')?.value || '3_role';
+        try {
+            const out = await api('POST', '/api/iam/roles/apply-pack', { pack });
+            toast(out.message || `Applied ${pack} role pack.`, 'success');
+            await loadRoles();
+            loadUsersAccess();
+        } catch (e) {
+            toast(e.message || 'Could not apply role pack.', 'error');
+        }
+    };
 
     function renderRolesTable() {
         const q = (document.getElementById('uacRolesQ')?.value || '').trim().toLowerCase();

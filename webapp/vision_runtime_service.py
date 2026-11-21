@@ -972,6 +972,7 @@ class TestSyntheticFrameSource(BaseFrameSource):
         self.location = location
         self.frame_idx = 0
         self.is_connected = True
+        self.is_no_signal = (os.environ.get("WARLOG_TEST_MODE") != "1")
         self.detection_engine = get_detection_engine()
 
     def read_frame(self) -> np.ndarray:
@@ -981,7 +982,9 @@ class TestSyntheticFrameSource(BaseFrameSource):
         # The simulated warehouse scene is for automated tests only (WARLOG_TEST_MODE=1).
         # A real camera without a stream address shows a plain "no video signal" card.
         if os.environ.get("WARLOG_TEST_MODE") != "1":
+            self.is_no_signal = True
             return self._no_signal_frame()
+        self.is_no_signal = False
 
         # Synthesize frame using detection engine's warehouse perspective generator
         base_frame = self.detection_engine.create_synthetic_warehouse_frame(scene_type="dock")
@@ -1839,7 +1842,7 @@ class CameraRuntimeSession:
             except Exception as e:
                 logger.warning(f"[{self.camera_id}] Capture exception: {e}")
                 time.sleep(0.2)
-            time.sleep(sleep_interval)
+            time.sleep(0.5 if getattr(self.frame_source, 'is_no_signal', False) else sleep_interval)
 
     @staticmethod
     def _extract_plate_candidates(crop_bgr: np.ndarray) -> List[np.ndarray]:
@@ -2523,15 +2526,36 @@ class CameraRuntimeSession:
 
         while not self.stop_event.is_set():
             now = time.time()
+            is_idle_standby = bool(getattr(self.frame_source, 'is_no_signal', False))
             # Periodic or signaled refresh of database ROI configuration
-            if self.need_roi_refresh or (now - last_roi_refresh_time) > 3.0:
+            roi_ttl = 15.0 if is_idle_standby else 3.0
+            if self.need_roi_refresh or (now - last_roi_refresh_time) > roi_ttl:
                 _reload_rois()
 
             # Periodic refresh of tripwire
-            if (now - self.last_tripwire_check) > 2.0:
+            tw_ttl = 15.0 if is_idle_standby else 2.0
+            if (now - self.last_tripwire_check) > tw_ttl:
                 self.refresh_tripwire()
 
             elapsed_since_last = now - last_process_time
+
+            # Check if an external/push frame landed on SharedFrameBus before sleeping as standby
+            bus_live_frame = get_shared_frame_bus().get_latest_frame(self.camera_id, copy=True, max_age_seconds=1.5)
+            is_gate_cam = bool(self.is_gate_camera or 'gate' in str(self.location or '').lower())
+            if is_idle_standby and bus_live_frame is None and not is_gate_cam:
+                standby_frame = self.frame_queue.get_frame(timeout=0.05) or self.latest_raw_frame
+                if standby_frame is not None and (now - last_process_time) >= 1.0:
+                    ret, buf = cv2.imencode('.jpg', standby_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
+                    if ret:
+                        jpeg_b = buf.tobytes()
+                        with self.lock:
+                            self.latest_annotated_jpeg = jpeg_b
+                            self._cached_live_jpeg = jpeg_b
+                            self._last_encoded_frame_idx = self.frames_received
+                            self.actual_processing_fps = 0.0
+                    last_process_time = now
+                time.sleep(0.25)
+                continue
 
             # Rate limit to configured processing FPS
             if elapsed_since_last < frame_interval:
@@ -2540,13 +2564,12 @@ class CameraRuntimeSession:
 
             frame = self.frame_queue.get_frame(timeout=0.05)
             if frame is None:
-                frame = get_shared_frame_bus().get_latest_frame(self.camera_id, copy=True, max_age_seconds=1.5)
+                frame = bus_live_frame
             if frame is None:
                 continue
 
             # Process frame through canonical pipeline (with Gate ANPR Priority Fast-Path to eliminate CPU contention!)
             try:
-                is_gate_cam = bool(self.is_gate_camera or 'gate' in str(self.location or '').lower())
                 now_t = time.time()
                 # Ultra-Responsive Sub-15ms ANPR Dispatch: scan every 80ms without delay
                 if is_gate_cam and not self.anpr_in_flight and (now_t - self.last_anpr_run_time >= 0.08):

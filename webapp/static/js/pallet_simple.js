@@ -20,7 +20,7 @@
     ];
 
     function getMode() {
-        try { return localStorage.getItem(KEY) || 'simple'; } catch (e) { return 'simple'; }
+        try { return localStorage.getItem(KEY) || 'advanced'; } catch (e) { return 'advanced'; }
     }
 
     function setMode(mode) {

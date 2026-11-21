@@ -6956,7 +6956,7 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-        const w = container.clientWidth || 360;
+        const w = container.clientWidth || 460;
 
         const h = container.clientHeight || 250;
 
@@ -6983,6 +6983,16 @@ function initWb3DPalletViewer(matrixData) {
         wbThreeRenderer.shadowMap.enabled = true;
 
         container.insertBefore(wbThreeRenderer.domElement, container.firstChild);
+
+        setTimeout(() => {
+            if (container && wbThreeRenderer && wbThreeCamera && container.clientWidth > 0) {
+                const nw = container.clientWidth;
+                const nh = container.clientHeight || 250;
+                wbThreeCamera.aspect = nw / nh;
+                wbThreeCamera.updateProjectionMatrix();
+                wbThreeRenderer.setSize(nw, nh);
+            }
+        }, 120);
 
 
 
@@ -7368,12 +7378,42 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
-    // saves the verified count on the open pallet (server), so it survives a reload and can be sealed/put away
-    async function saveCountToPallet(counted, perBundle, label) {
-        const pid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
+    // saves the verified count on the open pallet (auto-creating one from workbench SKU if needed), and optionally syncs straight into Inventory
+    async function saveCountToPallet(counted, perBundle, label, syncInventory) {
+        let pid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
+        const binSel = document.getElementById('wbSyncBinSelect');
+        let chosenBin = (binSel && binSel.value) ? binSel.value.trim() : '';
+
         if (!pid) {
-            if (typeof showToast === 'function') showToast('Pick or build a pallet first (Step 1), then save the count to it.', 'warning');
-            return;
+            const skuSelect = document.getElementById('wbTargetSkuSelect');
+            const chosenSku = (wbMatchedSkuObj && wbMatchedSkuObj.sku_id) || (skuSelect && skuSelect.value) || '';
+            if (!chosenSku) {
+                if (typeof showToast === 'function') showToast('Pick a SKU in the workbench or create a pallet first.', 'warning');
+                return;
+            }
+            try {
+                const cRes = await fetch('/api/pallets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sku_id: chosenSku,
+                        units_per_bundle: perBundle,
+                        target_bundles: 0,
+                        assigned_bin_id: chosenBin || null
+                    })
+                });
+                const cData = await cRes.json().catch(() => ({}));
+                if (cRes.ok && cData.pallet && cData.pallet.pallet_id) {
+                    pid = cData.pallet.pallet_id;
+                    if (typeof window.showPalletRecord === 'function') window.showPalletRecord(cData.pallet);
+                } else {
+                    if (typeof showToast === 'function') showToast(`Could not create pallet: ${cData.error || cRes.status}`, 'error');
+                    return;
+                }
+            } catch (e) {
+                if (typeof showToast === 'function') showToast(`Could not create pallet: ${e.message}`, 'error');
+                return;
+            }
         }
         try {
             const res = await fetch(`/api/pallets/${encodeURIComponent(pid)}/count`, {
@@ -7383,7 +7423,29 @@ function initWb3DPalletViewer(matrixData) {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data.success) {
                 if (typeof window.showPalletRecord === 'function') window.showPalletRecord(data.pallet);
-                if (typeof showToast === 'function') showToast(`Saved on pallet ${pid}: ${label}. Seal the pallet when it is complete.`, 'success');
+                if (!syncInventory) {
+                    if (typeof showToast === 'function') showToast(`Saved on pallet ${pid}: ${label}.`, 'success');
+                } else {
+                    const targetBin = chosenBin || (data.pallet && data.pallet.assigned_bin_id) || (binSel && binSel.options[1] && binSel.options[1].value) || '';
+                    if (!targetBin) {
+                        if (typeof showToast === 'function') showToast('Saved count on pallet. Pick a Bin in the dropdown to update Inventory.', 'warning');
+                        return;
+                    }
+                    const sRes = await fetch(`/api/pallets/${encodeURIComponent(pid)}/sync-inventory`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ bin_id: targetBin, seal: true })
+                    });
+                    const sData = await sRes.json().catch(() => ({}));
+                    if (sRes.ok && sData.success) {
+                        if (typeof window.showPalletRecord === 'function' && sData.pallet) window.showPalletRecord(sData.pallet);
+                        if (typeof window.loadInventory === 'function') window.loadInventory();
+                        if (typeof window.fetchBins === 'function') window.fetchBins();
+                        if (typeof showToast === 'function') showToast(sData.message || `Inventory updated for pallet ${pid}.`, 'success');
+                    } else if (typeof showToast === 'function') {
+                        showToast(`Inventory sync failed: ${sData.error || sData.message || sRes.status}`, 'error');
+                    }
+                }
             } else if (typeof showToast === 'function') {
                 showToast(`Count not saved: ${data.error || data.message || res.status}`, 'error');
             }
@@ -7392,7 +7454,7 @@ function initWb3DPalletViewer(matrixData) {
         }
     }
 
-    window.applyVerifiedCountToActivePallet = function() {
+    window.applyVerifiedCountToActivePallet = function(syncInventory) {
 
         const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
 
@@ -7423,17 +7485,21 @@ function initWb3DPalletViewer(matrixData) {
             if (palletPcsElem) palletPcsElem.textContent = baseCount;
             if (palletBundlesElem) palletBundlesElem.textContent = 0;
             if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
-            saveCountToPallet(baseCount, 1, `${baseCount} pieces`);
+            saveCountToPallet(baseCount, 1, `${baseCount} pieces`, Boolean(syncInventory));
         } else if (wbMode === 'bundles' || uPerB > 1) {
             if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            saveCountToPallet(baseCount, uPerB, `${baseCount} ${bname}s × ${uPerB} = ${totalIndividualUnits} ${uom}`);
+            saveCountToPallet(baseCount, uPerB, `${baseCount} ${bname}s × ${uPerB} = ${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
         } else {
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
             if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`);
+            saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`, Boolean(syncInventory));
         }
 
+    };
+
+    window.saveAndSyncPalletInventory = function() {
+        return window.applyVerifiedCountToActivePallet(true);
     };
 
 

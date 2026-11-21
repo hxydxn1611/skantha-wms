@@ -60,6 +60,8 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "iam.api_add_assignment": "assignments.manage",
     "iam.api_revoke_assignment": "assignments.manage",
     "iam.api_list_roles": "roles.view",          # Phase 5: role builder
+    "iam.api_roles_coverage": "roles.view",
+    "iam.api_apply_role_pack": "roles.manage",
     "iam.api_create_role": "roles.manage",
     "iam.api_update_role": "roles.manage",
     "iam.api_preview_role": "roles.manage",
@@ -198,6 +200,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "api_delete_pallet": "pallet.delete",
     "api_seal_pallet": "pallet.seal",
     "api_putaway_pallet": "inventory.transfer",
+    "api_sync_pallet_inventory": "pallet.seal",
     "api_camera_pallet_bind": {"GET": "pallet.view", "HEAD": "pallet.view", "POST": "pallet.create"},
     "api_update_pallet_count": "vision.counting.execute",
     "api_count_pallet_image": "vision.counting.execute",

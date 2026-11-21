@@ -83,37 +83,60 @@ class WarlogCopilotService:
             logger.error(f"Failed to persist Gemini API key: {e}")
             return False
 
-    def _get_live_warehouse_context(self) -> str:
-        """Generates a structured real-time markdown snapshot of the entire warehouse digital twin."""
+    def _caller_permissions(self) -> Optional[set]:
+        """Returns caller's effective RBAC permissions when called inside a Flask request."""
         try:
+            import rbac_service
+            from flask import has_request_context
+            if has_request_context():
+                return set(rbac_service.effective_permissions() or ())
+        except Exception:
+            pass
+        return None
+
+    def _get_live_warehouse_context(self, perms: Optional[set] = None) -> str:
+        """Generates a structured real-time snapshot scoped to the caller's active warehouse & RBAC permissions."""
+        try:
+            perms = perms if perms is not None else self._caller_permissions()
+            can_all = perms is None
+            can_gate = can_all or bool({"gate.dashboard.view", "gate.pass.view", "gate.dock.admit"} & perms)
+            can_dock = can_all or bool({"dock.view", "gate.pass.view"} & perms)
+            can_inv = can_all or bool({"inventory.view", "sku.view"} & perms)
+            can_deliv = can_all or bool({"deliveries.view"} & perms)
+            can_cams = can_all or bool({"cameras.view", "vision.view"} & perms)
+
             wh = db.get_active_warehouse() if hasattr(db, 'get_active_warehouse') else {}
             wh_name = wh.get('name', 'WARLOG Main Facility')
             wh_mode = wh.get('operating_mode', 'Dedicated')
+            lines = [f"- Active Warehouse: {wh_name} (Mode: {wh_mode})"]
 
-            passes = db.get_all_gate_passes() or []
-            pending_p = [p for p in passes if p.get('status') == 'Pending']
-            active_dock_p = [p for p in passes if p.get('status') in ('Sent to Dock', 'Unloading')]
-            completed_p = [p for p in passes if p.get('status') == 'Completed']
+            if can_gate or can_dock:
+                passes = db.get_all_gate_passes() or []
+                pending_p = [p for p in passes if p.get('status') == 'Pending']
+                active_dock_p = [p for p in passes if p.get('status') in ('Sent to Dock', 'Unloading')]
+                completed_p = [p for p in passes if p.get('status') == 'Completed']
+                d1_trucks = [p.get('plate') for p in active_dock_p if p.get('dock') == 'Dock 1']
+                d2_trucks = [p.get('plate') for p in active_dock_p if p.get('dock') == 'Dock 2']
+                if can_gate:
+                    lines.append(f"- Gate Queue: {len(pending_p)} trucks waiting at Gate 01")
+                    lines.append(f"- Today's Completed Passes: {len(completed_p)} shipments cleared")
+                if can_dock:
+                    lines.append(f"- Active at Docks: Dock 1 ({len(d1_trucks)} trucks: {', '.join(d1_trucks) or 'None'}), Dock 2 ({len(d2_trucks)} trucks: {', '.join(d2_trucks) or 'None'})")
 
-            d1_trucks = [p.get('plate') for p in active_dock_p if p.get('dock') == 'Dock 1']
-            d2_trucks = [p.get('plate') for p in active_dock_p if p.get('dock') == 'Dock 2']
+            if can_inv:
+                skus = db.get_all_skus() or []
+                total_units = sum(int(s.get('current_stock') or s.get('quantity') or 0) for s in skus)
+                low_stock = [s for s in skus if int(s.get('current_stock') or s.get('quantity') or 0) <= int(s.get('reorder_level') or s.get('min_level') or 100)]
+                lines.append(f"- Inventory Health: {len(skus)} SKUs cataloged, {total_units:,} total units in racks, {len(low_stock)} SKUs below reorder threshold")
 
-            skus = db.get_all_skus() or []
-            total_units = sum(int(s.get('current_stock') or s.get('quantity') or 0) for s in skus)
-            low_stock = [s for s in skus if int(s.get('current_stock') or s.get('quantity') or 0) <= int(s.get('reorder_level') or s.get('min_level') or 100)]
+            if can_deliv:
+                delivs = db.get_all_deliveries() or []
+                lines.append(f"- Scheduled PO Deliveries: {len(delivs)} active pre-registered inbound POs")
 
-            delivs = db.get_all_deliveries() or []
-            cams = db.get_all_cameras() or []
+            if can_cams:
+                cams = db.get_all_cameras() or []
+                lines.append(f"- Computer Vision Matrix: {len(cams)} CCTV cameras active with sub-100ms optical ANPR")
 
-            lines = [
-                f"- Active Warehouse: {wh_name} (Mode: {wh_mode})",
-                f"- Gate Queue: {len(pending_p)} trucks waiting at Gate 01",
-                f"- Active at Docks: Dock 1 ({len(d1_trucks)} trucks: {', '.join(d1_trucks) or 'None'}), Dock 2 ({len(d2_trucks)} trucks: {', '.join(d2_trucks) or 'None'})",
-                f"- Today's Completed Passes: {len(completed_p)} shipments cleared",
-                f"- Inventory Health: {len(skus)} SKUs cataloged, {total_units:,} total units in racks, {len(low_stock)} SKUs below reorder threshold",
-                f"- Scheduled PO Deliveries: {len(delivs)} active pre-registered inbound POs",
-                f"- Computer Vision Matrix: {len(cams)} CCTV cameras active with sub-100ms optical ANPR"
-            ]
             return "\n".join(lines)
         except Exception as e:
             return f"- Warehouse Snapshot: Normal Operations (telemetry error: {e})"

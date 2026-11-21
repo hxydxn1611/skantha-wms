@@ -252,6 +252,19 @@ def api_activate_role(role_id):
     return jsonify({"success": True, "message": "Role reactivated.", **out})
 
 
+@bp.route("/api/iam/roles/coverage", methods=["GET"])
+def api_roles_coverage():
+    _need("roles.view")
+    return jsonify({"success": True, **iam_service.roles_coverage_summary(_company())})
+
+
+@bp.route("/api/iam/roles/apply-pack", methods=["POST"])
+def api_apply_role_pack():
+    _need("roles.manage")
+    out = iam_service.apply_role_pack(_actor(), _company(), _body().get("pack", "3_role"), _ip())
+    return jsonify({"success": True, "message": f"Applied {out['pack']} pack cleanly.", **out})
+
+
 # ----------------------------------------------------------------------------- audit log & company settings (Phase 7)
 def _audit_company():
     """Company Admins: their own company. Platform Admin: a chosen company, or all ('all')."""

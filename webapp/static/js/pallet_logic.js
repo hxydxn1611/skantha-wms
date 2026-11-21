@@ -310,11 +310,19 @@
             const raw = await res.json();
             const bins = Array.isArray(raw) ? raw : (raw.bins || []);
             const select = document.getElementById('newPalletBinSelect');
-            if (!select) return;
-
-            select.innerHTML = '<option value="">-- None / Assign on Seal --</option>' + bins.map(b => {
-                return `<option value="${__h(b.bin_id)}">${__h(b.bin_id)} (${__h(b.zone || 'Storage')} - ${b.status || 'AVAILABLE'})</option>`;
-            }).join('');
+            if (select) {
+                select.innerHTML = '<option value="">-- None / Assign on Seal --</option>' + bins.map(b => {
+                    return `<option value="${__h(b.bin_id)}">${__h(b.bin_id)} (${__h(b.zone || 'Storage')} - ${b.status || 'AVAILABLE'})</option>`;
+                }).join('');
+            }
+            const wbBinSelect = document.getElementById('wbSyncBinSelect');
+            if (wbBinSelect) {
+                const prev = wbBinSelect.value;
+                wbBinSelect.innerHTML = '<option value="">-- Pick Bin --</option>' + bins.map(b => {
+                    return `<option value="${__h(b.bin_id)}">${__h(b.bin_id)} (${__h(b.zone || 'Storage')})</option>`;
+                }).join('');
+                if (prev) wbBinSelect.value = prev;
+            }
         } catch(e) {
             console.error('[Pallet Bins] Error:', e);
         }
@@ -498,8 +506,13 @@
                             <i class="fas fa-print"></i> Label
                         </button>
                         ${!isSealed ? `
-                        <button type="button" class="btn-primary" style="font-size:0.75rem; padding:3px 8px; background:#10b981; border-color:#10b981;" onclick="window.sealPalletAction('${p.pallet_id}')" title="Seal Pallet & Finalize">
+                        <button type="button" class="btn-primary" style="font-size:0.75rem; padding:3px 8px; background:#10b981; border-color:#10b981; margin-right:4px;" onclick="window.sealPalletAction('${p.pallet_id}')" title="Seal Pallet & Finalize">
                             <i class="fas fa-box-archive"></i> Seal
+                        </button>
+                        ` : ''}
+                        ${total > 0 ? `
+                        <button type="button" class="btn-primary" style="font-size:0.75rem; padding:3px 8px; background:#2563eb; border-color:#2563eb;" onclick="window.syncPalletRowToInventory('${p.pallet_id}', '${__h(p.assigned_bin_id || '')}')" title="Sync this pallet count directly into Inventory">
+                            <i class="fas fa-boxes-stacked"></i> Sync Stock
                         </button>
                         ` : ''}
                     </td>
@@ -632,34 +645,58 @@
         }
     };
 
-    // Sealed pallet -> its counted pieces are added to stock in its bin (once per pallet).
+    window.syncPalletRowToInventory = async function(palletId, defaultBin) {
+        const wbBin = document.getElementById('wbSyncBinSelect')?.value || '';
+        const binId = (defaultBin || wbBin || '').trim() || (prompt('Choose bin code for Inventory update (e.g. A-001):') || '').trim();
+        if (!binId) return;
+        try {
+            const res = await fetch(`/api/pallets/${encodeURIComponent(palletId)}/sync-inventory`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bin_id: binId, seal: true })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+                showToast(data.message || 'Pallet synced to Inventory.', 'success');
+                loadPallets();
+                if (typeof window.loadInventory === 'function') window.loadInventory();
+                if (typeof window.fetchBins === 'function') window.fetchBins();
+            } else {
+                showToast(`Inventory sync failed: ${data.error || data.message || res.status}`, 'error');
+            }
+        } catch (e) {
+            showToast(`Network error: ${e.message}`, 'error');
+        }
+    };
+
+    // Sealed pallet -> its counted pieces are added to stock in its bin (idempotent delta sync).
     window.putPalletIntoStock = async function(palletId, pallet) {
         const p = pallet || {};
         const qty = parseInt(p.total_units || 0, 10);
         if (!qty) return;
         const uom = p.sku_uom || 'pcs';
-        if (!confirm(`Put this pallet into stock now?\n\n${qty} ${uom} of ${p.sku_id || 'the product'} will be ADDED to stock` +
-                     (p.assigned_bin_id ? ` in bin ${p.assigned_bin_id}.` : '.') +
-                     `\n\nPress Cancel if these goods were already received at Inbound (they are in stock already).`)) return;
-        let binId = p.assigned_bin_id || '';
+        const wbBin = document.getElementById('wbSyncBinSelect')?.value || '';
+        let binId = (p.assigned_bin_id || wbBin || '').trim();
         if (!binId) {
-            binId = (prompt('Which bin does this pallet go into? (bin code, e.g. BIN-A-01)') || '').trim();
+            if (!confirm(`Put ${qty} ${uom} of ${p.sku_id || 'the product'} into Inventory now?`)) return;
+            binId = (prompt('Which bin does this pallet go into? (bin code, e.g. A-001)') || '').trim();
             if (!binId) return;
         }
         try {
-            const res = await fetch(`/api/pallets/${encodeURIComponent(palletId)}/putaway`, {
+            const res = await fetch(`/api/pallets/${encodeURIComponent(palletId)}/sync-inventory`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ bin_id: binId })
+                body: JSON.stringify({ bin_id: binId, seal: true })
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data.success) {
-                showToast(data.message || 'Pallet put into stock.', 'success');
+                showToast(data.message || 'Pallet synced to Inventory.', 'success');
                 loadPallets();
+                if (typeof window.loadInventory === 'function') window.loadInventory();
+                if (typeof window.fetchBins === 'function') window.fetchBins();
             } else {
-                alert(`Not put into stock: ${data.error || data.message || res.status}`);
+                showToast(`Not put into stock: ${data.error || data.message || res.status}`, 'error');
             }
         } catch (e) {
-            alert(`Network error: ${e.message}`);
+            showToast(`Network error: ${e.message}`, 'error');
         }
     };
 

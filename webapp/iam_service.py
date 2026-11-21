@@ -1065,3 +1065,109 @@ def set_company_setting(actor: Dict[str, Any], company_id: int, key: str, value:
     auth_service.audit("company.setting_changed", actor=actor, company_id=company_id, resource_type="company",
                        resource_id=str(company_id), before={key: before}, after={key: value}, ip=ip)
     return value
+
+
+def roles_coverage_summary(company_id: int) -> Dict[str, Any]:
+    """Computes live WARLOG permission coverage across active custom roles for a company."""
+    all_keys = {k for k, p in rbac_catalog.PERMISSIONS_BY_KEY.items() if p.scope_level != "platform"}
+    conn = _conn()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT rp.permission_key
+            FROM roles r
+            JOIN role_permissions rp ON rp.role_id = r.id
+            WHERE r.company_id = ? AND r.is_active = 1
+        """, (int(company_id),)).fetchall()
+        covered = {r[0] for r in rows if r[0] in all_keys}
+        active_custom = conn.execute(
+            "SELECT COUNT(*) FROM roles WHERE company_id = ? AND is_active = 1", (int(company_id),)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    total = len(all_keys)
+    cov_n = len(covered)
+    pct = int(round(100.0 * cov_n / total)) if total else 100
+    return {
+        "company_id": int(company_id),
+        "total_permissions": total,
+        "covered_permissions": cov_n,
+        "coverage_pct": pct,
+        "active_custom_roles": int(active_custom),
+    }
+
+
+def apply_role_pack(actor: Dict[str, Any], company_id: int, pack_key: str,
+                    ip: Optional[str] = None) -> Dict[str, Any]:
+    """Applies a 3-role, 5-role, or 15-role preset pack for a company (idempotent create/reactivate)."""
+    pack_key = (pack_key or "3_role").strip().lower()
+    all_non_platform = sorted(k for k, p in rbac_catalog.PERMISSIONS_BY_KEY.items() if p.scope_level != "platform")
+    starter = rbac_catalog.STARTER_ROLES_BY_KEY
+
+    if pack_key == "3_role":
+        specs = [
+            ("Site Supervisor", "Compact supervisor role covering day-to-day warehouse operations.",
+             starter["warehouse_manager"][3]),
+            ("Warehouse Operator", "Frontline operator: gate, dock, inbound, outbound, palletization, stock & cameras.",
+             tuple(sorted(set(starter["gate_incharge"][3]) | set(starter["dock_supervisor"][3]) | set(starter["inventory_controller"][3]) | set(starter["dispatch_operator"][3]) | set(starter["vision_operator"][3])))),
+            ("Viewer / Executive", starter["executive"][2], starter["executive"][3]),
+        ]
+    elif pack_key == "5_role":
+        specs = [
+            (starter["warehouse_manager"][1], starter["warehouse_manager"][2], starter["warehouse_manager"][3]),
+            (starter["gate_incharge"][1], starter["gate_incharge"][2], starter["gate_incharge"][3]),
+            (starter["dock_supervisor"][1], starter["dock_supervisor"][2], starter["dock_supervisor"][3]),
+            (starter["inventory_controller"][1], starter["inventory_controller"][2], starter["inventory_controller"][3]),
+            (starter["dispatch_operator"][1], starter["dispatch_operator"][2], starter["dispatch_operator"][3]),
+        ]
+    elif pack_key == "15_role":
+        specs = [(v[1], v[2], v[3]) for v in rbac_catalog.STARTER_ROLES] + [
+            ("Shift Supervisor", "Cross-zone shift oversight across gate, docks, inbound and outbound.",
+             starter["warehouse_manager"][3]),
+            ("Forklift / MHE Lead", "Bin transfers, pallet moves and putaway execution.",
+             ("dashboard.view", "bins.view", "inventory.view", "inventory.transfer", "pallet.view", "pallet.transfer")),
+            ("Inbound Staging Counter", "Staging perception and verified receipt counting.",
+             ("dashboard.view", "inbound.view", "inbound.staging.view", "pallet.view", "pallet.create", "vision.view", "vision.counting.execute")),
+            ("Cycle Count Auditor", "Executes and approves physical inventory cycle counts.",
+             ("dashboard.view", "sku.view", "bins.view", "inventory.view", "cyclecount.view", "cyclecount.execute", "cyclecount.approve")),
+            ("CCTV / Vision Technician", "Installs, configures and calibrates cameras and vision zones.",
+             ("dashboard.view", "cameras.view", "cameras.stream.view", "cameras.create", "cameras.configure", "cameras.ptz.control", "vision.view", "vision.zones.manage", "vision.classes.manage")),
+            ("Safety & Violations Officer", "Reviews safety violations and warehouse exceptions.",
+             ("dashboard.view", "violations.view", "violations.manage", "gate.violation.view", "gate.violation.manage")),
+            ("Operations Copilot Lead", "Warehouse AI Copilot intelligence & reporting oversight.",
+             tuple(sorted(set(starter["executive"][3]) | {"reports.export", "copilot.use"}))),
+        ]
+    else:
+        raise IamError(400, "invalid_pack", "Choose 3_role, 5_role, or 15_role.")
+
+    created = 0
+    conn = _conn()
+    try:
+        with conn:
+            for rname, rdesc, rperms in specs:
+                valid_perms = [p for p in rperms if p in all_non_platform]
+                row = conn.execute(
+                    "SELECT id FROM roles WHERE company_id = ? AND LOWER(name) = LOWER(?)",
+                    (int(company_id), rname)
+                ).fetchone()
+                if row:
+                    rid = row[0]
+                    conn.execute("UPDATE roles SET is_active = 1, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                 (rdesc, rid))
+                else:
+                    cur = conn.execute(
+                        "INSERT INTO roles (company_id, name, description, is_builtin, is_active) VALUES (?, ?, ?, 0, 1)",
+                        (int(company_id), rname, rdesc)
+                    )
+                    rid = cur.lastrowid
+                    created += 1
+                conn.execute("DELETE FROM role_permissions WHERE role_id = ?", (rid,))
+                conn.executemany(
+                    "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (?, ?)",
+                    [(rid, pk) for pk in valid_perms]
+                )
+    finally:
+        conn.close()
+
+    auth_service.audit("role.pack_applied", actor=actor, company_id=company_id, resource_type="role_pack",
+                       resource_id=pack_key, after={"pack": pack_key, "created": created}, ip=ip)
+    return {"pack": pack_key, "created": created, "coverage": roles_coverage_summary(company_id)}

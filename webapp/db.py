@@ -3605,6 +3605,101 @@ def putaway_pallet(pallet_id: str, bin_id: Optional[str] = None) -> Dict[str, An
     return res
 
 
+def sync_pallet_to_inventory(pallet_id: str, bin_id: Optional[str] = None, seal: bool = True) -> Dict[str, Any]:
+    """Idempotently syncs a pallet's counted quantity into Inventory and Stock History.
+    If the pallet was previously synced, only the delta vs previous PALLET-<id> movements is posted."""
+    import rbac_scope
+    p = get_pallet_by_id(pallet_id)
+    if not p:
+        raise ReceiveError(f"Pallet '{pallet_id}' was not found.")
+    qty = int(p.get('total_units') or 0)
+    if qty <= 0:
+        raise ReceiveError("This pallet has 0 counted pieces. Run a count and apply it first.")
+    target = (str(bin_id).strip() if bin_id else '') or (p.get('assigned_bin_id') or '')
+    if not target:
+        raise ReceiveError("Choose a destination bin before updating inventory.")
+
+    conn = get_db()
+    try:
+        bcond, bparams = rbac_scope.home_filter("bins")
+        b_row = conn.execute(
+            f"SELECT bin_id, company_id, warehouse_id FROM bins WHERE bin_id = ?{bcond}",
+            (target,) + bparams
+        ).fetchone()
+        if not b_row:
+            raise ReceiveError(f"Bin '{target}' does not exist in the current warehouse.")
+
+        ref = f"PALLET-{pallet_id}"
+        already_row = conn.execute(
+            "SELECT COALESCE(SUM(delta), 0) FROM stock_movements WHERE ref = ?",
+            (ref,)
+        ).fetchone()
+        already_synced = int(already_row[0] or 0) if already_row else 0
+        delta = qty - already_synced
+
+        with conn:
+            if seal and str(p.get('status') or '').upper() != 'SEALED':
+                conn.execute(
+                    "UPDATE pallets SET status = 'SEALED', assigned_bin_id = ?, sealed_at = COALESCE(sealed_at, datetime('now', 'localtime')) WHERE pallet_id = ?",
+                    (target, str(pallet_id))
+                )
+            else:
+                conn.execute(
+                    "UPDATE pallets SET assigned_bin_id = ? WHERE pallet_id = ?",
+                    (target, str(pallet_id))
+                )
+
+            icond, iparams = rbac_scope.home_filter("inventory")
+            inv_row = conn.execute(
+                f"SELECT id, quantity FROM inventory WHERE bin_id = ? AND sku_id = ?{icond} ORDER BY id LIMIT 1",
+                (target, p['sku_id']) + iparams
+            ).fetchone()
+
+            if delta != 0:
+                mark = conn.execute("SELECT COALESCE(MAX(id), 0) FROM stock_movements").fetchone()[0]
+                if inv_row:
+                    after_qty = max(0, int(inv_row['quantity'] or 0) + delta)
+                    conn.execute(
+                        "UPDATE inventory SET quantity = ? WHERE id = ?",
+                        (after_qty, inv_row['id'])
+                    )
+                elif delta > 0:
+                    after_qty = delta
+                    conn.execute("""
+                        INSERT INTO inventory (bin_id, sku_id, quantity, received_date, company_id, warehouse_id)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+                    """, (target, p['sku_id'], after_qty, b_row['company_id'], b_row['warehouse_id']))
+                else:
+                    after_qty = 0
+
+                conn.execute("""
+                    UPDATE stock_movements
+                       SET movement_type = 'pallet_count',
+                           ref = COALESCE(ref, ?),
+                           reason = COALESCE(reason, ?)
+                     WHERE id > ?
+                """, (ref, f"Pallet {pallet_id} count synced ({qty} pcs)", mark))
+
+            import inventory_routes
+            inventory_routes.recalc_bin(conn, target)
+            tot_row = conn.execute(
+                f"SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE bin_id = ? AND sku_id = ?{icond}",
+                (target, p['sku_id']) + iparams
+            ).fetchone()
+            line_qty = int(tot_row[0] or 0) if tot_row else 0
+    finally:
+        conn.close()
+
+    return {
+        "pallet_id": pallet_id,
+        "sku_id": p["sku_id"],
+        "bin_id": target,
+        "added": delta,
+        "synced_total": qty,
+        "line_quantity": line_qty,
+    }
+
+
 def delete_pallet(pallet_id: str) -> bool:
     """Delete a pallet record and associated items."""
     conn = get_db()

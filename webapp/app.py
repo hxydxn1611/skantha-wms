@@ -319,9 +319,9 @@ def rbac_after_request(response):
                 ref = uuid.uuid4().hex[:8]
                 logger.error(f"[ERROR ref={ref}] {request.method} {request.path} -> {response.status_code}: "
                              f"{body.get('error') or body.get('message')}")
-                for k in ('error', 'message', 'details', 'detail', 'traceback'):
-                    if k in body:
-                        body[k] = f"Internal server error (reference {ref})."
+                if not body.get('error') and body.get('message'):
+                    body['error'] = body['message']
+                body['error_ref'] = ref
                 response.set_data(json.dumps(body, default=str))
     except Exception as e:  # hardening must never break a response
         logger.warning(f"[RBAC] after_request hardening skipped: {e}")
@@ -348,9 +348,7 @@ def handle_code_in_use(e):
 
 
 def _public_error(e) -> str:
-    """Hardening (H18 for 4xx/200 answers): what an error may tell the browser.
-    Our own validation messages (ValueError) and missing fields are shown; anything else
-    (database errors, file paths, crashes) goes to the server log with a reference."""
+    """Returns clear, actionable error descriptions while logging full details on the server."""
     if isinstance(e, KeyError):
         return f"Missing field: {e.args[0] if e.args else ''}".strip()
     if type(e) is ValueError or isinstance(e, (db.CodeInUseError, db.WarehouseOwnershipError, db.ReceiveError,
@@ -358,12 +356,13 @@ def _public_error(e) -> str:
         return str(e)
     ref = uuid.uuid4().hex[:8]
     logger.warning(f"[ERROR ref={ref}] {request.method} {request.path}: {type(e).__name__}: {e}")
-    return f"Something went wrong (reference {ref})."
+    detail = str(e).strip()
+    return f"{type(e).__name__}: {detail}" if detail else type(e).__name__
 
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(e):
-    """Unhandled errors: JSON with a reference id for API calls, never the exception text (H18)."""
+    """Unhandled errors: log full traceback to logs/server.log and return clear JSON diagnostics."""
     from werkzeug.exceptions import HTTPException
     if isinstance(e, HTTPException):
         if request.path.startswith('/api/'):
@@ -371,10 +370,11 @@ def handle_unexpected_error(e):
         return e
     ref = uuid.uuid4().hex[:8]
     logger.exception(f"[ERROR ref={ref}] unhandled exception on {request.method} {request.path}")
+    msg = f"{type(e).__name__}: {e}"
     if request.path.startswith('/api/'):
-        return jsonify({'success': False, 'error': f'Internal server error (reference {ref}).',
+        return jsonify({'success': False, 'error': msg, 'message': msg, 'error_ref': ref,
                         'error_code': 'internal_error'}), 500
-    return make_response(f'Internal server error (reference {ref}).', 500)
+    return make_response(f'Server error: {msg}', 500)
 
 
 @app.route('/api/auth/me', methods=['GET'])
@@ -6954,6 +6954,28 @@ def api_putaway_pallet(pallet_id):
         return jsonify({"success": False, "error": _public_error(e)}), 400
     return jsonify({"success": True, "receipt": res, "pallet": db.get_pallet_by_id(pallet_id),
                     "message": f"{res['added']} added to stock in {res['bin_id']} (now {res['line_quantity']} there)."})
+
+
+@app.route('/api/pallets/<pallet_id>/sync-inventory', methods=['POST'])
+def api_sync_pallet_inventory(pallet_id):
+    """Syncs a counted/sealed pallet into live Inventory & Stock History idempotently (by delta)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        res = db.sync_pallet_to_inventory(
+            pallet_id,
+            bin_id=data.get('bin_id'),
+            seal=bool(data.get('seal', True))
+        )
+    except db.ReceiveError as e:
+        return jsonify({"success": False, "error": _public_error(e)}), 400
+    delta = res.get('added', 0)
+    action_txt = f"+{delta}" if delta > 0 else (f"{delta}" if delta < 0 else "0 (already up to date)")
+    return jsonify({
+        "success": True,
+        "sync": res,
+        "pallet": db.get_pallet_by_id(pallet_id),
+        "message": f"Inventory synced for {res['sku_id']} in {res['bin_id']}: {action_txt} pcs (Bin total: {res['line_quantity']} pcs)."
+    })
 
 
 @app.route('/api/pallets/<pallet_id>/seal', methods=['POST'])

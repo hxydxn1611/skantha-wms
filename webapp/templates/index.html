@@ -4536,6 +4536,15 @@
                         <div><div class="uac-pane-title"><i class="fas fa-shield-halved c-violet"></i> Roles</div>
                             <div class="uac-muted">A role is a set of switched-on permissions. Give it to people per location on the People tab.</div></div>
                         <div class="uac-toolbar">
+                            <div id="uacCoverageMeter" class="uac-pill ok" style="font-size:0.78rem;" title="Live WARLOG permission coverage across active roles">Coverage: &mdash;</div>
+                            <select id="uacRolePackSelect" class="uac-input" style="font-size:0.78rem;">
+                                <option value="3_role">Pack: 3-Role Compact</option>
+                                <option value="5_role">Pack: 5-Role Standard</option>
+                                <option value="15_role">Pack: 15-Role Enterprise</option>
+                            </select>
+                            <button type="button" class="uac-btn-sm" id="uacApplyPackBtn" onclick="uacApplyRolePack()" title="Seed roles for selected facility preset">
+                                <i class="fas fa-wand-magic-sparkles"></i> Apply Pack
+                            </button>
                             <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="uacRolesQ" class="uac-input" placeholder="Search roles"></div>
                         </div>
                     </div>
@@ -6981,17 +6990,6 @@ window.switchSubTab = switchSubTab;
                                 <button type="button" class="btn-primary" id="btnRunValidation" onclick="runValidationTest()" style="flex:1.2; display:inline-flex; align-items:center; justify-content:center; gap:6px; font-size:0.85rem; padding:0.6rem 0.8rem; background:#10b981; border-color:#10b981;" title="Run full perception and validation pipeline">
                                     <span>▶</span> Run Validation
                                 </button>
-                                <button type="button" class="btn-secondary" id="btnResetValidation" onclick="resetValidationSession()" style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px; font-size:0.85rem; padding:0.6rem 0.8rem;" title="Reset in-memory tracking & identity sessions">
-                                    <span>↺</span> Reset
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Telemetry & Performance KPI Bar -->
-                    <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 1.25rem;">
-                        <div class="metric-card" style="padding:1rem;">
-                            <h3 style="font-size:0.78rem; text-transform:uppercase; color:var(--text-muted);">Active Tracks</h3>
                             <div class="value" id="kpi-val-tracks" style="font-size:1.6rem; color:var(--accent);">0</div>
                             <span style="font-size:0.72rem; color:var(--text-muted);" id="kpi-val-tracks-sub">Session entities</span>
                         </div>
@@ -9284,10 +9282,16 @@ window.switchSubTab = switchSubTab;
                             </div>
                         </div>
 
-                        <!-- 3. Pallet Build Session Action -->
-                        <div style="display:flex; gap:10px;">
-                            <button type="button" onclick="applyVerifiedCountToActivePallet()" style="flex:1; background:#10b981; color:#fff; border:none; border-radius:6px; padding:10px 14px; font-size:0.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 3px 12px rgba(16,185,129,0.35);">
+                        <!-- 3. Pallet Build Session Action & Live Inventory Sync -->
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                            <button type="button" onclick="applyVerifiedCountToActivePallet(false)" style="flex:1; min-width:170px; background:#10b981; color:#fff; border:none; border-radius:6px; padding:10px 14px; font-size:0.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 3px 12px rgba(16,185,129,0.35);">
                                 <i class="fas fa-check-double"></i> <span>Apply Count to Pallet Session</span>
+                            </button>
+                            <select id="wbSyncBinSelect" style="background:var(--panel-bg); color:var(--text-main); border:1px solid var(--border-light); border-radius:6px; padding:9px 10px; font-size:0.78rem; font-weight:600; min-width:140px;" title="Destination bin for updating live inventory">
+                                <option value="">-- Pick Bin --</option>
+                            </select>
+                            <button type="button" onclick="saveAndSyncPalletInventory()" style="flex:1; min-width:190px; background:linear-gradient(135deg,#0284c7,#2563eb); color:#fff; border:none; border-radius:6px; padding:10px 14px; font-size:0.82rem; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 3px 12px rgba(37,99,235,0.35);">
+                                <i class="fas fa-boxes-stacked"></i> <span>Save &amp; Update Inventory</span>
                             </button>
                         </div>
 
