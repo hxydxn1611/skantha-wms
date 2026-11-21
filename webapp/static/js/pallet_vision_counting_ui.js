@@ -5466,7 +5466,7 @@
 
             const mismatchWarn = recSku.mismatch_warning || data.mismatch_warning;
 
-            let matchTag = `<span style="color:#a7f3d0; font-size:0.74rem;">[${scat} &bull; ${confPct}% Precision Match]</span>`;
+            let matchTag = `<span class="wb-rec-tag">[${(typeof __h === 'function' ? __h(scat) : scat)} &bull; ${confPct}% Precision Match]</span>`;
 
             if (mismatchWarn) {
 
@@ -5488,7 +5488,9 @@
 
             }
 
-            recTextEl.innerHTML = `Recognized Product: <b style="color:#38bdf8; font-family:monospace;">${sid}</b> &mdash; <span style="color:#fff;">${sname}</span> ${matchTag}`;
+            // colours follow the theme (wb-rec-* in style.css): the name was white, unreadable in the light theme
+            const esc = (v) => (typeof __h === 'function' ? __h(v) : String(v == null ? '' : v));
+            recTextEl.innerHTML = `Recognized Product: <b class="wb-rec-id">${esc(sid)}</b> &mdash; <span class="wb-rec-name">${esc(sname)}</span> ${matchTag}`;
 
         }
 

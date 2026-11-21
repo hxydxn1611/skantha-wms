@@ -212,3 +212,5 @@
 @media (max-width: 640px) { .pf-chips-modal { padding: 8px 14px 0; } }
 .pf-ai { color: #6366f1; }
 .pf-ai i { margin-right: 3px; }
+/* Save to pallet: the main next step, on its own row under the other two */
+.cs-actions #csToPallet { flex-basis: 100%; }

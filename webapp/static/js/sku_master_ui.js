@@ -323,12 +323,18 @@
     }
 
     async function confirmDeleteSku(skuId) {
-        if (!confirm(`Are you sure you want to delete SKU '${skuId}'? All reference image mappings for this SKU will also be deleted.`)) {
+        // products are shared by all of a company's locations: first offer to remove it from this
+        // location only (the others keep it); deleting it for the whole company is the second question
+        const here = (document.getElementById('activeFacilityNameDisplay')?.textContent || 'this location').trim();
+        let where = '';
+        if (confirm(`Remove SKU '${skuId}' from ${here} only?\n\nYour other locations keep it. (Cancel for more options.)`)) {
+            where = '?where=here';
+        } else if (!confirm(`Delete SKU '${skuId}' for the WHOLE company (every location)? All reference image mappings for this SKU will also be deleted.`)) {
             return;
         }
 
         try {
-            const res = await fetch(`/api/sku_master/${encodeURIComponent(skuId)}`, { method: 'DELETE' });
+            const res = await fetch(`/api/sku_master/${encodeURIComponent(skuId)}${where}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
                 fetchSkuMaster();

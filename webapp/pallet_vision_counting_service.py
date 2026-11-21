@@ -474,6 +474,7 @@ class PalletVisionCountingService:
 
         best_sku = None
         best_score = -1.0
+        photo_sims: Dict[str, float] = {}   # how close each product's own photo is to this one
 
         for sku in all_skus:
             sid = sku.get("sku_id", "")
@@ -489,6 +490,7 @@ class PalletVisionCountingService:
                     raw_sim = matcher.compute_similarity(roi_crop, sid)
                     if raw_sim > 0:
                         vis_sim = float(raw_sim)
+                        photo_sims[sid] = vis_sim
                 except Exception:
                     pass
 
@@ -565,7 +567,12 @@ class PalletVisionCountingService:
 
         is_best_glass = any(k in f"{best_sku.get('sku_id','')} {best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("glass", "float", "dgu", "igu", "mirror", "glazing", "laminated", "toughened", "tempered")) or str(best_sku.get("sku_id","")).upper().startswith("GLS-")
         is_best_metal = any(k in f"{best_sku.get('sku_id','')} {best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("metal", "steel", "pipe", "tube", "profile", "rebar", "framing", "c-stud")) and not is_best_glass and not any(k in f"{best_sku.get('name','')} {best_sku.get('category','')}".lower() for k in ("strut", "damper", "suspension", "steering", "engine", "brake", "exhaust", "intake", "door skin", "body & trim"))
-        if is_metallic_grey and not is_best_metal:
+        # A product whose own photo matches this one closely (and clearly better than any other product)
+        # is the answer even in a grey scene: concrete blocks or wrapped packs are grey but not steel.
+        best_photo = photo_sims.get(best_sku.get("sku_id", ""), 0.0)
+        runner_up = max([v for k, v in photo_sims.items() if k != best_sku.get("sku_id")] or [0.0])
+        strong_photo_match = best_photo >= 0.85 and best_photo - runner_up >= 0.1
+        if is_metallic_grey and not is_best_metal and not strong_photo_match:
             if is_bundle_mode:
                 prod_type = "Structural Steel Bundle"
                 mat_label = "Structural steel"

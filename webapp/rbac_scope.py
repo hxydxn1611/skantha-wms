@@ -305,6 +305,10 @@ def filter(table: str, alias: Optional[str] = None, scope: Optional[Scope] = Non
         if table in CHILD_TABLES:
             col, parent, pcol = CHILD_TABLES[table]
             return (f" AND {a}{col} IN (SELECT {pcol} FROM {parent} WHERE company_id = ?)", (scope.company_id,))
+        if table == "skus" and scope.warehouse_id is not None:
+            # products this location took out of its own lists (warehouse_hidden_skus, migration 016)
+            return (f" AND {a}company_id = ? AND {a}sku_id NOT IN "
+                    f"(SELECT sku_id FROM warehouse_hidden_skus WHERE warehouse_id = ?)", (scope.company_id, scope.warehouse_id))
         return f" AND {a}company_id = ?", (scope.company_id,)
     if table in WAREHOUSE_TABLES:
         return f" AND {a}warehouse_id = ?", (scope.warehouse_id,)
@@ -337,7 +341,12 @@ def owned_or_absent(conn: sqlite3.Connection, table: str, column: str, value) ->
         return True
     if not conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ? LIMIT 1", (value,)).fetchone():
         return True
-    cond, params = filter(table, scope=scope)
+    if table == "skus" and scope.company_id is not None:
+        # a product is the company's even where a location took it out of its own lists
+        # (warehouse_hidden_skus); adding it there again must find it
+        cond, params = f" AND company_id = ?", (scope.company_id,)
+    else:
+        cond, params = filter(table, scope=scope)
     return conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ?{cond} LIMIT 1", (value,) + params).fetchone() is not None
 
 

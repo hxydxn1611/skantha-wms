@@ -469,6 +469,16 @@ def _step_outbound_dispatch(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE outbound_orders ADD COLUMN {col} {decl}")
 
 
+def _step_location_products(conn: sqlite3.Connection) -> None:
+    """Products are shared by a company's locations; a location may take some out of its own lists
+    (product list, dropdowns, photo recognition) without deleting them for the other locations."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS warehouse_hidden_skus (
+        warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+        sku_id TEXT NOT NULL,
+        hidden_by TEXT, hidden_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (warehouse_id, sku_id))""")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -746,6 +756,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("013_count_examples", _step_count_examples),
     ("014_photo_queries", _step_photo_queries),
     ("015_outbound_dispatch", _step_outbound_dispatch),
+    ("016_location_products", _step_location_products),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {

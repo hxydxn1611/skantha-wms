@@ -161,6 +161,11 @@
         if ($('csDownloadBtn')) $('csDownloadBtn').disabled = !S.result;
         const save = $('csSaveExample');
         if (save) save.disabled = !($('csSku')?.value) || !n;
+        const toPallet = $('csToPallet');
+        if (toPallet) {
+            toPallet.disabled = !S.result || !($('csSku')?.value) || total() < 1;
+            toPallet.title = !($('csSku')?.value) ? 'Choose the product first (step 1)' : 'Put this count on a pallet';
+        }
         if (!S.img) hint('Add a photo to begin.');
         else if (S.result) hint('<b>Check the markers.</b> Tap a marker to remove it, tap an empty spot to add one.');
         else if (S.mode === 'text') hint('Type what to look for (e.g. <b>steel pipe end</b>), then press <b>Count</b>.');
@@ -475,6 +480,7 @@
         $('csSku').addEventListener('change', loadExamples);
         $('csCountBtn').addEventListener('click', doCount);
         $('csSaveExample').addEventListener('click', saveExample);
+        $('csToPallet').addEventListener('click', saveToPallet);
         $('csToWeight').addEventListener('click', () => {
             avShowTab('weight');
             $('wcCam').value = total();
@@ -482,6 +488,103 @@
             wcCalc();
         });
         refreshUi();
+    }
+
+    // ------------------------------------------------------------------ Save to pallet
+    // The studio count goes onto a pallet the same way Palletization does it: an open pallet of this product
+    // (or a new one in a chosen bin) gets the count; sealing puts it into stock once (ref PALLET-<id>).
+    async function getJson(url, method, body) {
+        const r = await fetch(url, method ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) } : undefined);
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok || b.success === false) throw new Error(b.error || b.message || `That did not work (${r.status}).`);
+        return b;
+    }
+
+    async function saveToPallet() {
+        const sku = $('csSku')?.value;
+        const n = total();
+        if (!sku || n < 1) { toast('Choose the product and count first.', 'warning'); return; }
+        const prod = skuById(sku) || {};
+        let pallets = [], bins = [];
+        try {
+            const pb = await getJson('/api/pallets');
+            pallets = (Array.isArray(pb) ? pb : (pb.pallets || [])).filter(p => p.sku_id === sku && String(p.status || '').toUpperCase() !== 'SEALED');
+            if (can('pallet.create')) {
+                const bb = await getJson('/api/bins');
+                bins = Array.isArray(bb) ? bb : (bb.bins || []);
+            }
+        } catch (e) { toast(e.message, 'error'); return; }
+        if (!pallets.length && !can('pallet.create')) { toast(`No open pallet for ${sku} here, and you may not build one.`, 'warning'); return; }
+        const opts = pallets.map(p => `<option value="${h(p.pallet_id)}">${h(p.pallet_id)} · now ${h(p.total_units || 0)} · bin ${h(p.assigned_bin_id || '–')}</option>`).join('')
+            + (can('pallet.create') ? '<option value="__new">+ Build a new pallet…</option>' : '');
+        const binOpts = bins.map(b => `<option value="${h(b.bin_id)}">${h(b.bin_id)}${b.zone ? ' · zone ' + h(b.zone) : ''}</option>`).join('');
+        const canStock = can('pallet.seal') && can('inventory.transfer');
+        const upb = Math.max(1, parseInt(prod.units_per_bundle || 1, 10) || 1);
+        const body = `
+            <label class="uac-label" for="csPalSel">Pallet</label>
+            <select id="csPalSel" class="uac-input">${opts}</select>
+            <div id="csPalNewBin" hidden>
+                <label class="uac-label" for="csPalBin">Bin for the new pallet</label>
+                <select id="csPalBin" class="uac-input"><option value="">Choose a bin…</option>${binOpts}</select>
+            </div>
+            <label class="uac-label" for="csPalUnit">Each marker is</label>
+            <select id="csPalUnit" class="uac-input"><option value="1">1 piece</option>${upb > 1 ? `<option value="${upb}">1 pack of ${upb}</option>` : ''}</select>
+            <div class="uac-hint" id="csPalSum"></div>
+            ${canStock ? `<label class="uac-label" style="display:flex; gap:8px; align-items:center; margin-top:10px;"><input type="checkbox" id="csPalSeal" style="width:auto; flex:none; margin:0;"> Seal it and put it into stock now</label>
+            <div class="uac-hint"><i class="fas fa-triangle-exclamation"></i> Only if these goods were not already received at Inbound, or they are counted twice.</div>` : ''}`;
+        const wrap = document.createElement('div');
+        wrap.className = 'uac-modal-backdrop';
+        wrap.innerHTML = `<div class="uac-modal inv-modal" role="dialog" aria-modal="true" aria-label="Save to pallet">
+            <div class="uac-modal-head"><div><h3><i class="fas fa-pallet c-blue"></i> Save count to a pallet</h3>
+                <div class="uac-modal-sub">${h(n)} counted · ${h(prod.name || sku)}</div></div>
+                <button class="uac-x" type="button" aria-label="Close">&times;</button></div>
+            <div class="uac-modal-body">${body}</div>
+            <div class="uac-modal-msg"></div>
+            <div class="uac-modal-actions"><button class="uac-btn" type="button" data-x>Cancel</button>
+                <button class="uac-btn uac-btn-primary" type="button" data-ok>Save to pallet</button></div></div>`;
+        const close = () => wrap.remove();
+        wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+        wrap.querySelector('.uac-x').onclick = close;
+        wrap.querySelector('[data-x]').onclick = close;
+        const sel = wrap.querySelector('#csPalSel'), unit = wrap.querySelector('#csPalUnit');
+        const sum = () => {
+            wrap.querySelector('#csPalNewBin').hidden = sel.value !== '__new';
+            const per = parseInt(unit.value, 10) || 1;
+            wrap.querySelector('#csPalSum').textContent = per > 1 ? `${n} packs × ${per} = ${n * per} pieces will be saved on the pallet.`
+                : `${n} pieces will be saved on the pallet.`;
+        };
+        sel.onchange = sum; unit.onchange = sum; sum();
+        const msg = wrap.querySelector('.uac-modal-msg'), ok = wrap.querySelector('[data-ok]');
+        ok.onclick = async () => {
+            msg.className = 'uac-modal-msg'; msg.textContent = '';
+            ok.disabled = true;
+            try {
+                let pid = sel.value;
+                const per = parseInt(unit.value, 10) || 1;
+                if (pid === '__new') {
+                    const bin = wrap.querySelector('#csPalBin').value;
+                    if (!bin) throw new Error('Choose the bin for the new pallet.');
+                    const made = await getJson('/api/pallets', 'POST', { sku_id: sku, units_per_bundle: per, target_bundles: 0, assigned_bin_id: bin });
+                    pid = (made.pallet || {}).pallet_id || made.pallet_id;
+                    if (!pid) throw new Error('The pallet was not created.');
+                }
+                const saved = await getJson(`/api/pallets/${encodeURIComponent(pid)}/count`, 'POST', { counted_bundles: n, units_per_bundle: per });
+                const pcs = (saved.pallet || {}).total_units ?? n * per;
+                let done = 'Saved on pallet ' + pid + ': ' + pcs + ' pieces.';
+                if (wrap.querySelector('#csPalSeal')?.checked) {
+                    await getJson(`/api/pallets/${encodeURIComponent(pid)}/seal`, 'POST', {});
+                    const put = await getJson(`/api/pallets/${encodeURIComponent(pid)}/putaway`, 'POST', {});
+                    done = 'Pallet ' + pid + ' sealed. ' + (put.message || '');   // toast shows plain text
+                } else {
+                    done += ' Seal it in Palletization when it is complete.';
+                }
+                close();
+                toast(done, 'success');
+            } catch (e) {
+                msg.textContent = e.message || String(e); msg.className = 'uac-modal-msg error';
+            } finally { ok.disabled = false; }
+        };
+        document.body.appendChild(wrap);
     }
 
     // ================================================================== Weight Check
