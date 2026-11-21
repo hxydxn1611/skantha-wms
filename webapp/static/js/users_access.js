@@ -123,7 +123,7 @@
     async function loadUsersAccess() {
         const usersEl = document.getElementById('uacUsers');
         if (!usersEl) return;
-        if (window.currentUser && (window.currentUser.role_label === 'Super Admin')) await loadCompanies();
+        if (window.currentUser && (window.currentUser.is_platform_admin || window.currentUser.role_label === 'Super Admin')) await loadCompanies();
         wireFilters();
         try {
             uac = await api('GET', '/api/iam/overview');
@@ -340,24 +340,60 @@
     };
 
     // ------------------------------------------------------------------ actions
-    window.openInviteModal = function () {
-        if (!uac) return;
-        modal('Invite a user', `
-            <label class="uac-label" for="invEmail">Email</label>
-            <input id="invEmail" class="uac-input" type="email" placeholder="name@company.com" autocomplete="off">
+    window.openInviteModal = async function (presetRoleId) {
+        if (!uac) { await loadUsersAccess(); if (!uac) return; }
+        modal('Invite user by email', `
+            <label class="uac-label" for="invEmail">Recipient Email Address</label>
+            <input id="invEmail" class="uac-input" type="email" placeholder="teammate@gmail.com" autocomplete="off">
             ${roleWarehouseFields('inv')}
-            <p class="uac-p uac-muted">They get a link that works once, for 72 hours, to choose their own username and password.</p>`,
-            [{ label: 'Send invitation', primary: true, run: async () => {
+            <p class="uac-p uac-muted">Sends an invitation email directly to this address with a one-click signup link (valid for 72 hours, assigns this role automatically).</p>`,
+            [{ label: 'Send invitation email', primary: true, run: async () => {
+                const emailVal = document.getElementById('invEmail').value.trim();
                 const out = await api('POST', '/api/iam/invitations', {
-                    email: document.getElementById('invEmail').value.trim(),
+                    email: emailVal,
                     role_id: document.getElementById('invRole').value,
                     warehouse_id: document.getElementById('invWh').value || null
                 });
                 await loadUsersAccess();
-                if (out.invite_link) showLinkOnce('Invitation created', out.message, out.invite_link);
-                else { closeModal(); toast(out.message, 'success'); }
+                if (out.invite_link) showLinkOnce('Invitation created (copy link)', out.message, out.invite_link);
+                else { closeModal(); toast(out.message || `Invitation email sent to ${emailVal}!`, 'success'); }
             } }]);
+        if (presetRoleId) {
+            const rSel = document.getElementById('invRole');
+            if (rSel) rSel.value = String(presetRoleId);
+        }
         uacRoleChanged('inv');
+    };
+
+    window.openAssignRoleModal = async function (roleId) {
+        if (!uac) { await loadUsersAccess(); if (!uac) return; }
+        const r = (uac.roles || []).find(x => String(x.id) === String(roleId)) || roleById(roleId);
+        const rName = r ? r.name : 'Selected role';
+        const userOpts = (uac.users || []).filter(u => u.is_active).map(u =>
+            `<option value="${u.id}">${esc(u.username)}${u.email ? ' (' + esc(u.email) + ')' : ''}</option>`
+        ).join('');
+        if (!userOpts) {
+            openInviteModal(roleId);
+            return;
+        }
+        const isCompAdmin = r && r.builtin_code === 'company_admin';
+        modal(`Assign "${rName}" to user`, `
+            <label class="uac-label" for="asrUser">User</label>
+            <select id="asrUser" class="uac-input">${userOpts}</select>
+            <label class="uac-label" for="asrWh">Location</label>
+            <select id="asrWh" class="uac-input" ${isCompAdmin ? 'disabled' : ''}>${warehouseOptions()}</select>
+            <div class="uac-hint">${isCompAdmin ? 'Company Admin always covers every location.' : 'Pick one warehouse location, or All locations.'}</div>`,
+            [{ label: 'Assign role', primary: true, run: async () => {
+                const uid = document.getElementById('asrUser').value;
+                const wid = isCompAdmin ? null : (document.getElementById('asrWh').value || null);
+                const out = await api('POST', `/api/iam/users/${uid}/assignments`, {
+                    role_id: roleId,
+                    warehouse_id: wid
+                });
+                closeModal();
+                toast(out.message || `Assigned ${rName} successfully.`, 'success');
+                await loadUsersAccess();
+            } }]);
     };
 
     window.uacAddAccess = function (userId) {
@@ -540,9 +576,8 @@
         const pack = document.getElementById('uacRolePackSelect')?.value || '3_role';
         try {
             const out = await api('POST', '/api/iam/roles/apply-pack', { pack });
-            toast(out.message || `Applied ${pack} role pack.`, 'success');
-            await loadRoles();
-            loadUsersAccess();
+            await loadUsersAccess();
+            toast((out.message || `Applied ${pack} role pack.`) + ' Use Assign or Invite on any role below.', 'success');
         } catch (e) {
             toast(e.message || 'Could not apply role pack.', 'error');
         }
@@ -559,7 +594,16 @@
                 ? r.users.slice(0, 4).map(u => `<span class="uac-chip">${esc(u.username)} &middot; ${esc(u.warehouse_code)}</span>`).join('')
                   + (r.users.length > 4 ? ` <span class="uac-muted">+${r.users.length - 4} more</span>` : '')
                 : '<span class="uac-muted">Nobody yet</span>';
-            const acts = [`<button class="uac-btn-sm" onclick="openRoleEditor(${r.id})"><i class="fas ${r.is_builtin || !roles.can_manage ? 'fa-eye' : 'fa-pen'}"></i> ${r.is_builtin || !roles.can_manage ? 'View' : 'Edit'}</button>`];
+            const acts = [];
+            if (r.is_active && r.builtin_code !== 'user') {
+                if (uac && uac.can && uac.can['assignments.manage']) {
+                    acts.push(`<button class="uac-btn-sm" onclick="openAssignRoleModal(${r.id})" title="Assign this role to an existing user"><i class="fas fa-user-check"></i> Assign</button>`);
+                }
+                if (uac && uac.can && uac.can['users.invite']) {
+                    acts.push(`<button class="uac-btn-sm" onclick="openInviteModal(${r.id})" title="Invite someone by email with this role"><i class="fas fa-envelope"></i> Invite</button>`);
+                }
+            }
+            acts.push(`<button class="uac-btn-sm" onclick="openRoleEditor(${r.id})"><i class="fas ${r.is_builtin || !roles.can_manage ? 'fa-eye' : 'fa-pen'}"></i> ${r.is_builtin || !roles.can_manage ? 'View' : 'Edit'}</button>`);
             if (!r.is_builtin && roles.can_manage) {
                 acts.push(r.is_active
                     ? `<button class="uac-btn-sm danger" onclick="uacRoleSetActive(${r.id}, false)"><i class="fas fa-ban"></i> Deactivate</button>`

@@ -2543,7 +2543,9 @@ class CameraRuntimeSession:
             bus_live_frame = get_shared_frame_bus().get_latest_frame(self.camera_id, copy=True, max_age_seconds=1.5)
             is_gate_cam = bool(self.is_gate_camera or 'gate' in str(self.location or '').lower())
             if is_idle_standby and bus_live_frame is None and not is_gate_cam:
-                standby_frame = self.frame_queue.get_frame(timeout=0.05) or self.latest_raw_frame
+                standby_frame = self.frame_queue.get_frame(timeout=0.05)
+                if standby_frame is None:
+                    standby_frame = self.latest_raw_frame
                 if standby_frame is not None and (now - last_process_time) >= 1.0:
                     ret, buf = cv2.imencode('.jpg', standby_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
                     if ret:
