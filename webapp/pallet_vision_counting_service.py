@@ -58,6 +58,23 @@ STACK_COLORS = {
 }
 
 
+
+# Count pictures (piece_count_*, box_grid_*) made by THIS server run; only these are cleaned up, keeping the
+# newest 20. Pictures already in static/uploads (earlier runs, backups, other users' saved results) are never
+# deleted - the old cleanup removed any file with these names, including ones still in use.
+_RECENT_OUTPUTS: List[str] = []
+_KEEP_OUTPUTS = 20
+
+
+def _keep_recent_outputs(path: str) -> None:
+    _RECENT_OUTPUTS.append(path)
+    while len(_RECENT_OUTPUTS) > _KEEP_OUTPUTS:
+        old = _RECENT_OUTPUTS.pop(0)
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+
 class PalletVisionCountingService:
     """
     Universal, material-agnostic counting engine for palletization.
@@ -1741,25 +1758,10 @@ class PalletVisionCountingService:
             regions=valid_regions, excluded_count=excluded_count, uncertain_count=uncertain_count
         )
 
-        # Prune old temporary piece count test images to prevent bloat (keep latest 20)
-        try:
-            test_files = [
-                os.path.join(UPLOAD_DIR, f) for f in os.listdir(UPLOAD_DIR)
-                if (f.startswith("piece_count_") or f.startswith("box_grid_")) and os.path.isfile(os.path.join(UPLOAD_DIR, f))
-            ]
-            if len(test_files) > 20:
-                test_files.sort(key=lambda p: os.path.getmtime(p))
-                for old_f in test_files[:-20]:
-                    try:
-                        os.remove(old_f)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
-
         filename = f"piece_count_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         save_path = os.path.join(UPLOAD_DIR, filename)
         cv2.imwrite(save_path, annotated_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        _keep_recent_outputs(save_path)
         rel_url = f"/static/uploads/{filename}"
 
         clean_clusters = []
@@ -3782,6 +3784,7 @@ class PalletVisionCountingService:
         filename = f"box_grid_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         save_path = os.path.join(UPLOAD_DIR, filename)
         cv2.imwrite(save_path, vis, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        _keep_recent_outputs(save_path)
         rel_url = f"/static/uploads/{filename}"
 
         quantity_breakdown = {
@@ -4814,7 +4817,16 @@ class PalletVisionCountingService:
         if sku_anchor and sku_anchor.get("signature"):
             sku_cat_name = f"{sku_anchor.get('category','')} {sku_anchor.get('name','')}".lower()
             is_incompatible_sku = any(k in sku_cat_name for k in ("strut", "damper", "suspension", "steering", "engine", "brake", "glass", "carton"))
-            if not is_incompatible_sku:
+            # Bare metal is grey: it has almost no colour, so a colour filter built from the product photo
+            # throws away the very steel ends being counted (a U-channel stack went from 27 to 17, a pipe
+            # bundle photo kept only 19% of its pixels). Skip it for metal products and grey metal scenes.
+            sku_is_metal = bool(re.search(r"(?<![a-z])(steel|metal|metals|pipes?|tubes?|channels?|studs?|profiles?|beams?|angles?|rods?|rebar|ms|gi|galvani[sz]ed|alumin(?:i)?um|iron)(?![a-z])", sku_cat_name + " " + str(sku_anchor.get("sku_id", "")).lower().replace("-", " ")))
+            try:
+                _hsv_c = cv2.cvtColor(work_img[int(work_img.shape[0] * 0.15):int(work_img.shape[0] * 0.85), int(work_img.shape[1] * 0.15):int(work_img.shape[1] * 0.85)], cv2.COLOR_BGR2HSV)
+                scene_is_grey_metal = float(np.mean(_hsv_c[:, :, 1])) < 52
+            except Exception:
+                scene_is_grey_metal = False
+            if not is_incompatible_sku and not sku_is_metal and not scene_is_grey_metal:
                 try:
                     sig = sku_anchor["signature"]
                     hsv_work = cv2.cvtColor(work_img, cv2.COLOR_BGR2HSV)

@@ -3399,7 +3399,6 @@ def generate_pallet_id():
         "SELECT pallet_id FROM pallets WHERE pallet_id LIKE ? ORDER BY pallet_id DESC LIMIT 1",
         (f"{prefix}%",)
     ).fetchone()
-    conn.close()
     if row and row['pallet_id']:
         try:
             last_num = int(row['pallet_id'].split('-')[-1])
@@ -3408,6 +3407,19 @@ def generate_pallet_id():
             new_num = 1
     else:
         new_num = 1
+    # A deleted pallet's number is not handed out again: its stock history (ref PALLET-<id>) and its printed
+    # label PDF would attach to the new pallet (the label file was overwritten).
+    label_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'invoices')
+    try:
+        for _ in range(10000):
+            pid = f"{prefix}{new_num:04d}"
+            used = conn.execute("SELECT 1 FROM pallets WHERE pallet_id = ? UNION ALL "
+                                "SELECT 1 FROM stock_movements WHERE ref = ? LIMIT 1", (pid, f"PALLET-{pid}")).fetchone()
+            if not used and not os.path.exists(os.path.join(label_dir, f"Pallet_Label_{pid}.pdf")):
+                break
+            new_num += 1
+    finally:
+        conn.close()
     return f"{prefix}{new_num:04d}"
 
 
@@ -4204,11 +4216,17 @@ def record_vision_counting_submission(
         # 1. Update WMS Inventory or Pallet Record
         if target_type == "pallet" or pallet_id:
             p_id = str(pallet_id or session_data.get("target_id") or "PAL-001").strip()
+            # pallets has no updated_at column (this UPDATE failed every time, so an AI count never reached
+            # a pallet); the pallet keeps its status so it can be sealed and put into stock as usual
+            if counting_mode == "bundles" and physical_bundles > 0:
+                pal_bundles, pal_upb = physical_bundles, units_per_bundle
+            else:
+                pal_bundles, pal_upb = total_pieces, 1
             conn.execute("""
                 UPDATE pallets
-                SET counted_bundles = ?, total_units = ?, status = 'COUNTED', updated_at = CURRENT_TIMESTAMP
+                SET counted_bundles = ?, units_per_bundle = ?, total_units = ?
                 WHERE pallet_id = ?
-            """, (physical_bundles, total_pieces, p_id))
+            """, (pal_bundles, pal_upb, total_pieces, p_id))
             target_applied = {"type": "pallet", "pallet_id": p_id, "bundles": physical_bundles, "total_units": total_pieces}
         else:
             b_id = str(bin_id or "").strip()
@@ -4223,8 +4241,8 @@ def record_vision_counting_submission(
                 session_id, target_id, sku_id, material_type, inferred_material,
                 counting_mode, confirmed_count, uncertain_count, physical_bundles_count,
                 units_per_bundle, total_pieces, uom, bin_id, pallet_id, operator_id,
-                review_status, source_images, audit_image_url, sync_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED')
+                review_status, source_images, audit_image_url, sync_status, submitted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED', datetime('now', 'localtime'))
         """, (
             sess_id,
             session_data.get("target_id"),

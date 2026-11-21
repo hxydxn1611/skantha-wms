@@ -519,7 +519,10 @@
         let verdict = '';
         if (cam !== null && !isNaN(cam)) {
             const diff = cam - pieces;
-            const ok = Math.abs(diff) <= Math.max(1, Math.round(pieces * 0.01));
+            // a clean result (16.00) means one piece more or less is a real difference; one piece of slack
+            // only when the weights do not divide evenly (scale or piece weight not exact), 1% on big loads
+            const slack = Math.max(off > 0.15 ? 1 : 0, Math.round(pieces * 0.01));
+            const ok = Math.abs(diff) <= slack;
             verdict = ok
                 ? `<div class="wc-verdict ok"><i class="fas fa-circle-check"></i><div><b>Camera and weight agree.</b><br>Camera ${cam} · weight ${pieces}</div></div>`
                 : `<div class="wc-verdict warn"><i class="fas fa-triangle-exclamation"></i><div><b>${Math.abs(diff)} ${diff > 0 ? 'more' : 'fewer'} by camera than by weight.</b><br>Camera ${cam} · weight ${pieces}. Recount, or check the weight per piece and the empty weight.</div></div>`;

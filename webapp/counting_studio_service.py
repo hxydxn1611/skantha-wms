@@ -107,11 +107,47 @@ def _to_items(result, size_filter: Optional[Tuple[float, float]] = None) -> List
         items.append({"x1": round(float(x1), 1), "y1": round(float(y1), 1), "x2": round(float(x2), 1),
                       "y2": round(float(y2), 1), "cx": round(float(x1 + x2) / 2, 1), "cy": round(float(y1 + y2) / 2, 1),
                       "conf": round(float(c), 3)})
+    items = _drop_repeats(items)
     # reading order: top to bottom, then left to right (rows of roughly one item height)
     if items:
         h = float(np.median([i["y2"] - i["y1"] for i in items])) or 1.0
         items.sort(key=lambda i: (round(i["cy"] / (h * 0.7)), i["cx"]))
     return items[:MAX_ITEMS]
+
+
+def _box_area(i: Dict[str, Any]) -> float:
+    return max(1.0, (i["x2"] - i["x1"]) * (i["y2"] - i["y1"]))
+
+
+def _overlap(a: Dict[str, Any], b: Dict[str, Any]) -> float:
+    return (max(0.0, min(a["x2"], b["x2"]) - max(a["x1"], b["x1"]))
+            * max(0.0, min(a["y2"], b["y2"]) - max(a["y1"], b["y1"])))
+
+
+def _drop_repeats(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Count each item once. The model's own overlap check misses two cases (a stack of 28 channels was
+    marked 37): 1. a box drawn around two or more items that were also found one by one - the group box goes;
+    2. the same item found twice at about the same size - the surer one stays. A box twice the size holding
+    just one other box is kept: it may be the only box for the item beside it (carton stacks)."""
+    singles = [g for g in items
+               if sum(1 for o in items if o is not g and _box_area(o) < _box_area(g)
+                      and _overlap(g, o) / _box_area(o) > 0.8) < 2]
+    kept: List[Dict[str, Any]] = []
+    for it in sorted(singles, key=lambda i: -i["conf"]):
+        repeat = False
+        for k in kept:
+            if max(_box_area(it), _box_area(k)) / min(_box_area(it), _box_area(k)) > 1.6:
+                continue
+            if _overlap(it, k) / min(_box_area(it), _box_area(k)) > 0.6:
+                repeat = True
+                break
+            kw, kh = (k["x2"] - k["x1"]) * 0.3, (k["y2"] - k["y1"]) * 0.3
+            if k["x1"] + kw <= it["cx"] <= k["x2"] - kw and k["y1"] + kh <= it["cy"] <= k["y2"] - kh:
+                repeat = True
+                break
+        if not repeat:
+            kept.append(it)
+    return kept
 
 
 def _clean_boxes(boxes: Sequence[Sequence[float]], w: int, h: int) -> np.ndarray:

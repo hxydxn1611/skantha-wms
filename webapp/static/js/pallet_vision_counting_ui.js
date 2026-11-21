@@ -7398,7 +7398,11 @@ function initWb3DPalletViewer(matrixData) {
 
         const baseCount = qb.total_units !== undefined ? qb.total_units : (wbLatestResult ? (wbLatestResult.total_pieces !== undefined ? wbLatestResult.total_pieces : (wbLatestResult.total_bundles || 0)) : 0);
 
-        const uPerB = Math.max(1, parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10));
+        // pieces per pack: the counting screen's number, or else the pallet's own (choosing a product with no
+        // pack size sets the screen to 1, which lost the 36 blocks per pack the pallet was built with)
+        const wbUpb = parseInt(document.getElementById('wbUnitsPerBundleInput')?.value || '1', 10) || 1;
+        const palletUpb = parseInt(document.getElementById('palletUnitsPerBundle')?.textContent || '1', 10) || 1;
+        const uPerB = Math.max(1, wbUpb > 1 ? wbUpb : palletUpb);
 
         const uom = (document.getElementById('wbUomSelect')?.value || 'EA').toUpperCase();
 
@@ -7425,9 +7429,21 @@ function initWb3DPalletViewer(matrixData) {
             if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
             saveCountToPallet(baseCount, 1, `${baseCount} pieces`);
         } else if (wbMode === 'bundles' || uPerB > 1) {
-            if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
-            if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            saveCountToPallet(baseCount, uPerB, `${baseCount} ${bname}s × ${uPerB} = ${totalIndividualUnits} ${uom}`);
+            // total_units is already in pieces (bundles x pieces per bundle); save the BUNDLE count with
+            // the pieces per bundle, or the pieces would be multiplied twice (4 packs of 10 were saved as 400)
+            const r = wbLatestResult || {};
+            const bundles = [r.total_bundles, qb.total_bundles, qb.physical_bundles_count, r.primary_count]
+                .map(v => parseInt(v, 10)).find(v => Number.isFinite(v) && v > 0);
+            if (bundles) {
+                const pcs = bundles * uPerB;
+                if (palletBundlesElem) palletBundlesElem.textContent = bundles;
+                if (palletPcsElem) palletPcsElem.textContent = pcs;
+                saveCountToPallet(bundles, uPerB, `${bundles} ${bname}s × ${uPerB} = ${pcs} ${uom}`);
+            } else {
+                if (palletPcsElem) palletPcsElem.textContent = baseCount;
+                if (palletBundlesElem) palletBundlesElem.textContent = 0;
+                saveCountToPallet(baseCount, 1, `${baseCount} ${uom}`);
+            }
         } else {
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
             if (palletBundlesElem) palletBundlesElem.textContent = 0;
@@ -8860,11 +8876,18 @@ function initWb3DPalletViewer(matrixData) {
 
         const uom = sess.uom || 'EA';
 
-        const sku = sess.sku_id || sess.selected_sku || 'GEN-STK-001';
+        // the product picked on the screen when the count itself has none (never a made-up product)
+        const sku = sess.sku_id || sess.selected_sku || document.getElementById('wbTargetSkuSelect')?.value || '';
+        if (!sku || ['AUTO', 'MULTI_ALL'].includes(sku)) {
+            if (typeof showToast === 'function') showToast('Pick the product that was counted first.', 'warning');
+            return;
+        }
+        sess.sku_id = sku;
+        const activePid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
 
 
 
-        const targetType = prompt(`Transfer approved count (${total} ${uom} of ${sku}) to WMS.\n\nEnter destination target type ('bin' or 'pallet'):`, 'bin');
+        const targetType = prompt(`Transfer approved count (${total} ${uom} of ${sku}) to WMS.\n\nEnter destination target type ('bin' or 'pallet'):` + (activePid ? `\n\nTip: choose 'pallet' to put it on pallet ${activePid} and seal it then - do not ALSO put the same goods into a bin, or they are counted twice.` : ''), activePid ? 'pallet' : 'bin');
 
         if (!targetType) return;
 
@@ -8876,13 +8899,13 @@ function initWb3DPalletViewer(matrixData) {
 
         if (targetType.toLowerCase() === 'pallet') {
 
-            palletId = prompt('Enter destination Pallet ID:', 'PAL-001');
+            palletId = prompt('Enter destination Pallet ID:', activePid || '');
 
             if (!palletId) return;
 
         } else {
 
-            binId = prompt('Enter destination Bin ID:', 'BIN-A-01');
+            binId = prompt('Enter destination Bin ID:', '');
 
             if (!binId) return;
 
@@ -8948,7 +8971,7 @@ function initWb3DPalletViewer(matrixData) {
 
                     pallet_id: palletId,
 
-                    operator_id: 'OP-VISION',
+                    sku_id: sess.sku_id || null,
 
                     notes: notes || 'Transferred from AI Vision Pallet Workbench'
 

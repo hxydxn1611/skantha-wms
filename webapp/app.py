@@ -8394,6 +8394,29 @@ def api_transfer_vision_inventory():
                 "error_code": "unapproved_session"
             }), 400
 
+        # The product must be a real one (no made-up "GEN-STK-001" fallback); the screen may send the one picked.
+        sku_id = str(session.get("sku_id") or session.get("selected_sku") or data.get("sku_id") or "").strip()
+        if sku_id.upper() in ("", "AUTO", "MULTI_ALL", "GEN-STK-001") and data.get("sku_id"):
+            sku_id = str(data.get("sku_id")).strip()
+        if sku_id.upper() in ("", "AUTO", "MULTI_ALL", "GEN-STK-001") or not db.get_sku_by_id(sku_id):
+            return jsonify({"success": False, "error": "Pick the product for this count first (it is not known which product was counted).",
+                            "error_code": "missing_sku"}), 400
+        session["sku_id"] = sku_id
+        # The stock change is recorded under the person signed in, not a fixed "OP-VISION".
+        operator_id = (getattr(g, "current_user", None) or {}).get("username") or operator_id
+        if target_type == "pallet" or pallet_id:
+            pal = db.get_pallet_by_id(str(pallet_id or "").strip()) if pallet_id else None
+            wid = rbac_service.current_warehouse_id()
+            if not pal or (wid and pal.get("warehouse_id") and int(pal["warehouse_id"]) != int(wid)):
+                return jsonify({"success": False, "error": f"Pallet '{pallet_id or ''}' was not found in this location.",
+                                "error_code": "pallet_not_found"}), 404
+            if str(pal.get("status") or "").upper() in ("SEALED", "PUT_AWAY", "PUTAWAY", "STORED", "DISPATCHED"):
+                return jsonify({"success": False, "error": f"Pallet {pal['pallet_id']} is already sealed - its count can no longer be changed.",
+                                "error_code": "pallet_sealed"}), 400
+            if pal.get("sku_id") and pal["sku_id"] != sku_id:
+                return jsonify({"success": False, "error": f"Pallet {pal['pallet_id']} holds {pal['sku_id']}, but this count is for {sku_id}.",
+                                "error_code": "pallet_sku_mismatch"}), 400
+
         receipt = db.record_vision_counting_submission(
             session_data=session,
             target_type=target_type,
