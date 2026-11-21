@@ -2211,10 +2211,10 @@
                                                     return `
                                                     <tr>
                                                         <td style="padding:4px;">
-                                                             <div style="font-family:monospace; color:var(--text-main);">${item.sku}</div>
+                                                             <div style="font-family:monospace; color:var(--text-main);">${__h(item.sku || item.sku_id || '')}</div>
                                                             <div style="font-size:0.75rem; color:var(--text-muted);">${__h(item.description)}</div>
                                                         </td>
-                                                        <td style="padding:4px; font-weight:bold;">${item.expected} ${item.uom}</td>
+                                                        <td style="padding:4px; font-weight:bold;">${item.expected} ${__h(item.uom || '')}</td>
                                                         <td style="padding:4px; font-weight:bold; color:var(--accent-hover);" id="unloaded_${gp.id}">${gp.unloaded_qty || 0}</td>
                                                         <td style="padding:4px; font-weight:bold; color:${matchColor};">${matchText}</td>
                                                     </tr>
@@ -4557,7 +4557,7 @@
                                     const sheet = typeof gp.unloading_sheet === 'string' ? JSON.parse(gp.unloading_sheet) : gp.unloading_sheet;
                                     if (Array.isArray(sheet) && sheet.length > 0) {
                                         expectedQty = sheet[0].expected || 50;
-                                        skuCode = sheet[0].sku || skuCode;
+                                        skuCode = sheet[0].sku || sheet[0].sku_id || skuCode;
                                         itemDesc = sheet[0].desc || itemDesc;
                                     }
                                 } catch(e) {}
@@ -4794,6 +4794,7 @@
                     </select>
                     <label class="uac-label" for="grnQty">Quantity received (pieces)</label>
                     <input id="grnQty" class="uac-input" type="number" min="1" step="1" value="${Number(quantity) || ''}">
+                    <div class="uac-hint" id="grnPackHint" style="display:none;"></div>
                     <div class="uac-hint"><i class="fas fa-shield-halved"></i> Added to what is already in the bin. Recorded in the stock history as GRN-${h(gpId)}.</div>
                 </div>
                 <div class="uac-modal-msg"></div>
@@ -4806,6 +4807,22 @@
             wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
             const msg = wrap.querySelector('.uac-modal-msg');
             const ok = wrap.querySelector('[data-ok]');
+            // the dock counts packs; a product packed in bundles needs pieces here
+            const packHint = () => {
+                const el = wrap.querySelector('#grnPackHint');
+                const s = skus.find(x => x.sku_id === wrap.querySelector('#grnSku').value);
+                const upb = s ? Math.max(1, parseInt(s.units_per_bundle || 1, 10)) : 1;
+                const dock = Number(quantity) || 0;
+                if (upb <= 1 || !dock) { el.style.display = 'none'; return; }
+                const pcs = dock * upb;
+                el.style.display = '';
+                el.innerHTML = `<i class="fas fa-boxes-stacked"></i> One ${h((s.bundle_name || 'bundle').toLowerCase())} of this product holds ${upb} pieces. ` +
+                    `If the dock count (${dock}) is ${h((s.bundle_name || 'bundle').toLowerCase())}s, that is <b>${pcs}</b> pieces. ` +
+                    `<button type="button" class="uac-btn" id="grnUsePcs" style="padding:2px 8px; font-size:0.75rem;">Use ${pcs} pieces</button>`;
+                el.querySelector('#grnUsePcs').onclick = () => { wrap.querySelector('#grnQty').value = pcs; };
+            };
+            wrap.querySelector('#grnSku').addEventListener('change', packHint);
+            packHint();
             ok.onclick = async () => {
                 const sku = wrap.querySelector('#grnSku').value;
                 const bin = wrap.querySelector('#grnBin').value;
@@ -5383,15 +5400,26 @@ window.submitAddOutbound = async function() {
             { sku_id: document.getElementById('outboundSku').value, quantity: parseInt(document.getElementById('outboundQty').value) }
         ]
     };
+    const say = (m, k) => (window.warlogToast ? window.warlogToast(m, k) : alert(m));
+    if (!data.customer_name.trim() || !data.items[0].sku_id || !(data.items[0].quantity > 0)) {
+        say('Fill in the customer, the product and a quantity above 0.', 'warning');
+        return;
+    }
     try {
-        await fetch('/api/outbound', {
+        const res = await fetch('/api/outbound', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
         });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok || out.success === false) {
+            say('Order not created: ' + (out.message || out.error || res.status), 'error');
+            return;
+        }
+        say(`Order ${out.order_id || ''} created. Next: pick it.`, 'success');
         document.getElementById('formAddOutbound').reset();
         window.fetchOutboundOrders();
-    } catch(e) { console.error(e); }
+    } catch(e) { console.error(e); say('Order not created: ' + e.message, 'error'); }
 }
 
 window.pickOutboundOrder = async function(orderId) {

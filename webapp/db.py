@@ -842,14 +842,43 @@ def _clean_plate(plate):
         return ""
     return "".join(c for c in plate if c.isalnum()).upper()
 
+def normalize_sheet(sheet):
+    """Manifest lines come from several screens with different key names (pre-registration saves
+    sku_id/expected, older code sku/expected_qty, desc/description). Every line gets both spellings
+    so each reader (dock put-away, receipt dialog, PDFs) finds the product and quantity."""
+    if isinstance(sheet, str):
+        try:
+            sheet = json.loads(sheet or '[]')
+        except Exception:
+            return []
+    if not isinstance(sheet, list):
+        return []
+    out = []
+    for item in sheet:
+        if not isinstance(item, dict):
+            continue
+        line = dict(item)
+        sku = line.get('sku_id') or line.get('sku') or ''
+        line['sku_id'] = line['sku'] = str(sku).strip()
+        qty = line.get('expected')
+        if qty in (None, ''):
+            qty = line.get('expected_qty')
+        try:
+            qty = int(float(qty)) if qty not in (None, '') else 0
+        except (TypeError, ValueError):
+            qty = 0
+        line['expected'] = line['expected_qty'] = qty
+        desc = line.get('description') or line.get('desc') or ''
+        line['description'] = line['desc'] = desc
+        out.append(line)
+    return out
+
+
 def _row_to_delivery(row):
     if not row:
         return None
     d = dict(row)
-    try:
-        sheet = json.loads(d.get('unloading_sheet') or '[]')
-    except Exception:
-        sheet = []
+    sheet = normalize_sheet(d.get('unloading_sheet'))
     return {
         "po_number": d.get("po_number"),
         "expected_date": d.get("expected_date") or "",
@@ -870,10 +899,7 @@ def _row_to_gate_pass(row):
     if not row:
         return None
     d = dict(row)
-    try:
-        sheet = json.loads(d.get('unloading_sheet') or '[]')
-    except Exception:
-        sheet = []
+    sheet = normalize_sheet(d.get('unloading_sheet'))
     return {
         "id": d.get("id"),
         "po_number": d.get("po_number") or "",
@@ -1117,10 +1143,17 @@ def create_gate_pass(data):
             conn = get_db()
             try:
                 with conn:
-                    cursor = conn.execute("SELECT id FROM gate_passes")
+                    # numbers of deleted passes are never handed out again: their history
+                    # (gate events, vehicle log, GRN-<id> stock refs) would attach to the new truck
+                    used = [r[0] for r in conn.execute("SELECT id FROM gate_passes").fetchall()]
+                    for q in ("SELECT DISTINCT gp_id FROM gate_pass_events", "SELECT DISTINCT gp_id FROM vehicle_log"):
+                        try:
+                            used += [r[0] for r in conn.execute(q).fetchall()]
+                        except sqlite3.OperationalError:
+                            pass
                     max_num = 999
-                    for row in cursor.fetchall():
-                        gid = str(row['id'])
+                    for gid in used:
+                        gid = str(gid or '')
                         if gid.startswith("GP-"):
                             try:
                                 num = int(gid.split("-")[1])
@@ -1311,7 +1344,7 @@ def update_gate_pass(gp_id, data):
             ob_status = OUTBOUND_STATUS_FOR_GATE.get(status)
             if ob_order and ob_status:
                 if ob_status == 'Dispatched':
-                    conn.execute("UPDATE outbound_orders SET status = ?, dispatched_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    conn.execute("UPDATE outbound_orders SET status = ?, dispatched_at = datetime('now', 'localtime') WHERE id = ?",
                                  (ob_status, ob_order))
                 else:
                     conn.execute("UPDATE outbound_orders SET status = ? WHERE id = ?", (ob_status, ob_order))
@@ -1334,9 +1367,9 @@ def update_gate_pass(gp_id, data):
             import json
             sku_id = None
             try:
-                sheet = json.loads(sheet_str) if isinstance(sheet_str, str) else sheet_str
-                if sheet and len(sheet) > 0 and sheet[0].get('sku'):
-                    sku_id = str(sheet[0]['sku']).strip()
+                sheet = normalize_sheet(sheet_str)
+                if sheet and sheet[0].get('sku'):
+                    sku_id = sheet[0]['sku']
             except Exception:
                 pass
             pending_receipt = (bin_allocation, sku_id, unloaded_qty, vendor, po_number)
@@ -3488,7 +3521,8 @@ def update_pallet_count(
     track_id: Optional[int] = None,
     similarity_score: float = 0.0,
     snapshot_path: Optional[str] = None,
-    auto_seal: bool = False
+    auto_seal: bool = False,
+    units_per_bundle: Optional[int] = None
 ) -> Optional[Dict[str, Any]]:
     """Update counted bundles on a pallet and recompute total pieces. Preserves building status unless auto_seal explicitly authorized."""
     conn = get_db()
@@ -3498,7 +3532,7 @@ def update_pallet_count(
         return None
 
     c_bundles = max(0, int(new_count))
-    u_per_b = pallet['units_per_bundle'] or 1
+    u_per_b = max(1, int(units_per_bundle)) if units_per_bundle else (pallet['units_per_bundle'] or 1)
     t_bundles = pallet['target_bundles'] or 0
     tot_units = c_bundles * u_per_b
 
@@ -3509,9 +3543,9 @@ def update_pallet_count(
     with conn:
         conn.execute(f"""
             UPDATE pallets
-            SET counted_bundles = ?, total_units = ?, status = ?, sealed_at = {sealed_at_expr}
+            SET counted_bundles = ?, total_units = ?, units_per_bundle = ?, status = ?, sealed_at = {sealed_at_expr}
             WHERE pallet_id = ?
-        """, (c_bundles, tot_units, new_status, str(pallet_id)))
+        """, (c_bundles, tot_units, u_per_b, new_status, str(pallet_id)))
 
         if track_id is not None:
             conn.execute("""
@@ -3543,6 +3577,32 @@ def seal_pallet(pallet_id: str, assigned_bin_id: Optional[str] = None) -> Option
     rec = get_pallet_by_id(pallet_id)
     conn.close()
     return rec
+
+
+def putaway_pallet(pallet_id: str, bin_id: Optional[str] = None) -> Dict[str, Any]:
+    """A sealed pallet goes into its bin: its counted pieces are ADDED to stock there.
+
+    Only once per pallet (stock history ref PALLET-<id>), only after sealing (the count is final),
+    and never with an empty count. Use it for goods that are not in stock yet; goods already booked
+    at Inbound "Complete receipt" must not be put in a second time."""
+    p = get_pallet_by_id(pallet_id)
+    if not p:
+        raise ReceiveError(f"Pallet '{pallet_id}' was not found.")
+    if str(p.get('status') or '').upper() != 'SEALED':
+        raise ReceiveError("Seal the pallet first - the count must be final before it goes into stock.")
+    qty = int(p.get('total_units') or 0)
+    if qty <= 0:
+        raise ReceiveError("This pallet has no counted pieces. Count it and press 'Save count to pallet' first.")
+    target = (str(bin_id).strip() if bin_id else '') or (p.get('assigned_bin_id') or '')
+    if not target:
+        raise ReceiveError("Choose the bin this pallet goes into.")
+    res = receive_goods(target, p['sku_id'], qty, vendor=None, ref=f"PALLET-{pallet_id}",
+                        reason=f"Pallet {pallet_id} counted and put away")
+    conn = get_db()
+    with conn:
+        conn.execute("UPDATE pallets SET assigned_bin_id = ? WHERE pallet_id = ?", (target, str(pallet_id)))
+    conn.close()
+    return res
 
 
 def delete_pallet(pallet_id: str) -> bool:

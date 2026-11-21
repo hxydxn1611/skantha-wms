@@ -8669,7 +8669,7 @@ window.switchSubTab = switchSubTab;
                         <div class="hud-item-val text-emerald" id="hudPalletPieces">240 Pcs</div>
                     </div>
                     <div class="session-hud-actions">
-                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="if(window.sealPallet) sealPallet()" style="padding:6px 14px; font-size:0.78rem;">
+                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="sealPalletAction()" style="padding:6px 14px; font-size:0.78rem;">
                             <i class="fas fa-shield-check"></i> Seal Pallet
                         </button>
                     </div>
@@ -8776,6 +8776,9 @@ window.switchSubTab = switchSubTab;
                         <button type="button" id="wbBtnClearCount" onclick="clearWorkbenchCount()" style="background:#334155; color:#f8fafc; border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Clear counted markers and start again">
                             <i class="fas fa-xmark"></i> <span>Clear Count / Start Again</span>
                         </button>
+                        <label for="wbStackOnly" title="Other stacks behind or beside the one you are counting are left out. Untick to count everything in the photo." style="display:flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:700; color:var(--text-main); cursor:pointer; margin:0;">
+                            <input type="checkbox" id="wbStackOnly" checked style="width:auto; margin:0;"> Count only the stack in front
+                        </label>
                         <button type="button" id="btnRunWorkbenchCount" onclick="executeWorkbenchCount()" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; border:none; border-radius:6px; padding:7px 18px; font-size:0.8rem; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 3px 12px rgba(37,99,235,0.4);">
                             <i class="fas fa-bolt"></i> <span>Count Now</span>
                         </button>
@@ -9733,8 +9736,18 @@ window.switchSubTab = switchSubTab;
                             <input type="text" id="skuModalBundleName" value="Bundle" placeholder="e.g. A-Frame, Stack" style="margin-bottom:0;">
                         </div>
                     </div>
-                    <input type="hidden" id="skuModalWeight" value="0.0">
-                    <input type="hidden" id="skuModalVolume" value="0.0">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:1rem;">
+                        <div>
+                            <label for="skuModalWeight">Weight of 1 piece (kg)</label>
+                            <input type="number" id="skuModalWeight" step="0.001" min="0" value="0.0" placeholder="e.g. 56" style="margin-bottom:0;">
+                            <small style="color:var(--text-muted); font-size:0.72rem;">Used by Weight Check and bin weight limits.</small>
+                        </div>
+                        <div>
+                            <label for="skuModalVolume">Volume of 1 piece (m&sup3;)</label>
+                            <input type="number" id="skuModalVolume" step="0.0001" min="0" value="0.0" placeholder="e.g. 0.03" style="margin-bottom:0;">
+                            <small style="color:var(--text-muted); font-size:0.72rem;">Used for bin space (fill %).</small>
+                        </div>
+                    </div>
 
                     <div style="margin-bottom:0.5rem;">
                         <label for="skuModalStatus">Status</label>

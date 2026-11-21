@@ -122,6 +122,7 @@ rule,method,endpoint,access,permission,module,scope,sensitive,reason_required
 /api/pallets/<pallet_id>/count,POST,api_update_pallet_count,permission,vision.counting.execute,AI vision,warehouse,,
 /api/pallets/<pallet_id>/count_image,POST,api_count_pallet_image,permission,vision.counting.execute,AI vision,warehouse,,
 /api/pallets/<pallet_id>/label,GET,api_get_pallet_label,permission,pallet.view,Pallets,warehouse,,
+/api/pallets/<pallet_id>/putaway,POST,api_putaway_pallet,permission,inventory.transfer,Inventory,warehouse,,
 /api/pallets/<pallet_id>/seal,POST,api_seal_pallet,permission,pallet.seal,Pallets,warehouse,,
 /api/pallets/camera/<camera_id>/bind,GET,api_camera_pallet_bind,permission,pallet.view,Pallets,warehouse,,
 /api/pallets/camera/<camera_id>/bind,POST,api_camera_pallet_bind,permission,pallet.create,Pallets,warehouse,,

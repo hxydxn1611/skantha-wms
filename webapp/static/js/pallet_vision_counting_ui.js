@@ -4505,6 +4505,7 @@
             const formData = new FormData();
 
             formData.append('source_type', wbSource);
+            if (document.getElementById('wbStackOnly') && !document.getElementById('wbStackOnly').checked) formData.append('whole_photo', '1');
 
             if (wbMode === 'bundles') {
 
@@ -4857,6 +4858,12 @@
                 } else {
 
                     showToast(`Pallet analyzed: ${total} ${data.mode === 'BUNDLE_STACK' ? 'bundles' : 'pieces'} counted.`, 'success');
+                    const sf = data.stack_focus;
+                    if (sf && (sf.background || sf.duplicates)) {
+                        showToast(`Counted the stack in front only: ${sf.background} item(s) from other stacks in the photo` +
+                                  (sf.duplicates ? ` and ${sf.duplicates} double marker(s)` : '') +
+                                  ` were left out. Tap the photo to add any piece that was missed.`, 'info');
+                    }
 
                 }
 
@@ -7361,6 +7368,30 @@ function initWb3DPalletViewer(matrixData) {
 
 
 
+    // saves the verified count on the open pallet (server), so it survives a reload and can be sealed/put away
+    async function saveCountToPallet(counted, perBundle, label) {
+        const pid = typeof window.getActivePalletId === 'function' ? window.getActivePalletId() : null;
+        if (!pid) {
+            if (typeof showToast === 'function') showToast('Pick or build a pallet first (Step 1), then save the count to it.', 'warning');
+            return;
+        }
+        try {
+            const res = await fetch(`/api/pallets/${encodeURIComponent(pid)}/count`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ counted_bundles: counted, units_per_bundle: perBundle })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+                if (typeof window.showPalletRecord === 'function') window.showPalletRecord(data.pallet);
+                if (typeof showToast === 'function') showToast(`Saved on pallet ${pid}: ${label}. Seal the pallet when it is complete.`, 'success');
+            } else if (typeof showToast === 'function') {
+                showToast(`Count not saved: ${data.error || data.message || res.status}`, 'error');
+            }
+        } catch (e) {
+            if (typeof showToast === 'function') showToast(`Count not saved: ${e.message}`, 'error');
+        }
+    }
+
     window.applyVerifiedCountToActivePallet = function() {
 
         const qb = (wbLatestResult && wbLatestResult.quantity_breakdown) || {};
@@ -7392,27 +7423,15 @@ function initWb3DPalletViewer(matrixData) {
             if (palletPcsElem) palletPcsElem.textContent = baseCount;
             if (palletBundlesElem) palletBundlesElem.textContent = 0;
             if (unitsPerBundleElem) unitsPerBundleElem.textContent = 1;
-            if (typeof showToast === 'function') {
-                showToast(`Verified count (${baseCount} Pieces) applied to active pallet build session.`, 'success');
-            } else {
-                alert(`Verified count applied to active pallet session: ${baseCount} Pieces`);
-            }
+            saveCountToPallet(baseCount, 1, `${baseCount} pieces`);
         } else if (wbMode === 'bundles' || uPerB > 1) {
             if (palletBundlesElem) palletBundlesElem.textContent = baseCount;
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
-            if (typeof showToast === 'function') {
-                showToast(`Verified count (${baseCount} ${bname}s × ${uPerB} ${uom} = ${totalIndividualUnits} ${uom}) applied to active pallet build session.`, 'success');
-            } else {
-                alert(`Verified count applied to active pallet session: ${totalIndividualUnits} ${uom}`);
-            }
+            saveCountToPallet(baseCount, uPerB, `${baseCount} ${bname}s × ${uPerB} = ${totalIndividualUnits} ${uom}`);
         } else {
             if (palletPcsElem) palletPcsElem.textContent = totalIndividualUnits;
             if (palletBundlesElem) palletBundlesElem.textContent = 0;
-            if (typeof showToast === 'function') {
-                showToast(`Verified count (${baseCount} Units) applied to active pallet build session.`, 'success');
-            } else {
-                alert(`Verified count applied to active pallet session: ${totalIndividualUnits} ${uom}`);
-            }
+            saveCountToPallet(totalIndividualUnits, 1, `${totalIndividualUnits} ${uom}`);
         }
 
     };

@@ -34,6 +34,7 @@ ENDPOINT_TYPES = {
     "unload_step": "receive",
     "auto_add_step": "receive",
     "api_inbound_complete_receipt": "receive",
+    "api_putaway_pallet": "receive",
     "pick_outbound": "pick",
     "run_cycle_count": "cycle_count",
     "api_sync_audit_count": "count_sync",

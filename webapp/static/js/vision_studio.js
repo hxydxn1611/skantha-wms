@@ -498,7 +498,7 @@
         const s = skuById($('wcSku').value);
         const w = s ? Number(s.unit_weight) || 0 : 0;
         $('wcUnit').value = w ? w : '';
-        $('wcUnitHint').textContent = s ? (w ? `From the product: ${w} kg per ${String(s.uom || 'piece').toLowerCase()}.`
+        $('wcUnitHint').textContent = s ? (w ? `From the product: ${w} kg per ${/^(ea|pcs|nos)$/i.test(String(s.uom || '')) || !s.uom ? 'piece' : String(s.uom).toLowerCase()}.`
             : 'This product has no weight per piece yet. Type it here (and add it to the product).') : 'Taken from the product; you can change it here.';
     }
     function wcCalc() {
@@ -506,7 +506,7 @@
         const unit = parseFloat($('wcUnit').value), gross = parseFloat($('wcGross').value);
         const tare = parseFloat($('wcTare').value) || 0, cam = $('wcCam').value === '' ? null : parseInt($('wcCam').value, 10);
         const s = skuById($('wcSku').value);
-        const uom = s ? String(s.uom || 'pcs').toLowerCase() : 'pcs';
+        const uom = s && s.uom && !/^ea$/i.test(s.uom) ? String(s.uom).toLowerCase() : 'pcs';
         if (!(unit > 0) || !(gross > 0)) {
             out.innerHTML = `<div class="wc-empty"><span class="inv-empty-icon"><i class="fas fa-scale-balanced"></i></span>
                 <div class="inv-empty-title">Enter the weights</div><div class="uac-muted">${!(unit > 0) ? 'Weight of one piece is needed.' : 'Loaded pallet weight is needed.'}</div></div>`;

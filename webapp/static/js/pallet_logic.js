@@ -5,6 +5,9 @@
 
 (function() {
     let activePalletId = null;
+    // the counting workbench saves its verified count to the pallet that is open here
+    window.getActivePalletId = () => activePalletId;
+    window.showPalletRecord = (p) => { if (p) { activePalletId = p.pallet_id; updatePalletMonitorUI(p); loadPallets(); } };
     let palletPollTimer = null;
     let violationPollTimer = null;
     let knownViolationIds = new Set();
@@ -615,6 +618,7 @@
             if (res.ok && (data.success || data.status === 'success')) {
                 showToast(`Pallet ${targetId} SEALED successfully.`, 'success');
                 loadPallets();
+                await window.putPalletIntoStock(targetId, data.pallet);
                 // Prompt print label
                 if (confirm(`Pallet sealed! Open and print Master Pallet QR label now?`)) {
                     window.printPalletMasterLabel(targetId);
@@ -624,6 +628,37 @@
             }
         } catch(e) {
             console.error('Seal error:', e);
+            alert(`Network error: ${e.message}`);
+        }
+    };
+
+    // Sealed pallet -> its counted pieces are added to stock in its bin (once per pallet).
+    window.putPalletIntoStock = async function(palletId, pallet) {
+        const p = pallet || {};
+        const qty = parseInt(p.total_units || 0, 10);
+        if (!qty) return;
+        const uom = p.sku_uom || 'pcs';
+        if (!confirm(`Put this pallet into stock now?\n\n${qty} ${uom} of ${p.sku_id || 'the product'} will be ADDED to stock` +
+                     (p.assigned_bin_id ? ` in bin ${p.assigned_bin_id}.` : '.') +
+                     `\n\nPress Cancel if these goods were already received at Inbound (they are in stock already).`)) return;
+        let binId = p.assigned_bin_id || '';
+        if (!binId) {
+            binId = (prompt('Which bin does this pallet go into? (bin code, e.g. BIN-A-01)') || '').trim();
+            if (!binId) return;
+        }
+        try {
+            const res = await fetch(`/api/pallets/${encodeURIComponent(palletId)}/putaway`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bin_id: binId })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+                showToast(data.message || 'Pallet put into stock.', 'success');
+                loadPallets();
+            } else {
+                alert(`Not put into stock: ${data.error || data.message || res.status}`);
+            }
+        } catch (e) {
             alert(`Network error: ${e.message}`);
         }
     };

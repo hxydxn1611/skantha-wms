@@ -6438,8 +6438,8 @@ def suggest_bin(gp_id):
     import json
     try:
         sheet_str = gp.get('unloading_sheet')
-        sheet = json.loads(sheet_str) if isinstance(sheet_str, str) else sheet_str
-        if sheet and len(sheet) > 0 and 'sku' in sheet[0]:
+        sheet = db.normalize_sheet(sheet_str)
+        if sheet and sheet[0].get('sku'):
             sku_id = sheet[0]['sku']
     except: pass
     
@@ -6911,12 +6911,25 @@ def api_update_pallet_count(pallet_id):
         new_count=int(new_count),
         track_id=data.get('track_id'),
         similarity_score=float(data.get('similarity_score', 0.0)),
-        snapshot_path=data.get('snapshot_path')
+        snapshot_path=data.get('snapshot_path'),
+        units_per_bundle=data.get('units_per_bundle')
     )
     if not rec:
         return jsonify({"success": False, "error": f"Pallet '{pallet_id}' not found"}), 404
 
     return jsonify({"success": True, "pallet": rec})
+
+
+@app.route('/api/pallets/<pallet_id>/putaway', methods=['POST'])
+def api_putaway_pallet(pallet_id):
+    """Sealed pallet -> its counted pieces are added to stock in its bin (once per pallet)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        res = db.putaway_pallet(pallet_id, bin_id=data.get('bin_id'))
+    except db.ReceiveError as e:
+        return jsonify({"success": False, "error": _public_error(e)}), 400
+    return jsonify({"success": True, "receipt": res, "pallet": db.get_pallet_by_id(pallet_id),
+                    "message": f"{res['added']} added to stock in {res['bin_id']} (now {res['line_quantity']} there)."})
 
 
 @app.route('/api/pallets/<pallet_id>/seal', methods=['POST'])
@@ -7514,6 +7527,51 @@ def _extract_base64_image_bgr(data_str):
         return None, 'corrupted_image', f'Base64 image encoding is invalid: {b64_err}'
 
 
+def _focus_on_main_stack(service, image_bgr, result):
+    """Individual-pieces count: keep the main stack, drop pieces of other stacks in the background and
+    pieces found twice (stack_focus.py), then redraw the markers with the engine's own re-render (the
+    same step as an operator removing markers). Any problem -> the original result, unchanged."""
+    try:
+        mode = str(result.get('mode') or result.get('counting_mode') or '').lower()
+        if not result.get('pieces') or 'bundle' in mode or 'carton' in mode:
+            return result
+        import stack_focus
+        kept, stats = stack_focus.main_stack(result['pieces'])
+        if stats['background'] + stats['duplicates'] == 0:
+            return result
+        rr = service.re_render_piece_annotations(image_bgr, pieces=kept, counting_mode=result.get('counting_mode'),
+                                                 material_type=result.get('material_type'), regions=result.get('regions'))
+        if not rr or rr.get('success') is False:
+            return result
+        n = int(rr.get('total_pieces') if rr.get('total_pieces') is not None else len(kept))
+        merged = dict(result)
+        for k in ('pieces', 'annotated_image_url', 'clusters', 'directly_detected_count', 'visible_pieces', 'total_pieces',
+                  'excluded_count', 'excluded_pieces', 'uncertain_count', 'matrix_3d', 'boundary_reviews',
+                  'hidden_count', 'inferred_count'):
+            if k in rr:
+                merged[k] = rr[k]
+        qb = dict(result.get('quantity_breakdown') or {})
+        qb.update(rr.get('quantity_breakdown') or {})
+        for k in ('total_units', 'total_pieces', 'calculated_total_pieces', 'individual_units_total',
+                  'final_proposed_quantity', 'proposed_count', 'confirmed_count', 'visible_count', 'directly_detected_count'):
+            qb[k] = n
+        merged['quantity_breakdown'] = qb
+        for k in ('confirmed_count', 'proposed_count', 'final_proposed_quantity', 'individual_units_total'):
+            if isinstance(result.get(k), (int, float)):
+                merged[k] = n
+        if isinstance(result.get('confirmed_objects'), list):
+            merged['confirmed_objects'] = merged['pieces']
+        merged['stack_focus'] = dict(stats, before=len(result['pieces']))
+        sid = merged.get('session_id')
+        sessions = getattr(service, '_active_multiview_sessions', None)
+        if sid and isinstance(sessions, dict) and sid in sessions:
+            sessions[sid] = merged       # review / transfer use the corrected count
+        return merged
+    except Exception:
+        logger.exception("main-stack focus skipped")
+        return result
+
+
 @app.route('/api/pallets/count-pieces', methods=['POST'])
 def api_count_pallet_pieces():
     """
@@ -7684,6 +7742,12 @@ def api_count_pallet_pieces():
             manual_bundle_name=manual_bundle_name,
             glass_profile=glass_profile
         )
+
+        # count the stack in front, not other stacks behind it (unless the operator drew an area
+        # or asked for the whole photo)
+        whole_photo = str(request.form.get('whole_photo') or data.get('whole_photo') or '').lower() in ('1', 'true', 'yes')
+        if not whole_photo and not roi and not regions:
+            result = _focus_on_main_stack(service, image_bgr, result)
 
         result['source_type'] = source_type
         if source_type == 'camera':

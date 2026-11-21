@@ -119,6 +119,8 @@
         pickOutboundOrder: 'outbound.dispatch',
         assignOutboundTruck: 'outbound.dispatch',
         openNewPalletModal: 'pallet.create',
+        sealPalletAction: 'pallet.seal',
+        applyVerifiedCountToActivePallet: 'vision.counting.execute',
         // vision
         executeWorkbenchCount: 'vision.counting.execute', executePieceCount: 'vision.counting.execute',
         executeBundleCount: 'vision.counting.execute', approveWorkbenchSession: 'vision.counting.review',

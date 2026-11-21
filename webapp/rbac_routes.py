@@ -197,6 +197,7 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "api_create_pallet": "pallet.create",
     "api_delete_pallet": "pallet.delete",
     "api_seal_pallet": "pallet.seal",
+    "api_putaway_pallet": "inventory.transfer",
     "api_camera_pallet_bind": {"GET": "pallet.view", "HEAD": "pallet.view", "POST": "pallet.create"},
     "api_update_pallet_count": "vision.counting.execute",
     "api_count_pallet_image": "vision.counting.execute",

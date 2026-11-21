@@ -108,6 +108,7 @@ EVENTS: Dict[str, Dict[str, Tuple[str, Optional[str], Tuple[str, ...]]]] = {
     "handle_outbound": {"POST": ("outbound.created", None, ())},
     "api_create_pallet": {"POST": ("pallet.created", "pallet", ("resp:pallet.pallet_id", "resp:pallet_id"))},
     "api_seal_pallet": {"POST": ("pallet.sealed", "pallet", ("arg:pallet_id",))},
+    "api_putaway_pallet": {"POST": ("pallet.put_away", "pallet", ("arg:pallet_id",))},
     "api_delete_pallet": {"DELETE": ("pallet.deleted", "pallet", ("arg:pallet_id",))},
     "api_add_bin": {"POST": ("bin.created", "bin", ("body:bin_id",))},
     "api_update_bin": {"*": ("bin.updated", "bin", ("arg:bin_id",))},
