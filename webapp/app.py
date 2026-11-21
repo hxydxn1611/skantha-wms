@@ -4398,16 +4398,23 @@ def _collect_live_gate_frames() -> List[Tuple[str, np.ndarray, List[Dict[str, An
     mgr = get_vision_runtime_manager()
     bus = get_shared_frame_bus()
 
-    # 1. Check SharedFrameBus for cam_inbound_01 and all Gate cameras first
-    priority_ids = ["cam_inbound_01"]
+    # 1. Prioritize real non-test Gate cameras first, then other Gate cameras, then non-gate cameras
+    real_gate_ids = []
+    synth_gate_ids = []
+    other_ids = []
     for cid, sess in mgr.sessions.items():
-        if sess.is_gate_camera or sess.location == 'Gate':
-            if cid not in priority_ids:
-                priority_ids.insert(0, cid)
-        elif cid not in priority_ids:
-            priority_ids.append(cid)
+        if not rbac_scope.camera_visible(cid):
+            continue
+        is_g = sess.is_gate_camera or 'gate' in str(sess.location or '').lower()
+        if is_g and not getattr(sess, 'test_mode', False) and str(getattr(sess, 'stream_url', '')).strip():
+            real_gate_ids.append(cid)
+        elif is_g:
+            synth_gate_ids.append(cid)
+        else:
+            other_ids.append(cid)
+    priority_ids = real_gate_ids + synth_gate_ids + ["cam_inbound_01"] + other_ids
     for cid in active_cameras.keys():
-        if cid not in priority_ids:
+        if cid not in priority_ids and rbac_scope.camera_visible(cid):
             priority_ids.append(cid)
 
     for cid in priority_ids:
@@ -4810,14 +4817,19 @@ def add_camera():
         vendor=data.get('vendor', 'Unknown'),
         bin_id=data.get('bin_id')
     )
-    new_camera.start()
     active_cameras[cam_id] = new_camera
 
-    # Refresh and start W.A.R.L.O.G. Vision Runtime Manager
+    # Start VisionRuntimeManager FIRST so USB/RTSP OpenCVStreamFrameSource owns the single physical capture
     try:
         mgr = get_vision_runtime_manager()
         mgr.refresh_cameras()
         mgr.start_camera(cam_id)
+    except Exception as e:
+        logger.warning(f"Could not refresh VisionRuntimeManager for new camera {cam_id}: {e}")
+
+    new_camera.start()
+
+    try:
         from rtmp_service import get_rtmp_service
         rtmp_srv = get_rtmp_service()
         rtmp_srv.invalidate_target_cache()
@@ -4830,9 +4842,9 @@ def add_camera():
         )
         if is_rtmp_new and rtmp_srv.latest_frame is not None and (time.time() - rtmp_srv.last_frame_time) < 10.0:
             new_camera.push_frame(rtmp_srv.latest_frame)
-            mgr.push_frame(cam_id, rtmp_srv.latest_frame)
+            get_vision_runtime_manager().push_frame(cam_id, rtmp_srv.latest_frame)
     except Exception as e:
-        logger.warning(f"Could not refresh VisionRuntimeManager for new camera {cam_id}: {e}")
+        logger.warning(f"RTMP pre-push notice for new camera {cam_id}: {e}")
     
     return jsonify({"success": True, "id": cam_id, "camera_id": cam_id, "camera": saved_cam})
 
