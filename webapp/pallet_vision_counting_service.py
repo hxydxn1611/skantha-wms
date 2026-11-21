@@ -1362,8 +1362,8 @@ class PalletVisionCountingService:
 
         if resolved_strategy in ("wrapped_bundles", "wrapped_pallet") or (material_type and any(w in str(material_type).lower() for w in ("wrap", "film", "stretch"))):
             return self.count_wrapped_bundles(
-                angle1_bgr=angle1_bgr,
-                angle2_bgr=angle2_bgr if has_distinct_side_view else None,
+                angle1_bgr=image_bgr,
+                angle2_bgr=None,  # one photo in this count (the names used here before did not exist: NameError)
                 sku_id=sku_id,
                 manual_units_per_bundle=manual_units_per_bundle,
                 manual_uom=manual_uom,
@@ -1378,13 +1378,13 @@ class PalletVisionCountingService:
 
         if resolved_strategy == "glass_bundles":
             # Guard against routing non-glass wrapped pallets into glass stillages
-            hsv_g_chk = cv2.cvtColor(angle1_bgr, cv2.COLOR_BGR2HSV)
+            hsv_g_chk = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
             green_g_chk = cv2.inRange(hsv_g_chk, (35, 30, 20), (85, 255, 255))
-            has_glass_tint = (float(np.sum(green_g_chk > 0)) / float(angle1_bgr.shape[0] * angle1_bgr.shape[1])) > 0.05
+            has_glass_tint = (float(np.sum(green_g_chk > 0)) / float(image_bgr.shape[0] * image_bgr.shape[1])) > 0.05
             if not has_glass_tint and not (material_type and "glass" in str(material_type).lower()):
                 return self.count_wrapped_bundles(
-                    angle1_bgr=angle1_bgr,
-                    angle2_bgr=angle2_bgr if has_distinct_side_view else None,
+                    angle1_bgr=image_bgr,
+                    angle2_bgr=None,  # one photo in this count (the names used here before did not exist: NameError)
                     sku_id=sku_id,
                     manual_units_per_bundle=manual_units_per_bundle,
                     manual_uom=manual_uom,

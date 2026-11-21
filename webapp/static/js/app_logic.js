@@ -7243,3 +7243,20 @@ window.toggleCameraDeviceSidebar = function() {
         }
     }
 };
+
+// Camera Junction > "No Active Camera Feeds" > "Use Device Camera" called openDeviceCamPrompt(), which never
+// existed (ReferenceError). It opens the camera form with "Device Camera (Laptop / Phone)" chosen, the same
+// form "Connect Network Camera" opens; the user names it and presses Connect as usual.
+window.openDeviceCamPrompt = function() {
+    if (typeof window.switchCameraSubTab === 'function') window.switchCameraSubTab('settings');
+    const type = document.getElementById('camType');
+    if (type) {
+        type.value = 'Device Camera';
+        type.dispatchEvent(new Event('change'));
+    }
+    const name = document.getElementById('camName');
+    if (name) {
+        if (!name.value.trim()) name.value = 'Laptop Camera';
+        setTimeout(() => { name.focus(); name.select(); }, 50);
+    }
+};

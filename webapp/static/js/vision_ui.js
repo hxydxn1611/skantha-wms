@@ -7867,4 +7867,26 @@
                         if (dashSub && dashSub.style.display !== 'none') {
                             initLiveVisionDashboard();
                         }
-                    });
+                    });
+
+// Object detection test bench > "Upload Image File" called previewDetectionUploadedFile(this), which never
+// existed (ReferenceError). It shows the chosen photo in the result area and its name and size next to the
+// field; "Run Object Detection" still reads the file itself.
+window.previewDetectionUploadedFile = function(input) {
+    const file = input && input.files && input.files[0];
+    const badge = document.getElementById('dtUploadBadge');
+    const img = document.getElementById('dtAnnotatedImg');
+    const empty = document.getElementById('dtEmptyPrompt');
+    if (!file) {
+        if (badge) badge.textContent = 'PNG, JPG, WEBP';
+        return;
+    }
+    if (badge) badge.textContent = `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`;
+    if (!/^image\//.test(file.type || '')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        if (img) { img.src = reader.result; img.style.display = 'block'; }
+        if (empty) empty.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+};
