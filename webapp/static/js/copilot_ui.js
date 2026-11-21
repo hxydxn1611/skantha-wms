@@ -234,10 +234,10 @@
         if (typeof window.switchTab === 'function') {
             window.switchTab(target.tab);
         }
-        const confirmMsg = `Navigating to **${target.label}** as requested via voice.`;
+        const confirmMsg = `Navigating to **${__h(target.label)}** as requested via voice.`;
         appendAssistantMessage(confirmMsg, [{
             type: 'knowledge_card',
-            title: `🚀 ${target.label}`,
+            title: `🚀 ${__h(target.label)}`,
             subtitle: 'Voice Direct Navigation',
             points: [
                 `Active Tab: ${target.tab}`,
@@ -335,14 +335,17 @@
         }
         showTypingIndicator();
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+
         try {
             const res = await fetch('/api/copilot/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: queryText })
+                body: JSON.stringify({ message: queryText }),
+                signal: controller.signal
             });
-
-            removeTypingIndicator();
+            clearTimeout(timeoutId);
 
             if (res.ok) {
                 const data = await res.json();
@@ -352,12 +355,20 @@
                 }
                 // Speak response out loud via Text-to-Speech (Two-Way Voice)
                 speakAssistantReply(data.reply);
+            } else if (res.status === 401) {
+                appendAssistantMessage("⚠️ **Session Expired or Unauthenticated.** Please refresh the page or log in to continue chatting with WARLOG Copilot.", []);
             } else {
                 appendAssistantMessage("I encountered an error querying the warehouse matrix. Please try again.", []);
             }
         } catch (err) {
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') {
+                appendAssistantMessage("⏱️ **Request Timed Out.** The network connection was busy or delayed. Please send your query again.", []);
+            } else {
+                appendAssistantMessage(`Connection notice: ${err.message}. Please check server connectivity.`, []);
+            }
+        } finally {
             removeTypingIndicator();
-            appendAssistantMessage(`Connection failure: ${err.message}`, []);
         }
     };
 
@@ -444,7 +455,7 @@
             const actionButtons = (card.actions || []).map(a => `
                 <button type="button" onclick="executeCopilotAction('${a.action}', ${escapeJson(a.params)})" 
                     style="background:linear-gradient(135deg, rgba(16,185,129,0.9), rgba(5,150,105,0.9)); color:#fff; font-size:0.72rem; font-weight:600; padding:4px 10px; border-radius:20px; border:none; cursor:pointer; box-shadow:0 2px 8px rgba(16,185,129,0.3); transition:all 0.15s ease;">
-                    ${a.label}
+                    ${__h(a.label)}
                 </button>
             `).join('');
 
@@ -471,7 +482,7 @@
             const actionButtons = (card.actions || []).map(a => `
                 <button type="button" class="copilot-card-btn" onclick="executeCopilotAction('${a.action}', ${escapeJson(a.params)})" 
                     style="width:100%; text-align:center; padding:6px 10px; margin-top:4px;">
-                    ${a.label} &rarr;
+                    ${__h(a.label)} &rarr;
                 </button>
             `).join('');
 
@@ -501,7 +512,7 @@
                         <span style="font-family:monospace; font-weight:700; color:#f59e0b; font-size:0.75rem;">${escapeHtml(it.plate)}</span>
                         <span style="font-size:0.68rem; color:var(--copilot-text-muted);">(${escapeHtml(it.po || 'Walk-In')})</span>
                     </div>
-                    <button type="button" class="copilot-card-btn" onclick="executeCopilotAction('admit_dock', {id:'${it.id}', dock:'${it.dock}'})">
+                    <button type="button" class="copilot-card-btn" onclick="executeCopilotAction('admit_dock', {id:'${it.id}', dock:${__js(it.dock)}})">
                         Admit &rarr; ${escapeHtml(it.dock)}
                     </button>
                 </div>

@@ -78,7 +78,9 @@ class TestCountingRegressionRecovery(unittest.TestCase):
 
         # Also test API endpoint with authenticated session
         with self.client.session_transaction() as sess:
-            sess['user'] = {'username': 'admin', 'user_id': 'OP-TEST', 'role': 'Admin', 'name': 'Test Operator'}
+            # RBAC Phase 1: sessions must carry the user id and session version
+            from tests import admin_session
+            sess['user'] = {**admin_session(), 'user_id': 'OP-TEST', 'name': 'Test Operator'}
 
         with open(self.carton_path, 'rb') as f:
             resp = self.client.post('/api/pallets/count-pieces', data={

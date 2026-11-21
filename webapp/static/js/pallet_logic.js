@@ -5,6 +5,9 @@
 
 (function() {
     let activePalletId = null;
+    // the counting workbench saves its verified count to the pallet that is open here
+    window.getActivePalletId = () => activePalletId;
+    window.showPalletRecord = (p) => { if (p) { activePalletId = p.pallet_id; updatePalletMonitorUI(p); loadPallets(); } };
     let palletPollTimer = null;
     let violationPollTimer = null;
     let knownViolationIds = new Set();
@@ -147,8 +150,8 @@
                     <div class="violation-card-desc">${v.description || v.details || 'Human error caught by Autonomous Vision pipeline.'}</div>
                     <div class="violation-card-meta">
                         ${v.pallet_id ? `<span>PLT: <b>${v.pallet_id}</b></span>` : ''}
-                        ${v.bin_id ? `<span>BIN: <b>${v.bin_id}</b></span>` : ''}
-                        ${v.sku_id ? `<span>SKU: <b>${v.sku_id}</b></span>` : ''}
+                        ${v.bin_id ? `<span>BIN: <b>${__h(v.bin_id)}</b></span>` : ''}
+                        ${v.sku_id ? `<span>SKU: <b>${__h(v.sku_id)}</b></span>` : ''}
                         ${v.camera_id ? `<span>CAM: <b>${v.camera_id}</b></span>` : ''}
                     </div>
                     <div style="margin-top:6px; display:flex; justify-content:flex-end;">
@@ -293,7 +296,7 @@
             select.innerHTML = '<option value="">-- Choose SKU to Palletize --</option>' + skus.map(s => {
                 const bundleUnits = s.units_per_bundle || 10;
                 const targetBundles = s.target_bundles_per_pallet || 50;
-                return `<option value="${s.sku_id}" data-units="${bundleUnits}" data-target="${targetBundles}">${s.sku_id} - ${s.name} (${bundleUnits} pcs/bundle)</option>`;
+                return `<option value="${__h(s.sku_id)}" data-units="${bundleUnits}" data-target="${targetBundles}">${__h(s.sku_id)} - ${__h(s.name)} (${bundleUnits} pcs/bundle)</option>`;
             }).join('');
         } catch(e) {
             console.error('[Pallet SKUs] Error:', e);
@@ -310,7 +313,7 @@
             if (!select) return;
 
             select.innerHTML = '<option value="">-- None / Assign on Seal --</option>' + bins.map(b => {
-                return `<option value="${b.bin_id}">${b.bin_id} (${b.zone || 'Storage'} - ${b.status || 'AVAILABLE'})</option>`;
+                return `<option value="${__h(b.bin_id)}">${__h(b.bin_id)} (${__h(b.zone || 'Storage')} - ${b.status || 'AVAILABLE'})</option>`;
             }).join('');
         } catch(e) {
             console.error('[Pallet Bins] Error:', e);
@@ -333,7 +336,7 @@
             }
 
             select.innerHTML = cams.map(c => {
-                return `<option value="${c.camera_id}">${c.camera_id} - ${c.name} (${c.location || 'Palletizing Zone'})</option>`;
+                return `<option value="${c.camera_id}">${c.camera_id} - ${__h(c.name)} (${__h(c.location || 'Palletizing Zone')})</option>`;
             }).join('');
 
             // On change, update stream feed
@@ -353,8 +356,10 @@
         if (img) img.src = `/video_feed/${camId}`;
         if (camLabel) camLabel.textContent = `CAM: ${camId}`;
 
-        // Also bind this camera to current pallet if active
-        if (activePalletId && camId) {
+        // Also bind this camera to current pallet if active (only a real camera, and only for
+        // someone allowed to work on pallets - viewing a pallet never writes, RBAC Phase 6)
+        const canBind = typeof window.hasPerm !== 'function' || window.hasPerm('pallet.create');
+        if (activePalletId && camId && camId !== 'undefined' && camId !== 'null' && canBind) {
             fetch(`/api/pallets/camera/${camId}/bind`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -374,7 +379,8 @@
 
             // Bind current camera
             const camSelect = document.getElementById('palletCameraSelect');
-            if (camSelect && camSelect.value) {
+            const canBind = typeof window.hasPerm !== 'function' || window.hasPerm('pallet.create');
+            if (camSelect && camSelect.value && camSelect.value !== 'undefined' && canBind) {
                 fetch(`/api/pallets/camera/${camSelect.value}/bind`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -466,8 +472,8 @@
                 <tr style="${isSelected ? 'background:rgba(99,102,241,0.06); font-weight:600;' : ''}">
                     <td style="font-family:'JetBrains Mono',monospace;"><b>${p.pallet_id}</b></td>
                     <td>
-                        <div><b>${p.sku_id}</b></div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">${p.sku_name || ''}</div>
+                        <div><b>${__h(p.sku_id)}</b></div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${__h(p.sku_name || '')}</div>
                     </td>
                     <td>
                         <span class="badge" style="background:${isSealed ? '#10b981' : '#6366f1'}; color:white; font-size:0.7rem;">
@@ -612,6 +618,7 @@
             if (res.ok && (data.success || data.status === 'success')) {
                 showToast(`Pallet ${targetId} SEALED successfully.`, 'success');
                 loadPallets();
+                await window.putPalletIntoStock(targetId, data.pallet);
                 // Prompt print label
                 if (confirm(`Pallet sealed! Open and print Master Pallet QR label now?`)) {
                     window.printPalletMasterLabel(targetId);
@@ -621,6 +628,37 @@
             }
         } catch(e) {
             console.error('Seal error:', e);
+            alert(`Network error: ${e.message}`);
+        }
+    };
+
+    // Sealed pallet -> its counted pieces are added to stock in its bin (once per pallet).
+    window.putPalletIntoStock = async function(palletId, pallet) {
+        const p = pallet || {};
+        const qty = parseInt(p.total_units || 0, 10);
+        if (!qty) return;
+        const uom = p.sku_uom || 'pcs';
+        if (!confirm(`Put this pallet into stock now?\n\n${qty} ${uom} of ${p.sku_id || 'the product'} will be ADDED to stock` +
+                     (p.assigned_bin_id ? ` in bin ${p.assigned_bin_id}.` : '.') +
+                     `\n\nPress Cancel if these goods were already received at Inbound (they are in stock already).`)) return;
+        let binId = p.assigned_bin_id || '';
+        if (!binId) {
+            binId = (prompt('Which bin does this pallet go into? (bin code, e.g. BIN-A-01)') || '').trim();
+            if (!binId) return;
+        }
+        try {
+            const res = await fetch(`/api/pallets/${encodeURIComponent(palletId)}/putaway`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bin_id: binId })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+                showToast(data.message || 'Pallet put into stock.', 'success');
+                loadPallets();
+            } else {
+                alert(`Not put into stock: ${data.error || data.message || res.status}`);
+            }
+        } catch (e) {
             alert(`Network error: ${e.message}`);
         }
     };

@@ -166,9 +166,19 @@ class TestUnifiedWorkflowIntegration(unittest.TestCase):
     def test_05_inventory_transfer_workflow(self):
         """Test inventory transfer endpoint enforces approval, updates inventory, and prevents duplicates."""
         sess_id = f"SES-INV-TEST-{uuid.uuid4().hex[:8]}"
+        # a real product, posted while working in the bin's own location (2026-11-21: receiving
+        # needs a product from the list and a bin in the current location; counts are ADDED)
+        conn = db.get_db()
+        try:
+            glass_wh = conn.execute("SELECT id FROM warehouses WHERE code = 'WH-GLASS-COI'").fetchone()[0]
+            before = conn.execute("SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE bin_id = 'BIN-STEEL-01' "
+                                  "AND sku_id = 'GLS-FLT-04MM'").fetchone()[0]
+        finally:
+            conn.close()
+        here = {"X-Warehouse-Id": str(glass_wh)}
         self.service._active_multiview_sessions[sess_id] = {
             "session_id": sess_id,
-            "sku_id": "PIP-RND-100",
+            "sku_id": "GLS-FLT-04MM",
             "material_type": "steel_profiles",
             "inferred_material": "steel_profiles",
             "counting_mode": "individual_pieces",
@@ -189,7 +199,7 @@ class TestUnifiedWorkflowIntegration(unittest.TestCase):
             "session_id": sess_id,
             "target_type": "bin",
             "bin_id": "BIN-STEEL-01"
-        })
+        }, headers=here)
         self.assertEqual(res_fail.status_code, 400)
         self.assertIn("unapproved_session", res_fail.get_json()["error_code"])
 
@@ -203,7 +213,7 @@ class TestUnifiedWorkflowIntegration(unittest.TestCase):
             "bin_id": "BIN-STEEL-01",
             "operator_id": "OP-LEAD",
             "notes": "Verified steel batch delivery"
-        })
+        }, headers=here)
         self.assertEqual(res_ok.status_code, 200)
         ok_data = res_ok.get_json()
         self.assertTrue(ok_data["success"])
@@ -215,13 +225,20 @@ class TestUnifiedWorkflowIntegration(unittest.TestCase):
         self.assertIsNotNone(sub_record)
         self.assertEqual(sub_record["total_pieces"], 48)
         self.assertEqual(sub_record["bin_id"], "BIN-STEEL-01")
+        conn = db.get_db()
+        try:
+            after = conn.execute("SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE bin_id = 'BIN-STEEL-01' "
+                                 "AND sku_id = 'GLS-FLT-04MM'").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(after, before + 48)   # added to what was there, not replacing it
 
         # 4. Attempt duplicate transfer with same session -> Should fail with 409 Conflict
         res_dup = self.client.post('/api/pallets/transfer-inventory', json={
             "session_id": sess_id,
             "target_type": "bin",
             "bin_id": "BIN-STEEL-01"
-        })
+        }, headers=here)
         self.assertEqual(res_dup.status_code, 409)
         self.assertEqual(res_dup.get_json()["error_code"], "duplicate_transfer")
 

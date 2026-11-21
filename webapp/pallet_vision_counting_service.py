@@ -852,6 +852,17 @@ class PalletVisionCountingService:
         fused_list = res_dict.get("fused_objects", [])
         confirmed_list = [o for o in fused_list if o.get("status") == "CONFIRMED"]
         uncertain_list = [o for o in fused_list if o.get("status") != "CONFIRMED" and o.get("status") != "REJECTED"]
+        # Uncertain regions found by a single view (e.g. a glass stack body that can't be resolved
+        # from the front) live in boundary_reviews, not in pieces: keep them in the uncertain count
+        # instead of silently dropping them (they stay out of the confirmed/direct counts).
+        fused_ids = {o.get("detection_id") for o in fused_list}
+        for b in (res_dict.get("boundary_reviews") or []):
+            if b.get("is_uncertain") and b.get("detection_id") not in fused_ids:
+                b_copy = dict(b)
+                b_copy.setdefault("object_id", b_copy.get("detection_id"))
+                b_copy["status"] = "UNCERTAIN"
+                b_copy.setdefault("review_state", "AUTO_PROPOSED")
+                uncertain_list.append(b_copy)
         added_list = [o for o in fused_list if o.get("is_operator_added")]
         rejected_list = [o for o in fused_list if o.get("status") == "REJECTED"]
 

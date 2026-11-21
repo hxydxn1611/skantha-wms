@@ -1,5 +1,31 @@
-from flask import Flask, render_template, Response, request, jsonify, send_file, session, redirect, url_for, make_response
+from flask import Flask, render_template, Response, request, jsonify, send_file, session, redirect, url_for, make_response, g
 from typing import Optional, Union, Tuple, Dict, Any, List
+import os as _os
+
+
+def _load_env_and_require_secret_key() -> str:
+    """RBAC Phase 0 (H2): secrets come only from the environment or the git-ignored
+    repo-root .env file. There is no built-in fallback; the app refuses to start
+    without FLASK_SECRET_KEY, so sessions are never signed with a public key."""
+    if _os.environ.get('WARLOG_SKIP_DOTENV') != '1':
+        try:
+            from dotenv import load_dotenv
+            _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            load_dotenv(_os.path.join(_root, '.env'), override=False)
+        except ImportError:
+            pass
+    key = _os.environ.get('FLASK_SECRET_KEY') or _os.environ.get('SECRET_KEY') or ''
+    if len(key) < 16:
+        raise RuntimeError(
+            "FLASK_SECRET_KEY is not set (or shorter than 16 characters). "
+            "Add it to the .env file in the repository root, e.g. "
+            "FLASK_SECRET_KEY=<output of: py -c \"import secrets;print(secrets.token_hex(32))\">"
+        )
+    return key
+
+
+_FLASK_SECRET_KEY = _load_env_and_require_secret_key()
+
 from werkzeug.utils import secure_filename
 from ai_engine import SmartCamera
 import logging
@@ -41,14 +67,35 @@ class SafeNumpyJSONProvider(DefaultJSONProvider):
 app = Flask(__name__)
 app.json_provider_class = SafeNumpyJSONProvider
 app.json = SafeNumpyJSONProvider(app)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'skantha-wms-secret-key-2026')
+app.secret_key = _FLASK_SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # RBAC Phase 3A (H25): no request over 50 MB
+
+# RBAC Phase 4: users, invitations, passwords and companies
+from iam_routes import bp as iam_blueprint  # noqa: E402
+app.register_blueprint(iam_blueprint)
+# Inventory section: stock overview, history, adjust / transfer / minimum levels
+from inventory_routes import bp as stock_blueprint  # noqa: E402
+import stock_ledger  # noqa: E402
+app.register_blueprint(stock_blueprint)
+# AI Vision tools: Counting Studio (YOLOE, no training) + product photos from the internet
+from vision_studio_routes import bp as vstudio_blueprint  # noqa: E402
+app.register_blueprint(vstudio_blueprint)
 app.jinja_env.auto_reload = True
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=24)
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12)
 )
+
+# RBAC Phase 8 (H8): running behind the HTTPS reverse proxy (deploy/Caddyfile).
+# BEHIND_TLS_PROXY=1 in .env: trust exactly one proxy hop for the client address and scheme,
+# send cookies only over HTTPS and add HSTS. Off by default, so plain-HTTP LAN use still works.
+BEHIND_TLS_PROXY = os.environ.get('BEHIND_TLS_PROXY', '0').strip() == '1'
+if BEHIND_TLS_PROXY:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    app.config.update(SESSION_COOKIE_SECURE=True, PREFERRED_URL_SCHEME='https')
 
 # SKU Image Upload Directory
 SKU_IMAGE_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'sku_images')
@@ -72,6 +119,15 @@ from cycle_count_service import get_cycle_count_service
 from pallet_service import get_pallet_service
 from industry_blueprint_service import get_blueprint_catalog, apply_industry_blueprint
 from staging_perception_service import get_staging_service, ActorType, QuotaStatus
+
+import auth_service
+import rbac_service
+import rbac_scope
+import sqlite3
+import audit_events
+import rbac_catalog
+from rbac_config import get_rbac_mode
+logger.info(f"[RBAC] RBAC_MODE={get_rbac_mode()}")
 
 # Initialize SQLite database schema
 db.init_db()
@@ -116,26 +172,43 @@ except Exception as e:
     logger.warning(f"Failed to start RTMP service: {e}")
 
 
+# Paths reachable without a session. Everything else needs a valid, current session.
+PUBLIC_EXACT_PATHS = frozenset({
+    '/favicon.ico', '/login', '/logout', '/api/login', '/api/logout',
+    '/api/auth/send_otp', '/api/auth/verify_otp_and_register',
+    '/api/company/preview_recognition',
+    # RBAC Phase 4: invitation and password links (single-use tokens)
+    '/accept-invite', '/forgot-password', '/reset-password',
+    '/api/auth/invite_info', '/api/auth/accept_invite', '/api/auth/forgot_password',
+    '/api/auth/reset_password', '/api/auth/reset_link_status',
+})
+PUBLIC_PREFIXES = ('/static/',)  # RBAC Phase 2 (H6): /video_feed needs a session + cameras.stream.view
+# RBAC Phase 3A (H5): uploaded and generated files need a session (and, where the file
+# belongs to a record, that record must be in the user's scope). CSS/JS/images stay public.
+PROTECTED_STATIC_PREFIXES = ('/static/uploads/', '/static/invoices/', '/static/manifests/', '/static/captures/')
+# While a password reset is pending, only these paths work.
+RESET_ALLOWED_PATHS = frozenset({
+    '/account/reset-password', '/api/auth/force_reset_password', '/logout', '/api/logout',
+})
+RESET_PAGE = '/account/reset-password'
+
+
+def _client_ip() -> str:
+    return request.remote_addr or ''
+
+
 @app.before_request
 def enforce_authentication_and_session():
     path = request.path
-    # Allow public assets and public authentication/registration endpoints
-    if (
-        path.startswith('/static/')
-        or path == '/favicon.ico'
-        or path == '/login'
-        or path == '/logout'
-        or path == '/api/login'
-        or path == '/api/logout'
-        or path == '/api/register'
-        or path.startswith('/api/auth/')
-        or path == '/api/company/preview_recognition'
-        or path.startswith('/video_feed/')
-    ):
+    protected_file = path.startswith(PROTECTED_STATIC_PREFIXES)
+    if path in PUBLIC_EXACT_PATHS or (path.startswith(PUBLIC_PREFIXES) and not protected_file):
         return None
 
-    user = session.get('user')
-    if not user or not isinstance(user, dict) or not user.get('username'):
+    # RBAC Phase 1 (D10, H20): the session must name a current, active user whose
+    # session_version matches. Pre-Phase-1 cookies and revoked sessions are rejected.
+    current = auth_service.load_session_user(session.get('user'))
+    if current is None:
+        session.clear()
         if path.startswith('/api/'):
             return jsonify({
                 'success': False,
@@ -145,57 +218,333 @@ def enforce_authentication_and_session():
         dest = request.full_path if request.query_string else request.path
         return redirect(url_for('login_page', next=dest))
 
+    g.current_user = current
+    if current.get('must_reset_password') and path not in RESET_ALLOWED_PATHS:
+        if path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': 'You must set a new password before continuing.',
+                'error_code': 'password_reset_required',
+                'redirect': RESET_PAGE
+            }), 403
+        return redirect(RESET_PAGE)
+
+    # RBAC Phase 3A: which company/warehouse this request works in (tab header, session
+    # default, assigned warehouse). Data isolation applies once ownership is approved.
+    blocked = rbac_service.resolve_scope()
+    if blocked is not None:
+        return blocked
+
+    # RBAC Phase 2: CSRF token (H9) and the route permission map. Both follow RBAC_MODE
+    # (off / audit = log only / enforce = block).
+    rbac_service.csrf_token()
+    blocked = rbac_service.check_csrf()
+    if blocked is not None:
+        return blocked
+    blocked = rbac_service.authorize_request()
+    if blocked is not None:
+        return blocked
+    # RBAC Phase 3A (H13/H14): records named in the URL or body must be in scope.
+    if protected_file:
+        return rbac_service.check_file_scope(path)
+    blocked = rbac_service.check_record_scope()
+    if blocked is not None:
+        return blocked
+    # RBAC Phase 7: remember the record a gate/stock/config change touches (audit before/after)
+    audit_events.snapshot()
+    stock_ledger.begin()   # stock history: name the person on any stock change this request makes
     return None
+
+
+@app.teardown_request
+def _clear_request_scope(_exc=None):
+    import rbac_scope
+    rbac_scope.clear_scope()
+
+
+_OTP_RESPONSE_KEYS = frozenset({'otp', 'otp_generated'})
+
+
+def _strip_keys(value, keys):
+    if isinstance(value, dict):
+        return {k: _strip_keys(v, keys) for k, v in value.items() if k not in keys}
+    if isinstance(value, list):
+        return [_strip_keys(v, keys) for v in value]
+    return value
+
+
+@app.after_request
+def rbac_after_request(response):
+    """RBAC Phase 2 response hardening:
+    * CSRF cookie for the page's JavaScript (H9)
+    * driver OTPs never leave the server in API responses (H17); only
+      /api/gate_passes/<id>/otp returns one, to holders of gate.otp.send
+    * 5xx bodies never carry raw exception text (H18); details go to the server log
+    """
+    audit_events.record(response)   # RBAC Phase 7: one audit row per successful change
+    stock_ledger.finish(response)
+    # RBAC Phase 8: standard browser security headers (never break a response)
+    try:
+        h = response.headers
+        h.setdefault('X-Content-Type-Options', 'nosniff')
+        h.setdefault('X-Frame-Options', 'SAMEORIGIN')
+        h.setdefault('Referrer-Policy', 'same-origin')
+        if BEHIND_TLS_PROXY:
+            h.setdefault('Strict-Transport-Security', 'max-age=31536000')
+    except Exception:
+        pass
+    try:
+        rbac_service.set_csrf_cookie(response)
+        if response.is_streamed or not response.is_json or not request.path.startswith('/api/'):
+            return response
+        if request.endpoint != 'api_gate_pass_otp':
+            raw = response.get_data()
+            if b'"otp' in raw:
+                response.set_data(json.dumps(_strip_keys(json.loads(raw), _OTP_RESPONSE_KEYS), default=str))
+        if response.status_code >= 500:
+            body = response.get_json(silent=True)
+            if isinstance(body, dict):
+                ref = uuid.uuid4().hex[:8]
+                logger.error(f"[ERROR ref={ref}] {request.method} {request.path} -> {response.status_code}: "
+                             f"{body.get('error') or body.get('message')}")
+                for k in ('error', 'message', 'details', 'detail', 'traceback'):
+                    if k in body:
+                        body[k] = f"Internal server error (reference {ref})."
+                response.set_data(json.dumps(body, default=str))
+    except Exception as e:  # hardening must never break a response
+        logger.warning(f"[RBAC] after_request hardening skipped: {e}")
+    return response
+
+
+@app.errorhandler(sqlite3.IntegrityError)
+def handle_scope_fence(e):
+    """RBAC Phase 6: the database fences (Phase 3A) refuse writes in a view-only scope
+    ('All locations') or into another company's data. Say so plainly instead of a 500."""
+    msg = str(e)
+    if 'rbac_read_only_scope' in msg:
+        text = 'You are viewing all locations, which is read-only. Pick one location to make changes.'
+        return jsonify({'success': False, 'error': text, 'message': text, 'error_code': 'read_only_view'}), 403
+    if 'rbac_scope_violation' in msg:
+        return jsonify({'success': False, 'error': 'Not found.', 'message': 'Not found.', 'error_code': 'not_found'}), 404
+    return handle_unexpected_error(e)
+
+
+@app.errorhandler(db.CodeInUseError)
+def handle_code_in_use(e):
+    """RBAC Phase 3B: a code another company/warehouse already uses (never says whose)."""
+    return jsonify({'success': False, 'error': _public_error(e), 'message': _public_error(e), 'error_code': 'code_in_use'}), 409
+
+
+def _public_error(e) -> str:
+    """Hardening (H18 for 4xx/200 answers): what an error may tell the browser.
+    Our own validation messages (ValueError) and missing fields are shown; anything else
+    (database errors, file paths, crashes) goes to the server log with a reference."""
+    if isinstance(e, KeyError):
+        return f"Missing field: {e.args[0] if e.args else ''}".strip()
+    if type(e) is ValueError or isinstance(e, (db.CodeInUseError, db.WarehouseOwnershipError, db.ReceiveError,
+                                               db.OutboundError)):
+        return str(e)
+    ref = uuid.uuid4().hex[:8]
+    logger.warning(f"[ERROR ref={ref}] {request.method} {request.path}: {type(e).__name__}: {e}")
+    return f"Something went wrong (reference {ref})."
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(e):
+    """Unhandled errors: JSON with a reference id for API calls, never the exception text (H18)."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': e.description, 'error_code': e.name.lower().replace(' ', '_')}), e.code
+        return e
+    ref = uuid.uuid4().hex[:8]
+    logger.exception(f"[ERROR ref={ref}] unhandled exception on {request.method} {request.path}")
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'error': f'Internal server error (reference {ref}).',
+                        'error_code': 'internal_error'}), 500
+    return make_response(f'Internal server error (reference {ref}).', 500)
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def api_auth_me():
+    """Who am I, where am I working, and what may I do (used by the UI from Phase 6)."""
+    current = g.current_user
+    wid = rbac_service.current_warehouse_id()
+    perms = sorted(rbac_service.permissions_for_user(current['id'], bool(current.get('is_platform_admin')), wid))
+    return jsonify({
+        'success': True,
+        'user': {**auth_service.public_user(auth_service.get_user_by_id(current['id']) or {}),
+                 'is_platform_admin': bool(current.get('is_platform_admin'))},
+        'company_id': auth_service.user_company_id(current['id']),
+        'warehouse_id': wid,
+        'permissions': perms,
+        'rbac_mode': get_rbac_mode(),
+        'access': rbac_service.client_access(current),
+    })
+
+@app.route('/api/platform/companies', methods=['GET'])
+def api_platform_companies():
+    """Companies & Owners (Platform Admin): every company, its owners (Company Admins),
+    its users and its locations with a few live counts. Read-only.
+    Platform Admin only in every RBAC mode (audit mode would otherwise only log a denial)."""
+    if not (g.get('current_user') or {}).get('is_platform_admin'):
+        return jsonify({"success": False, "error": "Platform Admin only.", "error_code": "permission_denied"}), 403
+    conn = db.get_db()
+    try:
+        def rows(sql, params=()):
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+        def counts(table, col):
+            return {r[0]: r[1] for r in conn.execute(
+                f"SELECT {col}, COUNT(*) FROM {table} WHERE {col} IS NOT NULL GROUP BY {col}").fetchall()}
+
+        companies = rows("SELECT id, name, status, is_platform_owner, created_at FROM companies ORDER BY is_platform_owner DESC, name")
+        warehouses = rows("""SELECT id, code, name, city, state, industry, operating_mode, status, created_at, company_id
+                             FROM warehouses ORDER BY code""")
+        access = rows("""
+            SELECT a.user_id, a.company_id, a.warehouse_id, a.status AS access_status,
+                   r.name AS role_name, r.builtin_code,
+                   u.username, u.email, u.is_active, u.last_login_at, u.is_platform_admin
+            FROM user_warehouse_access a
+            JOIN users u ON u.id = a.user_id
+            JOIN roles r ON r.id = a.role_id
+            ORDER BY u.username""")
+        platform_admins = rows("""SELECT id AS user_id, username, email, is_active, last_login_at, company_name
+                                  FROM users WHERE is_platform_admin = 1 ORDER BY username""")
+        cams, deliveries, gps, bins = (counts("cameras", "warehouse_id"), counts("expected_deliveries", "warehouse_id"),
+                                       counts("gate_passes", "warehouse_id"), counts("bins", "warehouse_id"))
+        skus = counts("skus", "company_id")
+    finally:
+        conn.close()
+
+    wh_by_id = {w["id"]: w for w in warehouses}
+    out = []
+    for c in companies:
+        mine = [a for a in access if a["company_id"] == c["id"]]
+        people = {}
+        for a in mine:
+            p = people.setdefault(a["user_id"], {
+                "username": a["username"], "email": a["email"] or "", "is_active": bool(a["is_active"]),
+                "last_login_at": a["last_login_at"], "roles": [], "is_owner": False})
+            where = "All locations" if a["warehouse_id"] is None else (wh_by_id.get(a["warehouse_id"], {}).get("code") or "?")
+            p["roles"].append({"role": a["role_name"], "where": where, "status": a["access_status"]})
+            if a["builtin_code"] == "company_admin" and a["access_status"] == "Active":
+                p["is_owner"] = True
+        locs = [{**w, "cameras": cams.get(w["id"], 0), "deliveries": deliveries.get(w["id"], 0),
+                 "gate_passes": gps.get(w["id"], 0), "bins": bins.get(w["id"], 0)}
+                for w in warehouses if w["company_id"] == c["id"]]
+        out.append({**c, "is_platform_owner": bool(c["is_platform_owner"]),
+                    "owners": [p for p in people.values() if p["is_owner"]],
+                    "users": list(people.values()), "locations": locs, "skus": skus.get(c["id"], 0)})
+    unlinked = [w for w in warehouses if w["company_id"] is None]
+    return jsonify({
+        "success": True,
+        "companies": out,
+        "platform_admins": platform_admins,
+        "unlinked_locations": unlinked,
+        "totals": {"companies": len(out), "locations": len(warehouses),
+                   "owners": sum(len(c["owners"]) for c in out),
+                   "users": len({a["user_id"] for a in access} | {p["user_id"] for p in platform_admins})},
+    })
+
 
 @app.route('/')
 def index():
-    if 'user' not in session or not isinstance(session['user'], dict) or not session['user'].get('username'):
-        return redirect(url_for('login_page', next=request.path))
-    return render_template('index.html', current_user=session['user'])
+    user = g.get('current_user') or {}
+    shown_user = {**session['user'],
+                  'role_label': auth_service.role_label(user.get('id'), bool(user.get('is_platform_admin')))}
+    return render_template('index.html', current_user=shown_user,
+                           warehouse_scope=rbac_service.current_warehouse_id() or '',
+                           is_platform_admin=bool(user.get('is_platform_admin')),
+                           can_manage_users=bool(user.get('is_platform_admin'))
+                           or 'users.view' in rbac_service.effective_permissions(),
+                           warlog_access=rbac_service.client_access(user))
 
 @app.route('/login', methods=['GET'])
 def login_page():
-    if session.get('user') and isinstance(session['user'], dict) and session['user'].get('username'):
+    if auth_service.load_session_user(session.get('user')):
         return redirect('/')
     return render_template('login.html')
 
-@app.route('/logout', methods=['GET', 'POST'])
-def logout():
+def _end_session_response(resp):
+    current = auth_service.load_session_user(session.get('user'))
+    if current:
+        auth_service.audit('auth.logout', actor=current, ip=_client_ip())
     session.clear()
-    resp = make_response(redirect('/login'))
     resp.delete_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'))
     return resp
+
+@app.route('/logout', methods=['GET', 'POST'])
+def logout():
+    return _end_session_response(make_response(redirect('/login')))
 
 @app.route('/api/logout', methods=['POST', 'GET'])
 def api_logout():
-    session.clear()
-    resp = make_response(jsonify({'success': True, 'message': 'Logged out successfully'}))
-    resp.delete_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'))
-    return resp
+    return _end_session_response(make_response(jsonify({'success': True, 'message': 'Logged out successfully'})))
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.json or {}
-    user = db.get_user(data.get('username'), data.get('password'))
-    if user:
-        # Tenant / Session isolation: automatically switch active facility to user's assigned warehouse
-        wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
-        switched = db.set_active_warehouse(wh_code)
-        user_clean = {
-            "username": user.get("username"),
-            "company_name": user.get("company_name", "WARLOG Intelligence Systems"),
-            "assigned_warehouse_code": wh_code,
-            "role": user.get("role", "Admin"),
-            "active_warehouse": switched
-        }
-        session.permanent = True
-        session['user'] = user_clean
-        return jsonify({
-            'success': True,
-            'message': f'Logged in as {user.get("username")}',
-            'user': user_clean
-        })
-    return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+    data = request.get_json(silent=True) or {}
+    status, user = auth_service.authenticate(
+        data.get('username'), (data.get('password') or '').strip(),  # stripped, as it always was
+        ip=_client_ip(), user_agent=request.headers.get('User-Agent')
+    )
+    if status == 'locked':
+        return jsonify({'success': False, 'message': auth_service.LOCKED_LOGIN_ERROR,
+                        'error_code': 'too_many_attempts'}), 429
+    if status != 'ok' or not user:
+        return jsonify({'success': False, 'message': auth_service.GENERIC_LOGIN_ERROR}), 401
+
+    # RBAC Phase 3A: the working warehouse belongs to this session only (no global flag).
+    wh_code = user.get('assigned_warehouse_code') or 'WH-MAIN'
+    session.clear()  # fresh session at every login
+    session.permanent = True
+    g.current_user = auth_service.load_session_user({'uid': user['id'], 'sv': int(user.get('session_version') or 1)}) or user
+    wid = rbac_service.default_warehouse_id(g.current_user, wh_code)
+    switched = db.get_warehouse_by_id(wid) if wid else None
+    session['warehouse_id'] = wid
+    session['user'] = auth_service.session_payload(user, {'assigned_warehouse_code': wh_code,
+                                                          'active_warehouse': switched})
+    rbac_service.csrf_token()
+    must_reset = bool(user.get('must_reset_password'))
+    user_clean = {**auth_service.public_user(user), 'assigned_warehouse_code': wh_code,
+                  'active_warehouse': switched, 'must_reset_password': must_reset}
+    return jsonify({
+        'success': True,
+        'message': f'Logged in as {user.get("username")}',
+        'user': user_clean,
+        'must_reset_password': must_reset,
+        'redirect': RESET_PAGE if must_reset else None
+    })
+
+@app.route('/account/reset-password', methods=['GET'])
+def reset_password_page():
+    current = g.current_user
+    if not current.get('must_reset_password'):
+        return redirect('/')
+    return render_template('reset_password.html', username=current.get('username'))
+
+@app.route('/api/auth/force_reset_password', methods=['POST'])
+def api_force_reset_password():
+    """Sets a new password when a reset is required (default or guessable password)."""
+    current = g.current_user
+    if not current.get('must_reset_password'):
+        return jsonify({'success': False, 'message': 'No password reset is required for this account.'}), 400
+    data = request.get_json(silent=True) or {}
+    new_pw = (data.get('new_password') or '').strip()
+    if new_pw != (data.get('confirm_password') or '').strip():
+        return jsonify({'success': False, 'message': 'The two passwords do not match.'}), 400
+    err = auth_service.validate_new_password(new_pw, current.get('username'), current.get('company_name'))
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    full = auth_service.get_user_by_id(current['id'])
+    if auth_service.verify_user_password(full, new_pw):
+        return jsonify({'success': False, 'message': 'Choose a password different from your current one.'}), 400
+    new_sv = auth_service.set_password(current['id'], new_pw, actor=current,
+                                       action='auth.password_reset_forced', ip=_client_ip())
+    # Keep this browser signed in; every other session for the account is now invalid.
+    session['user'] = {**session['user'], 'sv': new_sv, 'must_reset_password': False}
+    return jsonify({'success': True, 'message': 'Password updated.', 'redirect': '/'})
 
 @app.route('/api/company/preview_recognition', methods=['POST'])
 def api_company_preview_recognition():
@@ -228,7 +577,17 @@ def api_company_preview_recognition():
             'operating_mode': bp.get('operating_mode', 'DEDICATED')
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
+
+
+def _smtp_settings() -> tuple:
+    """SMTP settings from the environment / .env only (H2: no credentials in code)."""
+    return (
+        os.environ.get('SMTP_HOST', 'smtp.gmail.com'),
+        int(os.environ.get('SMTP_PORT', 465)),
+        os.environ.get('SMTP_USER', ''),
+        os.environ.get('SMTP_PASSWORD', ''),
+    )
 
 
 def send_verification_email(recipient_email: str, otp_code: str, username: str | None = None) -> tuple:
@@ -238,10 +597,10 @@ def send_verification_email(recipient_email: str, otp_code: str, username: str |
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
 
-        smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
-        smtp_port = int(os.environ.get('SMTP_PORT', 465))
-        smtp_user = os.environ.get('SMTP_USER', 'hayd161103@gmail.com')
-        smtp_password = os.environ.get('SMTP_PASSWORD', 'hwflfuagdsqglxkp')
+        smtp_host, smtp_port, smtp_user, smtp_password = _smtp_settings()
+        if not smtp_user or not smtp_password:
+            logger.error("[AUTH SECURITY] SMTP is not configured (SMTP_USER / SMTP_PASSWORD missing in .env)")
+            return False, "Email delivery is not configured on this server. Ask the administrator to set SMTP_USER and SMTP_PASSWORD."
 
         msg = MIMEMultipart('alternative')
         msg['Subject'] = f'Your WARLOG Verification Code: {otp_code}'
@@ -334,9 +693,15 @@ def api_send_otp():
         if existing_user:
             return jsonify({'success': False, 'message': f'An account with email {email} already exists. Please sign in.'}), 409
 
-        # Generate secure 6-digit OTP
-        import random
-        otp_code = f"{random.randint(100000, 999999)}"
+        # RBAC Phase 1: at most 3 codes per email per 10 minutes; cryptographically random code
+        if not auth_service.otp_send_allowed(email):
+            return jsonify({'success': False, 'error_code': 'too_many_requests',
+                            'message': 'Too many verification codes requested. Please wait 10 minutes and try again.'}), 429
+        company_name = (data.get('company_name') or '').strip()
+        if company_name and auth_service.company_exists(company_name):
+            return jsonify({'success': False, 'error_code': 'company_exists_invite_required',
+                            'message': 'This company already has a WARLOG workspace. Ask its administrator to invite you.'}), 409
+        otp_code = auth_service.new_otp_code()
 
         # Store in database with 10-minute validity
         stored = db.store_email_otp(email=email, otp_code=otp_code, purpose=purpose, expires_in_minutes=10)
@@ -362,7 +727,42 @@ def api_send_otp():
         })
     except Exception as e:
         logger.error(f"Error in api_send_otp: {e}")
-        return jsonify({'success': False, 'message': f'Internal error sending OTP: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'Internal error sending OTP: {_public_error(e)}'}), 500
+
+
+def _industry_name_for(blueprint_key: str, company_name: str, prompt: str) -> str:
+    """Display name of the industry template a warehouse is recorded under."""
+    from industry_blueprint_service import INDUSTRY_BLUEPRINTS, _synthesize_custom_blueprint
+    bp = INDUSTRY_BLUEPRINTS.get((blueprint_key or '').strip().lower())
+    if bp:
+        return bp['name']
+    try:
+        return _synthesize_custom_blueprint(prompt or company_name, company_name).get('name') or 'General Industrial Logistics'
+    except Exception:
+        return 'General Industrial Logistics'
+
+
+def _provision_registration_warehouse(company_name: str, warehouse_name: str, city: str,
+                                      description: str, blueprint_key: str) -> str:
+    """RBAC Phase 0 (H1, H30): signup creates the company's first warehouse and records
+    its industry. It no longer applies an industry template (which used to wipe every
+    company's SKUs, stock and pallets), and it never reuses another company's code."""
+    owner = company_name or warehouse_name
+    # Same company the new user account is created under.
+    owner_company = company_name or 'WARLOG Intelligence Systems'
+    slug_comp = re.sub(r'[^A-Z0-9]', '', owner.upper())[:5] or "WH"
+    slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
+    code = db.unique_warehouse_code(f"WH-{slug_comp}-{slug_city}", owner_company)
+    prompt = f"{company_name} {warehouse_name} {description} in {city}".strip()
+    wh = db.create_or_update_warehouse(
+        code=code,
+        name=warehouse_name or f"{company_name} Main Facility",
+        city=city,
+        operating_mode='DEDICATED',
+        industry=_industry_name_for(blueprint_key, owner, prompt),
+        company_name=owner_company
+    )
+    return (wh or {}).get('code') or code
 
 
 @app.route('/api/auth/verify_otp_and_register', methods=['POST'])
@@ -384,6 +784,18 @@ def api_verify_otp_and_register():
             return jsonify({'success': False, 'message': 'Email address and 6-digit OTP code are required.'}), 400
         if not username or not password:
             return jsonify({'success': False, 'message': 'Admin username and password are required.'}), 400
+        # RBAC Phase 1: every signup creates its own company; a blank company would
+        # have joined a shared default company as its admin.
+        if not company_name:
+            return jsonify({'success': False, 'message': 'Company name is required to create a workspace.'}), 400
+        if auth_service.company_exists(company_name):
+            return jsonify({'success': False, 'error_code': 'company_exists_invite_required',
+                            'message': 'This company already has a WARLOG workspace. Ask its administrator to invite you.'}), 409
+        pw_err = auth_service.validate_new_password(password, username, company_name)
+        if pw_err:
+            return jsonify({'success': False, 'message': pw_err}), 400
+        if db.get_user_id_by_username(username):
+            return jsonify({'success': False, 'message': 'Username is already taken. Please choose another username.'}), 409
 
         # Verify OTP
         is_valid, verify_msg = db.verify_email_otp(email=email, otp_code=otp_code, purpose='REGISTRATION')
@@ -391,66 +803,38 @@ def api_verify_otp_and_register():
             return jsonify({'success': False, 'message': verify_msg}), 400
 
         # Determine Environment: Use explicit user dropdown or auto-detect from company name / warehouse / description
-        from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
+        from industry_blueprint_service import auto_detect_company_industry
         if env_choice and env_choice not in ('auto', 'custom'):
             detected_key = env_choice
-            detected_info = {'detected_key': detected_key, 'confidence': 1.0, 'reason': 'Selected via Industry Environment Selector'}
-        elif company_name or warehouse_name or description:
+        else:
             detected_info = auto_detect_company_industry(f"{company_name} {warehouse_name}".strip(), description)
             detected_key = detected_info.get('detected_key', 'custom')
-        else:
-            detected_key = 'custom'
-            detected_info = {'detected_key': 'custom', 'confidence': 0.8, 'reason': 'Standard Warehousing Workspace'}
 
-        assigned_wh_code = 'WH-MAIN'
-        if company_name or warehouse_name:
-            try:
-                slug_comp = re.sub(r'[^A-Z0-9]', '', (company_name or warehouse_name).upper())[:5] or "WH"
-                slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
-                wh_code_custom = f"WH-{slug_comp}-{slug_city}"
-
-                res = apply_industry_blueprint(
-                    blueprint_key=detected_key,
-                    warehouse_code=wh_code_custom,
-                    custom_company_name=company_name or warehouse_name,
-                    custom_prompt=f"{company_name} {warehouse_name} {description} in {city}".strip()
-                )
-                if res.get('success') and res.get('warehouse'):
-                    assigned_wh_code = res['warehouse']['code']
-                    db.create_or_update_warehouse(
-                        code=assigned_wh_code,
-                        name=warehouse_name or f"{company_name} Main Facility",
-                        city=city,
-                        operating_mode=res.get('warehouse', {}).get('operating_mode', 'DEDICATED'),
-                        industry=res.get('blueprint_name', 'General'),
-                        company_name=company_name
-                    )
-                    try:
-                        get_vision_runtime_manager().refresh_cameras()
-                    except Exception:
-                        pass
-            except Exception as e_ind:
-                logger.warning(f"Error provisioning industry blueprint: {e_ind}")
+        assigned_wh_code = _provision_registration_warehouse(
+            company_name=company_name, warehouse_name=warehouse_name,
+            city=city, description=description, blueprint_key=detected_key
+        )
 
         user_created = db.create_user(
             username=username,
             password=password,
             email=email,
-            company_name=company_name or 'WARLOG Intelligence Systems',
+            company_name=company_name,
             assigned_warehouse_code=assigned_wh_code
         )
         if not user_created:
             return jsonify({'success': False, 'message': 'Username is already taken. Please choose another username.'}), 409
 
+        new_user = auth_service.find_user(username)
+        company_id = auth_service.provision_company_admin(new_user['id'], company_name, assigned_wh_code)
+        auth_service.audit('user.registered', actor=new_user, company_id=company_id,
+                           resource_type='company', resource_id=str(company_id), ip=_client_ip())
+
         # Auto-login to session
-        user_session = {
-            'username': username,
-            'email': email,
-            'company_name': company_name or 'WARLOG Intelligence Systems',
-            'assigned_warehouse_code': assigned_wh_code,
-            'role': 'Admin'
-        }
-        session['user'] = user_session
+        session.clear()
+        session.permanent = True
+        session['user'] = auth_service.session_payload(new_user)
+        user_session = auth_service.public_user(new_user)
 
         return jsonify({
             'success': True,
@@ -463,84 +847,11 @@ def api_verify_otp_and_register():
         })
     except Exception as e:
         logger.error(f"Error in api_verify_otp_and_register: {e}")
-        return jsonify({'success': False, 'message': f'Registration failed: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'Registration failed: {_public_error(e)}'}), 500
 
 
-@app.route('/api/register', methods=['POST'])
-def api_register():
-    data = request.json or request.form.to_dict() or {}
-    username = data.get('username')
-    password = data.get('password')
-    email = (data.get('email') or '').strip().lower()
-    company_name = (data.get('company_name') or '').strip()
-    warehouse_name = (data.get('warehouse_name') or '').strip()
-    description = (data.get('description') or '').strip()
-    city = (data.get('city') or 'Bengaluru').strip()
-    env_choice = (data.get('environment_blueprint') or '').strip().lower()
-    
-    if not username or not password:
-        return jsonify({'success': False, 'message': 'Username and password required'}), 400
-    
-    assigned_wh_code = 'WH-MAIN'
-    detected_info = None
-    if company_name or warehouse_name:
-        try:
-            from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-            if env_choice and env_choice not in ('auto', 'custom'):
-                detected_key = env_choice
-                detected_info = {'detected_key': detected_key, 'confidence': 1.0}
-            else:
-                detected = auto_detect_company_industry(f"{company_name} {warehouse_name}".strip(), description)
-                detected_info = detected
-                detected_key = detected['detected_key']
-            
-            slug_comp = re.sub(r'[^A-Z0-9]', '', (company_name or warehouse_name).upper())[:5] or "WH"
-            slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "01"
-            wh_code_custom = f"WH-{slug_comp}-{slug_city}"
-            
-            # Auto-create warehouse and apply tailored ecosystem
-            res = apply_industry_blueprint(
-                blueprint_key=detected_key,
-                warehouse_code=wh_code_custom,
-                custom_company_name=company_name or warehouse_name,
-                custom_prompt=f"{company_name} {warehouse_name} {description} in {city}".strip()
-            )
-            if res.get('success') and res.get('warehouse'):
-                assigned_wh_code = res['warehouse']['code']
-                db.create_or_update_warehouse(
-                    code=assigned_wh_code,
-                    name=warehouse_name or f"{company_name} Main Facility",
-                    city=city,
-                    operating_mode=res.get('warehouse', {}).get('operating_mode', 'DEDICATED'),
-                    industry=res.get('blueprint_name', 'General'),
-                    company_name=company_name
-                )
-                try:
-                    get_vision_runtime_manager().refresh_cameras()
-                except Exception:
-                    pass
-        except Exception as e_ind:
-            logger.warning(f"Auto-industry setup on registration notice: {e_ind}")
-    
-    if db.create_user(username, password, email=email, company_name=company_name or 'WARLOG Intelligence Systems', assigned_warehouse_code=assigned_wh_code):
-        user_clean = {
-            'username': username,
-            'email': email,
-            'company_name': company_name,
-            'assigned_warehouse_code': assigned_wh_code,
-            'role': 'Admin'
-        }
-        session['user'] = user_clean
-        return jsonify({
-            'success': True,
-            'message': f'User registered successfully with dedicated {company_name or "Industrial"} workspace',
-            'assigned_warehouse_code': assigned_wh_code,
-            'company_name': company_name,
-            'user': user_clean,
-            'detected_key': (detected_info or {}).get('detected_key'),
-            'detected_environment': detected_info
-        })
-    return jsonify({'success': False, 'message': 'Username already exists'}), 409
+# RBAC Phase 1 (H4): /api/register was removed. It created accounts without email
+# verification. Signup goes through /api/auth/send_otp -> /api/auth/verify_otp_and_register.
 
 @app.route('/api/company/auto_setup', methods=['POST'])
 def api_company_auto_setup():
@@ -554,23 +865,43 @@ def api_company_auto_setup():
         data = request.json or {}
         company_name = (data.get('company_name') or '').strip()
         description = (data.get('description') or '').strip()
-        username = data.get('username')
-        
+
         if not company_name:
             return jsonify({'success': False, 'error': 'Company name is required'}), 400
-            
+
+        user = g.get('current_user') or {}
         detected = auto_detect_company_industry(company_name, description)
-        res = apply_industry_blueprint(
-            blueprint_key=detected['detected_key'],
-            warehouse_code='', # will generate dedicated facility
-            custom_company_name=company_name,
-            custom_prompt=description
-        )
-        
+        if user.get('is_platform_admin'):
+            # Platform Admin: sets up a new company with its own facility (as before).
+            # RBAC Phase 3B: no user's assignment is changed any more (the browser used
+            # to send any username here); only this session opens the new facility.
+            res = apply_industry_blueprint(
+                blueprint_key=detected['detected_key'],
+                warehouse_code='',  # will generate dedicated facility
+                custom_company_name=company_name,
+                custom_prompt=description
+            )
+        else:
+            # Everyone else: detect the industry, then fill THEIR current location
+            # with their own company's copy of the template. Never creates a company.
+            wid = rbac_service.current_warehouse_id()
+            if not wid:
+                return jsonify({'success': False, 'error': 'Choose a warehouse first.'}), 400
+            res = apply_industry_blueprint(
+                blueprint_key=detected['detected_key'],
+                warehouse_id=wid,
+                custom_prompt=description
+            )
+
         if res.get('success') and res.get('warehouse'):
             wh_code = res['warehouse']['code']
-            if username:
-                db.update_user_warehouse(username, wh_code, company_name)
+            # Templates no longer change the active warehouse themselves (Phase 0);
+            # this explicit "set up my company" action still opens the facility
+            # (for this session only, RBAC Phase 3A).
+            new_wh = db.get_warehouse_by_code(wh_code)
+            if new_wh:
+                session['warehouse_id'] = new_wh['id']
+            rbac_scope.refresh_camera_map()
             try:
                 mgr = get_vision_runtime_manager()
                 mgr.refresh_cameras()
@@ -583,7 +914,7 @@ def api_company_auto_setup():
             return jsonify({'success': False, 'error': res.get('error', 'Setup failed')}), 500
     except Exception as e:
         logger.error(f"Error in company auto setup: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
 
 @app.route('/api/deliveries', methods=['GET', 'POST'])
 def handle_deliveries():
@@ -619,8 +950,10 @@ def api_add_bin():
             return jsonify({'success': False, 'error': 'bin_id is required'}), 400
         db.add_bin(bin_id, data.get('zone', 'General'), float(data.get('max_volume', 100.0)), float(data.get('max_weight', 1000.0)))
         return jsonify({'success': True})
+    except db.CodeInUseError:
+        raise
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'success': False, 'error': _public_error(e)}), 400
 
 @app.route('/api/bins/<bin_id>', methods=['PUT', 'POST'])
 def api_update_bin(bin_id):
@@ -637,7 +970,7 @@ def api_update_bin(bin_id):
         )
         return jsonify({'success': True, 'message': f'Bin {bin_id} updated successfully'})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'success': False, 'error': _public_error(e)}), 400
 
 @app.route('/api/skus', methods=['GET'])
 def api_get_skus():
@@ -660,8 +993,10 @@ def api_add_sku():
             target_bundles_per_pallet=data.get('target_bundles_per_pallet', 10)
         )
         return jsonify({'success': True, 'sku': db.get_sku_by_id(data['sku_id'])})
+    except db.CodeInUseError:
+        raise
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': _public_error(e)})
 
 @app.route('/api/skus/<sku_id>/bundle_config', methods=['POST', 'PUT'])
 def api_update_sku_bundle_config(sku_id):
@@ -687,7 +1022,7 @@ def api_update_sku_bundle_config(sku_id):
         })
     except Exception as e:
         logger.exception(f"Failed updating bundle config for SKU {sku_id}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
 
 # ==============================================================================
 # MULTI-WAREHOUSE & INDUSTRY BLUEPRINT API ROUTES
@@ -696,27 +1031,26 @@ def api_update_sku_bundle_config(sku_id):
 @app.route('/api/warehouses', methods=['GET'])
 def api_get_warehouses():
     try:
-        company_name = request.args.get('company_name') or request.headers.get('X-Company-Name')
-        if not company_name and session.get('user'):
-            company_name = session['user'].get('company_name')
-        
-        whs = db.get_all_warehouses(company_name=company_name)
-        active = db.get_active_warehouse(company_name=company_name)
-        return jsonify({"success": True, "warehouses": whs, "active_warehouse": active, "scoped_company": company_name})
+        # RBAC Phase 3A: only the warehouses this user may work in (the old company_name
+        # parameter could list every company's warehouses). is_active marks this session's
+        # working warehouse, not a global flag.
+        active_id = rbac_service.current_warehouse_id()
+        whs = [{**w, 'is_active': 1 if w['id'] == active_id else 0}
+               for w in rbac_service.accessible_warehouses()]
+        active = next((w for w in whs if w['id'] == active_id), None) or db.get_active_warehouse()
+        return jsonify({"success": True, "warehouses": whs, "active_warehouse": active,
+                        "scoped_company": (session.get('user') or {}).get('company_name')})
     except Exception as e:
         logger.error(f"Error fetching warehouses: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/warehouses/active', methods=['GET'])
 def api_get_active_warehouse():
     try:
-        company_name = request.args.get('company_name') or request.headers.get('X-Company-Name')
-        if not company_name and session.get('user'):
-            company_name = session['user'].get('company_name')
-        active = db.get_active_warehouse(company_name=company_name)
-        return jsonify({"success": True, "active_warehouse": active})
+        active = db.get_warehouse_by_id(rbac_service.current_warehouse_id()) or db.get_active_warehouse()
+        return jsonify({"success": True, "active_warehouse": {**active, 'is_active': 1} if active else active})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/warehouses/switch', methods=['POST'])
 def api_switch_warehouse():
@@ -725,43 +1059,22 @@ def api_switch_warehouse():
         code = data.get('code')
         if not code:
             return jsonify({"success": False, "error": "Warehouse code is required"}), 400
-        switched = db.set_active_warehouse(code)
-        if not switched:
+        # RBAC Phase 0 (H1): switching never applies an industry template.
+        # RBAC Phase 3A (H11): it changes this session's working warehouse only, and only to
+        # a warehouse the user may use. Each browser tab also sends X-Warehouse-Id.
+        target = next((w for w in rbac_service.accessible_warehouses()
+                       if (w['code'] or '').upper() == str(code).strip().upper() or str(w['id']) == str(code)), None)
+        if not target:
             return jsonify({"success": False, "error": f"Warehouse '{code}' not found"}), 404
-        try:
-            from industry_blueprint_service import auto_detect_company_industry, apply_industry_blueprint
-            wh_name = switched.get('name') or ''
-            wh_city = switched.get('city') or 'Bengaluru'
-            wh_comp = switched.get('company_name') or ''
-            wh_ind = switched.get('industry') or ''
-            det = auto_detect_company_industry(f"{wh_comp} {wh_name}", wh_ind)
-            bp_key = det.get('detected_key', 'custom')
-            res = apply_industry_blueprint(
-                blueprint_key=bp_key,
-                warehouse_code=code,
-                custom_company_name=wh_comp or wh_name,
-                custom_prompt=f"{wh_comp} {wh_ind}"
-            )
-            if res.get('success'):
-                switched = db.create_or_update_warehouse(
-                    code=code,
-                    name=wh_name,
-                    city=wh_city,
-                    operating_mode=switched.get('operating_mode', 'DEDICATED'),
-                    industry=wh_ind or res.get('blueprint_name', 'General'),
-                    company_name=wh_comp
-                )
-                db.set_active_warehouse(code)
-                try:
-                    get_vision_runtime_manager().refresh_cameras()
-                except Exception:
-                    pass
-        except Exception as e_sync:
-            logger.warning(f"Switch warehouse blueprint sync notice: {e_sync}")
+        session['warehouse_id'] = target['id']
+        auth_service.audit('warehouse.switched', actor=g.current_user, company_id=target.get('company_id'),
+                           warehouse_id=target['id'], resource_type='warehouse', resource_id=target['code'],
+                           ip=_client_ip())
+        switched = {**target, 'is_active': 1}
         return jsonify({"success": True, "warehouse": switched, "message": f"Switched to {switched['name']} ({switched['code']})"})
     except Exception as e:
         logger.error(f"Error switching warehouse: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/warehouses', methods=['POST'])
 @app.route('/api/warehouses/create', methods=['POST'])
@@ -773,8 +1086,10 @@ def api_create_warehouse():
         company_name = (data.get('company_name') or '').strip()
         description = (data.get('description') or '').strip()
 
-        if not company_name and session.get('user'):
-            company_name = session['user'].get('company_name')
+        # RBAC Phase 3A: a Company Admin always creates warehouses for their own company;
+        # only the Platform Admin may name another company.
+        if not g.current_user.get('is_platform_admin') or not company_name:
+            company_name = (session.get('user') or {}).get('company_name') or company_name
         if not company_name:
             company_name = 'WARLOG Intelligence Systems'
 
@@ -792,51 +1107,44 @@ def api_create_warehouse():
             except Exception:
                 industry = 'General Industrial Logistics'
 
+        # An explicitly chosen industry template is recorded on the warehouse.
+        env_blueprint = (data.get('environment_blueprint') or data.get('blueprint') or '').strip().lower()
+        if env_blueprint and env_blueprint not in ('auto', 'custom') and (not data.get('industry') or data.get('industry') == 'General'):
+            industry = _industry_name_for(env_blueprint, company_name, f"{name} in {city} {description}")
+
         code = (data.get('code') or '').strip().upper()
         if not code:
             slug_comp = re.sub(r'[^A-Z0-9]', '', company_name.upper())[:5] or "WH"
             slug_city = re.sub(r'[^A-Z0-9]', '', city.upper())[:3] if city else "LOC"
             rnd = uuid.uuid4().hex[:3].upper()
-            code = f"WH-{slug_comp}-{slug_city}-{rnd}"
+            code = db.unique_warehouse_code(f"WH-{slug_comp}-{slug_city}-{rnd}", company_name)
 
-        wh = db.create_or_update_warehouse(
-            code=code,
-            name=name,
-            city=city,
-            operating_mode=data.get('operating_mode', 'DEDICATED'),
-            industry=industry,
-            address=data.get('address', ''),
-            status=data.get('status', 'Active'),
-            company_name=company_name
-        )
-        # Apply industry blueprint so creating a warehouse populates SKUs, palletization, and taxonomy
+        # RBAC Phase 0 (H1, H30): creating a warehouse no longer applies an industry
+        # template (which wiped every company's SKUs, stock and pallets), and a code
+        # owned by another company is refused instead of being taken over.
         try:
-            from industry_blueprint_service import apply_industry_blueprint, auto_detect_company_industry
-            env_blueprint = data.get('environment_blueprint') or data.get('blueprint')
-            if not env_blueprint or env_blueprint == 'auto' or env_blueprint == 'custom':
-                det = auto_detect_company_industry(f"{company_name} {name}", description)
-                env_blueprint = det.get('detected_key', 'custom')
-
-            res_bp = apply_industry_blueprint(
-                blueprint_key=env_blueprint,
-                warehouse_code=wh['code'],
-                custom_company_name=company_name,
-                custom_prompt=f"{name} in {city} {description}"
+            wh = db.create_or_update_warehouse(
+                code=code,
+                name=name,
+                city=city,
+                operating_mode=data.get('operating_mode', 'DEDICATED'),
+                industry=industry,
+                address=data.get('address', ''),
+                status=data.get('status', 'Active'),
+                company_name=company_name
             )
-            if res_bp.get('success') and res_bp.get('warehouse'):
-                wh = res_bp['warehouse']
-        except Exception as e_bp:
-            logger.warning(f"Could not apply blueprint on warehouse creation: {e_bp}")
+        except db.WarehouseOwnershipError as e_own:
+            return jsonify({"success": False, "error": str(e_own)}), 409
 
         # Set active if requested or first
         if data.get('set_active', True):
-            db.set_active_warehouse(wh['code'])
+            session['warehouse_id'] = wh.get('id')  # RBAC Phase 3A: this session only
             wh['is_active'] = 1
 
         return jsonify({"success": True, "warehouse": wh, "message": f"Warehouse {wh['name']} ({wh['code']}) created successfully."})
     except Exception as e:
         logger.error(f"Error creating warehouse: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/industry_blueprints', methods=['GET'])
 def api_get_industry_blueprints():
@@ -845,24 +1153,63 @@ def api_get_industry_blueprints():
         return jsonify({"success": True, "blueprints": catalog})
     except Exception as e:
         logger.error(f"Error fetching industry blueprints: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/industry_blueprints/apply', methods=['POST'])
 def api_apply_industry_blueprint():
     try:
         data = request.json or {}
         key = data.get('key') or data.get('blueprint_key')
-        warehouse_code = data.get('warehouse_code')
+        warehouse_code = (data.get('warehouse_code') or '').strip().upper()
         custom_industry_name = data.get('custom_industry_name')
         custom_prompt = data.get('custom_prompt')
-        
+        preview = bool(data.get('preview'))
+        include_samples = bool(data.get('include_samples'))
+
+        # RBAC Phase 3B: the template always goes into a warehouse this user may use,
+        # for that warehouse's own company. 'NEW' creates a facility for the user's own
+        # company. Enforced in every RBAC mode (a template writes a lot of data).
+        user = g.get('current_user') or {}
+        allowed = {w['code'].upper(): w for w in rbac_service.accessible_warehouses(user) if w.get('code')}
+        target_id = None
+        if warehouse_code in ('', 'CURRENT'):
+            target_id = rbac_service.current_warehouse_id()
+            if not target_id:
+                return jsonify({"success": False, "error": "Choose a warehouse first."}), 400
+        elif warehouse_code == 'NEW':
+            custom_industry_name = None
+        elif warehouse_code in allowed:
+            target_id = allowed[warehouse_code]['id']
+        else:
+            return jsonify({"success": False, "error": "Warehouse not found.", "error_code": "not_found"}), 404
+        company_for_new = None
+        if warehouse_code == 'NEW':
+            own_company = auth_service.user_company_id(user.get('id'))
+            row = None
+            if own_company:
+                _c = db.get_db()
+                try:
+                    row = _c.execute("SELECT name FROM companies WHERE id = ?", (own_company,)).fetchone()
+                finally:
+                    _c.close()
+            company_for_new = row[0] if row else (user.get('company_name') or None)
+            if not company_for_new:
+                return jsonify({"success": False, "error": "Your account has no company to add a location to."}), 400
+
         result = apply_industry_blueprint(
             blueprint_key=key,
-            warehouse_code=warehouse_code,
+            warehouse_code='' if warehouse_code == 'NEW' else None,
+            warehouse_id=target_id,
+            custom_company_name=company_for_new,
             custom_industry_name=custom_industry_name,
-            custom_prompt=custom_prompt
+            custom_prompt=custom_prompt,
+            include_samples=include_samples,
+            preview=preview,
         )
-        
+        if preview:
+            return jsonify(result)
+        rbac_scope.refresh_camera_map()
+                
         # Refresh active cameras runtime to pick up new classes and zones
         try:
             mgr = get_vision_runtime_manager()
@@ -873,7 +1220,7 @@ def api_apply_industry_blueprint():
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error applying industry blueprint: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/bins', methods=['GET'])
 def api_get_bins():
@@ -885,7 +1232,7 @@ def api_get_bin_inventory(bin_id):
         inventory = db.get_bin_inventory(bin_id)
         return jsonify(inventory), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": _public_error(e)}), 500
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
@@ -920,10 +1267,13 @@ def create_gate_pass():
             return jsonify({"success": True, "gate_pass": existing, "message": f"Active gate pass {existing['id']} found for {plate}."})
             
     # Generate a random 4-digit OTP if driver_phone is provided
-    otp = str(random.randint(1000, 9999)) if data.get('driver_phone') else ""
+    # RBAC Phase 2 (H17): random 4-digit code, never returned in API responses.
+    import secrets as _secrets
+    otp = f"{_secrets.randbelow(9000) + 1000}" if data.get('driver_phone') else ""
     if otp:
         data['otp'] = otp
-        print(f"\n[MOCK SMS] Sent OTP {otp} to Driver Phone {data.get('driver_phone')}\n")
+        # Hardening: the log never shows the code or the phone number ('read to driver' shows the code)
+        logger.info("[GATE OTP] code issued for a new gate pass")
             
     # Auto-matches against pre-registered deliveries (by plate or po_number)
     # and connects both collections inside db.create_gate_pass
@@ -943,15 +1293,47 @@ def verify_otp():
     gp = db.get_gate_pass(gp_id)
     if not gp:
         return jsonify({"success": False, "message": "Gate pass not found."})
-    
-    if gp.get('otp') == entered_otp:
-        db.update_gate_pass(gp_id, {"otp_verified": 1})
+
+    # Hardening: 5 wrong tries per code, then the code is void (a new one must be issued, or a
+    # permitted person uses the OTP override with a reason). Constant-time compare; every
+    # wrong try is audited; the code is cleared once verified.
+    import hmac as _hmac
+    MAX_OTP_TRIES = 5
+    tries = db.get_gate_pass_otp_attempts(gp_id)
+    stored = str(gp.get('otp') or '')
+    if gp.get('otp_verified'):
+        return jsonify({"success": True, "message": "OTP already verified."})
+    if not stored:
+        return jsonify({"success": False, "message": "No OTP has been issued for this gate pass."})
+    if tries >= MAX_OTP_TRIES:
+        return jsonify({"success": False, "error_code": "otp_locked",
+                        "message": "Too many wrong codes. Issue a new code, or use the OTP override with a reason."}), 429
+    if _hmac.compare_digest(stored, str(entered_otp or '').strip()):
+        db.update_gate_pass(gp_id, {"otp_verified": 1, "otp": ""})
+        db.set_gate_pass_otp_attempts(gp_id, 0)
         return jsonify({"success": True, "message": "OTP Verified Successfully!"})
-    return jsonify({"success": False, "message": "Invalid OTP. Please try again."})
+    tries += 1
+    db.set_gate_pass_otp_attempts(gp_id, tries)
+    current = g.get('current_user') or {}
+    auth_service.audit('gate.otp_failed', actor=current, company_id=auth_service.user_company_id(current['id']) if current.get('id') else None,
+                       warehouse_id=rbac_service.current_warehouse_id(), resource_type='gate_pass',
+                       resource_id=str(gp_id), after={"failed_attempts": tries}, ip=_client_ip(), result='denied')
+    left = MAX_OTP_TRIES - tries
+    return jsonify({"success": False, "message": (f"Invalid OTP. {left} tr{'y' if left == 1 else 'ies'} left."
+                                                  if left > 0 else "Invalid OTP. The code is now void; issue a new one.")})
 
 @app.route('/api/gate/checkout', methods=['POST'])
 def checkout():
-    data = request.json
+    """Single checkout endpoint (RBAC Phase 0 merged the duplicate route).
+
+    * With `gp_id` (gate-pass form): plate and optional face check, as before.
+    * Without `gp_id` (Gate-02 exit camera sends `plate` or `pass_id`): exit
+      checkout with dwell time; this call used to be swallowed by this route
+      and always failed with "Gate pass not found".
+    """
+    data = request.get_json(silent=True) or {}
+    if not data.get('gp_id'):
+        return _gate02_exit_checkout(data)
     gp_id = data.get('gp_id')
     plate = data.get('plate')
     face_check = data.get('face_check', False) # UI will send this if face check is active
@@ -975,6 +1357,9 @@ def checkout():
     elif face_check and not gp.get('driver_photo'):
         return jsonify({"success": False, "message": "Security Alert! No entry face photo found to verify against."})
         
+    problem = db.outbound_exit_problem(gp)
+    if problem:
+        return jsonify({"success": False, "error_code": "outbound_not_ready", "message": problem}), 409
     db.update_gate_pass(gp_id, {"status": "Departed", "exit_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
     db.checkout_vehicle_log(gp_id)
     return jsonify({"success": True, "message": "Check-out successful. Vehicle authorized to leave."})
@@ -1071,14 +1456,17 @@ def generate_invoice():
     db.create_invoice(gp_id, po_num, gp.get('vendor'), vendor_email, pdf_filename)
     
     email_status = "Not sent (No vendor email provided)"
-    if vendor_email and vendor_email != 'N/A':
+    smtp_host, smtp_port, smtp_user, smtp_password = _smtp_settings()
+    if vendor_email and vendor_email != 'N/A' and not (smtp_user and smtp_password):
+        email_status = "Not sent (email delivery is not configured on this server)"
+    elif vendor_email and vendor_email != 'N/A':
         try:
             import smtplib
             from email.message import EmailMessage
-            
+
             msg = EmailMessage()
             msg['Subject'] = f'Invoice for Gate Pass {gp_id}'
-            msg['From'] = 'hayd161103@gmail.com'
+            msg['From'] = smtp_user
             msg['To'] = vendor_email
             msg.set_content(f"Hello {gp.get('vendor')},\n\nPlease find attached the invoice for Gate Pass {gp_id}.\nTotal Items Unloaded: {qty}\nStored in Location: {bin_alloc}\n\nThank you.")
             
@@ -1086,9 +1474,15 @@ def generate_invoice():
                 pdf_data = f.read()
             msg.add_attachment(pdf_data, maintype='application', subtype='pdf', filename=pdf_filename)
             
-            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login('hayd161103@gmail.com', 'hwflfuagdsqglxkp')
-                smtp.send_message(msg)
+            if smtp_port == 465:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as smtp:
+                    smtp.login(smtp_user, smtp_password)
+                    smtp.send_message(msg)
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as smtp:
+                    smtp.starttls()
+                    smtp.login(smtp_user, smtp_password)
+                    smtp.send_message(msg)
             
             email_status = "Real Email successfully sent!"
         except Exception as e:
@@ -1459,7 +1853,9 @@ def api_upload_sku_images():
             errors.append(f"Target SKU '{sku_for_file}' for image '{orig_name}' does not exist.")
             continue
 
-        safe_filename = f"{sku_for_file}_{uuid.uuid4().hex[:8]}{ext}"
+        # Hardening: the file name never carries path pieces, whatever the SKU code is
+        safe_sku = re.sub(r'[^A-Za-z0-9._-]', '_', str(sku_for_file)).strip('.') or 'SKU'
+        safe_filename = f"{safe_sku}_{uuid.uuid4().hex[:8]}{ext}"
         dest_path = os.path.join(SKU_IMAGE_UPLOAD_DIR, safe_filename)
         try:
             f.seek(0)
@@ -1725,7 +2121,7 @@ def api_detection_test():
             nparr = np.frombuffer(file_bytes, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         except Exception as e:
-            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {e}"}), 400
+            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {_public_error(e)}"}), 400
     elif sample_scene:
         sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", sample_scene)
         if os.path.exists(sample_path):
@@ -1914,7 +2310,7 @@ def api_tracking_test():
             nparr = np.frombuffer(file_bytes, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         except Exception as e:
-            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {e}"}), 400
+            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {_public_error(e)}"}), 400
     elif sample_scene:
         sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", sample_scene)
         if os.path.exists(sample_path):
@@ -2104,7 +2500,7 @@ def api_identity_test():
             nparr = np.frombuffer(file_bytes, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         except Exception as e:
-            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {e}"}), 400
+            return jsonify({'success': False, 'message': f"Failed to decode base64 image: {_public_error(e)}"}), 400
     elif sample_scene:
         sample_path = os.path.join(os.path.dirname(__file__), "static", "test_scenes", sample_scene)
         if os.path.exists(sample_path):
@@ -3522,26 +3918,48 @@ def update_gate_pass(gp_id):
         return jsonify({"success": False, "message": "Gate pass not found"}), 404
         
     data = request.json
-    
+
+    # RBAC Phase 8 (gate state machine): each status step needs its own permission; a jump
+    # outside the allowed steps needs gate.override.manual and a reason, in every RBAC mode.
+    if isinstance(data, dict) and data.get('status'):
+        import gate_flow
+        current = db.get_gate_pass(gp_id)
+        if current:
+            # an outbound truck can't be cleared to leave before its order is fully picked (not even by override)
+            if data.get('status') in ('Checkout Approved', 'Exited', 'Departed'):
+                problem = db.outbound_exit_problem(current)
+                if problem:
+                    return jsonify({"success": False, "error_code": "outbound_not_ready", "message": problem}), 409
+            legal, needed = gate_flow.check(current.get('status'), data.get('status'))
+            if not legal:
+                if gate_flow.OVERRIDE not in rbac_service.effective_permissions():
+                    return jsonify({"success": False, "error_code": "illegal_transition",
+                                    "message": f"A gate pass can't go from '{current.get('status')}' to "
+                                               f"'{data.get('status')}'. Only someone allowed to force gate "
+                                               "status changes can do that, with a reason."}), 409
+                if not rbac_service._request_reason():
+                    return jsonify({"success": False, "error_code": "reason_required",
+                                    "permission_label": "Force a gate status change outside the normal flow",
+                                    "message": "Please give a short reason for this action."}), 400
+            elif needed:
+                denied = rbac_service.check_permission(needed)
+                if denied is not None:
+                    return denied
+
     sms_response = None
     if data.get('status') == 'Sent to Dock':
-        import random
-        otp = str(random.randint(1000, 9999)) if data.get('driver_phone') else "1234"
+        # RBAC Phase 2 (H17): no fixed "1234" fallback; no phone means no OTP.
+        import secrets as _secrets
+        otp = f"{_secrets.randbelow(9000) + 1000}" if data.get('driver_phone') else ""
         data['otp'] = otp
         phone = data.get('driver_phone')
         if phone:
-            try:
-                import requests  # type: ignore
-                resp = requests.post('https://textbelt.com/text', data={
-                    'phone': phone, 
-                    'message': f'Skandha WMS: Your Dock Assignment OTP is {otp}', 
-                    'key': 'textbelt'
-                })
-                sms_response = resp.json()
-                print("[REAL SMS API]", sms_response)
-            except Exception as e:
-                sms_response = {"success": False, "error": str(e)}
-                print("SMS Error:", e)
+            # Hardening: no third-party texting service (the free public key sent drivers' phone
+            # numbers and codes abroad, with no timeout). Until an SMS provider is configured the
+            # code reaches the driver through 'read to driver' (gate.otp.send).
+            sms_response = {"success": False, "sent": False,
+                            "reason": "No SMS provider configured; use 'read to driver'."}
+            logger.info(f"[GATE OTP] code issued for gate pass {gp_id} (no SMS provider configured)")
 
     existing_before = db.get_gate_pass(gp_id)
     if existing_before:
@@ -3595,13 +4013,28 @@ def update_gate_pass(gp_id):
             pass
         try:
             for ac in active_cameras.values():
+                if not rbac_scope.camera_visible(getattr(ac, 'camera_id', '')):
+                    continue
                 if getattr(ac, 'last_gate_pass_id', None) == gp_id or getattr(ac, 'is_gate_camera', False) or ac.location == 'Gate':
                     ac.last_detected_plate = gp.get('plate') or ac.last_detected_plate
                     ac.last_gate_pass_photo = gp.get('photo') or ac.last_gate_pass_photo
         except Exception:
             pass
-        return jsonify({"success": True, "gate_pass": gp, "otp_generated": data.get('otp'), "sms_response": sms_response})
+        return jsonify({"success": True, "gate_pass": gp, "otp_sent": bool(data.get('otp')), "sms_response": sms_response})
     return jsonify({"success": False, "message": "Gate pass not found"})
+
+@app.route('/api/gate_passes/<gp_id>/otp', methods=['GET'])
+def api_gate_pass_otp(gp_id):
+    """'Read to driver': the only place a driver OTP is shown, until an SMS provider is
+    configured. Needs gate.otp.send (route map) and every view is audited (H17)."""
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found"}), 404
+    current = g.current_user
+    auth_service.audit('gate.otp_viewed', actor=current, company_id=auth_service.user_company_id(current['id']),
+                       resource_type='gate_pass', resource_id=str(gp_id), ip=_client_ip())
+    return jsonify({"success": True, "gate_pass_id": gp_id, "otp": gp.get('otp') or None,
+                    "otp_verified": bool(gp.get('otp_verified'))})
 
 @app.route('/api/dock/unload_step/<gp_id>', methods=['POST'])
 def unload_step(gp_id):
@@ -3658,7 +4091,7 @@ def api_dock_gate_pass_evidence(gp_id):
             return jsonify({"success": False, "error": f"Gate pass '{gp_id}' not found"}), 404
         return jsonify({"success": True, "data": evidence}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/dock/verification/<dock_name>', methods=['GET'])
 def api_dock_verification(dock_name):
@@ -3667,7 +4100,7 @@ def api_dock_verification(dock_name):
         dossier = get_integration_service().get_dock_unloading_evidence_dossier(dock_name)
         return jsonify({"success": True, "data": dossier}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/dock/auto_add/<gp_id>', methods=['POST'])
 def auto_add_step(gp_id):
@@ -3766,7 +4199,7 @@ def get_cameras():
 
     # Fallback/merge for any active in-memory cameras not found in DB
     for cam_id, cam in active_cameras.items():
-        if cam_id not in seen_ids:
+        if cam_id not in seen_ids and rbac_scope.camera_visible(cam_id):
             is_gate = getattr(cam, 'is_gate_camera', False)
             if is_gate:
                 visible_packages = 0
@@ -3864,11 +4297,38 @@ def gate_auto_dispatch_toggle():
         if request.method == 'POST':
             data = request.json or {}
             enabled = bool(data.get('enabled', False))
+            if enabled:
+                # RBAC Phase 7 (H28): auto-dispatch lets a background service admit vehicles, so
+                # switching it on needs the bulk-approval permission and a reason, in every mode,
+                # and who switched it on is kept with the setting.
+                if 'gate.entry.bulk_approve' not in rbac_service.effective_permissions():
+                    return jsonify({"success": False, "error_code": "permission_denied",
+                                    "permission": "gate.entry.bulk_approve",
+                                    "message": "You need 'Approve all matched pending passes at once' to switch on auto-dispatch."}), 403
+                reason = rbac_service._request_reason()
+                if not reason:
+                    return jsonify({"success": False, "error_code": "reason_required",
+                                    "permission_label": "Switch on gate auto-dispatch",
+                                    "message": "Please give a short reason for this action."}), 400
             state = set_gate_auto_dispatch(enabled)
+            wid = rbac_service.current_warehouse_id()
+            if wid:
+                actor = g.get('current_user') or {}
+                conn = db.get_db()
+                try:
+                    with conn:
+                        conn.execute("""INSERT INTO warehouse_settings (warehouse_id, key, value_json, updated_by, updated_at)
+                                        VALUES (?, 'gate.auto_dispatch.enabled_by', ?, ?, CURRENT_TIMESTAMP)
+                                        ON CONFLICT(warehouse_id, key) DO UPDATE SET value_json = excluded.value_json,
+                                        updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP""",
+                                     (wid, json.dumps({"username": actor.get('username'), "enabled": enabled,
+                                                       "reason": rbac_service._request_reason()}), actor.get('id')))
+                finally:
+                    conn.close()
             return jsonify({"success": True, "auto_dispatch": state})
         return jsonify({"success": True, "auto_dispatch": get_gate_auto_dispatch()})
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/approve_all_matched', methods=['POST'])
@@ -3917,7 +4377,7 @@ def approve_all_matched_passes():
             "message": f"Dispatched {dispatched_count} Gate Pass(es) to active Docks!"
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 def _collect_live_gate_frames() -> List[Tuple[str, np.ndarray, List[Dict[str, Any]]]]:
@@ -4046,6 +4506,8 @@ def simulate_gate_arrival():
 
         mgr = get_vision_runtime_manager()
         for sess in mgr.sessions.values():
+            if not rbac_scope.camera_visible(getattr(sess, 'camera_id', '')):
+                continue
             if sess.is_gate_camera or sess.location == 'Gate':
                 sess.last_detected_plate = plate
                 sess.last_gate_pass_id = gp_id
@@ -4053,6 +4515,8 @@ def simulate_gate_arrival():
                 sess.last_gate_pass_time = time.time()
 
         for cam in active_cameras.values():
+            if not rbac_scope.camera_visible(getattr(cam, 'camera_id', '')):
+                continue
             if getattr(cam, 'is_gate_camera', False) or cam.location == 'Gate':
                 with cam.lock:
                     cam.last_detected_plate = plate
@@ -4072,7 +4536,7 @@ def simulate_gate_arrival():
             "message": f"Gate Pass {gp_id} issued for {plate} ({smart_dock})"
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/scan_now', methods=['POST'])
@@ -4117,7 +4581,7 @@ def scan_gate_now():
             "message": "No clear plate locked in current frame — use 1-Click Expected PO Queue or Snap + Auto-OCR."
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/snap_and_read', methods=['POST'])
@@ -4177,7 +4641,7 @@ def snap_and_read_gate():
             "message": "High-res truck snapshot captured! Select an Expected PO below to admit in 1 click."
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 
 @app.route('/api/gate/register_walkin_vehicle', methods=['POST'])
@@ -4304,7 +4768,7 @@ def register_walkin_vehicle():
             "message": f"Registered new vehicle {plate} with PO {po_number} & Gate Pass {gp_id} ({smart_dock})!"
         })
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": _public_error(e)}), 500
 
 @app.route('/api/cameras', methods=['POST'])
 def add_camera():
@@ -4697,10 +5161,15 @@ def api_system_rtmp_status():
     srv = get_rtmp_service()
     now = time.time()
     age = round(now - srv.last_frame_time, 2) if srv.last_frame_time > 0 else None
+    # RBAC Phase 7 (H7): the push address carries the secret stream key, so only people who
+    # may configure cameras see it in full.
+    can_configure = 'cameras.configure' in rbac_service.effective_permissions()
+    push_url = srv.push_url(lan_ip) if can_configure else f"rtmp://{lan_ip}:{srv.port}/<stream key hidden>/cam"
     return jsonify({
         "success": True,
         "lan_ip": lan_ip,
-        "rtmp_url": f"rtmp://{lan_ip}:{srv.port}{srv.stream_path}",
+        "rtmp_url": push_url,
+        "key_required": bool(srv.require_key),
         "is_running": srv.is_running,
         "frame_count": srv.frame_count,
         "last_frame_age_sec": age,
@@ -4808,46 +5277,59 @@ def pick_outbound(order_id):
         return jsonify({"success": False, "error": "Invalid or fulfilled order"})
         
     items = cursor.execute("SELECT * FROM outbound_items WHERE order_id = ?", (order_id,)).fetchall()
-    
-    # Simple picking logic: just find any bin with the SKU and deduct
+
+    # Pick only from THIS location's bins, oldest stock first (earliest expiry, then earliest
+    # received). A line counts as picked only for what was really taken off the shelf.
+    import rbac_scope
+    import inventory_routes
+    icond, iparams = rbac_scope.home_filter("inventory")
+    mark = cursor.execute("SELECT COALESCE(MAX(id), 0) FROM stock_movements").fetchone()[0]
+    touched_bins = set()
+    short = []
     for item in items:
-        needed = item['quantity'] - item['picked_quantity']
+        needed = (item['quantity'] or 0) - (item['picked_quantity'] or 0)
         if needed <= 0:
             continue
-            
-        invs = cursor.execute("SELECT * FROM inventory WHERE sku_id = ? AND quantity > 0", (item['sku_id'],)).fetchall()
+        invs = cursor.execute(f"""
+            SELECT id, bin_id, quantity FROM inventory
+             WHERE sku_id = ? AND quantity > 0{icond}
+             ORDER BY CASE WHEN expiry_date IS NULL OR TRIM(expiry_date) = '' THEN 1 ELSE 0 END,
+                      date(expiry_date), received_date, id""", (item['sku_id'],) + iparams).fetchall()
         for inv in invs:
             if needed <= 0:
                 break
-            
             take = min(inv['quantity'], needed)
-            # Update inventory
-            cursor.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (take, inv['id']))
-            # Update Bin capacities
-            sku = cursor.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (item['sku_id'],)).fetchone()
-            vol_red = sku['unit_volume'] * take
-            wt_red = sku['unit_weight'] * take
-            cursor.execute("UPDATE bins SET current_volume = MAX(0, current_volume - ?), current_weight = MAX(0, current_weight - ?) WHERE bin_id = ?", (vol_red, wt_red, inv['bin_id']))
-            
+            cur = cursor.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ? AND quantity >= ?",
+                                 (take, inv['id'], take))
+            if not cur.rowcount:
+                continue   # not changeable here (another location) or changed meanwhile: not picked
+            touched_bins.add(inv['bin_id'])
             needed -= take
-            
         cursor.execute("UPDATE outbound_items SET picked_quantity = ? WHERE id = ?", (item['quantity'] - needed, item['id']))
-    
+        if needed > 0:
+            short.append(f"{item['sku_id']}: {needed} short")
+    for b in touched_bins:
+        inventory_routes.recalc_bin(cursor.connection, b)
+    # stock history: these picks belong to this order
+    cursor.execute("UPDATE stock_movements SET ref = COALESCE(ref, ?) WHERE id > ?", (order_id, mark))
+
     # Check if fully picked
     all_picked = True
     rem_items = cursor.execute("SELECT * FROM outbound_items WHERE order_id = ?", (order_id,)).fetchall()
     for i in rem_items:
-        if i['picked_quantity'] < i['quantity']:
+        if (i['picked_quantity'] or 0) < (i['quantity'] or 0):
             all_picked = False
-            
+
     if all_picked:
         cursor.execute("UPDATE outbound_orders SET status = 'Fulfilled' WHERE id = ?", (order_id,))
     else:
         cursor.execute("UPDATE outbound_orders SET status = 'Partially Picked' WHERE id = ?", (order_id,))
-        
+
     conn.commit()
     conn.close()
-    return jsonify({"success": True, "status": "Fulfilled" if all_picked else "Partially Picked"})
+    return jsonify({"success": True, "status": "Fulfilled" if all_picked else "Partially Picked",
+                    "message": "Picked in full." if all_picked else "Not enough stock in this location: " + "; ".join(short),
+                    "short": short})
 
 # ============================================================================
 # PART 14 — SYSTEM INTEGRATION & ORCHESTRATION LAYER ENDPOINTS
@@ -4860,7 +5342,7 @@ def api_integration_overview():
         overview = get_integration_service().get_unified_overview()
         return jsonify({"success": True, "data": overview}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/delivery/<po_number>', methods=['GET'])
 def api_integration_delivery(po_number):
@@ -4871,7 +5353,7 @@ def api_integration_delivery(po_number):
             return jsonify({"success": False, "error": f"Delivery '{po_number}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/gate_pass/<gp_id>', methods=['GET'])
 def api_integration_gate_pass(gp_id):
@@ -4882,7 +5364,7 @@ def api_integration_gate_pass(gp_id):
             return jsonify({"success": False, "error": f"Gate pass '{gp_id}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/material/<material_id>', methods=['GET'])
 def api_integration_material(material_id):
@@ -4893,7 +5375,7 @@ def api_integration_material(material_id):
             return jsonify({"success": False, "error": f"Material '{material_id}' not found in traceability"}), 404
         return jsonify({"success": True, "data": dossier}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/dock/<dock_name>', methods=['GET'])
 def api_integration_dock(dock_name):
@@ -4902,7 +5384,7 @@ def api_integration_dock(dock_name):
         ctx = get_integration_service().get_dock_context(dock_name)
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/bin/<bin_id>', methods=['GET'])
 def api_integration_bin(bin_id):
@@ -4913,7 +5395,7 @@ def api_integration_bin(bin_id):
             return jsonify({"success": False, "error": f"Bin '{bin_id}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/camera/<camera_id>', methods=['GET'])
 def api_integration_camera(camera_id):
@@ -4924,7 +5406,7 @@ def api_integration_camera(camera_id):
             return jsonify({"success": False, "error": f"Camera '{camera_id}' not found"}), 404
         return jsonify({"success": True, "data": ctx}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 @app.route('/api/integration/e2e/test_scenario', methods=['POST'])
 def api_integration_e2e_test_scenario():
@@ -4935,7 +5417,7 @@ def api_integration_e2e_test_scenario():
         result = get_integration_service().run_e2e_integration_scenario(po_number)
         return jsonify(result), 200 if result.get("success") else 400
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 # ============================================================================
 # PART 13 — WMS INTEGRATION & CONTROLLED ACTIONS ENHANCEMENT
@@ -4957,7 +5439,7 @@ def api_controlled_actions_recommendations():
         }), 200
     except Exception as e:
         logger.error(f"Error fetching controlled action recommendations: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/preview', methods=['POST'])
@@ -4986,7 +5468,7 @@ def api_controlled_actions_preview():
         }), 200
     except Exception as e:
         logger.error(f"Error generating controlled action preview: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/execute', methods=['POST'])
@@ -5028,7 +5510,7 @@ def api_controlled_actions_execute():
         return jsonify(res), status_code
     except Exception as e:
         logger.error(f"Error executing controlled action: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/reject', methods=['POST'])
@@ -5059,7 +5541,7 @@ def api_controlled_actions_reject():
         return jsonify(res), 200
     except Exception as e:
         logger.error(f"Error rejecting controlled action: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/audit', methods=['GET'])
@@ -5077,7 +5559,7 @@ def api_controlled_actions_audit():
         }), 200
     except Exception as e:
         logger.error(f"Error fetching controlled action audit: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/wms/controlled_actions/status/<path:idempotency_key>', methods=['GET'])
@@ -5093,31 +5575,54 @@ def api_controlled_actions_status(idempotency_key):
 
 @app.route('/api/gate/checkout/<gp_id>', methods=['POST'])
 def checkout_gate_pass(gp_id):
-    conn = db.get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE gate_passes SET status = 'Exited', exit_time = CURRENT_TIMESTAMP WHERE id = ?", (gp_id,))
-    conn.commit()
-    conn.close()
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found."}), 404
+    problem = db.outbound_exit_problem(gp)
+    if problem:
+        return jsonify({"success": False, "error_code": "outbound_not_ready", "message": problem}), 409
+    # through update_gate_pass: gate pass history, and an outbound order becomes Dispatched
+    db.update_gate_pass(gp_id, {"status": "Exited", "exit_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
     return jsonify({"success": True, "message": f"Vehicle {gp_id} successfully checked out and exited."})
+
+
+@app.route('/api/outbound/<order_id>/truck', methods=['POST'])
+def api_assign_outbound_truck(order_id):
+    """Assigns the truck for a fully picked outbound order: a gate pass (Loading) linked to the order."""
+    data = request.get_json(silent=True) or {}
+    try:
+        gp = db.assign_outbound_truck(order_id, data)
+    except db.OutboundError as e:
+        return jsonify({"success": False, "message": _public_error(e)}), 400
+    return jsonify({"success": True, "gate_pass": gp,
+                    "message": f"Truck {gp.get('plate')} assigned. Gate pass {gp.get('id')} is waiting at the gate."})
 
 
 @app.route('/api/inventory', methods=['GET'])
 def get_inventory():
     conn = db.get_db()
     cursor = conn.cursor()
-    items = cursor.execute('''
+    import rbac_scope
+    _sf, _sp = rbac_scope.filter("inventory", "i")  # RBAC Phase 3A: this warehouse's stock only
+    items = cursor.execute(f'''
         SELECT i.*, s.name as sku_name, s.category, b.zone
         FROM inventory i
         LEFT JOIN skus s ON i.sku_id = s.sku_id
         LEFT JOIN bins b ON i.bin_id = b.bin_id
-    ''').fetchall()
+        WHERE 1=1{_sf}
+    ''', _sp).fetchall()
     conn.close()
     return jsonify([dict(row) for row in items])
 
 @app.route('/api/inventory/<int:inv_id>', methods=['PUT'])
 def update_inventory(inv_id):
-    data = request.json
-    new_qty = data.get('quantity')
+    data = request.get_json(silent=True) or {}
+    try:
+        new_qty = int(str(data.get('quantity')).strip())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Quantity must be a whole number."}), 400
+    if new_qty < 0:
+        return jsonify({"success": False, "message": "Quantity can't be negative."}), 400
     conn = db.get_db()
     cursor = conn.cursor()
     inv = cursor.execute("SELECT * FROM inventory WHERE id = ?", (inv_id,)).fetchone()
@@ -5134,8 +5639,8 @@ def update_inventory(inv_id):
     for item in invs:
         sku = cursor.execute("SELECT unit_volume, unit_weight FROM skus WHERE sku_id = ?", (item['sku_id'],)).fetchone()
         if sku:
-            total_vol += sku['unit_volume'] * item['quantity']
-            total_wt += sku['unit_weight'] * item['quantity']
+            total_vol += (sku['unit_volume'] or 0) * (item['quantity'] or 0)
+            total_wt += (sku['unit_weight'] or 0) * (item['quantity'] or 0)
             
     cursor.execute("UPDATE bins SET current_volume = ?, current_weight = ? WHERE bin_id = ?", (total_vol, total_wt, bin_id))
     conn.commit()
@@ -5156,7 +5661,7 @@ def api_vision_runtime_status():
         telemetry = mgr.get_telemetry()
         return jsonify({"success": True, "data": telemetry}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras', methods=['GET'])
@@ -5167,7 +5672,7 @@ def api_vision_runtime_cameras():
         telemetry = mgr.get_telemetry()
         return jsonify({"success": True, "cameras": telemetry.get("cameras", [])}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>', methods=['GET'])
@@ -5180,7 +5685,7 @@ def api_vision_runtime_camera_detail(camera_id):
             return jsonify({"success": False, "error": f"Camera session '{camera_id}' not found"}), 404
         return jsonify({"success": True, "camera": sess.to_dict()}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>/start', methods=['POST'])
@@ -5207,7 +5712,7 @@ def api_vision_runtime_camera_start(camera_id):
             "camera": sess.to_dict()
         }), 200 if success else 500
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>/stop', methods=['POST'])
@@ -5226,7 +5731,7 @@ def api_vision_runtime_camera_stop(camera_id):
             "camera": sess.to_dict()
         }), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/cameras/<camera_id>/restart', methods=['POST'])
@@ -5245,7 +5750,7 @@ def api_vision_runtime_camera_restart(camera_id):
             "camera": sess.to_dict()
         }), 200 if success else 500
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/start', methods=['POST'])
@@ -5269,7 +5774,7 @@ def api_vision_runtime_start_all():
         results = mgr.start_all()
         return jsonify({"success": True, "results": results}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/runtime/stop', methods=['POST'])
@@ -5293,7 +5798,7 @@ def api_vision_runtime_stop_all():
         results = mgr.stop_all()
         return jsonify({"success": True, "results": results}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/preview.jpg', methods=['GET'])
@@ -5303,8 +5808,9 @@ def api_vision_runtime_camera_preview_jpg(camera_id=None):
     mgr = get_vision_runtime_manager()
     cid = camera_id or request.args.get('camera_id')
     sess = mgr.get_session(cid) if cid else None
-    if not sess and mgr.sessions:
-        sess = next(iter(mgr.sessions.values()))
+    if not sess and not cid and mgr.sessions:
+        # no camera named: the first camera this person may see (never another company's)
+        sess = next((s for cam_id, s in mgr.sessions.items() if rbac_scope.camera_visible(cam_id)), None)
     
     target_cid = sess.camera_id if sess else (cid or "CAM-001")
     target_loc = sess.location if sess else "Dock 01"
@@ -5411,7 +5917,7 @@ def api_vision_runtime_camera_test_step(camera_id=None):
             }
         }), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/dashboard/live', methods=['GET'])
@@ -5702,7 +6208,7 @@ def api_vision_dashboard_live():
 
     except Exception as e:
         logger.error(f"Failed to generate live dashboard summary: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count/audit/<bin_id>', methods=['GET'])
@@ -5716,7 +6222,7 @@ def audit_bin_cycle_count(bin_id):
         result = service.evaluate_bin(bin_id)
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count/audit/<bin_id>/simulate', methods=['POST'])
@@ -5731,7 +6237,7 @@ def simulate_bin_cycle_count(bin_id):
         result = service.evaluate_bin(bin_id, observation_override=override)
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count/activities', methods=['GET'])
@@ -5742,7 +6248,7 @@ def get_cycle_count_activities():
         activities = db.get_activities(limit=limit)
         return jsonify({"success": True, "activities": activities}), 200
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cycle_count', methods=['POST'])
@@ -5932,8 +6438,8 @@ def suggest_bin(gp_id):
     import json
     try:
         sheet_str = gp.get('unloading_sheet')
-        sheet = json.loads(sheet_str) if isinstance(sheet_str, str) else sheet_str
-        if sheet and len(sheet) > 0 and 'sku' in sheet[0]:
+        sheet = db.normalize_sheet(sheet_str)
+        if sheet and sheet[0].get('sku'):
             sku_id = sheet[0]['sku']
     except: pass
     
@@ -6040,47 +6546,41 @@ def api_inbound_simulate():
 
 @app.route('/api/inbound/complete_receipt', methods=['POST'])
 def api_inbound_complete_receipt():
-    """Completes the dock unloading receipt, reconciles inventory to the designated bin, and closes the gate pass."""
+    """Completes the dock unloading receipt: the received goods are ADDED to the chosen bin (never
+    replacing what is there), the gate pass and its PO are closed. A truck is received only once."""
     data = request.get_json(silent=True) or {}
     gp_id = data.get('gp_id')
-    bin_id = data.get('bin_id') or 'BIN-A1'
-    quantity = int(data.get('quantity', 0))
-    sku_id = data.get('sku_id') or 'SKU-AUTO-WIRE'
-    vendor = data.get('vendor') or 'Inbound Supplier'
+    bin_id = (data.get('bin_id') or '').strip()
+    sku_id = (data.get('sku_id') or '').strip()
+    vendor = data.get('vendor') or None
 
     if not gp_id:
         return jsonify({"success": False, "message": "Gate Pass ID is required"}), 400
-
-    conn = db.get_db()
     try:
-        gp = conn.execute("SELECT * FROM gate_passes WHERE id = ?", (gp_id,)).fetchone()
-        if not gp:
-            return jsonify({"success": False, "message": "Gate pass not found"}), 404
+        quantity = int(data.get('quantity', 0))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "The received quantity must be a whole number."}), 400
+    gp = db.get_gate_pass(gp_id)
+    if not gp:
+        return jsonify({"success": False, "message": "Gate pass not found"}), 404
 
-        # Sync inventory
-        sync_res = db.sync_bin_inventory(bin_id, quantity, sku_id=sku_id, vendor=vendor)
+    try:
+        receipt = db.receive_goods(bin_id, sku_id, quantity, vendor=vendor or gp.get('vendor'), ref=f"GRN-{gp_id}",
+                                   reason=f"Goods receipt{(' - PO ' + str(gp['po_number'])) if gp.get('po_number') else ''}")
+    except db.ReceiveError as e:
+        msg = _public_error(e)   # a ReceiveError explains itself (unknown product, other location, already received)
+        return jsonify({"success": False, "message": msg, "error": msg}), 400
 
-        # Update Gate pass status to Completed
-        conn.execute("""
-            UPDATE gate_passes 
-            SET status = 'Completed', unloaded_qty = ?
-            WHERE id = ?
-        """, (quantity, gp_id))
-
-        # Update associated delivery status in expected_deliveries
-        if gp['po_number']:
-            conn.execute("UPDATE expected_deliveries SET status = 'Completed' WHERE po_number = ?", (gp['po_number'],))
-
-        conn.commit()
-
-        return jsonify({
-            "success": True,
-            "message": f"Goods Receipt Note (GRN) generated! Synced {quantity} items to Bin {bin_id}.",
-            "sync_details": sync_res,
-            "gp_id": gp_id
-        })
-    finally:
-        conn.close()
+    # close the gate pass through the normal path (history, PO status); the receipt is already booked,
+    # so the dock "Completed" put-away sees GRN-<gate pass> and doesn't add it again
+    db.update_gate_pass(gp_id, {"status": "Completed", "unloaded_qty": quantity, "bin_allocation": bin_id})
+    return jsonify({
+        "success": True,
+        "message": f"Goods Receipt Note GRN-{gp_id} generated. Added {quantity} to bin {bin_id} "
+                   f"(now {receipt['line_quantity']} of {sku_id} on that stock line).",
+        "sync_details": receipt,
+        "gp_id": gp_id
+    })
 
 
 # ==============================================================================
@@ -6235,16 +6735,15 @@ def api_gate_multi_status():
         "yard_vehicles": yard_vehicles
     })
 
-@app.route('/api/gate/checkout', methods=['POST'])
-def api_gate_checkout():
+def _gate02_exit_checkout(data: Dict[str, Any]):
     """
-    Processes vehicle checkout at Exit Gate 02:
+    Processes vehicle checkout at Exit Gate 02 (called from POST /api/gate/checkout
+    when no gp_id is sent):
     - Verifies license plate at Gate 02 exit camera
     - Records exit timestamp
     - Calculates yard dwell time (arrival -> departure)
     - Marks gate pass Completed and opens exit barrier arm
     """
-    data = request.get_json(silent=True) or {}
     plate = (data.get('plate') or '').strip().upper()
     pass_id = data.get('pass_id')
     gate_id = data.get('gate_id', 'GATE-02')
@@ -6259,15 +6758,15 @@ def api_gate_checkout():
     elif plate:
         target_pass = db.get_pending_gate_pass_by_plate(plate)
 
-    if not target_pass:
+    if not target_pass and plate:
         passes = db.get_all_gate_passes() or []
         for p in passes:
             if p.get('status') in ('Sent to Dock', 'Unloading', 'Arrived at Gate', 'Pending'):
-                if plate and plate in (p.get('plate') or ''):
+                if plate in (p.get('plate') or ''):
                     target_pass = p
                     break
-        if not target_pass and passes:
-            target_pass = passes[0]
+        # Security: never fall back to an unrelated gate pass. Previously any
+        # unmatched plate checked out the first pass in the list.
 
     if not target_pass:
         return jsonify({"success": False, "error": "No active vehicle found for exit checkout."}), 404
@@ -6283,9 +6782,13 @@ def api_gate_checkout():
         except Exception:
             pass
 
-    # Update gate pass to Completed with exit_time
+    # Update gate pass with exit_time: Completed for an inbound truck; an outbound truck has
+    # Departed (its order becomes Dispatched) - only once its order is fully picked
+    problem = db.outbound_exit_problem(target_pass)
+    if problem:
+        return jsonify({"success": False, "error_code": "outbound_not_ready", "error": problem, "message": problem}), 409
     updated = db.update_gate_pass(target_pass['id'], {
-        "status": "Completed",
+        "status": "Departed" if target_pass.get('outbound_order_id') else "Completed",
         "exit_time": exit_time_str
     })
 
@@ -6408,12 +6911,25 @@ def api_update_pallet_count(pallet_id):
         new_count=int(new_count),
         track_id=data.get('track_id'),
         similarity_score=float(data.get('similarity_score', 0.0)),
-        snapshot_path=data.get('snapshot_path')
+        snapshot_path=data.get('snapshot_path'),
+        units_per_bundle=data.get('units_per_bundle')
     )
     if not rec:
         return jsonify({"success": False, "error": f"Pallet '{pallet_id}' not found"}), 404
 
     return jsonify({"success": True, "pallet": rec})
+
+
+@app.route('/api/pallets/<pallet_id>/putaway', methods=['POST'])
+def api_putaway_pallet(pallet_id):
+    """Sealed pallet -> its counted pieces are added to stock in its bin (once per pallet)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        res = db.putaway_pallet(pallet_id, bin_id=data.get('bin_id'))
+    except db.ReceiveError as e:
+        return jsonify({"success": False, "error": _public_error(e)}), 400
+    return jsonify({"success": True, "receipt": res, "pallet": db.get_pallet_by_id(pallet_id),
+                    "message": f"{res['added']} added to stock in {res['bin_id']} (now {res['line_quantity']} there)."})
 
 
 @app.route('/api/pallets/<pallet_id>/seal', methods=['POST'])
@@ -6738,7 +7254,7 @@ def api_multi_angle_count():
 
     except Exception as e:
         logger.exception("Error running multi-angle audit count")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/sync-audit-count', methods=['POST'])
@@ -6780,7 +7296,7 @@ def api_sync_audit_count():
             "pallet": updated
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 # ==============================================================================
@@ -6830,7 +7346,7 @@ def api_get_vision_skus():
         return jsonify({"success": True, "skus": skus, "count": len(skus)})
     except Exception as e:
         logger.exception("Error fetching vision SKUs")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/cameras/<camera_id>/snapshot', methods=['GET'])
@@ -6849,7 +7365,7 @@ def api_camera_snapshot(camera_id):
         return Response(buf.tobytes(), mimetype='image/jpeg')
     except Exception as e:
         logger.exception(f"Error capturing snapshot from camera {camera_id}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 def decode_image_bytes_to_bgr(raw_bytes: bytes, max_dim: int = 8192):
@@ -7009,6 +7525,51 @@ def _extract_base64_image_bgr(data_str):
     except Exception as b64_err:
         logger.warning(f"Failed to decode base64 image data: {b64_err}")
         return None, 'corrupted_image', f'Base64 image encoding is invalid: {b64_err}'
+
+
+def _focus_on_main_stack(service, image_bgr, result):
+    """Individual-pieces count: keep the main stack, drop pieces of other stacks in the background and
+    pieces found twice (stack_focus.py), then redraw the markers with the engine's own re-render (the
+    same step as an operator removing markers). Any problem -> the original result, unchanged."""
+    try:
+        mode = str(result.get('mode') or result.get('counting_mode') or '').lower()
+        if not result.get('pieces') or 'bundle' in mode or 'carton' in mode:
+            return result
+        import stack_focus
+        kept, stats = stack_focus.main_stack(result['pieces'])
+        if stats['background'] + stats['duplicates'] == 0:
+            return result
+        rr = service.re_render_piece_annotations(image_bgr, pieces=kept, counting_mode=result.get('counting_mode'),
+                                                 material_type=result.get('material_type'), regions=result.get('regions'))
+        if not rr or rr.get('success') is False:
+            return result
+        n = int(rr.get('total_pieces') if rr.get('total_pieces') is not None else len(kept))
+        merged = dict(result)
+        for k in ('pieces', 'annotated_image_url', 'clusters', 'directly_detected_count', 'visible_pieces', 'total_pieces',
+                  'excluded_count', 'excluded_pieces', 'uncertain_count', 'matrix_3d', 'boundary_reviews',
+                  'hidden_count', 'inferred_count'):
+            if k in rr:
+                merged[k] = rr[k]
+        qb = dict(result.get('quantity_breakdown') or {})
+        qb.update(rr.get('quantity_breakdown') or {})
+        for k in ('total_units', 'total_pieces', 'calculated_total_pieces', 'individual_units_total',
+                  'final_proposed_quantity', 'proposed_count', 'confirmed_count', 'visible_count', 'directly_detected_count'):
+            qb[k] = n
+        merged['quantity_breakdown'] = qb
+        for k in ('confirmed_count', 'proposed_count', 'final_proposed_quantity', 'individual_units_total'):
+            if isinstance(result.get(k), (int, float)):
+                merged[k] = n
+        if isinstance(result.get('confirmed_objects'), list):
+            merged['confirmed_objects'] = merged['pieces']
+        merged['stack_focus'] = dict(stats, before=len(result['pieces']))
+        sid = merged.get('session_id')
+        sessions = getattr(service, '_active_multiview_sessions', None)
+        if sid and isinstance(sessions, dict) and sid in sessions:
+            sessions[sid] = merged       # review / transfer use the corrected count
+        return merged
+    except Exception:
+        logger.exception("main-stack focus skipped")
+        return result
 
 
 @app.route('/api/pallets/count-pieces', methods=['POST'])
@@ -7182,6 +7743,12 @@ def api_count_pallet_pieces():
             glass_profile=glass_profile
         )
 
+        # count the stack in front, not other stacks behind it (unless the operator drew an area
+        # or asked for the whole photo)
+        whole_photo = str(request.form.get('whole_photo') or data.get('whole_photo') or '').lower() in ('1', 'true', 'yes')
+        if not whole_photo and not roi and not regions:
+            result = _focus_on_main_stack(service, image_bgr, result)
+
         result['source_type'] = source_type
         if source_type == 'camera':
             result['camera_id'] = camera_id
@@ -7192,7 +7759,7 @@ def api_count_pallet_pieces():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error counting individual pieces")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/re-render-pieces', methods=['POST'])
@@ -7254,7 +7821,7 @@ def api_re_render_pallet_pieces():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error re-rendering pieces")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/count-bundles', methods=['POST'])
@@ -7457,7 +8024,7 @@ def api_count_pallet_bundles():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("Error counting bundles multi-view")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 
@@ -7656,7 +8223,7 @@ def api_count_pallet_multiview():
 
     except Exception as e:
         logger.exception("Error during multi-view fusion counting")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 
@@ -7722,7 +8289,7 @@ def api_review_pallet_multiview():
         return jsonify({'success': False, 'error': str(ve), 'error_code': 'invalid_review_action'}), 400
     except Exception as e:
         logger.exception('Error during multi-view review action')
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': _public_error(e)}), 500
 
 @app.route('/api/pallets/resolve-strategy', methods=['POST'])
 def api_resolve_counting_strategy():
@@ -7763,7 +8330,7 @@ def api_resolve_counting_strategy():
         return jsonify(resolution), 200
     except Exception as e:
         logger.exception("Error resolving counting strategy")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/transfer-inventory', methods=['POST'])
@@ -7851,7 +8418,7 @@ def api_transfer_vision_inventory():
         return jsonify({"success": False, "error": str(ve), "error_code": "validation_error"}), 400
     except Exception as e:
         logger.exception("Error transferring vision count to inventory")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/glass-profiles', methods=['GET'])
@@ -7862,7 +8429,7 @@ def api_get_glass_profiles():
         return jsonify({"success": True, "profiles": profiles}), 200
     except Exception as e:
         logger.exception("Error fetching glass profiles")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/glass-profiles', methods=['POST'])
@@ -7876,7 +8443,7 @@ def api_save_glass_profile():
         return jsonify({"success": True, "profile": saved}), 200
     except Exception as e:
         logger.exception("Error saving glass profile")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/pallets/glass-profiles/<profile_id>', methods=['DELETE'])
@@ -7887,7 +8454,7 @@ def api_delete_glass_profile(profile_id):
         return jsonify({"success": deleted}), 200
     except Exception as e:
         logger.exception("Error deleting glass profile")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/vision/decode_ocr', methods=['POST'])
@@ -7911,7 +8478,7 @@ def decode_ocr_endpoint():
         return jsonify({"success": False, "text": "", "message": "No barcode/QR found"})
     except Exception as e:
         logger.exception("Error decoding image QR")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 @app.route('/api/telemetry/live', methods=['GET'])
@@ -8014,7 +8581,7 @@ def get_live_telemetry_endpoint():
         })
     except Exception as e:
         logger.exception("Error in live telemetry endpoint")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": _public_error(e)}), 500
 
 
 
@@ -8033,11 +8600,27 @@ def api_copilot_chat():
         data = request.get_json(silent=True) or {}
         message = data.get('message', '')
         user = session.get('user')
-        result = get_copilot_service().handle_chat(message, user=user)
+        # RBAC Phase 7: web search per company (off by default, H16); the global AI key only
+        # by the Platform Admin; names that must never leave the server
+        import settings_service
+        current = g.get('current_user') or {}
+        company_id = auth_service.user_company_id(current['id']) if current.get('id') else None
+        strip = [current.get('username'), (session.get('user') or {}).get('company_name')]
+        result = get_copilot_service().handle_chat(
+            message, user=user,
+            allow_web_search=bool(settings_service.get_company(company_id, 'copilot.web_search')),
+            can_configure_ai=bool(current.get('is_platform_admin')),
+            strip_terms=[t for t in strip if t])
+        if result.get('config_refused'):
+            auth_service.audit('copilot.config_refused', actor=current, company_id=company_id, ip=request.remote_addr,
+                               result='denied')
+        elif re.search(r'(?:set\s+(?:api\s+)?key|gemini\s+key)\s+[A-Za-z0-9_\-]{20,}', message or '', re.IGNORECASE):
+            auth_service.audit('copilot.config_changed', actor=current, company_id=company_id, ip=request.remote_addr,
+                               after={'setting': 'gemini_api_key'})
         return jsonify(result)
     except Exception as e:
         logger.exception("Error in copilot chat endpoint")
-        return jsonify({"success": False, "reply": f"Copilot error: {e}", "cards": []}), 500
+        return jsonify({"success": False, "reply": f"Copilot error: {_public_error(e)}", "cards": []}), 500
 
 @app.route('/api/copilot/action', methods=['POST'])
 def api_copilot_action():
@@ -8050,11 +8633,40 @@ def api_copilot_action():
         action = data.get('action', '')
         params = data.get('params', {})
         user = session.get('user')
+        # RBAC Phase 2/7 (H15): Copilot can only do what the user could do directly, in every
+        # RBAC mode; only known actions run, and only from an explicit click (this endpoint).
+        import rbac_routes
+        needed = rbac_routes.COPILOT_ACTION_PERMISSIONS.get(action)
+        if not needed:
+            return jsonify({"success": False, "message": "Unknown action."}), 400
+        if needed not in rbac_service.effective_permissions():
+            spec = rbac_catalog.PERMISSIONS_BY_KEY.get(needed)
+            return jsonify({"success": False, "error_code": "permission_denied", "permission": needed,
+                            "message": f"You don't have permission: {spec.label if spec else needed}."}), 403
+        denied = rbac_service.check_permission(needed, reason_required=(action == 'manual_admit'))
+        if denied is not None:
+            return denied
         result = get_copilot_service().execute_action(action, params, user=user)
         return jsonify(result)
     except Exception as e:
         logger.exception("Error in copilot action endpoint")
-        return jsonify({"success": False, "message": f"Action error: {e}"}), 500
+        return jsonify({"success": False, "message": f"Action error: {_public_error(e)}"}), 500
+
+# RBAC Phase 7: audit retention (default 365 days, per company audit.retention_days).
+# Runs a few minutes after start and then once a day; it only removes rows past retention.
+def _audit_retention_job():
+    import iam_service
+    time.sleep(180)
+    while True:
+        try:
+            iam_service.purge_old_audit_rows()
+        except Exception as e:
+            logger.warning(f"[AUDIT] retention job: {e}")
+        time.sleep(24 * 3600)
+
+
+if os.environ.get('WARLOG_DISABLE_BACKGROUND_JOBS') != '1':
+    threading.Thread(target=_audit_retention_job, daemon=True, name='Audit-Retention').start()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

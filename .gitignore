@@ -39,3 +39,17 @@ webapp/static/test_scenes/
 webapp/easyocr_models/
 webapp/static/snapshots/
 webapp/static/invoices/*.pdf
+
+# RBAC backups and baselines (contain DB copies; never commit)
+backups/
+
+# Copilot AI key file (never commit)
+.gemini_api_key
+webapp/.gemini_api_key
+
+# YOLOE text encoder (downloaded once, 572 MB) and YOLOE weights
+webapp/mobileclip*.ts
+mobileclip*.ts
+
+# server log files (run_production.py writes logs/server.log)
+logs/

@@ -63,8 +63,11 @@
         
         // If logged in as a specific client company, hide generic blueprint transformer
         if (bpBtn) {
-            const isSuperAdmin = !userComp || userComp.toLowerCase() === 'skantha industrial solutions';
-            bpBtn.style.display = isSuperAdmin ? 'inline-flex' : 'none';
+            // RBAC Phase 6: shown to whoever may apply industry templates (no hard-coded company name)
+            const allowed = typeof window.hasPerm === 'function'
+                ? window.hasPerm('masterdata.blueprint.apply')
+                : (!userComp || userComp.toLowerCase() === 'skantha industrial solutions');
+            bpBtn.style.display = allowed ? 'inline-flex' : 'none';
         }
         
         // Show "Add Facility" button
@@ -157,17 +160,17 @@
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
                         <div>
                             <span style="font-size:0.72rem; font-weight:700; color:#38bdf8; letter-spacing:0.05em; text-transform:uppercase;">${wh.code}</span>
-                            <h3 style="color:#f8fafc; font-size:1.1rem; margin:2px 0 0 0;">${wh.name}</h3>
+                            <h3 style="color:#f8fafc; font-size:1.1rem; margin:2px 0 0 0;">${__h(wh.name)}</h3>
                         </div>
                         ${isActive ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:4px;"><i class="fas fa-check-circle" style="margin-right:4px;"></i>ACTIVE</span>' : ''}
                     </div>
                     <div style="display:flex; align-items:center; gap:6px; color:#94a3b8; font-size:0.83rem; margin-bottom:8px;">
                         <i class="fas fa-location-dot" style="color:#0ea5e9;"></i>
-                        <span>${wh.city || 'Primary Region'}</span>
-                        ${wh.address ? `<span style="color:#64748b;">• ${wh.address}</span>` : ''}
+                        <span>${__h(wh.city || 'Primary Region')}</span>
+                        ${wh.address ? `<span style="color:#64748b;">• ${__h(wh.address)}</span>` : ''}
                     </div>
                     <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:6px 10px; margin-bottom:14px; font-size:0.78rem; color:#cbd5e1;">
-                        <span style="color:#64748b;">Industry / Nature:</span> <strong>${wh.industry || 'General Logistics'}</strong>
+                        <span style="color:#64748b;">Industry / Nature:</span> <strong>${__h(wh.industry || 'General Logistics')}</strong>
                     </div>
                 </div>
                 <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">
@@ -215,6 +218,10 @@
             const data = await res.json();
             if (data.success) {
                 activeWarehouse = data.warehouse;
+                // RBAC Phase 3A: this tab now works in the chosen warehouse
+                if (typeof window.warlogSetTabWarehouse === 'function' && data.warehouse) {
+                    window.warlogSetTabWarehouse(data.warehouse.id);
+                }
                 updateFacilityBadge();
                 updateModalFacilityTarget();
                 if (!silent) {
@@ -330,8 +337,8 @@
                             ${bp.mode || 'DEDICATED'}
                         </span>
                     </div>
-                    <h4 style="margin:0 0 4px 0; font-size:0.95rem; font-weight:700; color:#f8fafc;">${bp.name}</h4>
-                    <p style="margin:0 0 10px 0; font-size:0.78rem; color:#94a3b8; line-height:1.35;">${bp.description}</p>
+                    <h4 style="margin:0 0 4px 0; font-size:0.95rem; font-weight:700; color:#f8fafc;">${__h(bp.name)}</h4>
+                    <p style="margin:0 0 10px 0; font-size:0.78rem; color:#94a3b8; line-height:1.35;">${__h(bp.description)}</p>
                     
                     <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;">
                         ${sampleSkusList}
@@ -361,13 +368,64 @@
     // 3. APPLY BLUEPRINT ACTION (PRESET OR CUSTOM)
     // =========================================================================
 
-    async function applyIndustryBlueprint(key, customPrompt = '') {
+    async function applyIndustryBlueprint(key, customPrompt = '', confirmed = false) {
         const banner = document.getElementById('blueprintFeedbackBanner');
         const targetMode = document.getElementById('blueprintApplyTargetSelect')?.value || 'CURRENT';
-        
-        let targetWhCode = (activeWarehouse && activeWarehouse.code) ? activeWarehouse.code : 'WH-MAIN';
+        const includeSamples = !!document.getElementById('blueprintIncludeSamples')?.checked;
+
+        // RBAC Phase 3B: 'CURRENT' = this tab's warehouse; 'NEW' = a new facility for your own company
+        let targetWhCode = (activeWarehouse && activeWarehouse.code) ? activeWarehouse.code : 'CURRENT';
         if (targetMode === 'NEW') {
-            targetWhCode = ''; // Service will create a dedicated new facility
+            targetWhCode = 'NEW';
+        }
+
+        // Step 1: preview what would be added (nothing is changed yet)
+        if (!confirmed) {
+            window.__warlogBlueprintPending = { key: key, customPrompt: customPrompt };
+            try {
+                const pres = await fetch('/api/industry_blueprints/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ blueprint_key: key || '', warehouse_code: targetWhCode,
+                                           custom_prompt: customPrompt || '', include_samples: includeSamples, preview: true })
+                });
+                const pv = await pres.json();
+                if (!pv.success) {
+                    showBlueprintToast(`Error: ${pv.error || 'Preview failed'}`, 'error');
+                    return;
+                }
+                const renamed = Object.entries(pv.codes_renamed || {});
+                const renamedHtml = renamed.length
+                    ? `<div style="font-size:0.75rem; margin-top:6px;">${renamed.length} SKU code(s) are already used by another company, so yours get your tag, e.g. <b>${escapeHtml(renamed[0][0])}</b> &rarr; <b>${escapeHtml(renamed[0][1])}</b>.</div>`
+                    : '';
+                const where = targetMode === 'NEW' ? 'a new facility' : `<b>${escapeHtml((pv.warehouse && pv.warehouse.code) || targetWhCode)}</b>`;
+                if (banner) {
+                    banner.style.display = 'block';
+                    banner.style.background = 'rgba(56, 189, 248, 0.12)';
+                    banner.style.border = '1px solid rgba(56, 189, 248, 0.35)';
+                    banner.style.color = 'var(--text-main)';
+                    banner.innerHTML = `
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                            <div>
+                                <div><i class="fas fa-eye" style="color:#38bdf8; margin-right:6px;"></i><b>Preview</b> for ${where} (${escapeHtml(pv.company_name || '')}):</div>
+                                <div style="font-size:0.8rem; margin-top:4px;">
+                                    ${pv.skus_created || 0} new SKUs${pv.skus_skipped_existing ? ` (${pv.skus_skipped_existing} already there)` : ''},
+                                    ${pv.classes_created || 0} AI classes, ${pv.zones_created || 0} zones${includeSamples ? `, ${pv.deliveries_created || 0} sample deliveries, ${pv.stock_rows_created || 0} sample stock rows` : ', no sample data'}.
+                                    Nothing existing is changed.
+                                </div>
+                                ${renamedHtml}
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                <button type="button" onclick="document.getElementById('blueprintFeedbackBanner').style.display='none'" style="background:transparent; border:1px solid var(--border-light); color:var(--text-main); padding:5px 12px; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.78rem;">Cancel</button>
+                                <button type="button" onclick="applyIndustryBlueprint(window.__warlogBlueprintPending.key, window.__warlogBlueprintPending.customPrompt, true)" style="background:#0284c7; border:none; color:#ffffff; padding:5px 12px; border-radius:6px; font-weight:700; cursor:pointer; font-size:0.78rem;">Apply now</button>
+                            </div>
+                        </div>`;
+                }
+            } catch (err) {
+                console.error('[Industry Blueprint] Preview error:', err);
+                showBlueprintToast('Network communication error', 'error');
+            }
+            return;
         }
 
         if (banner) {
@@ -387,7 +445,8 @@
             const payload = {
                 blueprint_key: key || '',
                 warehouse_code: targetWhCode,
-                custom_prompt: customPrompt || ''
+                custom_prompt: customPrompt || '',
+                include_samples: includeSamples
             };
 
             const res = await fetch('/api/industry_blueprints/apply', {
@@ -406,7 +465,7 @@
                         <div style="display:flex; align-items:center; justify-content:space-between;">
                             <div>
                                 <i class="fas fa-circle-check" style="margin-right:6px;"></i>
-                                <b>Success!</b> ${data.message}
+                                <b>Success!</b> ${__h(data.message)}
                                 <div style="font-size:0.78rem; color:#a7f3d0; margin-top:4px;">
                                     Facility: <b>${data.warehouse ? data.warehouse.name : targetWhCode}</b> &bull; Added ${data.skus_created || 0} SKUs, ${data.classes_created || 0} Vision Classes, ${data.zones_created || 0} Storage Zones, ${data.deliveries_created || 0} Inbound Shipments.
                                 </div>
@@ -476,8 +535,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    company_name: comp,
-                    username: window.currentUser ? window.currentUser.username : 'admin'
+                    company_name: comp
                 })
             });
             const data = await res.json();
@@ -720,7 +778,8 @@
                 showBlueprintToast(`Successfully created ${data.warehouse.name} (${data.warehouse.code}) in ${city}`, 'success');
                 closeAddFacilityModal();
                 await loadWarehousesDropdown();
-                await switchActiveFacility(data.warehouse.code);
+                // the global (wrapped) switch reloads the page into the new location
+                await (window.switchActiveFacility || switchActiveFacility)(data.warehouse.code);
             } else {
                 if (errBanner) {
                     errBanner.style.display = 'block';

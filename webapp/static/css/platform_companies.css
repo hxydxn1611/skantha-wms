@@ -1,0 +1,42 @@
+/* Companies & Owners (Platform Admin only) */
+.pco-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+.pco-tile { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;
+    background: var(--panel-subtle); border: 1px solid var(--border-light); }
+.pco-tile i { font-size: 1.3rem; width: 26px; text-align: center; }
+.pco-tile-value { font-size: 1.35rem; font-weight: 800; color: var(--text-main); line-height: 1.1; }
+.pco-tile-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.pco-list { display: flex; flex-direction: column; gap: 16px; }
+.pco-card { margin: 0; }
+.pco-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.pco-company-name { font-size: 1.1rem; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pco-grid { display: grid; grid-template-columns: minmax(220px, 1fr) 3fr; gap: 20px; }
+@media (max-width: 900px) { .pco-grid { grid-template-columns: 1fr; } }
+.pco-subhead { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-muted); margin: 4px 0 8px; }
+.pco-person { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.pco-avatar { width: 34px; height: 34px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; color: #fff; background: linear-gradient(135deg, #8b5cf6, #2563eb); }
+.pco-person-name { font-weight: 700; color: var(--text-main); font-size: 0.9rem; }
+.pco-person-meta { font-size: 0.75rem; color: var(--text-muted); }
+.pco-chip { display: inline-block; font-size: 0.75rem; padding: 4px 8px; margin: 0 6px 6px 0; border-radius: 6px;
+    background: var(--panel-subtle); border: 1px solid var(--border-light); color: var(--text-main); }
+.pco-muted { color: var(--text-muted); font-size: 0.78rem; }
+.pco-table-wrap { overflow-x: auto; border: 1px solid var(--border-light); border-radius: 10px; }
+.pco-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.pco-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+    padding: 8px 10px; background: var(--panel-subtle); white-space: nowrap; }
+.pco-table td { padding: 8px 10px; border-top: 1px solid var(--border-light); color: var(--text-main); vertical-align: middle; }
+.pco-num { text-align: right; font-variant-numeric: tabular-nums; }
+.pco-loc-code { font-weight: 700; font-family: ui-monospace, monospace; font-size: 0.8rem; }
+.pco-loc-name { font-size: 0.75rem; color: var(--text-muted); }
+.pco-pill { display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.pco-pill-ok { background: rgba(16, 185, 129, 0.12); color: #059669; }
+.pco-pill-off { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+.pco-pill-owner { background: rgba(139, 92, 246, 0.14); color: #7c3aed; }
+.pco-btn { font-size: 0.75rem; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--accent-border);
+    background: var(--accent-light); color: var(--accent); cursor: pointer; white-space: nowrap; }
+.pco-btn:hover { background: var(--accent); color: #fff; }
+.pco-empty { padding: 24px; text-align: center; color: var(--text-muted); }
+.pco-error { color: var(--danger); }
+.pco-btn-danger { border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.08); color: var(--danger); }
+.pco-btn-danger:hover { background: var(--danger); color: #fff; }

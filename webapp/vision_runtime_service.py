@@ -25,6 +25,7 @@ import threading
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple, Union
+import json
 from datetime import datetime
 
 import re
@@ -484,13 +485,88 @@ def restamp_gate_pass_snapshot(
 
 _GATE_AUTO_DISPATCH_MATCHED_POS = False
 
-def set_gate_auto_dispatch(enabled: bool) -> bool:
-    global _GATE_AUTO_DISPATCH_MATCHED_POS
-    _GATE_AUTO_DISPATCH_MATCHED_POS = bool(enabled)
-    return _GATE_AUTO_DISPATCH_MATCHED_POS
+# RBAC Phase 3A (H10): auto-dispatch is a per-warehouse setting (warehouse_settings),
+# cached in memory so the ANPR worker never reads the database for it.
+_GATE_AUTO_DISPATCH_BY_WH: Dict[int, bool] = {}
 
-def get_gate_auto_dispatch() -> bool:
-    return _GATE_AUTO_DISPATCH_MATCHED_POS
+
+def _scope_warehouse_id(warehouse_id=None):
+    if warehouse_id:
+        return int(warehouse_id)
+    try:
+        import rbac_scope
+        sc = rbac_scope.get_scope()
+        if sc is not None and sc.warehouse_id and rbac_scope.isolation_enabled():
+            return int(sc.warehouse_id)
+    except Exception:
+        pass
+    return None
+
+
+def _audit_background_gate_pass(camera_id, gp_id, payload, auto_dispatched) -> None:
+    """RBAC Phase 7 (H28): what background services do is recorded as 'system:<service>'.
+    ANPR only creates passes; an auto-dispatched one names who switched auto-dispatch on.
+    Called once per new gate pass (never per frame); never raises."""
+    try:
+        import audit_events
+        import rbac_scope
+        sc = rbac_scope.get_scope()
+        cid = sc.company_id if sc is not None else None
+        wid = sc.warehouse_id if sc is not None else None
+        after = {"plate": payload.get("plate"), "po_number": payload.get("po_number"),
+                 "status": payload.get("status"), "dock": payload.get("dock"), "camera_id": camera_id}
+        audit_events.system_event("anpr", "gate.pass_created", company_id=cid, warehouse_id=wid,
+                                  resource_type="gate_pass", resource_id=gp_id, after=after)
+        if auto_dispatched:
+            enabled_by = None
+            if wid:
+                conn = db.get_db()
+                try:
+                    row = conn.execute("SELECT value_json FROM warehouse_settings WHERE warehouse_id = ? "
+                                       "AND key = 'gate.auto_dispatch.enabled_by'", (wid,)).fetchone()
+                    enabled_by = json.loads(row[0]) if row and row[0] else None
+                finally:
+                    conn.close()
+            audit_events.system_event("auto_dispatch", "gate.dock_admitted", company_id=cid, warehouse_id=wid,
+                                      resource_type="gate_pass", resource_id=gp_id,
+                                      after={**after, "auto_dispatch_enabled_by": (enabled_by or {}).get("username")},
+                                      reason=(enabled_by or {}).get("reason"))
+    except Exception as e:
+        logger.warning(f"[AUDIT] background gate pass {gp_id} not recorded: {e}")
+
+
+def set_gate_auto_dispatch(enabled: bool, warehouse_id=None) -> bool:
+    global _GATE_AUTO_DISPATCH_MATCHED_POS
+    wid = _scope_warehouse_id(warehouse_id)
+    if wid is None:
+        _GATE_AUTO_DISPATCH_MATCHED_POS = bool(enabled)
+        return _GATE_AUTO_DISPATCH_MATCHED_POS
+    conn = db.get_db()
+    try:
+        with conn:
+            conn.execute("""INSERT INTO warehouse_settings (warehouse_id, key, value_json, updated_at)
+                            VALUES (?, 'gate.auto_dispatch', ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(warehouse_id, key) DO UPDATE SET value_json = excluded.value_json,
+                            updated_at = CURRENT_TIMESTAMP""", (wid, json.dumps(bool(enabled))))
+    finally:
+        conn.close()
+    _GATE_AUTO_DISPATCH_BY_WH[wid] = bool(enabled)
+    return _GATE_AUTO_DISPATCH_BY_WH[wid]
+
+
+def get_gate_auto_dispatch(warehouse_id=None) -> bool:
+    wid = _scope_warehouse_id(warehouse_id)
+    if wid is None:
+        return _GATE_AUTO_DISPATCH_MATCHED_POS
+    if wid not in _GATE_AUTO_DISPATCH_BY_WH:
+        conn = db.get_db()
+        try:
+            row = conn.execute("SELECT value_json FROM warehouse_settings WHERE warehouse_id = ? AND key = 'gate.auto_dispatch'",
+                               (wid,)).fetchone()
+        finally:
+            conn.close()
+        _GATE_AUTO_DISPATCH_BY_WH[wid] = bool(json.loads(row[0])) if row else False
+    return _GATE_AUTO_DISPATCH_BY_WH[wid]
 
 def enhance_plate_multipass(crop_bgr: np.ndarray) -> List[Tuple[str, np.ndarray]]:
     """
@@ -602,6 +678,10 @@ def find_matching_delivery_for_plate(target_plate: str, expected_deliveries: lis
     clean_t = re.sub(r'[^A-Z0-9]', '', target_plate.upper())
     t_digits = "".join(c for c in clean_t if c.isdigit())
     for deliv in expected_deliveries:
+        # RBAC Phase 0 (H32): template sample deliveries carry realistic plates;
+        # never let a real truck match one of them.
+        if deliv.get('is_demo'):
+            continue
         st_status = str(deliv.get('status', '')).lower()
         if st_status in ('completed', 'rejected', 'cancelled'):
             continue
@@ -891,7 +971,12 @@ class TestSyntheticFrameSource(BaseFrameSource):
     def read_frame(self) -> np.ndarray:
         self.frame_idx += 1
         self.last_capture_time = time.time()
-        
+
+        # The simulated warehouse scene is for automated tests only (WARLOG_TEST_MODE=1).
+        # A real camera without a stream address shows a plain "no video signal" card.
+        if os.environ.get("WARLOG_TEST_MODE") != "1":
+            return self._no_signal_frame()
+
         # Synthesize frame using detection engine's warehouse perspective generator
         base_frame = self.detection_engine.create_synthetic_warehouse_frame(scene_type="dock")
         frame = base_frame.copy()
@@ -915,6 +1000,39 @@ class TestSyntheticFrameSource(BaseFrameSource):
             (0, 220, 255),
             2
         )
+        return frame
+
+    _no_signal_cache: Dict[str, Tuple[float, np.ndarray]] = {}
+
+    def _no_signal_frame(self) -> np.ndarray:
+        """A calm placeholder: camera name, 'No video signal', how to connect it. Rebuilt at
+        most once a second per camera (the clock in the corner), so it costs almost nothing."""
+        now = time.time()
+        cached = self._no_signal_cache.get(self.camera_id)
+        if cached and now - cached[0] < 1.0:
+            return cached[1]
+        w, h = 1280, 720
+        frame = np.zeros((h, w, 3), dtype=np.uint8)
+        frame[:] = (34, 27, 22)                       # deep slate (BGR)
+        cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (70, 58, 50), 2)
+        cx, cy = w // 2, h // 2 - 40
+        # camera icon
+        cv2.rectangle(frame, (cx - 70, cy - 42), (cx + 40, cy + 42), (120, 105, 95), 3, cv2.LINE_AA)
+        pts = np.array([[cx + 40, cy - 14], [cx + 80, cy - 36], [cx + 80, cy + 36], [cx + 40, cy + 14]], np.int32)
+        cv2.polylines(frame, [pts], True, (120, 105, 95), 3, cv2.LINE_AA)
+        cv2.line(frame, (cx - 90, cy + 62), (cx + 100, cy - 62), (80, 80, 225), 4, cv2.LINE_AA)
+
+        def centred(text, y, scale, color, thick):
+            (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+            cv2.putText(frame, text, ((w - tw) // 2, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
+
+        centred("NO VIDEO SIGNAL", cy + 120, 1.15, (235, 228, 222), 2)
+        centred(f"{self.camera_id}  -  {self.location or 'Camera'}", cy + 165, 0.75, (170, 160, 150), 2)
+        centred("No stream address is set for this camera. Add it in Camera Junction > Settings.",
+                cy + 205, 0.6, (140, 130, 120), 1)
+        cv2.putText(frame, datetime.now().strftime("%H:%M:%S"), (w - 130, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                    (140, 130, 120), 2, cv2.LINE_AA)
+        self._no_signal_cache[self.camera_id] = (now, frame)
         return frame
 
     def close(self):
@@ -1789,6 +1907,14 @@ class CameraRuntimeSession:
             return []
 
     def _run_live_gate_anpr_worker(self, frame: np.ndarray, vehicle_boxes: List[Dict[str, Any]], force_scan: bool = False):
+        """RBAC Phase 3A: runs the ANPR scan inside this camera's warehouse, so gate passes and
+        vehicle-log entries it creates belong to that warehouse and only that warehouse's
+        deliveries are matched. Scope comes from an in-memory map (no database work here)."""
+        import rbac_scope
+        with rbac_scope.camera_scope(self.camera_id):
+            return self._run_live_gate_anpr_worker_scoped(frame, vehicle_boxes, force_scan)
+
+    def _run_live_gate_anpr_worker_scoped(self, frame: np.ndarray, vehicle_boxes: List[Dict[str, Any]], force_scan: bool = False):
         """
         Sub-50ms Hyper-Efficient Industrial ANPR & Auto-Dispatch Engine:
         - Direct-Strip CRNN Recognition (reader.recognize on 240x64 rectified patches, skipping slow CRAFT)
@@ -2043,7 +2169,7 @@ class CameraRuntimeSession:
                     matched_deliv = find_matching_delivery_for_plate(target_plate, active_expected_deliveries)
                     matched_po = matched_deliv.get('po_number', '') if matched_deliv else ''
                     smart_dock = select_smart_balanced_dock()
-                    auto_dispatched = bool(_GATE_AUTO_DISPATCH_MATCHED_POS and matched_deliv)
+                    auto_dispatched = bool(get_gate_auto_dispatch() and matched_deliv)
                     pass_status = "Sent to Dock" if auto_dispatched else "Pending"
 
                     # High-Tech Evidence Snapshot with Optical Telemetry Overlay
@@ -2129,6 +2255,7 @@ class CameraRuntimeSession:
                         if auto_dispatched:
                             db.update_vehicle_log(gp_id, status="At Dock", dock=smart_dock, driver_name=gp_payload["driver_name"])
                         logger.info(f"[{self.camera_id} INSTANT ANPR] Created Gate Pass {gp_id} in {elapsed_ms}ms for plate: {target_plate} (PO: {matched_po or 'Walk-In'})")
+                        _audit_background_gate_pass(self.camera_id, gp_id, gp_payload, auto_dispatched)
 
                     with self.lock:
                         self.last_gate_pass_id = gp_id
@@ -2815,7 +2942,18 @@ class VisionRuntimeManager:
         self._load_from_db()
 
     def _load_from_db(self):
-        """Discovers cameras from authoritative WMS tables and initializes sessions."""
+        """Discovers cameras from authoritative WMS tables and initializes sessions.
+        RBAC Phase 3A: always loads the WHOLE registry (never one user's warehouse),
+        then refreshes the camera -> warehouse map used by background ANPR work."""
+        import rbac_scope
+        with rbac_scope.using(None):
+            self._load_from_db_unscoped()
+        try:
+            rbac_scope.refresh_camera_map()
+        except Exception as e:
+            logger.warning(f"[RBAC] camera map refresh failed: {e}")
+
+    def _load_from_db_unscoped(self):
         with self.lock:
             try:
                 prev_keys = set(self.sessions.keys())
@@ -2979,9 +3117,13 @@ class VisionRuntimeManager:
         return False
 
     def get_telemetry(self) -> Dict[str, Any]:
-        """Aggregates lightweight system-wide runtime telemetry (Section 12)."""
+        """Aggregates lightweight system-wide runtime telemetry (Section 12).
+        RBAC Phase 3A: inside a company/warehouse scope, only that scope's cameras are listed
+        and counted (in-memory camera map; no database work)."""
+        import rbac_scope
         with self.lock:
-            sessions_list = [s.to_dict() for s in self.sessions.values()]
+            sessions_list = [s.to_dict() for s in self.sessions.values()
+                             if rbac_scope.camera_visible(s.camera_id)]
 
         running = sum(1 for s in sessions_list if s["runtime_state"] == RuntimeState.RUNNING.value)
         stopped = sum(1 for s in sessions_list if s["runtime_state"] == RuntimeState.STOPPED.value)

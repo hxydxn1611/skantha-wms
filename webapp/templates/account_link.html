@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="referrer" content="no-referrer">
+    <title>{% if mode == 'invite' %}Accept Invitation{% elif mode == 'forgot' %}Forgot Password{% else %}Reset Password{% endif %} &mdash; W.A.R.L.O.G.</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #080e20; --card: rgba(15, 23, 42, 0.92); --line: #334155;
+            --text: #f8fafc; --muted: #94a3b8; --accent: #38bdf8; --error: #f87171; --ok: #34d399;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            padding: 16px; color: var(--text);
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg) url("{{ url_for('static', filename='bg.jpg') }}") no-repeat center center / cover fixed;
+        }
+        .card {
+            width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line);
+            border-radius: 16px; padding: 32px 28px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+        }
+        .brand { font-weight: 800; letter-spacing: 1px; color: var(--accent); font-size: 0.9rem; margin-bottom: 18px; }
+        h1 { font-size: 1.35rem; margin: 0 0 8px; }
+        p.lead { color: var(--muted); font-size: 0.92rem; line-height: 1.5; margin: 0 0 18px; }
+        .facts { background: #0b1224; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 0.86rem; margin-bottom: 6px; }
+        .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+        .facts span { color: var(--muted); }
+        label { display: block; font-size: 0.82rem; font-weight: 600; color: #cbd5e1; margin: 14px 0 6px; }
+        input {
+            width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line);
+            background: #0b1224; color: var(--text); font-size: 0.95rem; font-family: inherit;
+        }
+        input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+        .hint { color: var(--muted); font-size: 0.78rem; margin-top: 6px; }
+        button {
+            width: 100%; margin-top: 22px; padding: 12px; border: none; border-radius: 10px; cursor: pointer;
+            background: var(--accent); color: #0b1224; font-weight: 800; font-size: 0.95rem; font-family: inherit;
+        }
+        button:disabled { opacity: 0.6; cursor: wait; }
+        .msg { display: none; margin-top: 16px; padding: 10px 12px; border-radius: 8px; font-size: 0.86rem; line-height: 1.45; }
+        .msg.error { display: block; background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.4); color: var(--error); }
+        .msg.ok { display: block; background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.4); color: var(--ok); }
+        .back { display: block; text-align: center; margin-top: 18px; color: var(--muted); font-size: 0.82rem; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <div class="brand">W.A.R.L.O.G.</div>
+
+        {% if mode == 'invite' %}
+        <h1>Join your team</h1>
+        <p class="lead" id="lead">Checking your invitation...</p>
+        <div id="facts" class="facts hidden"></div>
+        <form id="form" class="hidden" novalidate>
+            <label for="username">Choose a username</label>
+            <input id="username" autocomplete="username" required maxlength="40">
+            <div class="hint">3&ndash;40 letters, numbers, dots, dashes or underscores.</div>
+            <label for="password">Choose a password</label>
+            <input id="password" type="password" autocomplete="new-password" required minlength="10">
+            <div class="hint">At least 10 characters. Not your username or company name.</div>
+            <label for="confirm">Confirm password</label>
+            <input id="confirm" type="password" autocomplete="new-password" required minlength="10">
+            <button id="submitBtn" type="submit">Create my account</button>
+        </form>
+
+        {% elif mode == 'forgot' %}
+        <h1>Forgot your password?</h1>
+        <p class="lead">Enter your username or email. If the account exists and has an email address, we'll send a reset link that works once, for 30 minutes.</p>
+        <form id="form" novalidate>
+            <label for="identifier">Username or email</label>
+            <input id="identifier" autocomplete="username" required>
+            <button id="submitBtn" type="submit">Send reset link</button>
+        </form>
+
+        {% else %}
+        <h1>Choose a new password</h1>
+        <p class="lead" id="lead">Checking your link...</p>
+        <form id="form" class="hidden" novalidate>
+            <label for="password">New password</label>
+            <input id="password" type="password" autocomplete="new-password" required minlength="10">
+            <div class="hint">At least 10 characters. Not your username or company name.</div>
+            <label for="confirm">Confirm new password</label>
+            <input id="confirm" type="password" autocomplete="new-password" required minlength="10">
+            <button id="submitBtn" type="submit">Save new password</button>
+        </form>
+        {% endif %}
+
+        <div id="msg" class="msg" role="alert"></div>
+        <a class="back" href="/login">Back to sign in</a>
+    </main>
+    <script>
+    (function () {
+        const mode = {{ mode | tojson }};
+        const token = new URLSearchParams(window.location.search).get('token') || '';
+        // keep the token out of the address bar, history and referrers once read
+        if (token && window.history && history.replaceState) history.replaceState(null, '', window.location.pathname);
+        const $ = (id) => document.getElementById(id);
+        const msg = $('msg');
+        const show = (text, ok) => { msg.textContent = text; msg.className = 'msg ' + (ok ? 'ok' : 'error'); };
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+        async function post(url, body) {
+            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            let data = {};
+            try { data = await res.json(); } catch (e) {}
+            return { ok: res.ok && data.success, data };
+        }
+
+        if (mode === 'invite') {
+            fetch('/api/auth/invite_info?token=' + encodeURIComponent(token)).then(r => r.json()).then(d => {
+                if (!d.success) { $('lead').textContent = d.message || 'This invitation link is not valid.'; return; }
+                const i = d.invitation;
+                $('lead').textContent = `You've been invited to ${i.company_name}. Create your account to get started.`;
+                $('facts').innerHTML = `<div><span>Company</span><b>${esc(i.company_name)}</b></div>
+                    <div><span>Email</span><b>${esc(i.email)}</b></div>
+                    <div><span>Role</span><b>${esc(i.role)}</b></div>
+                    <div><span>Location</span><b>${esc(i.warehouse)}</b></div>`;
+                $('facts').classList.remove('hidden');
+                $('form').classList.remove('hidden');
+                $('username').focus();
+            }).catch(() => { $('lead').textContent = 'Network error. Reload the page to try again.'; });
+        } else if (mode === 'reset') {
+            fetch('/api/auth/reset_link_status?token=' + encodeURIComponent(token)).then(r => r.json()).then(d => {
+                if (!d.valid) { $('lead').textContent = 'This reset link is invalid, already used or expired. Ask for a new one.'; return; }
+                $('lead').textContent = 'Choose a new password for your WARLOG account. Other devices will be signed out.';
+                $('form').classList.remove('hidden');
+                $('password').focus();
+            }).catch(() => { $('lead').textContent = 'Network error. Reload the page to try again.'; });
+        }
+
+        $('form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = $('submitBtn');
+            msg.className = 'msg';
+            if (mode !== 'forgot' && $('password').value !== $('confirm').value) { show('The two passwords do not match.'); return; }
+            btn.disabled = true;
+            try {
+                let r;
+                if (mode === 'invite') {
+                    r = await post('/api/auth/accept_invite', { token, username: $('username').value.trim(),
+                        password: $('password').value, confirm_password: $('confirm').value });
+                } else if (mode === 'forgot') {
+                    r = await post('/api/auth/forgot_password', { identifier: $('identifier').value.trim() });
+                } else {
+                    r = await post('/api/auth/reset_password', { token, password: $('password').value,
+                        confirm_password: $('confirm').value });
+                }
+                if (r.ok) {
+                    show(r.data.message || 'Done.', true);
+                    $('form').classList.add('hidden');
+                    if (mode !== 'forgot') setTimeout(() => { window.location.href = '/login'; }, 2500);
+                } else {
+                    show(r.data.message || r.data.error || 'Something went wrong. Try again.');
+                }
+            } catch (err) {
+                show('Network error. Check the connection and try again.');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    })();
+    </script>
+</body>
+</html>

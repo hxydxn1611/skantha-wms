@@ -1,0 +1,5 @@
+sample_planks_cc0.jpg - sample photo for AI Vision > Counting Studio ("Try a sample photo")
+Source:  https://commons.wikimedia.org/wiki/File:Stacked_wood_planks_(Unsplash).jpg
+Author:  Alex Jones (via Unsplash)
+License: CC0 1.0 (public domain dedication) - free to use, no attribution required
+Copy:    Wikimedia Commons standard 1280 px rendition, re-encoded as JPEG

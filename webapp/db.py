@@ -1,4 +1,5 @@
 import sqlite3
+import re
 import json
 import time
 import os
@@ -10,10 +11,19 @@ from typing import Optional, Dict, Any, List, Tuple
 logger = logging.getLogger(__name__)
 _GATE_PASS_CREATE_LOCK = threading.Lock()
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
+import rbac_scope  # RBAC Phase 3A: company/warehouse filters for list queries
+
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skandha_wms.db')
+# WARLOG_DB_PATH lets tests and tooling run against a copy instead of the live database.
+DB_PATH = os.environ.get('WARLOG_DB_PATH') or DEFAULT_DB_PATH
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=15.0)
+    # RBAC Phase 3A: connections opened inside a company/warehouse scope fence their own
+    # writes to that scope (see rbac_scope.ScopedConnection). Outside a scope, or before
+    # data isolation is switched on, this is an ordinary connection.
+    import rbac_scope
+    conn = sqlite3.connect(DB_PATH, timeout=15.0, factory=rbac_scope.ScopedConnection)
+    conn._rbac_scope = rbac_scope.connection_scope()
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -477,6 +487,14 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+        # RBAC Phase 0: mark rows created as industry-template sample data (H32).
+        # Sample rows are never matched against real ANPR plate reads. Existing rows stay 0.
+        for demo_table in ("expected_deliveries", "inventory", "pallets"):
+            try:
+                conn.execute(f"ALTER TABLE {demo_table} ADD COLUMN is_demo INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+
         # Multi-tenant scoping for warehouses
         try:
             conn.execute("ALTER TABLE warehouses ADD COLUMN company_name TEXT DEFAULT 'Skantha Industrial Solutions'")
@@ -519,7 +537,8 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-        conn.execute("INSERT OR IGNORE INTO users (username, password, company_name, assigned_warehouse_code, role) VALUES ('admin', 'admin', 'Skantha Industrial Solutions', 'WH-MAIN', 'Admin')")
+        # RBAC Phase 1 (H3): no default admin/admin account is seeded any more.
+        # A fresh install creates its first Platform Admin with scripts/rbac_recover.py --create.
 
         # Seed initial object classes for AI Vision & Tracking Master if empty
         cur = conn.cursor()
@@ -681,20 +700,21 @@ def init_db():
 
     conn.close()
 
+    # RBAC Phase 1: identity/access schema, password hashing, built-in roles.
+    # Idempotent; backs the database up before applying any pending step.
+    import rbac_migration
+    rbac_migration.migrate(DB_PATH)
+
 def get_user(username, password):
+    """Returns the user when the password matches its hash (RBAC Phase 1, H3).
+    Login goes through auth_service.authenticate, which adds lockout and auditing."""
     if not username or not password:
         return None
-    u = str(username).strip()
-    p = str(password).strip()
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND password = ?",
-        (u, u, p)
-    )
-    row = cur.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    import auth_service
+    user = auth_service.find_user(username)
+    if user and user.get("is_active", 1) and auth_service.verify_user_password(user, str(password)):
+        return auth_service.get_user_by_id(user["id"])
+    return None
 
 def get_user_by_email(email: str):
     if not email:
@@ -707,16 +727,40 @@ def get_user_by_email(email: str):
     return dict(row) if row else None
 
 def create_user(username, password, email=None, company_name="Skantha Industrial Solutions", assigned_warehouse_code="WH-MAIN", role="Admin"):
+    """Creates a user with a hashed password (RBAC Phase 1). Returns True on success."""
+    from werkzeug.security import generate_password_hash
     conn = get_db()
     try:
         with conn:
+            if conn.execute("SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)", (str(username).strip(),)).fetchone():
+                return False
             conn.execute(
-                "INSERT INTO users (username, password, email, is_email_verified, company_name, assigned_warehouse_code, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (username, password, email, 1 if email else 0, company_name, assigned_warehouse_code, role)
+                "INSERT INTO users (username, password, password_hash, email, is_email_verified, company_name, assigned_warehouse_code, role) VALUES (?, '', ?, ?, ?, ?, ?, ?)",
+                (username, generate_password_hash(password), email, 1 if email else 0, company_name, assigned_warehouse_code, role)
             )
         return True
     except sqlite3.IntegrityError:
         return False
+    finally:
+        conn.close()
+
+
+def get_user_id_by_username(username: str) -> Optional[int]:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM users WHERE LOWER(username) = LOWER(?)", (str(username).strip(),)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def hash_otp(email: str, code: str) -> str:
+    """Keyed hash of an email OTP (RBAC Phase 1): codes are never stored in plain text."""
+    import hashlib
+    import hmac
+    key = (os.environ.get('FLASK_SECRET_KEY') or os.environ.get('SECRET_KEY') or '').encode()
+    msg = f"{str(email or '').strip().casefold()}|{str(code).strip()}".encode()
+    return "h$" + hmac.new(key, msg, hashlib.sha256).hexdigest()
 
 def store_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION', expires_in_minutes: int = 10) -> bool:
     """Stores a generated verification OTP for the provided email address."""
@@ -730,7 +774,7 @@ def store_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION', ex
             conn.execute("""
                 INSERT INTO email_otps (email, otp_code, purpose, expires_at, verified)
                 VALUES (LOWER(?), ?, ?, datetime('now', 'localtime', '+' || ? || ' minutes'), 0)
-            """, (email.strip(), str(otp_code).strip(), purpose, int(expires_in_minutes)))
+            """, (email.strip(), hash_otp(email, otp_code), purpose, int(expires_in_minutes)))
         return True
     except Exception as e:
         logger.error(f"Error storing email OTP: {e}")
@@ -764,8 +808,14 @@ def verify_email_otp(email: str, otp_code: str, purpose: str = 'REGISTRATION') -
         
         if row["is_expired"] == 1:
             return False, "Verification code has expired. Please request a new OTP."
-            
-        if str(row["otp_code"]) != clean_otp:
+
+        import hmac
+        if not hmac.compare_digest(str(row["otp_code"]), hash_otp(clean_email, clean_otp)):
+            # RBAC Phase 1: 5 wrong tries void the code
+            with conn:
+                conn.execute("""UPDATE email_otps SET attempts = attempts + 1,
+                                verified = CASE WHEN attempts + 1 >= 5 THEN -1 ELSE verified END
+                                WHERE id = ?""", (row["id"],))
             return False, "Invalid verification code. Please check and re-enter."
             
         # Code matches and is valid; mark as verified
@@ -792,14 +842,43 @@ def _clean_plate(plate):
         return ""
     return "".join(c for c in plate if c.isalnum()).upper()
 
+def normalize_sheet(sheet):
+    """Manifest lines come from several screens with different key names (pre-registration saves
+    sku_id/expected, older code sku/expected_qty, desc/description). Every line gets both spellings
+    so each reader (dock put-away, receipt dialog, PDFs) finds the product and quantity."""
+    if isinstance(sheet, str):
+        try:
+            sheet = json.loads(sheet or '[]')
+        except Exception:
+            return []
+    if not isinstance(sheet, list):
+        return []
+    out = []
+    for item in sheet:
+        if not isinstance(item, dict):
+            continue
+        line = dict(item)
+        sku = line.get('sku_id') or line.get('sku') or ''
+        line['sku_id'] = line['sku'] = str(sku).strip()
+        qty = line.get('expected')
+        if qty in (None, ''):
+            qty = line.get('expected_qty')
+        try:
+            qty = int(float(qty)) if qty not in (None, '') else 0
+        except (TypeError, ValueError):
+            qty = 0
+        line['expected'] = line['expected_qty'] = qty
+        desc = line.get('description') or line.get('desc') or ''
+        line['description'] = line['desc'] = desc
+        out.append(line)
+    return out
+
+
 def _row_to_delivery(row):
     if not row:
         return None
     d = dict(row)
-    try:
-        sheet = json.loads(d.get('unloading_sheet') or '[]')
-    except Exception:
-        sheet = []
+    sheet = normalize_sheet(d.get('unloading_sheet'))
     return {
         "po_number": d.get("po_number"),
         "expected_date": d.get("expected_date") or "",
@@ -820,10 +899,7 @@ def _row_to_gate_pass(row):
     if not row:
         return None
     d = dict(row)
-    try:
-        sheet = json.loads(d.get('unloading_sheet') or '[]')
-    except Exception:
-        sheet = []
+    sheet = normalize_sheet(d.get('unloading_sheet'))
     return {
         "id": d.get("id"),
         "po_number": d.get("po_number") or "",
@@ -848,7 +924,8 @@ def _row_to_gate_pass(row):
         "otp": d.get("otp") or "",
         "otp_verified": d.get("otp_verified") or 0,
         "exit_time": d.get("exit_time") or "",
-        "created_at": d.get("created_at")
+        "created_at": d.get("created_at"),
+        "outbound_order_id": d.get("outbound_order_id") or "",   # set for an outbound (loading) truck
     }
 
 # ----------------- Pre-Registration Operations -----------------
@@ -856,12 +933,14 @@ def _row_to_gate_pass(row):
 def get_all_deliveries():
     """Retrieve all expected deliveries along with any linked Gate Pass ID."""
     conn = get_db()
-    cursor = conn.execute("""
+    _sf, _sp = rbac_scope.filter("expected_deliveries", "ed")
+    cursor = conn.execute(f"""
         SELECT ed.*, gp.id AS linked_gate_pass_id
         FROM expected_deliveries ed
         LEFT JOIN gate_passes gp ON gp.po_number = ed.po_number
+        WHERE 1=1{_sf}
         ORDER BY ed.created_at DESC
-    """)
+    """, _sp)
     rows = cursor.fetchall()
     deliveries = [_row_to_delivery(r) for r in rows]
     conn.close()
@@ -879,6 +958,40 @@ def get_delivery(po_number):
     conn.close()
     return _row_to_delivery(row)
 
+_BAD_CODE = re.compile(r"(\.\.|[/\\\x00-\x1f<>\"'`])")
+
+
+def code_problem(code: str, label: str = "SKU code") -> Optional[str]:
+    """Hardening: codes end up in file names and pages, so no path pieces or markup."""
+    code = str(code or "")
+    if len(code) > 64:
+        return f"{label} must be at most 64 characters."
+    if _BAD_CODE.search(code):
+        return f"{label} can't contain /, \\, '..', quotes, < or >."
+    return None
+
+
+class CodeInUseError(ValueError):
+    """RBAC Phase 3B: a code (SKU, bin, PO, camera) that another company or warehouse
+    already uses. Codes are unique across WARLOG; the message never says whose it is."""
+
+
+def ensure_code_free(conn, table: str, column: str, value, label: str) -> None:
+    """Raises CodeInUseError when `value` exists outside the current company/warehouse
+    (for the Platform Admin: outside the selected warehouse), so an upsert can never
+    silently do nothing or change another company's record."""
+    if value is None or str(value).strip() == "" or rbac_scope.get_scope() is None \
+            or not rbac_scope.isolation_enabled():
+        return
+    if not conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ? LIMIT 1", (value,)).fetchone():
+        return
+    _hf, _hp = rbac_scope.home_filter(table)
+    if not _hf:
+        return
+    if not conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ?{_hf} LIMIT 1", (value,) + _hp).fetchone():
+        raise CodeInUseError(f"{label} '{value}' is already in use. Please choose a different code.")
+
+
 def create_delivery(data):
     """Store pre-registration input in the database."""
     conn = get_db()
@@ -887,6 +1000,10 @@ def create_delivery(data):
         if not po_number:
             count = conn.execute("SELECT COUNT(*) FROM expected_deliveries").fetchone()[0]
             po_number = f"PO-{count + 1000}"
+            while conn.execute("SELECT 1 FROM expected_deliveries WHERE po_number = ?", (po_number,)).fetchone():
+                count += 1
+                po_number = f"PO-{count + 1000}"
+        ensure_code_free(conn, "expected_deliveries", "po_number", po_number, "PO number")
 
         expected_date = data.get("expected_date") or time.strftime("%Y-%m-%d")
         plate = (data.get("plate") or "").strip().upper()
@@ -975,7 +1092,8 @@ def delete_delivery(po_number):
 
 def has_pending_gate_pass():
     conn = get_db()
-    row = conn.execute("SELECT 1 FROM gate_passes WHERE status = 'Pending' LIMIT 1").fetchone()
+    _sf, _sp = rbac_scope.filter("gate_passes")
+    row = conn.execute(f"SELECT 1 FROM gate_passes WHERE status = 'Pending'{_sf} LIMIT 1", _sp).fetchone()
     conn.close()
     return row is not None
 
@@ -984,8 +1102,9 @@ def get_pending_gate_pass_by_plate(plate):
         return None
     conn = get_db()
     clean_p = _clean_plate(plate)
+    _sf, _sp = rbac_scope.filter("gate_passes")
     rows = conn.execute(
-        "SELECT * FROM gate_passes WHERE status IN ('Pending', 'Arrived at Gate', 'Sent to Dock') ORDER BY created_at DESC"
+        f"SELECT * FROM gate_passes WHERE status IN ('Pending', 'Arrived at Gate', 'Sent to Dock'){_sf} ORDER BY created_at DESC", _sp
     ).fetchall()
     conn.close()
     for r in rows:
@@ -996,7 +1115,8 @@ def get_pending_gate_pass_by_plate(plate):
 def get_all_gate_passes():
     """Retrieve all gate passes ordered chronologically (newest first)."""
     conn = get_db()
-    cursor = conn.execute("SELECT * FROM gate_passes ORDER BY created_at DESC")
+    _sf, _sp = rbac_scope.filter("gate_passes")
+    cursor = conn.execute(f"SELECT * FROM gate_passes WHERE 1=1{_sf} ORDER BY created_at DESC", _sp)
     passes = [_row_to_gate_pass(r) for r in cursor.fetchall()]
     conn.close()
     return passes
@@ -1023,10 +1143,17 @@ def create_gate_pass(data):
             conn = get_db()
             try:
                 with conn:
-                    cursor = conn.execute("SELECT id FROM gate_passes")
+                    # numbers of deleted passes are never handed out again: their history
+                    # (gate events, vehicle log, GRN-<id> stock refs) would attach to the new truck
+                    used = [r[0] for r in conn.execute("SELECT id FROM gate_passes").fetchall()]
+                    for q in ("SELECT DISTINCT gp_id FROM gate_pass_events", "SELECT DISTINCT gp_id FROM vehicle_log"):
+                        try:
+                            used += [r[0] for r in conn.execute(q).fetchall()]
+                        except sqlite3.OperationalError:
+                            pass
                     max_num = 999
-                    for row in cursor.fetchall():
-                        gid = str(row['id'])
+                    for gid in used:
+                        gid = str(gid or '')
                         if gid.startswith("GP-"):
                             try:
                                 num = int(gid.split("-")[1])
@@ -1054,7 +1181,7 @@ def create_gate_pass(data):
                     # CONNECTION LOGIC:
                     # 1. Match by Plate if plate is available
                     matched_deliv = None
-                    if plate and plate != "":
+                    if plate and plate != "" and not data.get('no_po_match'):
                         clean_search = _clean_plate(plate)
                         all_delivs = conn.execute("SELECT * FROM expected_deliveries ORDER BY created_at DESC").fetchall()
                         for d_row in all_delivs:
@@ -1115,6 +1242,29 @@ def create_gate_pass(data):
                 conn.close()
                 raise
     return None
+
+def get_gate_pass_otp_attempts(gp_id) -> int:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT otp_failed_attempts FROM gate_passes WHERE id = ?", (gp_id,)).fetchone()
+        return int(row[0] or 0) if row else 0
+    except sqlite3.OperationalError:
+        return 0
+    finally:
+        conn.close()
+
+
+def set_gate_pass_otp_attempts(gp_id, attempts):
+    """Hardening: wrong gate-OTP tries for one pass (column from migration 011)."""
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("UPDATE gate_passes SET otp_failed_attempts = ? WHERE id = ?", (int(attempts), gp_id))
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
+
 
 def update_gate_pass(gp_id, data):
     """Update gate pass details and propagate connection updates to pre-registration."""
@@ -1179,6 +1329,25 @@ def update_gate_pass(gp_id, data):
             WHERE id = ?
         """, (plate, vehicle_type, driver_name, load_desc, vendor, status, dock, expected_date,
               po_number or None, unloaded_qty, activity, bin_allocation, photo, driver_photo, sheet_str, driver_phone, vendor_email, otp, otp_verified, exit_time, gp_id))
+        if 'otp' in data and data.get('otp') and data.get('otp') != curr['otp']:
+            # a newly issued code starts with a clean count of wrong tries
+            try:
+                conn.execute("UPDATE gate_passes SET otp_failed_attempts = 0 WHERE id = ?", (curr['id'],))
+            except sqlite3.OperationalError:
+                pass
+        if status != curr['status']:
+            # RBAC Phase 8: gate pass history (who moved it, from, to, why) for every route
+            import gate_flow
+            gate_flow.record_event(conn, curr['id'], curr['status'], status)
+            # outbound truck: its order follows the truck through the gate
+            ob_order = curr['outbound_order_id'] if 'outbound_order_id' in curr.keys() else None
+            ob_status = OUTBOUND_STATUS_FOR_GATE.get(status)
+            if ob_order and ob_status:
+                if ob_status == 'Dispatched':
+                    conn.execute("UPDATE outbound_orders SET status = ?, dispatched_at = datetime('now', 'localtime') WHERE id = ?",
+                                 (ob_status, ob_order))
+                else:
+                    conn.execute("UPDATE outbound_orders SET status = ? WHERE id = ?", (ob_status, ob_order))
 
         # Keep vehicle_log synchronized whenever plate or driver_name is edited!
         try:
@@ -1189,25 +1358,130 @@ def update_gate_pass(gp_id, data):
         except Exception:
             pass
               
-        # Execute putaway stock update when transitioning to Completed
-        if status == 'Completed' and curr['status'] != 'Completed' and bin_allocation:
-            vendor_name = vendor or 'UNKNOWN'
-            sku_id = 'SKU-' + vendor_name[:3].upper() + '01' if vendor_name != 'UNKNOWN' else 'UNKNOWN-SKU'
-            # Look up SKU from unloading_sheet if available
+        # Put-away when a truck is marked Completed: decided here, booked after this change is saved
+        # (a second connection can't write while this transaction is open - it used to wait 15 s and fail)
+        pending_receipt = None
+        is_outbound = bool(curr['outbound_order_id'] if 'outbound_order_id' in curr.keys() else None)
+        if (status == 'Completed' and curr['status'] != 'Completed' and bin_allocation and (unloaded_qty or 0)
+                and not is_outbound):   # a loading truck takes goods away; it never receives
             import json
+            sku_id = None
             try:
-                sheet = json.loads(sheet_str) if isinstance(sheet_str, str) else sheet_str
-                if sheet and len(sheet) > 0 and 'sku' in sheet[0]:
+                sheet = normalize_sheet(sheet_str)
+                if sheet and sheet[0].get('sku'):
                     sku_id = sheet[0]['sku']
-            except: pass
-            
-            try:
-                update_bin_stock(bin_allocation, vendor_name, unloaded_qty or 0, sku_id)
-            except Exception as e:
-                print("Failed to update bin stock automatically on completion:", e)
-              
+            except Exception:
+                pass
+            pending_receipt = (bin_allocation, sku_id, unloaded_qty, vendor, po_number)
+
     conn.close()
+    if pending_receipt:
+        bin_id, sku_id, count, vendor_name, po = pending_receipt
+        c0 = get_db()
+        try:
+            already = c0.execute("SELECT 1 FROM stock_movements WHERE ref = ? LIMIT 1", (f"GRN-{gp_id}",)).fetchone()
+        except sqlite3.OperationalError:
+            already = None
+        finally:
+            c0.close()
+        if already:
+            pass   # booked already (Inbound > Complete receipt)
+        elif not sku_id:
+            print(f"[Receipt] {gp_id}: no product on the unloading sheet - book it in Inbound > Complete receipt")
+        else:
+            try:
+                upb = 1
+                c2 = get_db()
+                try:
+                    r = c2.execute("SELECT units_per_bundle FROM skus WHERE sku_id = ?", (sku_id,)).fetchone()
+                    upb = max(1, int((r["units_per_bundle"] if r else 1) or 1))
+                finally:
+                    c2.close()
+                receive_goods(bin_id, sku_id, int(count) * upb, vendor=vendor_name, ref=f"GRN-{gp_id}",
+                              reason=f"Unloaded at dock{(' - PO ' + str(po)) if po else ''}")
+            except ReceiveError as e:
+                print(f"[Receipt] {gp_id}: not booked - {e}")
     return get_gate_pass(gp_id)
+
+# ------------------------------------------------------------------ outbound trucks
+# gate pass status -> outbound order status (the order follows its truck)
+OUTBOUND_STATUS_FOR_GATE = {
+    "OTP Verified": "Truck at gate", "Approved": "Truck at gate",
+    "Sent to Dock": "At loading dock", "At Dock": "At loading dock",
+    "Unloading": "Loading", "Loading": "Loading",
+    "Unloaded": "Loaded", "Completed": "Loaded", "Checkout Approved": "Loaded",
+    "Exited": "Dispatched", "Departed": "Dispatched",
+    "Rejected": "Truck rejected",
+}
+OUTBOUND_READY = ("Fulfilled", "Picked", "Truck rejected")   # may get a (new) truck
+
+
+class OutboundError(ValueError):
+    """An outbound dispatch step that can't be done (not picked, truck already assigned, ...)."""
+
+
+def assign_outbound_truck(order_id, data):
+    """Gives a fully picked outbound order its truck: a fresh gate pass (activity Loading) linked to
+    the order, with a driver OTP when a phone number is given. The truck then goes through the
+    normal gate and dock steps, and the order follows it until it is Dispatched at the gate."""
+    import rbac_scope
+    import secrets as _secrets
+    plate = (data.get('plate') or '').strip().upper()
+    if len(plate.replace(' ', '').replace('-', '')) < 4:
+        raise OutboundError("Enter the truck's number plate.")
+    conn = get_db()
+    try:
+        cond, params = rbac_scope.home_filter("outbound_orders")
+        order = conn.execute(f"SELECT * FROM outbound_orders WHERE id = ?{cond}", (order_id,) + params).fetchone()
+        if not order:
+            raise OutboundError("That order was not found in this location.")
+        short = conn.execute("SELECT COUNT(*) FROM outbound_items WHERE order_id = ? AND COALESCE(picked_quantity, 0) < quantity",
+                             (order_id,)).fetchone()[0]
+        if short:
+            raise OutboundError("Pick the whole order first. A truck is assigned once everything is picked.")
+        if order['status'] not in OUTBOUND_READY:
+            raise OutboundError(f"This order already has a truck ({order['vehicle_plate'] or '-'}, status {order['status']}).")
+    finally:
+        conn.close()
+    otp = f"{_secrets.randbelow(9000) + 1000}" if (data.get('driver_phone') or '').strip() else ""
+    gp = create_gate_pass({
+        "plate": plate, "driver_name": (data.get('driver_name') or '').strip(),
+        "driver_phone": (data.get('driver_phone') or '').strip(), "vendor": (data.get('transporter') or '').strip()
+        or order['customer_name'], "load": f"Outbound {order_id} to {order['destination']} ({order['customer_name']})",
+        "activity": "Loading", "status": "Pending", "otp": otp, "expected_date": data.get('expected_date') or '',
+        "force_new": True, "no_po_match": True,
+    })
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("UPDATE gate_passes SET outbound_order_id = ? WHERE id = ?", (order_id, gp['id']))
+            conn.execute("""UPDATE outbound_orders SET gate_pass_id = ?, vehicle_plate = ?, transporter = ?,
+                            status = 'Truck assigned' WHERE id = ?""",
+                         (gp['id'], plate, (data.get('transporter') or '').strip() or None, order_id))
+    finally:
+        conn.close()
+    try:
+        create_vehicle_log(gp['id'], plate, (data.get('driver_name') or 'Driver').strip() or 'Driver')
+    except Exception:
+        pass
+    return get_gate_pass(gp['id'])
+
+
+def outbound_exit_problem(gp):
+    """Why an outbound truck may not leave yet (None = it may). Its order must be fully picked."""
+    order_id = (gp or {}).get('outbound_order_id')
+    if not order_id:
+        return None
+    conn = get_db()
+    try:
+        short = conn.execute("SELECT COUNT(*) FROM outbound_items WHERE order_id = ? AND COALESCE(picked_quantity, 0) < quantity",
+                             (order_id,)).fetchone()[0]
+    finally:
+        conn.close()
+    if short:
+        return f"Truck {gp.get('plate')} is loading order {order_id}, which isn't fully picked. It can't leave yet."
+    return None
+
 
 def delete_gate_pass(gp_id):
     """Delete a gate pass and revert the linked pre-registration status if appropriate."""
@@ -1245,10 +1519,12 @@ def add_unload_qty(gp_id, add_count):
 
 def get_stats():
     conn = get_db()
-    total_expected = conn.execute("SELECT COUNT(*) FROM expected_deliveries").fetchone()[0]
-    total_arrived = conn.execute("SELECT COUNT(*) FROM gate_passes").fetchone()[0]
-    pending_dock = conn.execute("SELECT COUNT(*) FROM gate_passes WHERE status = 'Pending'").fetchone()[0]
-    at_dock = conn.execute("SELECT COUNT(*) FROM gate_passes WHERE status IN ('Sent to Dock', 'Unloading')").fetchone()[0]
+    _df, _dp = rbac_scope.filter("expected_deliveries")
+    _gf, _gp = rbac_scope.filter("gate_passes")
+    total_expected = conn.execute(f"SELECT COUNT(*) FROM expected_deliveries WHERE 1=1{_df}", _dp).fetchone()[0]
+    total_arrived = conn.execute(f"SELECT COUNT(*) FROM gate_passes WHERE 1=1{_gf}", _gp).fetchone()[0]
+    pending_dock = conn.execute(f"SELECT COUNT(*) FROM gate_passes WHERE status = 'Pending'{_gf}", _gp).fetchone()[0]
+    at_dock = conn.execute(f"SELECT COUNT(*) FROM gate_passes WHERE status IN ('Sent to Dock', 'Unloading'){_gf}", _gp).fetchone()[0]
     conn.close()
     return {
         "total_expected": total_expected,
@@ -1261,7 +1537,8 @@ def get_stats():
 
 def get_all_vehicle_logs():
     conn = get_db()
-    logs = conn.execute("SELECT * FROM vehicle_log ORDER BY entry_time DESC").fetchall()
+    _sf, _sp = rbac_scope.filter("vehicle_log")
+    logs = conn.execute(f"SELECT * FROM vehicle_log WHERE 1=1{_sf} ORDER BY entry_time DESC", _sp).fetchall()
     conn.close()
     return [dict(r) for r in logs]
 
@@ -1296,7 +1573,8 @@ def checkout_vehicle_log(gp_id):
 
 def get_all_invoices():
     conn = get_db()
-    invs = conn.execute("SELECT * FROM invoices ORDER BY generated_at DESC").fetchall()
+    _sf, _sp = rbac_scope.filter("invoices")
+    invs = conn.execute(f"SELECT * FROM invoices WHERE 1=1{_sf} ORDER BY generated_at DESC", _sp).fetchall()
     conn.close()
     return [dict(r) for r in invs]
 
@@ -1311,8 +1589,9 @@ def create_invoice(gp_id, po_number, vendor, vendor_email, pdf_path):
 
 def get_all_object_classes(search_term=None, status=None):
     conn = get_db()
-    query = "SELECT * FROM object_classes WHERE 1=1"
-    params = []
+    _sf, _sp = rbac_scope.filter("object_classes")
+    query = "SELECT * FROM object_classes WHERE 1=1" + _sf
+    params = list(_sp)
     
     if status and status.upper() != 'ALL':
         query += " AND status = ?"
@@ -1329,11 +1608,18 @@ def get_all_object_classes(search_term=None, status=None):
     return [dict(r) for r in rows]
 
 def get_object_class(identifier):
+    # Phase 3B: class codes are unique per company, so a code lookup is narrowed to the
+    # current company (the Platform Admin: the selected warehouse's company first).
     conn = get_db()
     if isinstance(identifier, int) or (isinstance(identifier, str) and identifier.isdigit()):
-        row = conn.execute("SELECT * FROM object_classes WHERE id = ? OR code = ?", (identifier, str(identifier))).fetchone()
+        where, params = "(id = ? OR code = ?)", (identifier, str(identifier))
     else:
-        row = conn.execute("SELECT * FROM object_classes WHERE code = ?", (str(identifier).upper(),)).fetchone()
+        where, params = "code = ?", (str(identifier).upper(),)
+    _hf, _hp = rbac_scope.home_filter("object_classes")
+    row = conn.execute(f"SELECT * FROM object_classes WHERE {where}{_hf} ORDER BY id LIMIT 1", params + _hp).fetchone()
+    if row is None and _hf:
+        _sf, _sp = rbac_scope.filter("object_classes")
+        row = conn.execute(f"SELECT * FROM object_classes WHERE {where}{_sf} ORDER BY id LIMIT 1", params + _sp).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -1348,7 +1634,8 @@ def create_object_class(data):
         return None, "Class Code and Class Name are required."
         
     conn = get_db()
-    existing = conn.execute("SELECT id FROM object_classes WHERE code = ?", (code,)).fetchone()
+    _hf, _hp = rbac_scope.home_filter("object_classes")
+    existing = conn.execute(f"SELECT id FROM object_classes WHERE code = ?{_hf}", (code,) + _hp).fetchone()
     if existing:
         conn.close()
         return None, f"Class Code '{code}' already exists."
@@ -1378,7 +1665,9 @@ def update_object_class(identifier, data):
     
     conn = get_db()
     if code != existing['code']:
-        duplicate = conn.execute("SELECT id FROM object_classes WHERE code = ? AND id != ?", (code, target_id)).fetchone()
+        duplicate = conn.execute(
+            "SELECT id FROM object_classes WHERE code = ? AND id != ? AND company_id IS ?",
+            (code, target_id, existing.get('company_id'))).fetchone()
         if duplicate:
             conn.close()
             return None, f"Class Code '{code}' is already used by another class."
@@ -1406,7 +1695,8 @@ def delete_object_class(identifier):
 
 def get_all_cameras():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM cameras ORDER BY camera_code ASC").fetchall()
+    _sf, _sp = rbac_scope.filter("cameras")
+    rows = conn.execute(f"SELECT * FROM cameras WHERE 1=1{_sf} ORDER BY camera_code ASC", _sp).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -1440,6 +1730,11 @@ def create_or_update_camera(data):
     conn = get_db()
     from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        ensure_code_free(conn, "cameras", "camera_id", camera_id, "Camera ID")
+    except CodeInUseError:
+        conn.close()
+        raise
     with conn:
         conn.execute("""
             INSERT INTO cameras (camera_id, camera_code, name, warehouse, location, bin_id, camera_type, vendor, stream_url, status, created_at, updated_at)
@@ -1487,7 +1782,9 @@ def get_all_vision_cameras(search_term=None, ai_status=None, cam_status=None):
         LEFT JOIN vision_camera_configs cfg ON c.camera_id = cfg.camera_id
         WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("cameras", "c")
+    query += _sf
+    params = list(_sp)
     if cam_status and cam_status.upper() != 'ALL':
         query += " AND c.status = ?"
         params.append(cam_status)
@@ -1635,9 +1932,10 @@ def save_vision_camera_config(identifier, data):
     # Verify that the selected classes exist in Object Classes Master
     if cleaned_classes:
         placeholders = ','.join(['?'] * len(cleaned_classes))
+        _sf, _sp = rbac_scope.filter("object_classes")
         existing_classes = conn.execute(
-            f"SELECT code FROM object_classes WHERE code IN ({placeholders})",
-            tuple(cleaned_classes)
+            f"SELECT code FROM object_classes WHERE code IN ({placeholders}){_sf}",
+            tuple(cleaned_classes) + _sp
         ).fetchall()
         existing_codes = set(r['code'] for r in existing_classes)
         invalid_codes = set(cleaned_classes) - existing_codes
@@ -1700,7 +1998,9 @@ def get_all_vision_zones(search_term=None, zone_type=None, warehouse=None, statu
         FROM vision_zones z
         WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("vision_zones", "z")
+    query += _sf
+    params = list(_sp)
 
     if status and status.upper() != 'ALL':
         query += " AND UPPER(z.status) = ?"
@@ -1785,10 +2085,18 @@ def get_all_vision_zones(search_term=None, zone_type=None, warehouse=None, statu
 
 def get_vision_zone(identifier):
     conn = get_db()
-    row = conn.execute("""
+    # Phase 3B: zone codes are unique per warehouse; look the code up in this warehouse
+    _hf, _hp = rbac_scope.home_filter("vision_zones")
+    row = conn.execute(f"""
         SELECT * FROM vision_zones
-        WHERE id = ? OR zone_code = ?
-    """, (str(identifier), str(identifier))).fetchone()
+        WHERE (id = ? OR zone_code = ?){_hf} ORDER BY id LIMIT 1
+    """, (str(identifier), str(identifier)) + _hp).fetchone()
+    if row is None and _hf:
+        _sf, _sp = rbac_scope.filter("vision_zones")
+        row = conn.execute(f"""
+            SELECT * FROM vision_zones
+            WHERE (id = ? OR zone_code = ?){_sf} ORDER BY id LIMIT 1
+        """, (str(identifier), str(identifier)) + _sp).fetchone()
 
     if not row:
         conn.close()
@@ -1875,7 +2183,8 @@ def create_vision_zone(data):
         return None, f"Invalid Zone Type '{zone_type}'. Valid types are: {', '.join(ZONE_TYPES.keys())}."
 
     conn = get_db()
-    existing = conn.execute("SELECT id FROM vision_zones WHERE zone_code = ?", (zone_code,)).fetchone()
+    _hf, _hp = rbac_scope.home_filter("vision_zones")
+    existing = conn.execute(f"SELECT id FROM vision_zones WHERE zone_code = ?{_hf}", (zone_code,) + _hp).fetchone()
     if existing:
         conn.close()
         return None, f"Zone with code '{zone_code}' already exists."
@@ -1945,7 +2254,9 @@ def update_vision_zone(identifier, data):
         return None, f"Invalid Zone Type '{zone_type}'. Valid types are: {', '.join(ZONE_TYPES.keys())}."
 
     conn = get_db()
-    duplicate = conn.execute("SELECT id FROM vision_zones WHERE zone_code = ? AND id != ?", (zone_code, zone_id)).fetchone()
+    duplicate = conn.execute(
+        "SELECT id FROM vision_zones WHERE zone_code = ? AND id != ? AND warehouse_id IS ?",
+        (zone_code, zone_id, zone.get('warehouse_id'))).fetchone()
     if duplicate:
         conn.close()
         return None, f"Zone code '{zone_code}' is already in use by another zone."
@@ -2283,15 +2594,17 @@ def get_zone_rois(zone_identifier):
 
 def get_all_bins():
     conn = get_db()
-    cursor = conn.execute('''
+    _sf, _sp = rbac_scope.filter("bins", "b")
+    cursor = conn.execute(f'''
         SELECT b.bin_id, b.zone, b.max_volume, b.current_volume, b.max_weight, b.current_weight, b.status, 
                COALESCE(SUM(i.quantity), 0) as stock_count,
                GROUP_CONCAT(DISTINCT i.vendor) as vendor
         FROM bins b
         LEFT JOIN inventory i ON b.bin_id = i.bin_id
+        WHERE 1=1{_sf}
         GROUP BY b.bin_id
         ORDER BY b.bin_id ASC
-    ''')
+    ''', _sp)
     bins = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return bins
@@ -2313,6 +2626,11 @@ def get_bin_inventory(bin_id):
 
 def add_bin(bin_id, zone, max_volume, max_weight):
     conn = get_db()
+    try:
+        ensure_code_free(conn, "bins", "bin_id", bin_id, "Bin")
+    except CodeInUseError:
+        conn.close()
+        raise
     with conn:
         conn.execute('''
             INSERT INTO bins (bin_id, zone, max_volume, max_weight, status, last_updated)
@@ -2346,7 +2664,8 @@ def update_bin(bin_id, zone=None, max_volume=None, max_weight=None, status=None)
 
 def get_all_skus():
     conn = get_db()
-    cursor = conn.execute("SELECT * FROM skus ORDER BY sku_id ASC")
+    _sf, _sp = rbac_scope.filter("skus")
+    cursor = conn.execute(f"SELECT * FROM skus WHERE 1=1{_sf} ORDER BY sku_id ASC", _sp)
     skus = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return skus
@@ -2360,6 +2679,15 @@ def add_sku(sku_id, name, description, category, unit_weight=0.0, unit_volume=0.
     tbp_val = max(1, int(target_bundles_per_pallet or 10))
     wt_val = float(unit_weight or 0.0)
     vol_val = float(unit_volume or 0.0)
+    bad = code_problem(sku_code)
+    if bad:
+        conn.close()
+        raise ValueError(bad)
+    try:
+        ensure_code_free(conn, "skus", "sku_id", sku_code, "SKU code")
+    except CodeInUseError:
+        conn.close()
+        raise
     with conn:
         conn.execute('''
             INSERT INTO skus (sku_id, name, description, category, uom, unit_weight, unit_volume, units_per_bundle, bundle_name, target_bundles_per_pallet, status, created_at, updated_at)
@@ -2377,6 +2705,69 @@ def add_sku(sku_id, name, description, category, unit_weight=0.0, unit_volume=0.
                 updated_at = CURRENT_TIMESTAMP
         ''', (sku_code, name, description, category, uom_val, wt_val, vol_val, upb_val, bname_val, tbp_val))
     conn.close()
+
+class ReceiveError(ValueError):
+    """A receipt that can't be booked (unknown product or bin, nothing to add, already received)."""
+
+
+def receive_goods(bin_id, sku_id, quantity, vendor=None, ref=None, batch_number=None, reason=None):
+    """Books received goods into a bin: stock is ADDED, never replaced.
+
+    One function for every way goods come in (Inbound "Complete receipt", a truck marked
+    Completed at the dock, an approved AI count posted to a bin):
+      * the product must already exist (no invented SKU codes) and the bin must be in this location
+      * `ref` (e.g. "GRN-<gate pass>") can be booked only once, so the same truck is never counted twice
+      * same bin + product + batch adds to that stock line; otherwise a new line is created
+      * bin fill is recalculated; the stock history line says "Received" with the ref and reason
+    """
+    import rbac_scope
+    try:
+        qty = int(quantity)
+    except (TypeError, ValueError):
+        raise ReceiveError("The received quantity must be a whole number.")
+    if qty <= 0:
+        raise ReceiveError("The received quantity must be more than 0.")
+    sku_id = str(sku_id or "").strip()
+    bin_id = str(bin_id or "").strip()
+    if not sku_id:
+        raise ReceiveError("Choose the product that was received.")
+    if not bin_id:
+        raise ReceiveError("Choose the bin the goods go into.")
+    conn = get_db()
+    try:
+        scond, sparams = rbac_scope.home_filter("skus")
+        if not conn.execute(f"SELECT 1 FROM skus WHERE sku_id = ?{scond}", (sku_id,) + sparams).fetchone():
+            raise ReceiveError(f"Product '{sku_id}' is not in the product list. Add it in AI Vision > Products, "
+                               f"or choose an existing product.")
+        bcond, bparams = rbac_scope.home_filter("bins")
+        b = conn.execute(f"SELECT bin_id, company_id, warehouse_id FROM bins WHERE bin_id = ?{bcond}",
+                         (bin_id,) + bparams).fetchone()
+        if not b:
+            raise ReceiveError(f"Bin '{bin_id}' was not found in this location.")
+        if ref and conn.execute("SELECT 1 FROM stock_movements WHERE ref = ? LIMIT 1", (str(ref),)).fetchone():
+            raise ReceiveError(f"{ref} has already been received into stock.")
+        with conn:
+            mark = conn.execute("SELECT COALESCE(MAX(id), 0) FROM stock_movements").fetchone()[0]
+            icond, iparams = rbac_scope.home_filter("inventory")
+            line = conn.execute(f"""SELECT id FROM inventory WHERE bin_id = ? AND sku_id = ? AND batch_number IS ?{icond}
+                                    ORDER BY id LIMIT 1""", (bin_id, sku_id, batch_number) + iparams).fetchone()
+            if line:
+                conn.execute("UPDATE inventory SET quantity = quantity + ? WHERE id = ?", (qty, line["id"]))
+                line_id = line["id"]
+            else:
+                line_id = conn.execute("""INSERT INTO inventory (bin_id, sku_id, quantity, batch_number, vendor, received_date,
+                                              company_id, warehouse_id)
+                                          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)""",
+                                       (bin_id, sku_id, qty, batch_number, vendor, b["company_id"], b["warehouse_id"])).lastrowid
+            import inventory_routes
+            inventory_routes.recalc_bin(conn, bin_id)
+            conn.execute("""UPDATE stock_movements SET movement_type = 'receive', ref = COALESCE(ref, ?),
+                                   reason = COALESCE(reason, ?) WHERE id > ?""", (ref, reason, mark))
+            total = conn.execute("SELECT quantity FROM inventory WHERE id = ?", (line_id,)).fetchone()[0]
+        return {"bin_id": bin_id, "sku_id": sku_id, "added": qty, "line_quantity": total, "inventory_id": line_id, "ref": ref}
+    finally:
+        conn.close()
+
 
 def update_bin_stock(bin_id, vendor, count, sku_id='UNKNOWN-SKU'):
     conn = get_db()
@@ -2529,54 +2920,71 @@ def intelligent_putaway(total_unloaded, vendor_name, sku_id='UNKNOWN-SKU'):
 
 # ----------------- Activities & Audit Log Operations -----------------
 
-_in_memory_activities = []
+_in_memory_activities = []   # kept only as a fallback before the RBAC tables exist
+
 
 def log_activity(action, target, details=""):
     """
-    Thread-safe logging of operational events and cycle count audits.
-    Maintains an in-memory audit log and writes to the activities table if present.
-    Avoids schema changes to maintain strict database invariants.
+    Operational events (cycle-count audits, controlled actions ...).
+    RBAC Phase 7: stored in audit_logs as 'activity.<action>' with the company and warehouse
+    of the request (or of the camera thread), so each company only ever sees its own.
     """
-    entry = {
-        "id": len(_in_memory_activities) + 1,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "action": action,
-        "target": target,
-        "details": details
-    }
-    _in_memory_activities.insert(0, entry)
-    
-    conn = get_db()
+    import rbac_scope
+    actor_id, actor_name = None, "system"
     try:
-        has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='activities'").fetchone()
-        if has_table:
-            with conn:
-                conn.execute('''
-                    INSERT INTO activities (timestamp, action, target, details)
-                    VALUES (CURRENT_TIMESTAMP, ?, ?, ?)
-                ''', (action, target, details))
+        from flask import g, has_request_context
+        if has_request_context():
+            u = g.get("current_user") or {}
+            actor_id, actor_name = u.get("id"), u.get("username") or "system"
     except Exception:
         pass
+    sc = rbac_scope.get_scope()
+    entry = {"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "action": action, "target": target, "details": details}
+    conn = sqlite3.connect(DB_PATH, timeout=15)
+    try:
+        with conn:
+            conn.execute("""INSERT INTO audit_logs (actor_user_id, actor_username, company_id, warehouse_id, action,
+                                resource_type, resource_id, after_json, result)
+                            VALUES (?, ?, ?, ?, ?, 'activity', ?, ?, 'success')""",
+                         (actor_id, actor_name, sc.company_id if sc else None, sc.warehouse_id if sc else None,
+                          "activity." + str(action).lower(), str(target) if target is not None else None,
+                          json.dumps({"action": action, "details": details})))
+    except sqlite3.Error:
+        entry["id"] = len(_in_memory_activities) + 1
+        _in_memory_activities.insert(0, entry)
     finally:
         conn.close()
 
 
 def get_activities(limit=50):
-    """Retrieve recent operational activity logs."""
-    conn = get_db()
+    """Recent operational activity for the current company / warehouse (RBAC Phase 7)."""
+    import rbac_scope
+    sc = rbac_scope.get_scope()
+    where, params = "action LIKE 'activity.%'", []
+    if sc is not None and not sc.unrestricted and rbac_scope.isolation_enabled():
+        if sc.warehouse_id:
+            where += " AND warehouse_id = ?"
+            params.append(sc.warehouse_id)
+        else:
+            where += " AND company_id = ?"
+            params.append(sc.company_id)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     try:
-        has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='activities'").fetchone()
-        if has_table:
-            cursor = conn.execute('''
-                SELECT id, timestamp, action, target, details
-                FROM activities
-                ORDER BY id DESC
-                LIMIT ?
-            ''', (limit,))
-            return [dict(r) for r in cursor.fetchall()]
+        rows = conn.execute(f"""SELECT id, ts, after_json, resource_id FROM audit_logs WHERE {where}
+                                ORDER BY id DESC LIMIT ?""", tuple(params) + (int(limit),)).fetchall()
+    except sqlite3.Error:
         return _in_memory_activities[:limit]
     finally:
         conn.close()
+    out = []
+    for rid, ts, after_json, target in rows:
+        try:
+            d = json.loads(after_json or "{}")
+        except ValueError:
+            d = {}
+        out.append({"id": rid, "timestamp": ts, "action": d.get("action"), "target": target,
+                    "details": d.get("details", "")})
+    return out
 
 
 # ============================================================================
@@ -2605,7 +3013,9 @@ def get_sku_master_records(search=None, category=None, status=None, image_status
         LEFT JOIN sku_images si ON s.sku_id = si.sku_id
         WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("skus", "s")  # RBAC Phase 3A: this company's SKUs only
+    query += _sf
+    params = list(_sp)
     if search and str(search).strip():
         term = f"%{str(search).strip()}%"
         query += " AND (s.sku_id LIKE ? OR s.name LIKE ? OR s.description LIKE ?)"
@@ -2697,6 +3107,8 @@ def save_sku_master_record(data):
     name = str(data.get('name', '')).strip()
     if not sku_id:
         return None, "SKU Code is required."
+    if code_problem(sku_id) and not get_sku_by_id(sku_id):
+        return None, code_problem(sku_id)
     if not name:
         return None, "Product Name is required."
 
@@ -2826,6 +3238,10 @@ def batch_import_sku_records(skus_list, duplicate_policy='skip'):
             if not sku_id or not name:
                 failed += 1
                 errors.append({"row": row_num, "sku_id": sku_id, "error": "SKU Code and Product Name are mandatory."})
+                continue
+            if code_problem(sku_id) and not conn.execute("SELECT 1 FROM skus WHERE sku_id = ?", (sku_id,)).fetchone():
+                failed += 1
+                errors.append({"row": row_num, "sku_id": sku_id, "error": code_problem(sku_id)})
                 continue
 
             upb_val = max(1, int(float(item.get('units_per_bundle', 1) or 1)))
@@ -3083,10 +3499,13 @@ def get_all_pallets(status: Optional[str] = None, limit: int = 100) -> List[Dict
                (SELECT file_path FROM sku_images WHERE sku_id = p.sku_id AND is_primary = 1 LIMIT 1) as primary_image
         FROM pallets p
         LEFT JOIN skus s ON p.sku_id = s.sku_id
+        WHERE 1=1
     """
-    params = []
+    _sf, _sp = rbac_scope.filter("pallets", "p")
+    query += _sf
+    params = list(_sp)
     if status and status.upper() != 'ALL':
-        query += " WHERE p.status = ?"
+        query += " AND p.status = ?"
         params.append(status.upper())
     query += " ORDER BY p.created_at DESC LIMIT ?"
     params.append(int(limit))
@@ -3102,7 +3521,8 @@ def update_pallet_count(
     track_id: Optional[int] = None,
     similarity_score: float = 0.0,
     snapshot_path: Optional[str] = None,
-    auto_seal: bool = False
+    auto_seal: bool = False,
+    units_per_bundle: Optional[int] = None
 ) -> Optional[Dict[str, Any]]:
     """Update counted bundles on a pallet and recompute total pieces. Preserves building status unless auto_seal explicitly authorized."""
     conn = get_db()
@@ -3112,7 +3532,7 @@ def update_pallet_count(
         return None
 
     c_bundles = max(0, int(new_count))
-    u_per_b = pallet['units_per_bundle'] or 1
+    u_per_b = max(1, int(units_per_bundle)) if units_per_bundle else (pallet['units_per_bundle'] or 1)
     t_bundles = pallet['target_bundles'] or 0
     tot_units = c_bundles * u_per_b
 
@@ -3123,9 +3543,9 @@ def update_pallet_count(
     with conn:
         conn.execute(f"""
             UPDATE pallets
-            SET counted_bundles = ?, total_units = ?, status = ?, sealed_at = {sealed_at_expr}
+            SET counted_bundles = ?, total_units = ?, units_per_bundle = ?, status = ?, sealed_at = {sealed_at_expr}
             WHERE pallet_id = ?
-        """, (c_bundles, tot_units, new_status, str(pallet_id)))
+        """, (c_bundles, tot_units, u_per_b, new_status, str(pallet_id)))
 
         if track_id is not None:
             conn.execute("""
@@ -3157,6 +3577,32 @@ def seal_pallet(pallet_id: str, assigned_bin_id: Optional[str] = None) -> Option
     rec = get_pallet_by_id(pallet_id)
     conn.close()
     return rec
+
+
+def putaway_pallet(pallet_id: str, bin_id: Optional[str] = None) -> Dict[str, Any]:
+    """A sealed pallet goes into its bin: its counted pieces are ADDED to stock there.
+
+    Only once per pallet (stock history ref PALLET-<id>), only after sealing (the count is final),
+    and never with an empty count. Use it for goods that are not in stock yet; goods already booked
+    at Inbound "Complete receipt" must not be put in a second time."""
+    p = get_pallet_by_id(pallet_id)
+    if not p:
+        raise ReceiveError(f"Pallet '{pallet_id}' was not found.")
+    if str(p.get('status') or '').upper() != 'SEALED':
+        raise ReceiveError("Seal the pallet first - the count must be final before it goes into stock.")
+    qty = int(p.get('total_units') or 0)
+    if qty <= 0:
+        raise ReceiveError("This pallet has no counted pieces. Count it and press 'Save count to pallet' first.")
+    target = (str(bin_id).strip() if bin_id else '') or (p.get('assigned_bin_id') or '')
+    if not target:
+        raise ReceiveError("Choose the bin this pallet goes into.")
+    res = receive_goods(target, p['sku_id'], qty, vendor=None, ref=f"PALLET-{pallet_id}",
+                        reason=f"Pallet {pallet_id} counted and put away")
+    conn = get_db()
+    with conn:
+        conn.execute("UPDATE pallets SET assigned_bin_id = ? WHERE pallet_id = ?", (target, str(pallet_id)))
+    conn.close()
+    return res
 
 
 def delete_pallet(pallet_id: str) -> bool:
@@ -3240,10 +3686,11 @@ def log_violation(
 def get_all_violations(status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
     """Retrieve violations ledger entries optionally filtered by status."""
     conn = get_db()
-    query = "SELECT * FROM violations_log"
-    params = []
+    _sf, _sp = rbac_scope.filter("violations_log")
+    query = "SELECT * FROM violations_log WHERE 1=1" + _sf
+    params = list(_sp)
     if status and status.upper() != 'ALL':
-        query += " WHERE status = ?"
+        query += " AND status = ?"
         params.append(status.upper())
     query += " ORDER BY created_at DESC LIMIT ?"
     params.append(int(limit))
@@ -3264,7 +3711,8 @@ def get_violation_by_id(violation_id: int) -> Optional[Dict[str, Any]]:
 def get_open_violations_count() -> int:
     """Return count of unresolved active violations."""
     conn = get_db()
-    row = conn.execute("SELECT COUNT(*) FROM violations_log WHERE status = 'OPEN'").fetchone()
+    _sf, _sp = rbac_scope.filter("violations_log")
+    row = conn.execute(f"SELECT COUNT(*) FROM violations_log WHERE status = 'OPEN'{_sf}", _sp).fetchone()
     conn.close()
     return int(row[0]) if row else 0
 
@@ -3362,6 +3810,17 @@ def check_bin_putaway_compatibility(
 # MULTI-WAREHOUSE FACILITY MANAGEMENT HELPERS
 # ==============================================================================
 
+def get_warehouse_by_id(warehouse_id) -> Optional[Dict[str, Any]]:
+    if not warehouse_id:
+        return None
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM warehouses WHERE id = ?", (int(warehouse_id),)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def get_all_warehouses(company_name: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Returns registered warehouses ordered by active status and code.
@@ -3401,7 +3860,15 @@ def get_active_warehouse(company_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Returns the currently active warehouse context.
     If company_name is supplied, defaults to the active facility of that specific company.
+
+    RBAC Phase 3A: inside a warehouse scope (a request or a camera thread) the scope's own
+    warehouse is the active one; the global is_active flag only applies to unscoped code.
     """
+    scope = rbac_scope.get_scope()
+    if scope is not None and scope.warehouse_id:
+        wh = get_warehouse_by_id(scope.warehouse_id)
+        if wh:
+            return wh
     conn = get_db()
     row = None
     if company_name and company_name.strip() and company_name.strip().lower() not in ('all', 'admin'):
@@ -3451,6 +3918,34 @@ def set_active_warehouse(code: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+class WarehouseOwnershipError(ValueError):
+    """Raised when an operation would move a warehouse to a different company (H30)."""
+
+
+def normalize_company_name(name: Optional[str]) -> str:
+    """Case- and whitespace-insensitive company key ('  Lion ' == 'lion')."""
+    return " ".join(str(name or "").split()).casefold()
+
+
+def same_company(a: Optional[str], b: Optional[str]) -> bool:
+    return normalize_company_name(a) == normalize_company_name(b)
+
+
+def unique_warehouse_code(base_code: str, company_name: Optional[str]) -> str:
+    """Returns `base_code` if it is free or already owned by `company_name`;
+    otherwise the first free `base_code-2`, `-3`, ... so another company's
+    warehouse is never reused (H30)."""
+    base = str(base_code).strip().upper()
+    candidate = base
+    n = 1
+    while True:
+        existing = get_warehouse_by_code(candidate)
+        if not existing or same_company(existing.get('company_name'), company_name):
+            return candidate
+        n += 1
+        candidate = f"{base}-{n}"
+
+
 def create_or_update_warehouse(
     code: str,
     name: str,
@@ -3461,9 +3956,18 @@ def create_or_update_warehouse(
     status: str = "Active",
     company_name: str = "Skantha Industrial Solutions"
 ) -> Dict[str, Any]:
-    """Creates a new warehouse facility or updates an existing record scoped to a company."""
+    """Creates a new warehouse facility or updates an existing record scoped to a company.
+
+    RBAC Phase 0 (H30): a warehouse code that already belongs to another company is never
+    taken over. Raises WarehouseOwnershipError instead of silently rewriting its company.
+    """
     code_clean = str(code).strip().upper()
     comp_clean = str(company_name).strip() if company_name else "Skantha Industrial Solutions"
+    existing = get_warehouse_by_code(code_clean)
+    if existing and not same_company(existing.get('company_name'), comp_clean):
+        raise WarehouseOwnershipError(
+            f"Warehouse code {code_clean} is already used by another company. Choose a different code."
+        )
     conn = get_db()
     with conn:
         conn.execute("""
@@ -3479,7 +3983,15 @@ def create_or_update_warehouse(
                 company_name = excluded.company_name,
                 updated_at = CURRENT_TIMESTAMP
         """, (code_clean, name.strip(), city.strip(), operating_mode.strip().upper(), industry.strip(), address.strip(), status.strip(), comp_clean))
-    
+        # RBAC Phase 1: link to the company record when that company already exists
+        try:
+            conn.execute("""
+                UPDATE warehouses SET company_id = (SELECT id FROM companies WHERE name_key = ?)
+                WHERE UPPER(code) = ? AND company_id IS NULL
+            """, (normalize_company_name(comp_clean), code_clean))
+        except sqlite3.OperationalError:
+            pass
+
     rec = get_warehouse_by_code(code_clean)
     conn.close()
     return rec or {}
@@ -3551,12 +4063,14 @@ def get_glass_measurement_profiles() -> List[Dict[str, Any]]:
     """Retrieves all saved glass measurement profiles."""
     conn = get_db()
     seed_default_glass_profiles()
-    rows = conn.execute("""
+    _sf, _sp = rbac_scope.filter("glass_measurement_profiles")
+    rows = conn.execute(f"""
         SELECT id, name, sku_id, length, width, thickness, unit, packaging_type,
                pieces_per_bundle, notes, created_at, updated_at
         FROM glass_measurement_profiles
+        WHERE 1=1{_sf}
         ORDER BY updated_at DESC, name ASC
-    """).fetchall()
+    """, _sp).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -3697,8 +4211,10 @@ def record_vision_counting_submission(
             """, (physical_bundles, total_pieces, p_id))
             target_applied = {"type": "pallet", "pallet_id": p_id, "bundles": physical_bundles, "total_units": total_pieces}
         else:
-            b_id = str(bin_id or "BIN-A").strip()
-            sync_bin_inventory(b_id, total_pieces, sku_id=sku_id, vendor="AI Vision Approved Count")
+            b_id = str(bin_id or "").strip()
+            # the counted goods are ADDED to the bin (posting a count never wipes what was there)
+            receive_goods(b_id, sku_id, total_pieces, vendor="AI Vision Approved Count", ref=f"COUNT-{sess_id}",
+                          reason="Approved AI count posted to bin")
             target_applied = {"type": "bin", "bin_id": b_id, "sku_id": sku_id, "quantity": total_pieces}
 
         # 2. Insert into vision_counting_submissions

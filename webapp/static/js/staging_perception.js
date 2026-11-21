@@ -293,6 +293,8 @@
     }
 
     async function pollStagingStatus() {
+        // RBAC Phase 6: only for people who can see the staging area
+        if (typeof window.hasPerm === 'function' && !window.hasPerm('inbound.staging.view|inbound.view')) return;
         try {
             const res = await fetch('/api/staging/status');
             if (res.ok) {
@@ -446,12 +448,12 @@
                 } else {
                     yardTbody.innerHTML = data.yard_vehicles.map(v => `
                         <tr>
-                            <td style="font-family:monospace; font-weight:800; color:#facc15;">${v.plate}</td>
+                            <td style="font-family:monospace; font-weight:800; color:#facc15;">${__h(v.plate)}</td>
                             <td>${v.carrier || 'Commercial Carrier'}</td>
-                            <td>${v.dock || 'Bay Assigned'}</td>
+                            <td>${__h(v.dock || 'Bay Assigned')}</td>
                             <td><span style="color:#38bdf8; font-weight:700;">${v.dwell_mins}m dwell</span></td>
                             <td>
-                                <button type="button" class="btn-secondary btn-sm" onclick="checkoutVehicleGate02('${v.plate}')" style="padding:3px 8px; font-size:0.72rem; color:#10b981; border-color:rgba(16,185,129,0.4);" title="Check out at Gate 02">
+                                <button type="button" class="btn-secondary btn-sm" onclick="checkoutVehicleGate02(${__js(v.plate)})" style="padding:3px 8px; font-size:0.72rem; color:#10b981; border-color:rgba(16,185,129,0.4);" title="Check out at Gate 02">
                                     <i class="fas fa-arrow-right-from-bracket"></i> Exit Gate 02
                                 </button>
                             </td>

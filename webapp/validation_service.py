@@ -26,6 +26,7 @@ Strict Behavioral Rules:
 """
 
 import re
+import rbac_scope
 import time
 import json
 import logging
@@ -667,11 +668,12 @@ class WarehouseMasterValidator:
                 zone_ref = row['zone']
                 vz_row = None
                 if zone_ref:
-                    vz_row = conn.execute("""
+                    _zf, _zp = rbac_scope.home_filter("vision_zones")
+                    vz_row = conn.execute(f"""
                         SELECT id, zone_code, zone_name, zone_type, warehouse
                         FROM vision_zones
-                        WHERE UPPER(zone_code) = ? OR UPPER(zone_name) = ?
-                    """, (zone_ref.upper(), zone_ref.upper())).fetchone()
+                        WHERE (UPPER(zone_code) = ? OR UPPER(zone_name) = ?){_zf}
+                    """, (zone_ref.upper(), zone_ref.upper()) + _zp).fetchone()
 
                 spatial_context = {
                     "zone_code": vz_row['zone_code'],

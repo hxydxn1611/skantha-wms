@@ -138,9 +138,12 @@
             const compEl = document.getElementById('topbarCompanyName');
             if (compEl) compEl.textContent = user.company_name || 'My Organization';
             const userEl = document.getElementById('topbarUsername');
-            if (userEl) userEl.textContent = `${user.role || 'Admin'} (${user.username})`;
+            // RBAC: show the real role (Super Admin / Company Admin / role name), not the legacy 'Admin'
+            const shownRole = user.role_label || (window.currentUser && window.currentUser.username === user.username
+                ? window.currentUser.role_label : '') || user.role || 'User';
+            if (userEl) userEl.textContent = `${shownRole} (${user.username})`;
             const dropUser = document.getElementById('dropdownDisplayUser');
-            if (dropUser) dropUser.textContent = `${user.role || 'Admin'} (${user.username})`;
+            if (dropUser) dropUser.textContent = `${shownRole} (${user.username})`;
             const dropOrg = document.getElementById('dropdownDisplayOrg');
             if (dropOrg) dropOrg.textContent = user.company_name || 'My Organization';
         }
@@ -283,6 +286,15 @@
                             window.location.href = '/login?expired=1';
                         }, 500);
                     }
+                } else if (response.status === 403 && !window._passwordResetRedirecting) {
+                    // RBAC Phase 1: the account must set a new password first
+                    try {
+                        const body = await response.clone().json();
+                        if (body && body.error_code === 'password_reset_required') {
+                            window._passwordResetRedirecting = true;
+                            window.location.href = body.redirect || '/account/reset-password';
+                        }
+                    } catch (e) {}
                 }
                 return response;
             };
@@ -676,6 +688,12 @@
             const targetMobileBtn = document.querySelector(`.mobile-nav-item[data-tab="${tabId}"]`);
             if (targetMobileBtn) targetMobileBtn.classList.add('active');
 
+            if (tabId === 'platform-companies') {
+                if (typeof loadPlatformCompanies === 'function') loadPlatformCompanies();
+            }
+            if (tabId === 'users-access') {
+                if (typeof loadUsersAccess === 'function') loadUsersAccess();
+            }
             if (tabId === 'dashboard') {
                 if (typeof initWarlogTelemetryChart === 'function' && !window.telemetryChartInstance) initWarlogTelemetryChart();
             } else if (tabId === 'deliveries') {
@@ -695,6 +713,8 @@
                 if (typeof pollData === 'function') pollData();
             } else if (tabId === 'warehouses') {
                 if (typeof window.renderWarehouseLocationsView === 'function') window.renderWarehouseLocationsView();
+            } else if (tabId === 'inventory') {
+                if (typeof window.loadInventory === 'function') window.loadInventory();
             } else if (tabId === 'master-hub') {
                 if (typeof fetchDeliveries === 'function') fetchDeliveries();
                 if (typeof fetchGatePasses === 'function') fetchGatePasses();
@@ -1858,7 +1878,7 @@
                     `;
                 }).join('');
             } catch(err) {
-                container.innerHTML = `<div style="grid-column:1/-1; color:var(--danger); font-size:0.82rem;">Error loading expected deliveries: ${err.message}</div>`;
+                container.innerHTML = `<div style="grid-column:1/-1; color:var(--danger); font-size:0.82rem;">Error loading expected deliveries: ${__h(err.message)}</div>`;
             }
         };
 
@@ -1964,9 +1984,12 @@
                     gateBody.innerHTML = activePasses.map(gp => {
                         let poDropdown = '';
                         let expectedDateInput = `<input type="hidden" id="expectedDate_${gp.id}" value="${gp.expected_date || ''}">`;
-                        let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${gp.po_number || ''}">`;
+                        let poNumberInput = `<input type="hidden" id="poNumber_${gp.id}" value="${__h(gp.po_number || '')}">`;
                         
-                        if (gp.status === 'Pending') {
+                        if (gp.outbound_order_id) {
+                            // outbound truck collecting an order (no PO to link)
+                            poDropdown = `<div style="display:flex; align-items:center; gap:6px; color:#7c3aed; font-weight:700; margin-bottom:0.4rem; font-size:0.80rem; background:rgba(124,58,237,0.1); padding:4px 8px; border-radius:6px; border:1px solid rgba(124,58,237,0.3);"><span>🚚 OUTBOUND · collecting order</span> <strong>${escapeHtml(gp.outbound_order_id)}</strong></div>`;
+                        } else if (gp.status === 'Pending') {
                             if (gp.po_number) {
                                 poDropdown = `<div style="display:flex; align-items:center; gap:6px; color:#10b981; font-weight:700; margin-bottom:0.4rem; font-size:0.80rem; background:rgba(16,185,129,0.1); padding:4px 8px; border-radius:6px; border:1px solid rgba(16,185,129,0.25);"><span>✓ Auto-Matched PO:</span> <strong>${escapeHtml(gp.po_number)}</strong></div>`;
                             } else {
@@ -2137,22 +2160,22 @@
                 if(dockedPasses.length > 0) {
                     dockBody.innerHTML = dockedPasses.map(gp => `
                         <tr>
-                            <td style="font-size:1.2rem; font-weight:bold; color:var(--accent-hover)">${gp.dock}</td>
+                            <td style="font-size:1.2rem; font-weight:bold; color:var(--accent-hover)">${__h(gp.dock)}</td>
                             <td>
                                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                                    <strong style="font-family:monospace; font-size:0.95rem;">${gp.plate}</strong>
-                                    <button type="button" class="btn-primary" style="padding:2px 6px; font-size:0.68rem; background:#334155;" onclick="promptEditPlateAndSnapshot('${gp.id}', '${gp.plate || ''}')" title="Edit Plate & Update Snapshot">✏️ Edit</button>
+                                    <strong style="font-family:monospace; font-size:0.95rem;">${__h(gp.plate)}</strong>
+                                    <button type="button" class="btn-primary" style="padding:2px 6px; font-size:0.68rem; background:#334155;" onclick="promptEditPlateAndSnapshot('${gp.id}', ${__js(gp.plate || '')})" title="Edit Plate & Update Snapshot">✏️ Edit</button>
                                 </div>
-                                <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">${gp.vehicle_type}</div>
-                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Vendor: ${gp.vendor || 'N/A'}</div>
-                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">PO: ${gp.po_number || 'N/A'}</div>
+                                <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">${__h(gp.vehicle_type)}</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Vendor: ${__h(gp.vendor || 'N/A')}</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">PO: ${__h(gp.po_number || 'N/A')}</div>
                                 <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Exp: ${gp.expected_date || 'N/A'}</div>
                             </td>
-                            <td>${gp.driver_name}</td>
+                            <td>${__h(gp.driver_name)}</td>
                             <td>
-                                <div>${gp.load}</div>
+                                <div>${__h(gp.load)}</div>
                                 <div style="font-size:0.8rem; color:var(--accent-hover); margin-top:4px; font-weight:bold;">Activity: ${gp.activity || 'Loading'}</div>
-                                ${gp.photo ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" onclick="openTruckImageModal('/static/${gp.photo}', '${gp.plate || ''}', '${gp.id || ''}')" style="max-width:150px; max-height:80px; object-fit:cover; border-radius:4px; display:block; cursor:zoom-in; border:1px solid rgba(255,255,255,0.15); transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'" alt="Truck Photo" title="Click to expand"/></div>` : '<div style="font-size:0.8rem; color:var(--text-muted);">No Photo</div>'}
+                                ${gp.photo ? `<div style="margin-top:4px;"><img src="/static/${gp.photo}" onclick="openTruckImageModal('/static/${gp.photo}', ${__js(gp.plate || '')}, '${gp.id || ''}')" style="max-width:150px; max-height:80px; object-fit:cover; border-radius:4px; display:block; cursor:zoom-in; border:1px solid rgba(255,255,255,0.15); transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'" alt="Truck Photo" title="Click to expand"/></div>` : '<div style="font-size:0.8rem; color:var(--text-muted);">No Photo</div>'}
                             </td>
                             <td>
                                 <span class="badge ${gp.status === 'Completed' ? 'sent' : 'pending'}">${gp.status}</span>
@@ -2188,10 +2211,10 @@
                                                     return `
                                                     <tr>
                                                         <td style="padding:4px;">
-                                                             <div style="font-family:monospace; color:var(--text-main);">${item.sku}</div>
-                                                            <div style="font-size:0.75rem; color:var(--text-muted);">${item.description}</div>
+                                                             <div style="font-family:monospace; color:var(--text-main);">${__h(item.sku || item.sku_id || '')}</div>
+                                                            <div style="font-size:0.75rem; color:var(--text-muted);">${__h(item.description)}</div>
                                                         </td>
-                                                        <td style="padding:4px; font-weight:bold;">${item.expected} ${item.uom}</td>
+                                                        <td style="padding:4px; font-weight:bold;">${item.expected} ${__h(item.uom || '')}</td>
                                                         <td style="padding:4px; font-weight:bold; color:var(--accent-hover);" id="unloaded_${gp.id}">${gp.unloaded_qty || 0}</td>
                                                         <td style="padding:4px; font-weight:bold; color:${matchColor};">${matchText}</td>
                                                     </tr>
@@ -2222,7 +2245,7 @@
                                     <button class="btn-danger" style="width:100%; margin-bottom:4px;" onclick="completeUnload('${gp.id}')" ${gp.status === 'Completed' ? 'disabled' : ''}>Finish Unloading</button>
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="width:100%; background:var(--accent-hover);" onclick="sendInvoice('${gp.id}')">📧 Send Invoice to Vendor</button>` : ''}
                                     ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--accent);" onclick="downloadGateManifest('${gp.id}')">📄 PDF Manifest</button>` : ''}
-                                    ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', '${gp.plate}')">Check Out</button>` : ''}
+                                    ${gp.status === 'Completed' ? `<button class="btn-primary" style="margin-top:4px; width:100%; background:var(--success);" onclick="checkout('${gp.id}', ${__js(gp.plate)})">Check Out</button>` : ''}
                                 `}
                             </td>
                         </tr>
@@ -3086,8 +3109,8 @@
                     <tr>
                         <td style="font-family:monospace;">${l.id}</td>
                         <td style="color:var(--accent); font-weight:bold;">${l.gp_id}</td>
-                        <td style="font-family:monospace; font-size:1.1rem;">${l.plate}</td>
-                        <td>${l.driver_name}</td>
+                        <td style="font-family:monospace; font-size:1.1rem;">${__h(l.plate)}</td>
+                        <td>${__h(l.driver_name)}</td>
                         <td>${l.entry_time}</td>
                         <td>${l.exit_time || '-'}</td>
                         <td><span class="badge ${l.status === 'Departed' ? 'sent' : 'pending'}">${l.status}</span></td>
@@ -3110,9 +3133,9 @@
                     <tr>
                         <td style="font-family:monospace;">${i.id}</td>
                         <td style="color:var(--accent); font-weight:bold;">${i.gp_id}</td>
-                        <td>${i.po_number}</td>
-                        <td>${i.vendor}</td>
-                        <td>${i.vendor_email}</td>
+                        <td>${__h(i.po_number)}</td>
+                        <td>${__h(i.vendor)}</td>
+                        <td>${__h(i.vendor_email)}</td>
                         <td>${i.generated_at}</td>
                         <td><a href="/static/invoices/${i.pdf_path}" target="_blank" class="btn-primary" style="text-decoration:none; display:inline-block; padding:4px 12px; font-size:0.85rem;">📄 Download PDF</a></td>
                     </tr>
@@ -3973,12 +3996,12 @@
                 if (hikCard) {
                     hikCard.innerHTML = `
                         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                            <strong style="color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;" title="${cam.name}">${cam.name}</strong>
+                            <strong style="color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;" title="${__h(cam.name)}">${__h(cam.name)}</strong>
                             <span style="color:#10b981; font-size:0.7rem;">Online</span>
                         </div>
-                        <div style="color:#888; font-size:0.7rem; margin-bottom:4px;">${cam.location} | ${cam.vendor}</div>
+                        <div style="color:#888; font-size:0.7rem; margin-bottom:4px;">${__h(cam.location)} | ${__h(cam.vendor)}</div>
                         <div style="font-size:0.7rem; color:${hasBin ? '#10b981' : '#9ca3af'}; margin-bottom:6px; cursor:pointer;" onclick="promptAssignCameraBin('${cam.id}')">
-                            ${hasBin ? `📍 Bin: <b>${cam.bin_id}</b> (Pile: <b>${pileCount}</b>)` : `⚠️ No Bin Assigned (Click)`}
+                            ${hasBin ? `📍 Bin: <b>${__h(cam.bin_id)}</b> (Pile: <b>${pileCount}</b>)` : `⚠️ No Bin Assigned (Click)`}
                         </div>
                         <div style="display:flex; gap:4px;">
                             <button style="flex:1; background:#374151; color:#fff; border:none; padding:4px; cursor:pointer; font-size:0.7rem; border-radius:2px;" onclick="manualSnapshot('${cam.id}')">Snap</button>
@@ -4077,7 +4100,7 @@
                         <div style="display:flex; align-items:center; gap:10px;">
                             ${w.photo_path ? `<img src="${w.photo_path}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #38bdf8;">` : `<div style="width:34px; height:34px; border-radius:50%; background:#334155; display:flex; align-items:center; justify-content:center;">👷</div>`}
                             <div>
-                                <div style="font-size:0.84rem; font-weight:700; color:#f8fafc;">${w.name}</div>
+                                <div style="font-size:0.84rem; font-weight:700; color:#f8fafc;">${__h(w.name)}</div>
                                 <div style="font-size:0.7rem; color:#94a3b8;">${w.role || 'Operator'} • ${w.worker_code}</div>
                             </div>
                         </div>
@@ -4578,7 +4601,7 @@
 
                             // Parse Manifest & Expected Qty
                             let expectedQty = 50;
-                            let skuCode = 'SKU-INBOUND-01';
+                            let skuCode = '';   // chosen in the receipt dialog when the sheet has none
                             let itemDesc = gp.load || 'Material Packages';
 
                             if (gp.unloading_sheet) {
@@ -4586,7 +4609,7 @@
                                     const sheet = typeof gp.unloading_sheet === 'string' ? JSON.parse(gp.unloading_sheet) : gp.unloading_sheet;
                                     if (Array.isArray(sheet) && sheet.length > 0) {
                                         expectedQty = sheet[0].expected || 50;
-                                        skuCode = sheet[0].sku || skuCode;
+                                        skuCode = sheet[0].sku || sheet[0].sku_id || skuCode;
                                         itemDesc = sheet[0].desc || itemDesc;
                                     }
                                 } catch(e) {}
@@ -4792,32 +4815,95 @@
             }
         };
 
+        // Goods receipt: confirm (or correct) product, bin and quantity, then book it. The server ADDS the
+        // goods to the bin, needs a real product and a bin in this location, and receives a truck only once.
         window.completeInboundReceipt = async function(gpId, binId, quantity, skuId, vendor) {
-            if (!confirm(`Complete Inbound Receiving for Pass #${gpId}?\n\n• Verified Quantity: ${quantity}\n• Target Bin: ${binId}\n• SKU: ${skuId}\n\nThis will generate a Goods Receipt Note and update Bin inventory.`)) {
-                return;
-            }
-
+            const h = (v) => (window.__h ? window.__h(v) : String(v == null ? '' : v));
+            let skus = [], bins = [];
             try {
-                const res = await fetch('/api/inbound/complete_receipt', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ gp_id: gpId, bin_id: binId, quantity, sku_id: skuId, vendor })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    window.addInboundLog('RECEIPT-GRN', `Goods Receipt completed for Pass #${gpId}. ${quantity} units stored in ${binId}.`, '#10b981');
-                    alert(`✅ ${data.message}`);
+                const [rs, rb] = await Promise.all([fetch('/api/sku_master?limit=100&status=Active'), fetch('/api/bins')]);
+                skus = ((await rs.json()).data || {}).items || [];
+                bins = await rb.json();
+                if (!Array.isArray(bins)) bins = [];
+            } catch (e) { /* the dialog still opens; the server checks everything */ }
+            const known = skus.some(s => s.sku_id === skuId);
+            const wrap = document.createElement('div');
+            wrap.className = 'uac-modal-backdrop';
+            wrap.innerHTML = `<div class="uac-modal" role="dialog" aria-modal="true" style="max-width:480px;">
+                <div class="uac-modal-head"><div><h3>Goods receipt</h3>
+                    <div class="uac-modal-sub">Gate pass <b>${h(gpId)}</b> · ${h(vendor || '')}. The goods are added to the bin's stock.</div></div>
+                    <button class="uac-x" type="button" aria-label="Close">&times;</button></div>
+                <div class="uac-modal-body">
+                    <label class="uac-label" for="grnSku">Product received</label>
+                    <select id="grnSku" class="uac-input">
+                        ${known ? '' : '<option value="">Choose the product…</option>'}
+                        ${skus.map(s => `<option value="${h(s.sku_id)}" ${s.sku_id === skuId ? 'selected' : ''}>${h(s.name || s.sku_id)} · ${h(s.sku_id)}</option>`).join('')}
+                    </select>
+                    ${known || !skuId ? '' : `<div class="uac-hint" style="color:#b45309;">The unloading sheet says “${h(skuId)}”, which isn't in the product list. Choose the right product.</div>`}
+                    <label class="uac-label" for="grnBin">Into bin</label>
+                    <select id="grnBin" class="uac-input">
+                        ${bins.map(b => `<option value="${h(b.bin_id)}" ${b.bin_id === binId ? 'selected' : ''}>${h(b.bin_id)}${b.zone ? ' · zone ' + h(b.zone) : ''}</option>`).join('')}
+                    </select>
+                    <label class="uac-label" for="grnQty">Quantity received (pieces)</label>
+                    <input id="grnQty" class="uac-input" type="number" min="1" step="1" value="${Number(quantity) || ''}">
+                    <div class="uac-hint" id="grnPackHint" style="display:none;"></div>
+                    <div class="uac-hint"><i class="fas fa-shield-halved"></i> Added to what is already in the bin. Recorded in the stock history as GRN-${h(gpId)}.</div>
+                </div>
+                <div class="uac-modal-msg"></div>
+                <div class="uac-modal-actions"><button class="uac-btn" type="button" data-x>Cancel</button>
+                    <button class="uac-btn uac-btn-primary" type="button" data-ok><i class="fas fa-check"></i> Book receipt</button></div></div>`;
+            document.body.appendChild(wrap);
+            const close = () => wrap.remove();
+            wrap.querySelector('.uac-x').onclick = close;
+            wrap.querySelector('[data-x]').onclick = close;
+            wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+            const msg = wrap.querySelector('.uac-modal-msg');
+            const ok = wrap.querySelector('[data-ok]');
+            // the dock counts packs; a product packed in bundles needs pieces here
+            const packHint = () => {
+                const el = wrap.querySelector('#grnPackHint');
+                const s = skus.find(x => x.sku_id === wrap.querySelector('#grnSku').value);
+                const upb = s ? Math.max(1, parseInt(s.units_per_bundle || 1, 10)) : 1;
+                const dock = Number(quantity) || 0;
+                if (upb <= 1 || !dock) { el.style.display = 'none'; return; }
+                const pcs = dock * upb;
+                el.style.display = '';
+                el.innerHTML = `<i class="fas fa-boxes-stacked"></i> One ${h((s.bundle_name || 'bundle').toLowerCase())} of this product holds ${upb} pieces. ` +
+                    `If the dock count (${dock}) is ${h((s.bundle_name || 'bundle').toLowerCase())}s, that is <b>${pcs}</b> pieces. ` +
+                    `<button type="button" class="uac-btn" id="grnUsePcs" style="padding:2px 8px; font-size:0.75rem;">Use ${pcs} pieces</button>`;
+                el.querySelector('#grnUsePcs').onclick = () => { wrap.querySelector('#grnQty').value = pcs; };
+            };
+            wrap.querySelector('#grnSku').addEventListener('change', packHint);
+            packHint();
+            ok.onclick = async () => {
+                const sku = wrap.querySelector('#grnSku').value;
+                const bin = wrap.querySelector('#grnBin').value;
+                const qty = parseInt(wrap.querySelector('#grnQty').value, 10);
+                const fail = (t) => { msg.textContent = t; msg.className = 'uac-modal-msg error'; };
+                if (!sku) return fail('Choose the product that was received.');
+                if (!bin) return fail('Choose the bin. Add bins in Master Data Hub > Bin Master.');
+                if (!(qty > 0)) return fail('Enter how many pieces were received.');
+                ok.disabled = true;
+                try {
+                    const res = await fetch('/api/inbound/complete_receipt', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ gp_id: gpId, bin_id: bin, quantity: qty, sku_id: sku, vendor })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.success) return fail(data.message || data.error || 'The receipt could not be booked.');
+                    close();
+                    window.addInboundLog('RECEIPT-GRN', `Goods receipt GRN-${gpId}: ${qty} of ${sku} added to ${bin}.`, '#10b981');
+                    if (window.warlogToast) window.warlogToast(data.message, 'success'); else alert(data.message);
                     await refreshInboundAutomation();
                     if (typeof fetchGatePasses === 'function') fetchGatePasses();
                     if (typeof fetchDeliveries === 'function') fetchDeliveries();
                     if (typeof fetchBins === 'function') fetchBins();
-                    if (typeof fetchInventoryMaster === 'function') fetchInventoryMaster();
-                } else {
-                    alert('Failed to complete receipt: ' + data.message);
-                }
-            } catch(e) {
-                alert('Error completing receipt: ' + e.message);
-            }
+                    if (typeof window.loadInventory === 'function') window.loadInventory();
+                } catch (e) {
+                    fail('Error completing receipt: ' + e.message);
+                } finally { ok.disabled = false; }
+            };
         };
 
         function renderInboundAutomation(cameras) {
@@ -4927,10 +5013,10 @@ window.fetchBins = async function() {
             const pctWt = b.max_weight > 0 ? ((b.current_weight/b.max_weight)*100).toFixed(1) : 0;
             tr.innerHTML = `
                 <td>
-                    <strong>${b.bin_id}</strong>
-                    <div style="margin-top:4px;"><button type="button" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" onclick="window.openInspectBinModal('${b.bin_id}')">Inspect</button></div>
+                    <strong>${__h(b.bin_id)}</strong>
+                    <div style="margin-top:4px;"><button type="button" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" onclick="window.openInspectBinModal(${__js(b.bin_id)})">Inspect</button></div>
                 </td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${b.zone}</span></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${__h(b.zone)}</span></td>
                 <td>
                     <div style="font-size:0.8rem; margin-bottom:4px;">${b.current_volume.toFixed(1)} / ${b.max_volume} mA3</div>
                     <div style="width:100%; background:#334155; height:6px; border-radius:3px;">
@@ -4944,10 +5030,10 @@ window.fetchBins = async function() {
                     </div>
                 </td>
                 <td><strong style="color:var(--primary-navy); font-size:1.1rem;">${b.stock_count}</strong> Items</td>
-                <td>${b.vendor || 'Empty'}</td>
+                <td>${__h(b.vendor || 'Empty')}</td>
                 <td><span class="badge ${b.status==='Active'?'badge-success':'badge-warning'}" style="padding: 4px 8px; border-radius: 4px;">${b.status}</span></td>
                 <td style="text-align:center;">
-                    <button type="button" class="btn btn-outline" style="padding:4px 8px; font-size:0.75rem; border:1px solid rgba(0,242,254,0.4); color:var(--primary-teal); background:rgba(0,242,254,0.08); border-radius:4px; cursor:pointer;" onclick="window.openEditBinModal('${b.bin_id}', '${b.zone}', ${b.max_volume}, ${b.max_weight}, '${b.status}')">
+                    <button type="button" class="btn btn-outline" style="padding:4px 8px; font-size:0.75rem; border:1px solid rgba(0,242,254,0.4); color:var(--primary-teal); background:rgba(0,242,254,0.08); border-radius:4px; cursor:pointer;" onclick="window.openEditBinModal(${__js(b.bin_id)}, ${__js(b.zone)}, ${b.max_volume}, ${b.max_weight}, '${b.status}')">
                         <i class="fas fa-edit"></i> Edit / Expand
                     </button>
                 </td>
@@ -5095,15 +5181,15 @@ window.fetchSkus = async function() {
             const bname = s.bundle_name || 'Bundle';
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong style="font-family:monospace; color:#0284c7;">${s.sku_id}</strong></td>
-                <td><strong>${s.name}</strong></td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${s.category || 'General'}</span></td>
+                <td><strong style="font-family:monospace; color:#0284c7;">${__h(s.sku_id)}</strong></td>
+                <td><strong>${__h(s.name)}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light); padding: 4px 8px; border-radius: 4px;">${__h(s.category || 'General')}</span></td>
                 <td><span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700; font-family:monospace;">${uom}</span></td>
                 <td>
                     <div style="display:inline-flex; align-items:center; gap:6px;">
-                        <input type="number" min="1" value="${upb}" id="quickUpb_${s.sku_id}" style="width:74px; padding:4px 8px; border-radius:6px; border:1px solid var(--border-light); font-weight:700; margin:0;">
+                        <input type="number" min="1" value="${upb}" id="quickUpb_${__h(s.sku_id)}" style="width:74px; padding:4px 8px; border-radius:6px; border:1px solid var(--border-light); font-weight:700; margin:0;">
                         <span style="font-size:0.78rem; color:var(--text-muted);">${uom} / ${bname}</span>
-                        <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:0.72rem;" onclick="window.quickSaveBundleDeclaration && window.quickSaveBundleDeclaration('${s.sku_id}')">Save</button>
+                        <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:0.72rem;" onclick="window.quickSaveBundleDeclaration && window.quickSaveBundleDeclaration(${__js(s.sku_id)})">Save</button>
                     </div>
                 </td>
                 <td><span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">${bname}</span></td>
@@ -5145,12 +5231,12 @@ window.openInspectBinModal = async function(binId) {
                 inventory.forEach(i => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td><strong>${i.sku_id}</strong></td>
+                        <td><strong>${__h(i.sku_id)}</strong></td>
                         <td>
-                            <div>${i.sku_name || 'Unknown'}</div>
-                            <div style="font-size:0.75rem; color:var(--text-muted);">${i.category || '-'}</div>
+                            <div>${__h(i.sku_name || 'Unknown')}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">${__h(i.category || '-')}</div>
                         </td>
-                        <td>${i.vendor || '-'}</td>
+                        <td>${__h(i.vendor || '-')}</td>
                         <td><strong>${i.quantity}</strong></td>
                         <td style="font-size:0.85rem; color:var(--text-muted);">${new Date(i.received_date).toLocaleString()}</td>
                     `;
@@ -5228,7 +5314,7 @@ window.submitAddSku = async function() {
                 const currentVal = sel.value;
                 let skuOptions = '<option value="">Select SKU...</option>';
                 skus.forEach(s => {
-                    skuOptions += `<option value="${s.sku_id}">${s.sku_id} - ${s.name}</option>`;
+                    skuOptions += `<option value="${__h(s.sku_id)}">${__h(s.sku_id)} - ${__h(s.name)}</option>`;
                 });
                 sel.innerHTML = skuOptions;
                 sel.value = currentVal;
@@ -5281,7 +5367,7 @@ window.initDashboardAnalytics = async function() {
             if(alerts.length === 0) {
                 alertBox.innerHTML = '<div style="color:var(--primary-teal);">✅ All systems normal. No alerts.</div>';
             } else {
-                alertBox.innerHTML = alerts.map(a => `<div style="margin-bottom:8px; padding:10px; border-left:4px solid ${a.type==='error'?'var(--danger)':'var(--warning)'}; background:rgba(0,0,0,0.2); border-radius:4px;">${a.message}</div>`).join('');
+                alertBox.innerHTML = alerts.map(a => `<div style="margin-bottom:8px; padding:10px; border-left:4px solid ${a.type==='error'?'var(--danger)':'var(--warning)'}; background:rgba(0,0,0,0.2); border-radius:4px;">${__h(a.message)}</div>`).join('');
             }
         }
     } catch(e) { console.error(e); }
@@ -5305,32 +5391,56 @@ if (origSwitchTab) {
 // OUTBOUND LOGIC
 // ==========================================
 
+// Outbound: order -> pick -> truck (gate pass, activity Loading) -> gate -> loading dock -> dispatched.
+// The order's status follows its truck through the gate (server side, db.update_gate_pass).
+const OB_STEPS = [
+    ['Picked', 'Picked'], ['Truck assigned', 'Truck'], ['Truck at gate', 'Gate'], ['At loading dock', 'Dock'],
+    ['Loading', 'Loading'], ['Loaded', 'Loaded'], ['Dispatched', 'Dispatched'],
+];
+const OB_LABEL = { 'Fulfilled': 'Picked', 'Partially Picked': 'Partly picked' };
+function obStepIndex(status) {
+    const s = OB_LABEL[status] || status;
+    const i = OB_STEPS.findIndex(x => x[0] === s);
+    return i;   // -1 = not picked yet (Pending / Partly picked / Truck rejected)
+}
 window.fetchOutboundOrders = async function() {
     try {
         const res = await fetch('/api/outbound');
         const orders = await res.json();
         const tbody = document.getElementById('outboundTableBody');
-        if(!tbody) return;
-        tbody.innerHTML = '';
-        
-        orders.forEach(o => {
-            const tr = document.createElement('tr');
-            let itemsStr = o.items.map(i => `${i.quantity}x ${i.sku_id} (Picked: ${i.picked_quantity})`).join('<br>');
-            
-            let actionBtn = `<button class="btn-primary" onclick="pickOutboundOrder('${o.id}')">Pick Items</button>`;
-            if (o.status === 'Fulfilled') actionBtn = '<span style="color:var(--primary-teal); font-weight:bold;">Completed</span>';
-            actionBtn += `<button class="btn-primary" style="margin-top:4px; font-size:0.75rem; width:100%; background:var(--accent);" onclick="downloadOutboundManifest('${o.id}')">📄 PDF Manifest</button>`;
-            
-            tr.innerHTML = `
-                <td><strong>${o.id}</strong></td>
-                <td>${o.customer_name}</td>
-                <td>${o.destination}</td>
+        if (!tbody || !Array.isArray(orders)) return;
+        if (!orders.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:18px;">No outbound orders yet. Create one on the left.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = orders.map(o => {
+            const items = (o.items || []);
+            const fully = items.length && items.every(i => (i.picked_quantity || 0) >= i.quantity);
+            const itemsStr = items.map(i => `${Number(i.quantity)} × ${__h(i.sku_id)} <span style="color:var(--text-muted);">(picked ${Number(i.picked_quantity || 0)})</span>`).join('<br>');
+            const label = OB_LABEL[o.status] || o.status || 'Pending';
+            const idx = obStepIndex(o.status);
+            const color = o.status === 'Dispatched' ? '#059669' : (o.status === 'Truck rejected' ? '#dc2626' : (idx >= 0 ? '#2563eb' : '#b45309'));
+            const tracker = `<div class="ob-track">${OB_STEPS.map((st, i) => `<span class="ob-dot ${i <= idx ? 'is-done' : ''} ${i === idx ? 'is-now' : ''}" title="${__h(st[0])}"></span>`).join('<span class="ob-bar"></span>')}</div>`;
+            const truck = o.vehicle_plate ? `<div class="ob-truck"><i class="fas fa-truck"></i> <b>${__h(o.vehicle_plate)}</b> · ${__h(o.gate_pass_id || '')}${o.transporter ? ' · ' + __h(o.transporter) : ''}</div>` : '';
+            const sent = o.dispatched_at ? `<div class="ob-truck" style="color:#059669;"><i class="fas fa-circle-check"></i> Left the gate ${__h(String(o.dispatched_at).slice(0, 16))}</div>` : '';
+            const oid = __js(o.id);
+            let actions = '';
+            if (!fully && o.status !== 'Dispatched') {
+                actions += `<button class="btn-primary" onclick="pickOutboundOrder(${oid})"><i class="fas fa-hand-holding-box"></i> Pick items</button>`;
+            } else if (['Fulfilled', 'Picked', 'Truck rejected'].includes(o.status)) {
+                actions += `<button class="btn-primary" style="background:#2563eb;" onclick="assignOutboundTruck(${oid}, ${__js(o.customer_name || '')})"><i class="fas fa-truck"></i> ${o.status === 'Truck rejected' ? 'Assign another truck' : 'Assign truck'}</button>`;
+            } else if (o.status !== 'Dispatched') {
+                actions += `<div style="font-size:0.75rem; color:var(--text-muted);">Truck is being handled at the gate / dock</div>`;
+            }
+            actions += `<button class="btn-primary" style="margin-top:4px; font-size:0.75rem; width:100%; background:var(--accent);" onclick="downloadOutboundManifest(${oid})">📄 PDF Manifest</button>`;
+            return `<tr>
+                <td><strong>${__h(o.id)}</strong></td>
+                <td>${__h(o.customer_name)}</td>
+                <td>${__h(o.destination)}</td>
                 <td style="font-size:0.8rem;">${itemsStr}</td>
-                <td><span class="badge ${o.status==='Fulfilled'?'badge-success':(o.status==='Pending'?'badge-warning':'')}">${o.status}</span></td>
-                <td>${actionBtn}</td>
-            `;
-            tbody.appendChild(tr);
-        });
+                <td><span class="ob-status" style="color:${color}; border-color:${color}33; background:${color}12;">${__h(label)}</span>${tracker}${truck}${sent}</td>
+                <td>${actions}</td></tr>`;
+        }).join('');
     } catch(e) { console.error(e); }
 }
 
@@ -5342,29 +5452,96 @@ window.submitAddOutbound = async function() {
             { sku_id: document.getElementById('outboundSku').value, quantity: parseInt(document.getElementById('outboundQty').value) }
         ]
     };
+    const say = (m, k) => (window.warlogToast ? window.warlogToast(m, k) : alert(m));
+    if (!data.customer_name.trim() || !data.items[0].sku_id || !(data.items[0].quantity > 0)) {
+        say('Fill in the customer, the product and a quantity above 0.', 'warning');
+        return;
+    }
     try {
-        await fetch('/api/outbound', {
+        const res = await fetch('/api/outbound', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
         });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok || out.success === false) {
+            say('Order not created: ' + (out.message || out.error || res.status), 'error');
+            return;
+        }
+        say(`Order ${out.order_id || ''} created. Next: pick it.`, 'success');
         document.getElementById('formAddOutbound').reset();
         window.fetchOutboundOrders();
-    } catch(e) { console.error(e); }
+    } catch(e) { console.error(e); say('Order not created: ' + e.message, 'error'); }
 }
 
 window.pickOutboundOrder = async function(orderId) {
     try {
-        const res = await fetch(`/api/outbound/${orderId}/pick`, {method: 'POST'});
+        const res = await fetch(`/api/outbound/${encodeURIComponent(orderId)}/pick`, {method: 'POST'});
         const data = await res.json();
-        if(data.success) {
-            alert('Order pick processed! Status: ' + data.status);
-            window.fetchOutboundOrders();
-        } else {
-            alert('Failed to pick order: ' + data.error);
-        }
+        const say = (m, k) => (window.warlogToast ? window.warlogToast(m, k) : alert(m));
+        if (data.success) say(data.status === 'Fulfilled' ? 'Order picked in full. Next: assign the truck.' : (data.message || ('Status: ' + data.status)),
+                              data.status === 'Fulfilled' ? 'success' : 'warning');
+        else say('Failed to pick order: ' + (data.message || data.error || ''), 'error');
+        window.fetchOutboundOrders();
     } catch(e) { console.error(e); }
 }
+
+// Assign the truck for a picked order: creates its gate pass (Loading); the guard then checks it in.
+window.assignOutboundTruck = function(orderId, customer) {
+    const h = (v) => (window.__h ? window.__h(v) : String(v == null ? '' : v));
+    const wrap = document.createElement('div');
+    wrap.className = 'uac-modal-backdrop';
+    wrap.innerHTML = `<div class="uac-modal" role="dialog" aria-modal="true" style="max-width:460px;">
+        <div class="uac-modal-head"><div><h3><i class="fas fa-truck" style="color:#2563eb;"></i> Assign truck</h3>
+            <div class="uac-modal-sub">Order <b>${h(orderId)}</b>${customer ? ' for ' + h(customer) : ''}. A gate pass is created; the truck then goes through the gate and the loading dock like any truck.</div></div>
+            <button class="uac-x" type="button" aria-label="Close">&times;</button></div>
+        <div class="uac-modal-body">
+            <label class="uac-label" for="obPlate">Truck number plate</label>
+            <input id="obPlate" class="uac-input" maxlength="16" placeholder="e.g. TN38AB1234" style="text-transform:uppercase;">
+            <label class="uac-label" for="obDriver">Driver name</label>
+            <input id="obDriver" class="uac-input" maxlength="60">
+            <label class="uac-label" for="obPhone">Driver phone <span class="uac-muted">(optional: gives the driver an entry OTP)</span></label>
+            <input id="obPhone" class="uac-input" maxlength="16" inputmode="tel">
+            <label class="uac-label" for="obTransporter">Transporter <span class="uac-muted">(optional)</span></label>
+            <input id="obTransporter" class="uac-input" maxlength="80">
+        </div>
+        <div class="uac-modal-msg"></div>
+        <div class="uac-modal-actions"><button class="uac-btn" type="button" data-x>Cancel</button>
+            <button class="uac-btn uac-btn-primary" type="button" data-ok><i class="fas fa-check"></i> Assign truck</button></div></div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector('.uac-x').onclick = close;
+    wrap.querySelector('[data-x]').onclick = close;
+    wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+    setTimeout(() => wrap.querySelector('#obPlate').focus(), 30);
+    const msg = wrap.querySelector('.uac-modal-msg');
+    const ok = wrap.querySelector('[data-ok]');
+    ok.onclick = async () => {
+        const val = (id) => wrap.querySelector(id).value.trim();
+        if (val('#obPlate').replace(/[^A-Za-z0-9]/g, '').length < 4) { msg.textContent = "Enter the truck's number plate."; msg.className = 'uac-modal-msg error'; return; }
+        ok.disabled = true;
+        try {
+            const res = await fetch(`/api/outbound/${encodeURIComponent(orderId)}/truck`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ plate: val('#obPlate'), driver_name: val('#obDriver'), driver_phone: val('#obPhone'), transporter: val('#obTransporter') })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) { msg.textContent = data.message || 'The truck could not be assigned.'; msg.className = 'uac-modal-msg error'; return; }
+            close();
+            if (window.warlogToast) window.warlogToast(data.message, 'success'); else alert(data.message);
+            window.fetchOutboundOrders();
+            if (typeof fetchGatePasses === 'function') fetchGatePasses();
+        } catch (e) {
+            msg.textContent = 'Error: ' + e.message; msg.className = 'uac-modal-msg error';
+        } finally { ok.disabled = false; }
+    };
+};
+
+// the order follows its truck: refresh while the Outbound screen is open
+setInterval(() => {
+    const v = document.getElementById('outbound-view');
+    if (v && v.classList.contains('active') && !document.querySelector('.uac-modal-backdrop')) window.fetchOutboundOrders();
+}, 15000);
 
 // Hook into tab switching
 const origSwitchTabOutbound = window.switchTab;
@@ -5377,7 +5554,7 @@ if (origSwitchTabOutbound) {
             fetch('/api/skus').then(r=>r.json()).then(skus => {
                 const sel = document.getElementById('outboundSku');
                 if(sel) {
-                    sel.innerHTML = '<option value="">Select SKU...</option>' + skus.map(s => `<option value="${s.sku_id}">${s.name}</option>`).join('');
+                    sel.innerHTML = '<option value="">Select SKU...</option>' + skus.map(s => `<option value="${__h(s.sku_id)}">${__h(s.name)}</option>`).join('');
                 }
             });
         }
@@ -5445,7 +5622,7 @@ function populateCycleCountBinSelect(bins) {
     if (!select) return;
     const currentVal = select.value;
     select.innerHTML = '<option value="">-- Choose Storage Bin --</option>' + 
-        bins.map(b => `<option value="${b.bin_id}" ${b.bin_id === currentVal ? 'selected' : ''}>${b.bin_id} (${b.zone || 'General'}) - ${b.stock_count || 0} items</option>`).join('');
+        bins.map(b => `<option value="${__h(b.bin_id)}" ${b.bin_id === currentVal ? 'selected' : ''}>${__h(b.bin_id)} (${__h(b.zone || 'General')}) - ${b.stock_count || 0} items</option>`).join('');
 }
 
 function renderCycleCountTable(bins) {
@@ -5462,14 +5639,14 @@ function renderCycleCountTable(bins) {
         const vendorText = b.vendor || 'Empty';
         return `
             <tr>
-                <td><strong>${b.bin_id}</strong></td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${b.zone || 'General'}</span></td>
+                <td><strong>${__h(b.bin_id)}</strong></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-light);">${__h(b.zone || 'General')}</span></td>
                 <td><span style="font-family:monospace; font-size:0.85rem;">${vendorText}</span></td>
                 <td><strong style="color:var(--accent); font-size:1.05rem;">${stockCount}</strong> Units</td>
                 <td><span class="badge ${stockCount > 0 ? 'badge-success' : 'badge-warning'}">${stockCount > 0 ? 'Stocked' : 'Empty'}</span></td>
                 <td>
                     <div style="display:flex; gap:8px;">
-                        <button class="btn-primary btn-sm" onclick="selectAndInspectBin('${b.bin_id}')" style="display:inline-flex; align-items:center; gap:4px;">
+                        <button class="btn-primary btn-sm" onclick="selectAndInspectBin(${__js(b.bin_id)})" style="display:inline-flex; align-items:center; gap:4px;">
                             <span>👁️</span> Inspect AI
                         </button>
                     </div>
@@ -5556,7 +5733,7 @@ function renderInspectionResults(data) {
     const itemsDiv = document.getElementById('ccWmsItemsList');
     if (itemsDiv) {
         if (wms.items && wms.items.length > 0) {
-            itemsDiv.innerHTML = wms.items.map(it => `<div>• <strong>${it.sku_id}</strong> (${it.sku_name || 'Component'}): ${it.quantity} units</div>`).join('');
+            itemsDiv.innerHTML = wms.items.map(it => `<div>• <strong>${__h(it.sku_id)}</strong> (${__h(it.sku_name || 'Component')}): ${it.quantity} units</div>`).join('');
         } else {
             itemsDiv.innerHTML = `<em>No inventory records in ledger for this bin.</em>`;
         }
@@ -5706,7 +5883,7 @@ async function fetchCycleCountActivities() {
                 <td style="font-family:monospace; font-size:0.8rem; color:var(--text-muted);">${a.timestamp || '-'}</td>
                 <td><span class="badge" style="background:rgba(59,130,246,0.15); color:#3b82f6;">${a.action || 'AUDIT'}</span></td>
                 <td><strong>${a.target || '-'}</strong></td>
-                <td style="font-size:0.85rem;">${a.details || '-'}</td>
+                <td style="font-size:0.85rem;">${__h(a.details || '-')}</td>
             </tr>
         `).join('');
     } catch (e) {
@@ -6176,7 +6353,7 @@ async function finishWalkaroundAudit() {
                         <td style="display:flex; align-items:center; gap:8px;">
                             <span style="display:inline-block; width:12px; height:12px; border-radius:2px; background:${rgbStr};"></span>
                             <b>Stack ${s.id}</b>
-                            <span style="color:var(--text-muted); font-size:0.75rem;">(${s.name})</span>
+                            <span style="color:var(--text-muted); font-size:0.75rem;">(${__h(s.name)})</span>
                         </td>
                         <td style="text-align:center; font-weight:700;">${s.layers}</td>
                         <td style="text-align:center; font-family:'JetBrains Mono',monospace; color:#38bdf8;">${s.formula}</td>
@@ -6578,7 +6755,7 @@ document.addEventListener('DOMContentLoaded', syncMobileDockDisplay);
                         <i class="${item.icon || 'fas fa-info-circle'}"></i>
                     </div>
                     <div class="timeline-content">
-                        <div class="timeline-title">${item.title}</div>
+                        <div class="timeline-title">${__h(item.title)}</div>
                         <div class="timeline-meta"><span>${item.meta}</span></div>
                     </div>
                 </div>
@@ -6624,12 +6801,15 @@ function initMacosDockMagnification() {
     const dockList = document.querySelector('.macos-dock-list');
     if (!dockList) return;
 
+    const sidebar = dockList.closest('.macos-floating-dock-sidebar');
     const items = dockList.querySelectorAll('.macos-dock-item');
     const baseScale = 1.0;
-    const maxScale = 1.28;
-    const effectRadius = 90; // Pixels radius of magnification curve
 
     dockList.addEventListener('mousemove', function(e) {
+        const isCollapsed = sidebar && sidebar.classList.contains('collapsed');
+        // Scaled subtly to provide organic tactile magnification without blur or overflowing the sidebar panel
+        const maxScale = isCollapsed ? 1.08 : 1.04;
+        const effectRadius = isCollapsed ? 70 : 55;
         const mouseClientY = e.clientY;
 
         items.forEach(item => {
@@ -6641,10 +6821,10 @@ function initMacosDockMagnification() {
                 // Cosine interpolation for organic macOS fish-eye wave
                 const factor = Math.cos((distance / effectRadius) * (Math.PI / 2));
                 const scale = baseScale + (maxScale - baseScale) * factor;
-                item.style.transform = `scale(${scale.toFixed(3)}) translateX(${((scale - 1) * 8).toFixed(1)}px)`;
+                item.style.transform = `scale(${scale.toFixed(3)})`;
                 item.style.zIndex = '15';
             } else {
-                item.style.transform = 'scale(1.0) translateX(0px)';
+                item.style.transform = 'scale(1.0)';
                 item.style.zIndex = '1';
             }
         });
@@ -6652,7 +6832,7 @@ function initMacosDockMagnification() {
 
     dockList.addEventListener('mouseleave', function() {
         items.forEach(item => {
-            item.style.transform = 'scale(1.0) translateX(0px)';
+            item.style.transform = 'scale(1.0)';
             item.style.zIndex = '1';
         });
     });
@@ -6856,14 +7036,14 @@ window.updateCameraFeedsTable = function(cameras) {
                     <div style="display:flex; align-items:center; gap:8px;">
                         <span class="chip-dot ${isOnline ? 'online' : 'offline'}" style="background:${isOnline ? '#10b981' : '#ef4444'};"></span>
                         <div>
-                            <strong>${cam.name || 'Unnamed Camera'}</strong>
+                            <strong>${__h(cam.name || 'Unnamed Camera')}</strong>
                             <div style="font-size:0.72rem; color:var(--text-muted); font-family:monospace;">ID: ${cam.id}</div>
                         </div>
                     </div>
                 </td>
-                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.72rem;">${cam.location || 'General Zone'}</span></td>
+                <td><span class="badge" style="background:var(--panel-subtle); color:var(--text-main); border:1px solid var(--border-light); font-size:0.72rem;">${__h(cam.location || 'General Zone')}</span></td>
                 <td><span style="font-size:0.75rem; font-weight:700; color:#0284c7;">${cam.type || 'RTSP Direct'}</span></td>
-                <td>${cam.bin_id ? `<span style="font-family:monospace; font-weight:700; color:#10b981;">${cam.bin_id}</span>` : '<span style="color:var(--text-muted); font-size:0.75rem;">None</span>'}</td>
+                <td>${cam.bin_id ? `<span style="font-family:monospace; font-weight:700; color:#10b981;">${__h(cam.bin_id)}</span>` : '<span style="color:var(--text-muted); font-size:0.75rem;">None</span>'}</td>
                 <td><span style="font-size:0.75rem; font-family:monospace; color:#38bdf8;">${lat}</span></td>
                 <td>
                     <span class="badge ${isOnline ? 'sent' : 'pending'}" style="font-size:0.7rem;">
@@ -6936,12 +7116,12 @@ window.initCameraEventsTimeline = function() {
         <div class="event-item-card ${e.type}">
             <div class="event-top-row">
                 <span class="event-type-badge">
-                    <i class="fas ${e.icon}"></i> ${e.title}
+                    <i class="fas ${e.icon}"></i> ${__h(e.title)}
                 </span>
                 <span class="event-time-stamp">${e.time}</span>
             </div>
             <p class="event-description">${e.desc}</p>
-            <span class="event-zone-tag"><i class="fas fa-location-dot"></i> ${e.zone}</span>
+            <span class="event-zone-tag"><i class="fas fa-location-dot"></i> ${__h(e.zone)}</span>
         </div>
     `).join('');
 };

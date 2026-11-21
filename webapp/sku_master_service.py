@@ -351,8 +351,10 @@ def match_bulk_images_to_skus(filenames: List[str]) -> List[Dict[str, Any]]:
     Pattern: 'SKU001.jpg', 'SKU-001_front.png', 'SKU_001.webp' -> 'SKU-001' or 'SKU001'.
     Returns proposed mappings, matching confidence, and allows client-side correction.
     """
+    import rbac_scope
+    _sf, _sp = rbac_scope.filter("skus")  # RBAC Phase 3A: match images against this company's SKUs only
     conn = db.get_db()
-    sku_rows = conn.execute("SELECT sku_id, name FROM skus").fetchall()
+    sku_rows = conn.execute(f"SELECT sku_id, name FROM skus WHERE 1=1{_sf}", _sp).fetchall()
     conn.close()
 
     known_skus = {r['sku_id'].upper(): r['name'] for r in sku_rows}

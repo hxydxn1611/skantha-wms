@@ -8,11 +8,16 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <title>WARLOG | Autonomous Warehouse Intelligence</title>
+    <!-- RBAC Phase 3A: this tab's starting warehouse (each tab then keeps its own) -->
+    <meta name="warlog-warehouse-id" content="{{ warehouse_scope }}">
+    <!-- RBAC Phase 2: must load before every other script (adds the CSRF header to fetch) -->
+    <script src="{{ url_for('static', filename='js/security.js') }}?v=2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script>
         {% if current_user %}
         window.currentUser = {{ current_user | tojson }};
+        window.WARLOG_ACCESS = {{ warlog_access | tojson }};
         {% endif %}
         (function() {
             try {
@@ -1062,6 +1067,13 @@
                     </div>
 
                     <div class="dropdown-divider"></div>
+                    <div class="dropdown-section-title">ACCOUNT</div>
+                    <button type="button" class="dropdown-item" onclick="openChangePasswordModal(); closeUserDropdown();">
+                        <i class="fas fa-key" style="color:#f59e0b;"></i>
+                        <span>Change Password</span>
+                    </button>
+
+                    <div class="dropdown-divider"></div>
                     <button type="button" class="dropdown-item dropdown-logout-item btn-logout" onclick="doLogout(); closeUserDropdown();">
                         <i class="fas fa-arrow-right-from-bracket"></i>
                         <span>Sign Out</span>
@@ -1504,6 +1516,49 @@
                         </div>
                     </div>
 
+                    <!-- Inventory (stock control) -->
+                    <div class="macos-dock-item" data-module="inventory">
+                        <button class="tab-btn dock-btn" onclick="switchTab('inventory')" role="tab" aria-selected="false" aria-label="Inventory" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="inv-rack" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#94a3b8"/><stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+    <linearGradient id="inv-box-a" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="inv-box-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="inv-box-c" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <!-- rack uprights and shelves -->
+  <rect x="7" y="6" width="3" height="37" rx="1" fill="url(#inv-rack)"/>
+  <rect x="38" y="6" width="3" height="37" rx="1" fill="url(#inv-rack)"/>
+  <rect x="7" y="22" width="34" height="2.5" rx="1" fill="url(#inv-rack)"/>
+  <rect x="7" y="38" width="34" height="2.5" rx="1" fill="url(#inv-rack)"/>
+  <!-- stock on the shelves -->
+  <rect x="12" y="11" width="11" height="11" rx="1.5" fill="url(#inv-box-a)" stroke="#1e3a8a" stroke-width="0.7"/>
+  <rect x="25" y="14" width="11" height="8" rx="1.5" fill="url(#inv-box-c)" stroke="#92400e" stroke-width="0.7"/>
+  <rect x="12" y="29" width="9" height="9" rx="1.5" fill="url(#inv-box-b)" stroke="#065f46" stroke-width="0.7"/>
+  <rect x="23" y="27" width="13" height="11" rx="1.5" fill="url(#inv-box-a)" stroke="#1e3a8a" stroke-width="0.7"/>
+  <line x1="17.5" y1="11" x2="17.5" y2="22" stroke="#bfdbfe" stroke-width="0.8"/>
+  <line x1="29.5" y1="27" x2="29.5" y2="38" stroke="#bfdbfe" stroke-width="0.8"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Inventory</span>
+                            <span id="nav-inventory-alerts" class="dock-badge-counter inv-badge-off" title="Stock alerts">0</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Inventory</span>
+                            <span class="tooltip-desc">Stock by product, bin &amp; history</span>
+                        </div>
+                    </div>
+
                     <div class="dock-separator"></div>
 
                     <!-- 10. Warehouse Locations -->
@@ -1538,6 +1593,76 @@
                             <span class="tooltip-desc">Facility Matrix &amp; Geo-Nodes</span>
                         </div>
                     </div>
+
+                    {% if is_platform_admin %}
+                    <!-- 10b. Companies & Owners (Platform Admin only) -->
+                    <div class="macos-dock-item" data-module="platform-companies">
+                        <button class="tab-btn dock-btn" onclick="switchTab('platform-companies')" role="tab" aria-selected="false" aria-label="Companies &amp; Owners" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="pco-a" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#4c1d95"/>
+    </linearGradient>
+    <linearGradient id="pco-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0c4a6e"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="16" width="16" height="24" rx="2" fill="url(#pco-b)" stroke="#7dd3fc" stroke-width="0.8"/>
+  <rect x="24" y="8" width="18" height="32" rx="2" fill="url(#pco-a)" stroke="#c4b5fd" stroke-width="0.8"/>
+  <g fill="#e0f2fe" opacity="0.85">
+    <rect x="9" y="20" width="4" height="3"/><rect x="15" y="20" width="4" height="3"/>
+    <rect x="9" y="26" width="4" height="3"/><rect x="15" y="26" width="4" height="3"/>
+    <rect x="28" y="13" width="4" height="3"/><rect x="34" y="13" width="4" height="3"/>
+    <rect x="28" y="19" width="4" height="3"/><rect x="34" y="19" width="4" height="3"/>
+    <rect x="28" y="25" width="4" height="3"/><rect x="34" y="25" width="4" height="3"/>
+  </g>
+  <circle cx="36" cy="36" r="6" fill="#f59e0b" stroke="#fff" stroke-width="1.2"/>
+  <path d="M33.5,36 l1.8,1.8 l3.4,-3.6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Companies &amp; Owners</span>
+                            <span id="nav-platform-companies-count" class="dock-badge-counter" style="display:none;">0</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Companies &amp; Owners</span>
+                            <span class="tooltip-desc">Every company, owner &amp; location</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if can_manage_users %}
+                    <!-- 10c. Users & Access (users.view) -->
+                    <div class="macos-dock-item" data-module="users-access">
+                        <button class="tab-btn dock-btn" onclick="switchTab('users-access')" role="tab" aria-selected="false" aria-label="Users &amp; Access" tabindex="0">
+                            <div class="dock-icon-wrapper">
+                                <svg viewBox="0 0 48 48" class="dock-3d-svg">
+  <defs>
+    <linearGradient id="uac-a" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="uac-b" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="18" cy="16" r="7" fill="url(#uac-b)" stroke="#bfdbfe" stroke-width="0.8"/>
+  <path d="M5,38 C5,29 11,25 18,25 C25,25 31,29 31,38 Z" fill="url(#uac-b)" stroke="#bfdbfe" stroke-width="0.8"/>
+  <circle cx="32" cy="19" r="5.5" fill="url(#uac-a)" stroke="#a7f3d0" stroke-width="0.8"/>
+  <path d="M24,39 C24,32 28,28.5 32,28.5 C37,28.5 43,32 43,39 Z" fill="url(#uac-a)" stroke="#a7f3d0" stroke-width="0.8"/>
+  <circle cx="38" cy="10" r="5" fill="#f59e0b" stroke="#fff" stroke-width="1"/>
+  <path d="M36.3,10 l1.2,1.2 l2.4,-2.6" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+                            </div>
+                            <span class="dock-label">Users &amp; Access</span>
+                            <span class="dock-active-glow"></span>
+                        </button>
+                        <div class="dock-floating-tooltip">
+                            <span class="tooltip-title">Users &amp; Access</span>
+                            <span class="tooltip-desc">Invite people &amp; manage access</span>
+                        </div>
+                    </div>
+                    {% endif %}
 
                     <!-- 11. Master Data Hub -->
                     <div class="macos-dock-item" data-module="master-hub">
@@ -4111,6 +4236,140 @@
             </div>
         </div>
 
+        <!-- INVENTORY VIEW (inventory.view) - stock by line / product / bin, history, alerts -->
+        <div id="inventory-view" class="view-section">
+            <div class="glass-panel uac-hero">
+                <div class="uac-hero-top">
+                    <div class="uac-hero-title">
+                        <span class="uac-hero-icon inv-hero-icon"><i class="fas fa-boxes-stacked"></i></span>
+                        <div>
+                            <div class="uac-hero-kicker"><span class="uac-live-dot"></span> Stock control</div>
+                            <h2>Inventory</h2>
+                            <p>What is in stock, where it is, and every change made to it. Adjustments need a reason and everything is kept in the history.</p>
+                        </div>
+                    </div>
+                    <div class="uac-hero-actions">
+                        <button class="btn-primary uac-hdr-btn uac-hdr-teal" data-perm="inventory.export" onclick="invExportCsv()">
+                            <i class="fas fa-file-arrow-down"></i> Export CSV
+                        </button>
+                        <button class="uac-btn" onclick="loadInventory()" title="Refresh"><i class="fas fa-rotate"></i></button>
+                    </div>
+                </div>
+                <div class="uac-stats inv-stats">
+                    <div class="uac-stat"><span class="uac-stat-icon s-blue"><i class="fas fa-cubes"></i></span>
+                        <div><div class="uac-stat-label">Total quantity</div><div class="uac-stat-value" id="invStatQty">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-violet"><i class="fas fa-tags"></i></span>
+                        <div><div class="uac-stat-label">Products in stock</div><div class="uac-stat-value" id="invStatProducts">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-teal"><i class="fas fa-table-cells"></i></span>
+                        <div><div class="uac-stat-label">Bins used</div><div class="uac-stat-value" id="invStatBins">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-amber"><i class="fas fa-triangle-exclamation"></i></span>
+                        <div><div class="uac-stat-label">Alerts</div><div class="uac-stat-value" id="invStatAlerts">–</div></div></div>
+                </div>
+            </div>
+
+            <div class="uac-tabs" id="invTabs" role="tablist" aria-label="Inventory sections">
+                <button class="uac-tab is-active" data-tab="stock" role="tab" onclick="invShowTab('stock')">
+                    <span class="uac-tab-icon t-blue"><i class="fas fa-list"></i></span> Stock
+                </button>
+                <button class="uac-tab" data-tab="products" role="tab" onclick="invShowTab('products')">
+                    <span class="uac-tab-icon t-violet"><i class="fas fa-tags"></i></span> By Product
+                </button>
+                <button class="uac-tab" data-tab="bins" role="tab" onclick="invShowTab('bins')">
+                    <span class="uac-tab-icon t-teal"><i class="fas fa-table-cells-large"></i></span> By Bin
+                </button>
+                <button class="uac-tab" data-tab="history" role="tab" onclick="invShowTab('history')">
+                    <span class="uac-tab-icon t-slate"><i class="fas fa-clock-rotate-left"></i></span> History
+                </button>
+                <button class="uac-tab" data-tab="alerts" role="tab" onclick="invShowTab('alerts')">
+                    <span class="uac-tab-icon t-amber"><i class="fas fa-bell"></i></span> Alerts
+                    <span class="uac-tab-badge" id="invAlertBadge" style="display:none;">0</span>
+                </button>
+            </div>
+
+            <div id="invReadOnlyNote" class="inv-note" style="display:none;">
+                <i class="fas fa-eye"></i><span>You are looking at <b>all locations</b> (read-only). Pick one location in the top bar to adjust or move stock.</span>
+            </div>
+
+            <!-- Stock -->
+            <div class="uac-pane is-active" data-pane="stock">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-list c-blue"></i> Stock</div>
+                            <div class="uac-muted">Every stock line: one product, in one bin, from one batch.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invStockQ" class="uac-input" placeholder="Search product, SKU, bin or batch"></div>
+                            <select id="invStockZone" class="uac-input"><option value="">All zones</option></select>
+                            <select id="invStockCat" class="uac-input"><option value="">All categories</option></select>
+                            <label class="inv-check"><input type="checkbox" id="invStockIssues"> Needs attention only</label>
+                        </div>
+                    </div>
+                    <div id="invStock" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- By Product -->
+            <div class="uac-pane" data-pane="products">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-tags c-violet"></i> By Product</div>
+                            <div class="uac-muted">Total per product across all bins, against its minimum level. Click a row to see its bins.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invProdQ" class="uac-input" placeholder="Search product or SKU"></div>
+                            <label class="inv-check"><input type="checkbox" id="invProdLow"> Below minimum only</label>
+                        </div>
+                    </div>
+                    <div id="invProducts" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- By Bin -->
+            <div class="uac-pane" data-pane="bins">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-table-cells-large c-teal"></i> By Bin</div>
+                            <div class="uac-muted">What each bin holds and how full it is (by volume or weight, whichever is higher).</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invBinQ" class="uac-input" placeholder="Search bin"></div>
+                            <select id="invBinZone" class="uac-input"><option value="">All zones</option></select>
+                            <label class="inv-check"><input type="checkbox" id="invBinUsed"> With stock only</label>
+                        </div>
+                    </div>
+                    <div id="invBins" class="inv-bin-grid"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- History -->
+            <div class="uac-pane" data-pane="history">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-clock-rotate-left c-slate"></i> History</div>
+                            <div class="uac-muted" id="invHistSub">Every stock change: who, when, how much and why. Newest first.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="invHistQ" class="uac-input" placeholder="Search product, bin, person or reason"></div>
+                            <select id="invHistType" class="uac-input">
+                                <option value="">All changes</option>
+                                <option value="adjust">Adjustments</option>
+                                <option value="transfer_out">Transfers out</option>
+                                <option value="transfer_in">Transfers in</option>
+                                <option value="receive">Received</option>
+                                <option value="pick">Picked / dispatched</option>
+                                <option value="cycle_count">Cycle counts</option>
+                                <option value="count_sync">Count syncs</option>
+                                <option value="vision_transfer">AI counts posted</option>
+                            </select>
+                            <button class="uac-btn" id="invHistClear" style="display:none;" onclick="invHistoryFor(null)"><i class="fas fa-xmark"></i> Show all</button>
+                        </div>
+                    </div>
+                    <div id="invHistory" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- Alerts -->
+            <div class="uac-pane" data-pane="alerts">
+                <div id="invAlerts" class="inv-alerts"><div class="glass-panel"><div class="uac-empty">Loading...</div></div></div>
+            </div>
+        </div>
+
         <!-- WAREHOUSES & LOCATIONS VIEW -->
         <div id="warehouses-view" class="view-section">
             <div class="glass-panel" style="margin-bottom: 1.5rem;">
@@ -4135,6 +4394,192 @@
                 <!-- Cards dynamically populated by JavaScript -->
             </div>
         </div>
+
+        {% if is_platform_admin %}
+        <!-- COMPANIES & OWNERS VIEW (Platform Admin only) -->
+        <div id="platform-companies-view" class="view-section">
+            <div class="glass-panel" style="margin-bottom: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h2 style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-building-user" style="color:#8b5cf6;"></i>
+                            <span>Companies &amp; Owners</span>
+                        </h2>
+                        <p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.85rem;">
+                            Every company on WARLOG, who owns it, and its warehouse locations. Visible to the Platform Admin only.
+                        </p>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input id="pcoSearch" type="search" placeholder="Search company, owner, location..." oninput="renderPlatformCompanies()"
+                               style="padding:8px 12px; border-radius:8px; border:1px solid var(--border-light); background:var(--panel-bg); color:var(--text-main); min-width:240px; font-size:0.85rem;">
+                        <button class="btn-primary" onclick="loadPlatformCompanies()" style="display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-rotate"></i> Refresh
+                        </button>
+                        <button class="btn-primary" onclick="openCreateCompanyModal()" style="display:flex; align-items:center; gap:6px; background:linear-gradient(135deg, #7c3aed, #4f46e5);">
+                            <i class="fas fa-building-circle-arrow-right"></i> New Company
+                        </button>
+                    </div>
+                </div>
+                <div id="pcoTotals" class="pco-totals"></div>
+            </div>
+            <div id="pcoList" class="pco-list"><div class="pco-empty">Loading companies...</div></div>
+        </div>
+        {% endif %}
+
+        {% if can_manage_users %}
+        <!-- USERS & ACCESS VIEW (users.view) - tabbed layout -->
+        <div id="users-access-view" class="view-section">
+            <div class="glass-panel uac-hero">
+                <div class="uac-hero-top">
+                    <div class="uac-hero-title">
+                        <span class="uac-hero-icon"><i class="fas fa-users-gear"></i></span>
+                        <div>
+                            <div class="uac-hero-kicker"><span class="uac-live-dot"></span> Identity &amp; access control</div>
+                            <h2>Users &amp; Access</h2>
+                            <p>Invite people, choose what they can do and where, and switch access off when they leave. Nothing is ever deleted.</p>
+                        </div>
+                    </div>
+                    <div class="uac-hero-actions">
+                        <select id="uacCompany" class="uac-input" style="display:none;" onchange="loadUsersAccess()" title="Company"></select>
+                        <button class="btn-primary uac-hdr-btn" id="uacInviteBtn" data-for-tab="people invites" onclick="openInviteModal()">
+                            <i class="fas fa-user-plus"></i> Invite User
+                        </button>
+                        <button class="btn-primary uac-hdr-btn uac-hdr-violet" id="uacNewRoleBtn" data-for-tab="roles" onclick="openRoleEditor()" style="display:none;">
+                            <i class="fas fa-plus"></i> New Role
+                        </button>
+                        <button class="btn-primary uac-hdr-btn uac-hdr-teal" id="uacAuditExport" data-for-tab="audit" onclick="uacExportAudit()" style="display:none;">
+                            <i class="fas fa-file-arrow-down"></i> Export CSV
+                        </button>
+                    </div>
+                </div>
+                <div class="uac-stats" id="uacStats">
+                    <div class="uac-stat"><span class="uac-stat-icon s-blue"><i class="fas fa-users"></i></span>
+                        <div><div class="uac-stat-label">People</div><div class="uac-stat-value" id="uacStatPeople">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-green"><i class="fas fa-user-check"></i></span>
+                        <div><div class="uac-stat-label">Active</div><div class="uac-stat-value" id="uacStatActive">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-amber"><i class="fas fa-envelope-open-text"></i></span>
+                        <div><div class="uac-stat-label">Pending invites</div><div class="uac-stat-value" id="uacStatInvites">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-violet"><i class="fas fa-shield-halved"></i></span>
+                        <div><div class="uac-stat-label">Roles</div><div class="uac-stat-value" id="uacStatRoles">–</div></div></div>
+                    <div class="uac-stat"><span class="uac-stat-icon s-teal"><i class="fas fa-clock-rotate-left"></i></span>
+                        <div><div class="uac-stat-label">Last change</div><div class="uac-stat-value uac-stat-small" id="uacStatLast">–</div></div></div>
+                </div>
+            </div>
+
+            <div class="uac-tabs" id="uacTabs" role="tablist" aria-label="Users and access sections">
+                <button class="uac-tab is-active" data-tab="people" role="tab" onclick="uacShowTab('people')">
+                    <span class="uac-tab-icon t-blue"><i class="fas fa-user-group"></i></span> People
+                </button>
+                <button class="uac-tab" data-tab="invites" role="tab" onclick="uacShowTab('invites')">
+                    <span class="uac-tab-icon t-amber"><i class="fas fa-paper-plane"></i></span> Invitations
+                    <span class="uac-tab-badge" id="uacInviteBadge" style="display:none;">0</span>
+                </button>
+                <button class="uac-tab" data-tab="roles" role="tab" onclick="uacShowTab('roles')">
+                    <span class="uac-tab-icon t-violet"><i class="fas fa-shield-halved"></i></span> Roles
+                </button>
+                <button class="uac-tab" data-tab="settings" role="tab" onclick="uacShowTab('settings')">
+                    <span class="uac-tab-icon t-slate"><i class="fas fa-sliders"></i></span> Company Settings
+                </button>
+                <button class="uac-tab" data-tab="audit" role="tab" onclick="uacShowTab('audit')">
+                    <span class="uac-tab-icon t-teal"><i class="fas fa-scroll"></i></span> Audit Log
+                </button>
+            </div>
+
+            <!-- People -->
+            <div class="uac-pane is-active" data-pane="people">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-user-group c-blue"></i> People</div>
+                            <div class="uac-muted">Everyone in this company, what they can do and where.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="uacPeopleQ" class="uac-input" placeholder="Search name or email"></div>
+                            <select id="uacPeopleRole" class="uac-input"><option value="">All roles</option></select>
+                            <select id="uacPeopleWh" class="uac-input"><option value="">All locations</option></select>
+                            <select id="uacPeopleStatus" class="uac-input">
+                                <option value="">Any status</option><option value="active">Active</option><option value="inactive">Deactivated</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="uacUsers" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- Invitations -->
+            <div class="uac-pane" data-pane="invites">
+                <div class="glass-panel">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-paper-plane c-amber"></i> Invitations</div>
+                            <div class="uac-muted">Each link works once and expires after 72 hours.</div></div>
+                        <div class="uac-toolbar">
+                            <select id="uacInviteStatus" class="uac-input">
+                                <option value="">All invitations</option><option value="Pending">Pending</option><option value="Accepted">Accepted</option>
+                                <option value="Expired">Expired</option><option value="Revoked">Revoked</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="uacInvites" class="uac-table-wrap"><div class="uac-empty">Loading...</div></div>
+                </div>
+            </div>
+
+            <!-- Roles -->
+            <div class="uac-pane" data-pane="roles">
+                <div class="glass-panel" id="uacRolesPanel" style="display:none;">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-shield-halved c-violet"></i> Roles</div>
+                            <div class="uac-muted">A role is a set of switched-on permissions. Give it to people per location on the People tab.</div></div>
+                        <div class="uac-toolbar">
+                            <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="uacRolesQ" class="uac-input" placeholder="Search roles"></div>
+                        </div>
+                    </div>
+                    <div id="uacRoles" class="uac-table-wrap"></div>
+                </div>
+            </div>
+
+            <!-- Company settings -->
+            <div class="uac-pane" data-pane="settings">
+                <div class="glass-panel" id="uacSettingsPanel" style="display:none;">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-sliders c-slate"></i> Company Settings</div>
+                            <div class="uac-muted">Apply to every location of this company.</div></div>
+                    </div>
+                    <div id="uacSettings"></div>
+                </div>
+            </div>
+
+            <!-- Audit log -->
+            <div class="uac-pane" data-pane="audit">
+                <div class="glass-panel" id="uacAuditPanel" style="display:none;">
+                    <div class="uac-pane-head">
+                        <div><div class="uac-pane-title"><i class="fas fa-scroll c-teal"></i> Audit Log</div>
+                            <div class="uac-muted">Every sign-in, access change, gate, stock and configuration change: who, when, where and why. Records can't be edited.</div></div>
+                    </div>
+                    <div class="aud-filters">
+                        <div class="uac-search"><i class="fas fa-magnifying-glass"></i><input id="audQ" class="uac-input" placeholder="Search action, record, reason or person"></div>
+                        <select id="audArea" class="uac-input">
+                            <option value="">All areas</option>
+                            <option value="auth.">Sign-in &amp; passwords</option>
+                            <option value="iam.">People, roles &amp; access</option>
+                            <option value="gate.">Gate</option>
+                            <option value="dock.">Dock</option>
+                            <option value="inventory.">Stock</option>
+                            <option value="pallet.">Pallets</option>
+                            <option value="cyclecount.">Cycle counts</option>
+                            <option value="camera.">Cameras</option>
+                            <option value="vision.">AI vision</option>
+                            <option value="copilot.">Copilot</option>
+                            <option value="access.">Refused &amp; sensitive actions</option>
+                            <option value="activity.">Operations activity</option>
+                        </select>
+                        <input id="audFrom" class="uac-input" type="date" title="From">
+                        <input id="audTo" class="uac-input" type="date" title="To">
+                        <button class="uac-btn" onclick="uacLoadAudit(1)"><i class="fas fa-filter"></i> Apply</button>
+                    </div>
+                    <div id="uacAudit" class="uac-table-wrap"></div>
+                    <div id="uacAuditPager" class="aud-pager"></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- MASTER HUB VIEW -->
         <div id="master-hub-view" class="view-section">
@@ -4288,6 +4733,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <h3>Inventory Master (Stock Details)</h3>
         <span style="font-size:0.85rem; color:var(--text-muted);">Real-time View of Physical Stock</span>
+        <button type="button" class="uac-btn-sm inv-open-btn" data-perm="inventory.view" onclick="switchTab('inventory')"><i class="fas fa-boxes-stacked"></i> Open in Inventory &rarr;</button>
     </div>
     <div style="overflow-x:auto;">
         <table style="width:100%;">
@@ -4847,6 +5293,7 @@ function switchSubTab(tabId, btn) {
     if(typeof window.fetchCycleCountData === 'function' && tabId === 'cycle-count') window.fetchCycleCountData();
     if(typeof window.fetchObjectClasses === 'function' && tabId === 'vision-objects') window.fetchObjectClasses();
     if(typeof window.fetchVisionZones === 'function' && tabId === 'vision-zones') window.fetchVisionZones();
+    if(typeof window.loadInventoryMaster === 'function' && tabId === 'inventory-master') window.loadInventoryMaster();
 }
 window.switchSubTab = switchSubTab;
                 </script>
@@ -4896,8 +5343,23 @@ window.switchSubTab = switchSubTab;
                 </div>
             </div>
 
+            <!-- AI Vision tabs: Products | Counting Studio | Weight Check (vision_studio.js) -->
+            <div class="uac-tabs av-tabs" id="avTabs" role="tablist" aria-label="AI Vision sections">
+                <button class="uac-tab is-active" data-av="products" role="tab" onclick="avShowTab('products')">
+                    <span class="uac-tab-icon t-violet"><i class="fas fa-boxes-packing"></i></span> Products
+                </button>
+                <button class="uac-tab" data-av="studio" role="tab" onclick="avShowTab('studio')" data-perm="vision.counting.execute">
+                    <span class="uac-tab-icon t-blue"><i class="fas fa-bullseye"></i></span> Counting Studio
+                    <span class="av-new">NEW</span>
+                </button>
+                <button class="uac-tab" data-av="weight" role="tab" onclick="avShowTab('weight')">
+                    <span class="uac-tab-icon t-teal"><i class="fas fa-scale-balanced"></i></span> Weight Check
+                </button>
+            </div>
+            <div class="glass-panel av-about" id="avAbout" aria-live="polite"></div>
+
             <!-- Controls & Filter Toolbar -->
-            <div class="glass-panel" style="margin-bottom: 1.25rem; padding:1rem 1.25rem;">
+            <div class="glass-panel av-products" style="margin-bottom: 1.25rem; padding:1rem 1.25rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                     <!-- Search & Filters -->
                     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:1; min-width:320px;">
@@ -4949,7 +5411,7 @@ window.switchSubTab = switchSubTab;
             </div>
 
             <!-- SKU Table Container -->
-            <div class="glass-panel" style="padding:0; overflow:hidden;">
+            <div class="glass-panel av-products" style="padding:0; overflow:hidden;">
                 <div style="overflow-x:auto;">
                     <table style="width:100%; border-collapse:collapse; text-align:left;">
                         <thead>
@@ -5000,6 +5462,135 @@ window.switchSubTab = switchSubTab;
                         <button type="button" class="btn-secondary btn-sm" id="skuMasterBtnNext" onclick="skuMasterNextPage()" disabled style="padding:5px 12px; font-size:0.8rem;">
                             Next <i class="fas fa-chevron-right" style="margin-left:4px;"></i>
                         </button>
+                    </div>
+                </div>
+            </div>
+        
+            <!-- ============ Counting Studio: count by example / by typed words (YOLOE, no training) ============ -->
+            <div class="av-pane" data-avpane="studio" style="display:none;">
+                <div class="cs-layout">
+                    <div class="glass-panel cs-stage-card">
+                        <div class="cs-toolbar">
+                            <label class="cs-tool cs-tool-primary" title="Upload a photo">
+                                <i class="fas fa-image"></i><span>Photo</span>
+                                <input type="file" id="csFile" accept="image/*" hidden>
+                            </label>
+                            <label class="cs-tool" title="Take a photo (phone / tablet camera)">
+                                <i class="fas fa-camera"></i><span>Camera</span>
+                                <input type="file" id="csCamera" accept="image/*" capture="environment" hidden>
+                            </label>
+                            <span class="cs-sep"></span>
+                            <button type="button" class="cs-tool" id="csDrawBtn" title="Draw a box around one item"><i class="fas fa-vector-square"></i><span>Draw example</span></button>
+                            <button type="button" class="cs-tool" id="csUndoBtn" title="Undo the last example box"><i class="fas fa-rotate-left"></i><span>Undo</span></button>
+                            <button type="button" class="cs-tool" id="csClearBtn" title="Start again with this photo"><i class="fas fa-eraser"></i><span>Clear</span></button>
+                            <span class="cs-spacer"></span>
+                            <button type="button" class="cs-tool" id="csDownloadBtn" title="Download the marked photo" disabled><i class="fas fa-download"></i></button>
+                        </div>
+                        <div class="cs-stage" id="csStage">
+                            <canvas id="csCanvas" hidden></canvas>
+                            <div class="cs-drop" id="csDrop">
+                                <span class="cs-drop-icon"><i class="fas fa-cloud-arrow-up"></i></span>
+                                <div class="cs-drop-title">Drop a photo here, or press <b>Photo</b></div>
+                                <div class="uac-muted">Stand square to the stack so every item end is visible.</div>
+                                <button type="button" class="cs-link" id="csSampleBtn"><i class="fas fa-wand-magic-sparkles"></i> Try a sample photo</button>
+                            </div>
+                            <div class="cs-busy" id="csBusy" hidden><span class="cs-spinner"></span><span id="csBusyText">Counting…</span></div>
+                        </div>
+                        <div class="cs-hint" id="csHint"><i class="fas fa-circle-info"></i><span>Add a photo to begin.</span></div>
+                    </div>
+
+                    <div class="cs-side">
+                        <div class="glass-panel cs-card">
+                            <div class="cs-card-title"><span class="cs-step">1</span> What are you counting?</div>
+                            <select id="csSku" class="uac-input"><option value="">Any item (no product)</option></select>
+                            <div id="csExamples" class="cs-examples"></div>
+                        </div>
+
+                        <div class="glass-panel cs-card">
+                            <div class="cs-card-title"><span class="cs-step">2</span> How should it find them?</div>
+                            <div class="cs-seg" role="group" aria-label="Counting method">
+                                <button type="button" class="is-on" data-mode="example"><i class="fas fa-hand-pointer"></i> Show an example</button>
+                                <button type="button" data-mode="text"><i class="fas fa-keyboard"></i> Type words</button>
+                            </div>
+                            <div class="cs-mode" data-csmode="example">
+                                <p class="cs-p">Draw a box around <b>1–3 items</b> on the photo. It finds everything that looks the same.</p>
+                                <div class="cs-chips"><span class="cs-chip" id="csBoxCount">0 examples drawn</span></div>
+                                <label class="inv-check"><input type="checkbox" id="csSimilar" checked> Only items of a similar size</label>
+                            </div>
+                            <div class="cs-mode" data-csmode="text" hidden>
+                                <input id="csPrompt" class="uac-input" maxlength="120" placeholder="e.g. steel pipe end, wooden plank end">
+                                <div class="cs-chips" id="csPromptChips"></div>
+                                <div class="cs-note" id="csTextNote" hidden></div>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel cs-card">
+                            <div class="cs-card-title"><span class="cs-step">3</span> Fine-tune <span class="uac-muted cs-opt">(optional)</span></div>
+                            <div class="cs-range">
+                                <div class="cs-range-head"><span>Sensitivity</span><b id="csSensLabel">Balanced</b></div>
+                                <input type="range" id="csSens" min="0" max="100" value="50">
+                                <div class="cs-range-ends"><span>Strict</span><span>Find more</span></div>
+                            </div>
+                            <div class="cs-row">
+                                <span>Detail</span>
+                                <select id="csDetail" class="uac-input"><option value="normal">Fast</option><option value="high" selected>High</option><option value="max">Maximum (small items)</option></select>
+                            </div>
+                        </div>
+
+                        <button type="button" class="cs-count-btn" id="csCountBtn" disabled><i class="fas fa-bolt"></i> Count</button>
+
+                        <div class="glass-panel cs-result" id="csResult" hidden>
+                            <div class="cs-result-top">
+                                <div><div class="uac-stat-label">Found</div><div class="cs-big" id="csTotal">0</div></div>
+                                <div class="cs-result-meta" id="csMeta"></div>
+                            </div>
+                            <div class="cs-legend">
+                                <span><i class="cs-dot ai"></i> found by AI</span><span><i class="cs-dot man"></i> added by you</span><span><i class="cs-box-ico"></i> your examples</span>
+                            </div>
+                            <div class="cs-tip"><i class="fas fa-hand-pointer"></i> Tap a marker to remove it · tap an empty spot to add one</div>
+                            <div class="cs-actions">
+                                <button type="button" class="uac-btn" id="csSaveExample" data-perm="sku.edit"><i class="fas fa-bookmark"></i> Save as example</button>
+                                <button type="button" class="uac-btn" id="csToWeight"><i class="fas fa-scale-balanced"></i> Check with weight</button>
+                            </div>
+                        </div>
+                        <div class="cs-engine" id="csEngine"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============ Weight Check: count from weight (no camera) ============ -->
+            <div class="av-pane" data-avpane="weight" style="display:none;">
+                <div class="wc-layout">
+                    <div class="glass-panel wc-card">
+                        <div class="uac-pane-title"><i class="fas fa-scale-balanced c-teal"></i> Count from weight</div>
+                        <div class="uac-muted" style="margin-bottom:6px;">Weigh the loaded pallet, take away the empty pallet and packing, and divide by one piece's weight.</div>
+                        <label class="uac-label" for="wcSku">Product</label>
+                        <select id="wcSku" class="uac-input"><option value="">Choose a product…</option></select>
+                        <div class="wc-grid">
+                            <div><label class="uac-label" for="wcUnit">Weight of one piece (kg)</label>
+                                <input id="wcUnit" class="uac-input" type="number" min="0" step="0.001" placeholder="from the product">
+                                <div class="uac-hint" id="wcUnitHint">Taken from the product; you can change it here.</div></div>
+                            <div><label class="uac-label" for="wcGross">Loaded pallet weight (kg)</label>
+                                <input id="wcGross" class="uac-input" type="number" min="0" step="0.1" placeholder="scale reading"></div>
+                            <div><label class="uac-label" for="wcTare">Empty pallet + packing (kg)</label>
+                                <input id="wcTare" class="uac-input" type="number" min="0" step="0.1" value="0"></div>
+                            <div><label class="uac-label" for="wcCam">Camera count <span class="uac-muted">(optional)</span></label>
+                                <input id="wcCam" class="uac-input" type="number" min="0" step="1" placeholder="to compare"></div>
+                        </div>
+                    </div>
+                    <div class="glass-panel wc-card wc-out" id="wcOut">
+                        <div class="wc-empty"><span class="inv-empty-icon"><i class="fas fa-scale-balanced"></i></span>
+                            <div class="inv-empty-title">Enter the weights</div>
+                            <div class="uac-muted">The expected number of pieces appears here.</div></div>
+                    </div>
+                </div>
+                <div class="glass-panel wc-how">
+                    <div class="cs-card-title"><i class="fas fa-lightbulb c-amber"></i> How it works</div>
+                    <div class="wc-steps">
+                        <div><b>1</b> Put the loaded pallet on a scale (forklift scale or floor scale) and type the reading.</div>
+                        <div><b>2</b> Type what the empty pallet, straps and wrapping weigh.</div>
+                        <div><b>3</b> Pieces = (loaded − empty) ÷ one piece. Example: (1 363 − 25) ÷ 44.6 = <b>30 sheets</b>.</div>
+                        <div><b>4</b> If the camera count is different, recount: a wrong weight per piece or a hidden layer is the usual cause.</div>
                     </div>
                 </div>
             </div>
@@ -5202,7 +5793,7 @@ window.switchSubTab = switchSubTab;
 
                                 <!-- Camera Image / Video Container -->
                                 <div style="position:relative; width:100%; height:380px; background:#0b1120; display:flex; align-items:center; justify-content:center; overflow:hidden;" id="dashPreviewContainer">
-                                    <img id="dashPreviewImg" src="" alt="Live Video Preview" style="width:100%; height:100%; object-fit:contain; display:block;" onerror="handleDashPreviewError()" onload="handleDashPreviewSuccess()">
+                                    <img id="dashPreviewImg" src="" alt="Live Video Preview" style="width:100%; height:100%; object-fit:contain; display:block;" onerror="window.handleDashPreviewError && window.handleDashPreviewError()" onload="window.handleDashPreviewSuccess && window.handleDashPreviewSuccess()">
                                     
                                     <!-- Fallback Display when camera is stopped or disconnected -->
                                     <div id="dashPreviewFallback" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:8px; color: var(--text-muted); text-align:center; padding:2rem;">
@@ -8078,7 +8669,7 @@ window.switchSubTab = switchSubTab;
                         <div class="hud-item-val text-emerald" id="hudPalletPieces">240 Pcs</div>
                     </div>
                     <div class="session-hud-actions">
-                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="if(window.sealPallet) sealPallet()" style="padding:6px 14px; font-size:0.78rem;">
+                        <button type="button" class="btn-primary" id="btnSealPallet" onclick="sealPalletAction()" style="padding:6px 14px; font-size:0.78rem;">
                             <i class="fas fa-shield-check"></i> Seal Pallet
                         </button>
                     </div>
@@ -8185,6 +8776,9 @@ window.switchSubTab = switchSubTab;
                         <button type="button" id="wbBtnClearCount" onclick="clearWorkbenchCount()" style="background:#334155; color:#f8fafc; border: 1px solid var(--border-light); border-radius:6px; padding:6px 12px; font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.15s;" title="Clear counted markers and start again">
                             <i class="fas fa-xmark"></i> <span>Clear Count / Start Again</span>
                         </button>
+                        <label for="wbStackOnly" title="Other stacks behind or beside the one you are counting are left out. Untick to count everything in the photo." style="display:flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:700; color:var(--text-main); cursor:pointer; margin:0;">
+                            <input type="checkbox" id="wbStackOnly" checked style="width:auto; margin:0;"> Count only the stack in front
+                        </label>
                         <button type="button" id="btnRunWorkbenchCount" onclick="executeWorkbenchCount()" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; border:none; border-radius:6px; padding:7px 18px; font-size:0.8rem; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow:0 3px 12px rgba(37,99,235,0.4);">
                             <i class="fas fa-bolt"></i> <span>Count Now</span>
                         </button>
@@ -8957,6 +9551,7 @@ window.switchSubTab = switchSubTab;
         <div class="modal-dialog" style="max-width: 800px;">
             <div class="modal-header">
                 <h3 style="margin:0;">Inspect Bin: <span id="inspectBinIdTitle" style="color:var(--primary-navy);"></span></h3>
+                <button type="button" class="uac-btn-sm inv-open-btn" data-perm="inventory.view" onclick="document.getElementById('inspectBinModal').style.display='none'; openInventoryForBin(document.getElementById('inspectBinIdTitle').innerText)"><i class="fas fa-boxes-stacked"></i> View in Inventory</button>
                 <button type="button" class="modal-close-btn" onclick="document.getElementById('inspectBinModal').style.display='none'" title="Close">&times;</button>
             </div>
             <div class="modal-body">
@@ -9141,8 +9736,18 @@ window.switchSubTab = switchSubTab;
                             <input type="text" id="skuModalBundleName" value="Bundle" placeholder="e.g. A-Frame, Stack" style="margin-bottom:0;">
                         </div>
                     </div>
-                    <input type="hidden" id="skuModalWeight" value="0.0">
-                    <input type="hidden" id="skuModalVolume" value="0.0">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:1rem;">
+                        <div>
+                            <label for="skuModalWeight">Weight of 1 piece (kg)</label>
+                            <input type="number" id="skuModalWeight" step="0.001" min="0" value="0.0" placeholder="e.g. 56" style="margin-bottom:0;">
+                            <small style="color:var(--text-muted); font-size:0.72rem;">Used by Weight Check and bin weight limits.</small>
+                        </div>
+                        <div>
+                            <label for="skuModalVolume">Volume of 1 piece (m&sup3;)</label>
+                            <input type="number" id="skuModalVolume" step="0.0001" min="0" value="0.0" placeholder="e.g. 0.03" style="margin-bottom:0;">
+                            <small style="color:var(--text-muted); font-size:0.72rem;">Used for bin space (fill %).</small>
+                        </div>
+                    </div>
 
                     <div style="margin-bottom:0.5rem;">
                         <label for="skuModalStatus">Status</label>
@@ -9151,6 +9756,18 @@ window.switchSubTab = switchSubTab;
                             <option value="Disabled">Disabled</option>
                         </select>
                     </div>
+                </div>
+                <div class="pf-block" id="skuModalPhotos">
+                    <div class="pf-block-head">
+                        <div><div class="pf-block-title"><i class="fas fa-images"></i> Product photos</div>
+                            <div class="uac-muted">Photos help AI Vision recognise this product. Pick some from the internet or upload later.</div></div>
+                        <button type="button" class="pf-find-btn" onclick="skuModalFindPhotos()"><i class="fas fa-globe"></i> Find photos online</button>
+                    </div>
+                    <label class="pf-q-label" for="skuModalPhotoQuery"><i class="fas fa-wand-magic-sparkles"></i> Photo search words
+                        <span class="uac-muted">what the product looks like, in plain words (used only to find photos)</span></label>
+                    <input type="text" id="skuModalPhotoQuery" class="pf-q-input" maxlength="100" placeholder="e.g. glass sheets">
+                    <div class="pf-chips" id="skuModalPhotoChips"></div>
+                    <div class="pf-pending" id="skuModalPhotoList"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary" onclick="closeSkuModal()">Cancel</button>
@@ -9343,6 +9960,7 @@ window.switchSubTab = switchSubTab;
                             <i class="fas fa-upload" style="margin-right:4px;"></i> Upload Images
                             <input type="file" id="singleSkuFileInput" accept=".jpg,.jpeg,.png,.webp,.bmp" multiple style="display:none;" onchange="handleSingleSkuUpload(event)">
                         </label>
+                        <button type="button" class="pf-find-btn pf-find-sm" onclick="skuImagesFindPhotos()"><i class="fas fa-globe"></i> Find photos online</button>
                     </div>
 
                     <div id="singleUploadAlert" style="display:none; padding:8px 12px; border-radius:6px; font-size:0.82rem; margin-bottom:1rem;"></div>
@@ -10120,6 +10738,9 @@ window.switchSubTab = switchSubTab;
                         <option value="CURRENT">Current Active Facility</option>
                         <option value="NEW">Create New Industry Facility</option>
                     </select>
+                    <label for="blueprintIncludeSamples" title="Adds a few sample deliveries, stock and pallets, marked as sample data (never matched to real ANPR plate reads)" style="font-size:0.8rem; color: var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer; margin-left:8px;">
+                        <input type="checkbox" id="blueprintIncludeSamples"> Include sample data
+                    </label>
                 </div>
             </div>
 
@@ -11073,6 +11694,15 @@ window.switchSubTab = switchSubTab;
 
     <!-- Palletization & Violation Logic -->
     <script src="{{ url_for('static', filename='js/pallet_logic.js') }}"></script>
+    <!-- Palletization Simple mode (remove these two lines to undo) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pallet_simple.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/pallet_simple.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    <!-- Inventory section (menu: Inventory; also fills Master Data Hub > Inventory Master) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/inventory.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/inventory.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    <!-- AI Vision: Counting Studio, Weight Check, product photos from the internet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/vision_studio.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/vision_studio.js') }}?v={{ range(1000, 99999) | random }}"></script>
 
     <!-- SKU Master UI Logic -->
     <script src="{{ url_for('static', filename='js/sku_master_ui.js') }}"></script>
@@ -11089,6 +11719,14 @@ window.switchSubTab = switchSubTab;
 
     <!-- AI Industry Blueprint & Multi-Facility Switcher UI Logic -->
     <script src="{{ url_for('static', filename='js/industry_blueprint_ui.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/users_access.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/users_access.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/permissions.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/permissions.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    {% if is_platform_admin %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/platform_companies.css') }}?v={{ range(1000, 99999) | random }}">
+    <script src="{{ url_for('static', filename='js/platform_companies.js') }}?v={{ range(1000, 99999) | random }}"></script>
+    {% endif %}
 
 
     <!-- WARLOG AI Copilot Engine (macOS x Bixby) -->

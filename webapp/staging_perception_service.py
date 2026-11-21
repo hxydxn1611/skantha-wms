@@ -611,9 +611,33 @@ class StagingPerceptionService:
 _STAGING_SERVICE: Optional[StagingPerceptionService] = None
 _STAGING_LOCK = threading.Lock()
 
-def get_staging_service() -> StagingPerceptionService:
+_STAGING_BY_WAREHOUSE: Dict[int, StagingPerceptionService] = {}
+
+
+def get_staging_service(warehouse_id: Optional[int] = None) -> StagingPerceptionService:
+    """RBAC Phase 3A (H10): one staging service per warehouse once data isolation is on, so
+    one warehouse's staging configuration and counts never affect another. Before
+    isolation (or outside a warehouse scope) the single shared instance is used, as before."""
     global _STAGING_SERVICE
+    if warehouse_id is None:
+        try:
+            import rbac_scope
+            sc = rbac_scope.get_scope()
+            if sc is not None and sc.warehouse_id and rbac_scope.isolation_enabled():
+                warehouse_id = int(sc.warehouse_id)
+        except Exception:
+            warehouse_id = None
     with _STAGING_LOCK:
-        if _STAGING_SERVICE is None:
-            _STAGING_SERVICE = StagingPerceptionService()
-        return _STAGING_SERVICE
+        if warehouse_id is None:
+            if _STAGING_SERVICE is None:
+                _STAGING_SERVICE = StagingPerceptionService()
+            return _STAGING_SERVICE
+        svc = _STAGING_BY_WAREHOUSE.get(warehouse_id)
+        if svc is None:
+            # The first warehouse to use staging keeps the existing shared instance (and its state).
+            if not _STAGING_BY_WAREHOUSE and _STAGING_SERVICE is not None:
+                svc = _STAGING_SERVICE
+            else:
+                svc = StagingPerceptionService()
+            _STAGING_BY_WAREHOUSE[warehouse_id] = svc
+        return svc

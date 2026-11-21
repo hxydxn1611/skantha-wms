@@ -1,0 +1,32 @@
+# WARLOG behind HTTPS (RBAC Phase 8, H8) - Caddy reverse proxy.
+#
+# 1. Install Caddy (https://caddyserver.com/docs/install) on the WARLOG PC.
+# 2. In .env set:   HOST=127.0.0.1        (Waitress only reachable through Caddy)
+#                   BEHIND_TLS_PROXY=1    (secure cookies, real client IP, HSTS)
+#                   APP_BASE_URL=https://<the address below>/
+# 3. Pick ONE of the two site blocks below, then run:  caddy run --config deploy/Caddyfile
+#
+# A) With a domain name pointing at this PC (automatic Let's Encrypt certificate):
+#
+# warlog.example.com {
+#     encode gzip
+#     reverse_proxy 127.0.0.1:5000 {
+#         flush_interval -1          # live MJPEG camera streams must not be buffered
+#     }
+# }
+#
+# B) Warehouse LAN without a domain (Caddy's own certificate; install Caddy's root
+#    certificate once on each device with `caddy trust`, or accept the browser prompt):
+
+https://{$WARLOG_LAN_IP:192.168.1.10} {
+    tls internal
+    encode gzip
+    reverse_proxy 127.0.0.1:5000 {
+        flush_interval -1
+    }
+}
+
+# Plain HTTP on the LAN redirects to HTTPS.
+http://{$WARLOG_LAN_IP:192.168.1.10} {
+    redir https://{host}{uri} permanent
+}
