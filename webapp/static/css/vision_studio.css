@@ -195,3 +195,18 @@
     padding: 5px 10px; border-radius: 999px; background: var(--panel-subtle); border: 1px solid var(--border-light); }
 .av-about-tips i { color: var(--accent); font-size: 0.72rem; }
 .av-about-tips b { color: var(--text-main); font-weight: 700; }
+
+/* photo search words + match labels */
+.pf-q-label { display: block; margin: 12px 0 5px; font-size: 0.8rem; font-weight: 700; color: var(--text-main); }
+.pf-q-label i { color: #6366f1; margin-right: 4px; }
+.pf-q-label .uac-muted { font-weight: 500; margin-left: 4px; }
+.pf-q-input { width: 100%; box-sizing: border-box; margin: 0 !important; }
+.pf-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.pf-chips:empty { display: none; }
+.pf-chips-label { font-size: 0.74rem; color: var(--text-muted); font-weight: 600; }
+.pf-chips-modal { padding: 8px 24px 0; margin: 0; }
+.pf-match { position: absolute; top: 8px; left: 8px; font-size: 0.64rem; font-weight: 800; padding: 3px 7px; border-radius: 999px;
+    background: rgba(16, 185, 129, .92); color: #fff; letter-spacing: .02em; }
+.pf-match.loose { background: rgba(100, 116, 139, .85); }
+.pf-tile.is-loose:not(.is-picked) img { filter: saturate(.75); opacity: .82; }
+@media (max-width: 640px) { .pf-chips-modal { padding: 8px 14px 0; } }

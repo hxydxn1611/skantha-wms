@@ -9750,6 +9750,10 @@ window.switchSubTab = switchSubTab;
                             <div class="uac-muted">Photos help AI Vision recognise this product. Pick some from the internet or upload later.</div></div>
                         <button type="button" class="pf-find-btn" onclick="skuModalFindPhotos()"><i class="fas fa-globe"></i> Find photos online</button>
                     </div>
+                    <label class="pf-q-label" for="skuModalPhotoQuery"><i class="fas fa-wand-magic-sparkles"></i> Photo search words
+                        <span class="uac-muted">what the product looks like, in plain words (used only to find photos)</span></label>
+                    <input type="text" id="skuModalPhotoQuery" class="pf-q-input" maxlength="100" placeholder="e.g. glass sheets">
+                    <div class="pf-chips" id="skuModalPhotoChips"></div>
                     <div class="pf-pending" id="skuModalPhotoList"></div>
                 </div>
                 <div class="modal-footer">

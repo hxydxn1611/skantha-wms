@@ -234,6 +234,80 @@ def api_delete_example(example_id: int):
 
 
 # ----------------------------------------------------------------------------- photos from the internet
+def _saved_query(conn, sku_id: str) -> str:
+    cond, params = rbac_scope.home_filter("sku_photo_queries")
+    row = conn.execute(f"SELECT query FROM sku_photo_queries WHERE sku_id = ?{cond}", (sku_id,) + params).fetchone()
+    return row["query"] if row else ""
+
+
+def _save_query(conn, scope, sku_id: str, query: str) -> None:
+    query = " ".join(str(query or "").split())[:100]
+    company = scope.company_id if scope is not None else None
+    with conn:
+        if not query:
+            conn.execute("DELETE FROM sku_photo_queries WHERE sku_id = ? AND company_id IS ?", (sku_id, company))
+            return
+        conn.execute("""INSERT INTO sku_photo_queries (sku_id, query, updated_by, company_id) VALUES (?, ?, ?, ?)
+                        ON CONFLICT(company_id, sku_id) DO UPDATE SET query = excluded.query,
+                            updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP""",
+                     (sku_id, query, _actor(), company))
+
+
+@bp.route("/api/vision/photos/suggest", methods=["GET"])
+def api_photo_suggest():
+    """Search words for a product: the saved ones (if any) and smart suggestions from its
+    name / category / unit (dimensions, codes and specs removed)."""
+    _need("sku.create|sku.edit")
+    sku_id = (request.args.get("sku_id") or "").strip()
+    name = request.args.get("name") or ""
+    category = request.args.get("category") or ""
+    uom = request.args.get("uom") or ""
+    saved = ""
+    if sku_id:
+        conn = db.get_db()
+        try:
+            cond, params = rbac_scope.home_filter("skus")
+            row = conn.execute(f"SELECT name, category, uom FROM skus WHERE sku_id = ?{cond}", (sku_id,) + params).fetchone()
+            if row:
+                name, category, uom = name or row["name"], category or row["category"], uom or row["uom"]
+                saved = _saved_query(conn, sku_id)
+        finally:
+            conn.close()
+    suggestions = photos.suggest_queries(name, category, uom)
+    return jsonify({"success": True, "saved": saved, "suggestions": suggestions,
+                    "default": saved or (suggestions[0] if suggestions else photos.clean_product_name(name))})
+
+
+@bp.route("/api/vision/photos/query", methods=["PUT"])
+def api_photo_query():
+    """Keep (or clear) the photo search words of a product."""
+    _need("sku.edit")
+    scope = _writable()
+    body = request.get_json(silent=True) or {}
+    sku_id = str(body.get("sku_id") or "").strip()
+    if not sku_id:
+        raise ToolError(400, "invalid", "Choose a product.")
+    conn = db.get_db()
+    try:
+        _sku(conn, sku_id)
+        _save_query(conn, scope, sku_id, body.get("query"))
+    finally:
+        conn.close()
+    return jsonify({"success": True, "message": "Photo search words saved."})
+
+
+@bp.route("/api/vision/photos/preview/<path:photo_id>", methods=["GET"])
+def api_photo_preview(photo_id: str):
+    """A preview the search checked and kept (Openverse), served from memory."""
+    _need("sku.create|sku.edit")
+    hit = photos.get_preview(photo_id)
+    if not hit:
+        raise ToolError(404, "not_found", "That preview has expired. Search again.")
+    from flask import Response
+    data, ctype = hit
+    return Response(data, mimetype=ctype, headers={"Cache-Control": "private, max-age=3600"})
+
+
 @bp.route("/api/vision/photos/search", methods=["GET"])
 def api_photo_search():
     _need("sku.create|sku.edit")
@@ -259,9 +333,13 @@ def api_photo_import():
     items = [i for i in (body.get("items") or []) if isinstance(i, dict)][:20]
     if not sku_id or not items:
         raise ToolError(400, "invalid", "Choose a product and at least one photo.")
+    scope = rbac_service.current_scope()
     conn = db.get_db()
     try:
         _sku(conn, sku_id)
+        # the words that found these photos become the product's photo search words
+        if str(body.get("query") or "").strip():
+            _save_query(conn, scope, sku_id, body.get("query"))
     finally:
         conn.close()
     os.makedirs(SKU_IMAGE_DIR, exist_ok=True)

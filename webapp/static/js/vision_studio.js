@@ -549,6 +549,7 @@
             <div class="pf-search"><div class="uac-search"><i class="fas fa-magnifying-glass"></i>
                 <input id="pfQ" class="uac-input" maxlength="100" value="${h(PF.query)}" placeholder="e.g. wooden plank"></div>
                 <button type="button" class="uac-btn uac-btn-primary" id="pfGo"><i class="fas fa-magnifying-glass"></i> Search</button></div>
+            <div class="pf-chips pf-chips-modal" id="pfChips"></div>
             <div class="pf-sources" id="pfSources"></div>
             <div class="pf-grid" id="pfGrid"></div>
             <div class="uac-modal-actions pf-foot">
@@ -561,13 +562,14 @@
         wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
         wrap.querySelector('.uac-x').onclick = close;
         $('pfGo').onclick = () => { PF.query = $('pfQ').value.trim(); PF.seen = []; PF.page = 1; PF.items = []; pfFetch(10, true); };
+        renderChips($('pfChips'), (opts && opts.suggestions) || [], (q) => { $('pfQ').value = q; $('pfGo').click(); }, 'Try:');
         $('pfQ').addEventListener('keydown', e => { if (e.key === 'Enter') $('pfGo').click(); });
         $('pfMore').onclick = () => pfFetch(5, false);
         $('pfUse').onclick = async () => {
             const chosen = [...PF.picked.values()];
             if (!chosen.length) return;
             $('pfUse').disabled = true;
-            try { if (PF.onDone) await PF.onDone(chosen); close(); }
+            try { if (PF.onDone) await PF.onDone(chosen, PF.query); close(); }
             finally { const b = $('pfUse'); if (b) b.disabled = false; }
         };
         if (PF.query.length >= 2) pfFetch(10, true);
@@ -602,18 +604,20 @@
             const src = b.sources || {};
             const names = [src.pixabay && 'Pixabay', src.pexels && 'Pexels', src.openverse && 'Openverse'].filter(Boolean);
             $('pfSources').innerHTML = 'Photos from ' + names.map(x => `<b>${h(x)}</b>`).join(' · ')
-                + ' · free to use, even commercially · hover a photo for its licence'
+                + ' · best matches first · free to use, even commercially · hover a photo for its licence'
                 + (!src.pixabay ? ' <span class="pf-tip">Add the free Pixabay key for more product photos.</span>' : '');
             (b.photos || []).forEach(p => {
                 PF.seen.push(p.id);
                 PF.items.push(p);
                 const t = document.createElement('button');
                 t.type = 'button';
-                t.className = 'pf-tile';
+                t.className = 'pf-tile' + (p.match === 'loose' ? ' is-loose' : '');
                 t.dataset.id = p.id;
                 t.title = [p.title, p.author && ('by ' + p.author), p.license].filter(Boolean).join(' · ');
                 t.innerHTML = `<img loading="lazy" src="${h(p.thumb)}" alt="">
                     <span class="pf-check"><i class="fas fa-check"></i></span>
+                    ${p.match === 'good' ? '<span class="pf-match"><i class="fas fa-circle-check"></i> match</span>'
+                        : p.match === 'loose' ? '<span class="pf-match loose">loose match</span>' : ''}
                     <span class="pf-credit">${h(p.provider)}${p.author ? ' · ' + h(p.author) : ''}</span>`;
                 const img = t.querySelector('img');
                 img.onload = () => t.classList.add('is-loaded');
@@ -625,7 +629,9 @@
                 });
                 grid.appendChild(t);
             });
-            if (!grid.children.length) grid.innerHTML = '<div class="pf-empty">No photos found. Try simpler words, e.g. “plank” instead of the product code.</div>';
+            if (!grid.children.length) grid.innerHTML = '<div class="pf-empty">No photos found. Try plain words for what it looks like, e.g. “glass sheets” instead of the product name.</div>';
+            else if ((b.photos || []).length && !(b.photos || []).some(x => x.match === 'good'))
+                toast('Few photos match these words. Try one of the suggestions above, or simpler words.', 'warning');
             else if (!(b.photos || []).length) toast('No more new photos for these words. Try different words.', 'warning');
         } catch (e) {
             grid.querySelectorAll('.pf-skel').forEach(x => x.remove());
@@ -644,16 +650,59 @@
         $('pfUse').innerHTML = `<i class="fas fa-check"></i> Use ${n || ''} photo${n === 1 ? '' : 's'}`;
     }
 
-    async function importPhotos(skuId, chosen) {
+    async function importPhotos(skuId, chosen, query) {
         const r = await fetch('/api/vision/photos/import', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sku_id: skuId, items: chosen.map(p => ({ url: p.url, provider: p.provider, author: p.author, page_url: p.page_url, license: p.license })) }),
+            body: JSON.stringify({ sku_id: skuId, query: query || '',
+                                   items: chosen.map(p => ({ url: p.url, provider: p.provider, author: p.author, page_url: p.page_url, license: p.license })) }),
         });
         const b = await r.json().catch(() => ({}));
         if (!r.ok || !b.success) throw new Error(b.error || 'Could not save the photos.');
         if (b.errors && b.errors.length) toast(`${b.saved} saved, ${b.errors.length} could not be downloaded.`, 'warning');
         else toast(b.message || 'Photos added.', 'success');
         return b;
+    }
+
+    // ---- suggestions (smart search words) ----
+    function renderChips(box, list, onPick, label) {
+        if (!box) return;
+        box.innerHTML = list.length ? `<span class="pf-chips-label">${h(label || 'Suggestions:')}</span>`
+            + list.map(q => `<button type="button" class="cs-chip cs-chip-btn">${h(q)}</button>`).join('') : '';
+        box.querySelectorAll('button').forEach(b => b.addEventListener('click', () => onPick(b.textContent)));
+    }
+    async function fetchSuggest(params) {
+        try {
+            const r = await fetch('/api/vision/photos/suggest?' + new URLSearchParams(params).toString());
+            const b = await r.json();
+            return b.success ? b : { saved: '', suggestions: [], default: '' };
+        } catch (e) { return { saved: '', suggestions: [], default: '' }; }
+    }
+    let formSuggest = { saved: '', suggestions: [], default: '' };
+    let savedWords = '';
+    async function refreshFormSuggest(skuId) {
+        const params = skuId ? { sku_id: skuId } : {
+            name: $('skuModalName')?.value || '', category: $('skuModalCategory')?.value || '', uom: $('skuModalUom')?.value || '' };
+        formSuggest = await fetchSuggest(params);
+        const input = $('skuModalPhotoQuery');
+        if (skuId && input && !input.value) { input.value = formSuggest.saved || ''; savedWords = formSuggest.saved || ''; }
+        if (input) input.placeholder = formSuggest.default ? 'e.g. ' + formSuggest.default : 'e.g. glass sheets';
+        renderChips($('skuModalPhotoChips'), formSuggest.suggestions || [], (q) => { if (input) input.value = q; });
+    }
+    let suggestTimer = null;
+    function wireFormSuggest() {
+        ['skuModalName', 'skuModalCategory', 'skuModalUom'].forEach(id => {
+            const el = $(id);
+            if (!el || el.__pfWired) return;
+            el.__pfWired = true;
+            el.addEventListener('input', () => {
+                if ($('skuModalCode')?.readOnly) return;   // editing: keep the saved words
+                clearTimeout(suggestTimer);
+                suggestTimer = setTimeout(() => refreshFormSuggest(null), 400);
+            });
+        });
+    }
+    function formWords() {
+        return ($('skuModalPhotoQuery')?.value || '').trim() || formSuggest.default || ($('skuModalName')?.value || '').trim();
     }
 
     // ---- product dialog: pick now, saved after "Save Record"
@@ -666,16 +715,18 @@
             + `<div class="pf-pending-note"><i class="fas fa-circle-info"></i> ${pending.length} photo${pending.length === 1 ? '' : 's'} will be added when you save.</div>` : '';
         box.querySelectorAll('button[data-i]').forEach(b => b.addEventListener('click', () => { pending.splice(Number(b.dataset.i), 1); renderPending(); }));
     }
-    window.skuModalFindPhotos = function () {
-        const name = ($('skuModalName')?.value || '').trim();
-        const cat = ($('skuModalCategory')?.value || '').trim();
+    window.skuModalFindPhotos = async function () {
+        if (!(formSuggest.suggestions || []).length) await refreshFormSuggest($('skuModalCode')?.readOnly ? $('skuModalCode').value : null);
         openPhotoFinder({
-            query: name || cat,
+            query: formWords(),
+            suggestions: formSuggest.suggestions || [],
             subtitle: 'Pick the photos that look like this product. They are added when you save the product.',
-            onDone: (chosen) => {
+            onDone: (chosen, q) => {
                 const ids = new Set(pending.map(p => p.id));
                 chosen.forEach(p => { if (!ids.has(p.id)) pending.push(p); });
                 renderPending();
+                const input = $('skuModalPhotoQuery');
+                if (input && q) input.value = q;   // the words that found them
             },
         });
     };
@@ -683,7 +734,17 @@
         ['openAddSkuModal', 'openEditSkuModal'].forEach(fn => {
             const orig = window[fn];
             if (typeof orig !== 'function' || orig.__pfWrapped) return;
-            const w = function () { pending = []; renderPending(); return orig.apply(this, arguments); };
+            const w = function (skuId) {
+                pending = []; renderPending();
+                savedWords = ''; formSuggest = { saved: '', suggestions: [], default: '' };
+                const input = $('skuModalPhotoQuery');
+                if (input) { input.value = ''; input.placeholder = 'e.g. glass sheets'; }
+                renderChips($('skuModalPhotoChips'), [], () => {});
+                wireFormSuggest();
+                const out = orig.apply(this, arguments);
+                Promise.resolve(out).then(() => refreshFormSuggest(fn === 'openEditSkuModal' ? skuId : null));
+                return out;
+            };
             w.__pfWrapped = true;
             window[fn] = w;
         });
@@ -691,13 +752,19 @@
         if (typeof submit === 'function' && !submit.__pfWrapped) {
             const w = async function () {
                 const sku = ($('skuModalCode')?.value || '').trim();
+                const words = ($('skuModalPhotoQuery')?.value || '').trim();
                 const out = await submit.apply(this, arguments);
                 const closed = !$('modalAddSku')?.classList.contains('active');
                 if (closed && sku && pending.length) {
                     const chosen = pending.slice();
                     pending = []; renderPending();
-                    try { await importPhotos(sku, chosen); } catch (e) { toast(e.message, 'error'); }
+                    try { await importPhotos(sku, chosen, words); } catch (e) { toast(e.message, 'error'); }
                     if (typeof window.fetchSkuMaster === 'function') window.fetchSkuMaster();
+                } else if (closed && sku && words !== savedWords && can('sku.edit')) {
+                    try {
+                        await fetch('/api/vision/photos/query', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                                                  body: JSON.stringify({ sku_id: sku, query: words }) });
+                    } catch (e) { /* the product itself is saved */ }
                 }
                 return out;
             };
@@ -717,17 +784,13 @@
     window.skuImagesFindPhotos = async function () {
         const sku = window.__pfImagesSku;
         if (!sku) return toast('Open the photos of one product first.', 'warning');
-        let name = sku;
-        try {
-            const r = await fetch('/api/sku_master/' + encodeURIComponent(sku));
-            const b = await r.json();
-            if (b.success && b.data && b.data.name) name = b.data.name.replace(/\(.*?\)/g, '').trim();
-        } catch (e) {}
+        const sg = await fetchSuggest({ sku_id: sku });
         openPhotoFinder({
-            query: name,
+            query: sg.default || sku,
+            suggestions: sg.suggestions || [],
             subtitle: `Pick photos for ${sku}. They are saved to the product straight away.`,
-            onDone: async (chosen) => {
-                try { await importPhotos(sku, chosen); } catch (e) { toast(e.message, 'error'); return; }
+            onDone: async (chosen, q) => {
+                try { await importPhotos(sku, chosen, q); } catch (e) { toast(e.message, 'error'); return; }
                 if (typeof window.openSkuImagesModal === 'function') window.openSkuImagesModal(sku);
                 if (typeof window.fetchSkuMaster === 'function') window.fetchSkuMaster();
             },

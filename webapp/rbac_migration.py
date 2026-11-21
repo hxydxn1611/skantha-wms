@@ -443,6 +443,19 @@ def _step_count_examples(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS ix_sku_count_examples_sku ON sku_count_examples(sku_id)")
 
 
+def _step_photo_queries(conn: sqlite3.Connection) -> None:
+    """AI Vision > Find photos online: the words that find good photos of a product, kept per
+    product (a product's name, e.g. '6mm Fire-Rated Borosilicate Glass', is rarely what
+    stock-photo sites understand; 'glass sheets' is)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS sku_photo_queries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER REFERENCES companies(id),
+        sku_id TEXT NOT NULL, query TEXT NOT NULL,
+        updated_by TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (company_id, sku_id))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_sku_photo_queries_company_id ON sku_photo_queries(company_id)")
+
+
 def _step_starter_roles(conn: sqlite3.Connection) -> None:
     """Phase 5: starter roles (Gate Security, Dock Supervisor, ...) for every company."""
     if "template_key" not in _columns(conn, "roles"):
@@ -718,6 +731,7 @@ STEPS: List[Tuple[str, Callable[[sqlite3.Connection], None]]] = [
     ("011_gate_otp_attempts", _step_gate_otp_attempts),
     ("012_stock_ledger", _step_stock_ledger),
     ("013_count_examples", _step_count_examples),
+    ("014_photo_queries", _step_photo_queries),
 ]
 # Steps that wait for something (they stay pending, and trigger no backup, until ready).
 STEP_READY: Dict[str, Callable[[sqlite3.Connection], bool]] = {

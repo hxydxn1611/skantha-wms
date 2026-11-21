@@ -144,6 +144,7 @@ class TestPhotos(StudioBase):
                          "url": "https://cdn.pixabay.com/u.jpg", "author": "a"} for i in range(20)]
             return fn
         with mock.patch.object(s, "PROVIDERS", (("pixabay", fake("pixabay")), ("pexels", fake("pexels")), ("openverse", fake("openverse")))), \
+                mock.patch.object(s, "_keep_working", lambda items: items), \
                 mock.patch.dict(os.environ, {"PIXABAY_API_KEY": "k1", "PEXELS_API_KEY": "your-pexels-key"}):
             first, nxt = s.search("wooden plank", count=10)
             self.assertEqual(len(first), 10)
@@ -174,6 +175,70 @@ class TestPhotos(StudioBase):
         r = self.send(ex, "POST", "/api/vision/photos/import", {"sku_id": "GLS-FLT-04MM", "items": [{"url": "https://cdn.pixabay.com/x.jpg"}]})
         self.assertEqual(r.status_code, 403)
         self.assertEqual(self.get(ex, "/api/vision/photos/search?q=plank").status_code, 403)
+        self.assertEqual(self.send(ex, "PUT", "/api/vision/photos/query", {"sku_id": "GLS-FLT-04MM", "query": "x"}).status_code, 403)
+
+
+class TestSmartPhotoWords(StudioBase):
+    def test_names_become_words_photo_sites_understand(self):
+        import image_search_service as s
+        self.assertEqual(s.clean_product_name("6mm Fire-Rated Borosilicate Glass (E-120 Rated)"), "fire borosilicate glass")
+        self.assertEqual(s.clean_product_name("4mm Clear Float Glass Sheet (2440x1830mm)"), "clear float glass sheet")
+        self.assertEqual(s.suggest_queries("6mm Fire-Rated Borosilicate Glass", "Specialty Glass", "Sheet")[0], "glass sheets")
+        self.assertEqual(s.suggest_queries("24mm Double Glazed Low-E Argon Unit (6+12A+6mm)", "Insulated Glass (DGU)", "Unit")[0],
+                         "glass panels")
+        self.assertEqual(s.suggest_queries("wooden plank", "", "EA")[0], "wooden planks")
+
+    def test_relevant_photos_first_and_unrelated_dropped(self):
+        import image_search_service as s
+        photos = [{"id": "a", "provider": "p", "thumb": "t", "url": "u", "words": "sheet music, rose, heart"},
+                  {"id": "b", "provider": "p", "thumb": "t", "url": "u", "words": "whisky, glass, bar"},
+                  {"id": "c", "provider": "p", "thumb": "t", "url": "u", "words": "close up of glass sheets"},
+                  {"id": "d", "provider": "p", "thumb": "t", "url": "u", "words": "sunset, beach"}]
+        with mock.patch.object(s, "PROVIDERS", (("openverse", lambda q, p: photos if p == 1 else []),)):
+            got, _ = s.search("glass sheets", count=10)
+        self.assertEqual(got[0]["id"], "c")
+        self.assertEqual(got[0]["match"], "good")
+        self.assertEqual({g["id"] for g in got}, {"a", "b", "c"})        # "sunset, beach" shares no word
+        self.assertEqual([g["match"] for g in got[1:]], ["loose", "loose"])
+
+    def test_dead_openverse_photos_are_skipped_and_previews_served_by_us(self):
+        import image_search_service as s
+        items = [{"id": f"openverse:{i}", "provider": "Openverse", "thumb": f"https://api.openverse.org/v1/images/{i}/thumb/",
+                  "url": "u", "words": "glass sheets"} for i in range(6)]
+
+        def fake_get(url, **kw):
+            dead = url.split("/images/")[1].split("/")[0] in ("1", "3")   # these two are gone at the source
+            return mock.Mock(status_code=424 if dead else 200, content=b"" if dead else b"\x89PNG..",
+                             headers={"content-type": "application/json" if dead else "image/png"})
+        with mock.patch.object(s, "PROVIDERS", (("openverse", lambda q, p: [dict(x) for x in items] if p == 1 else []),)), \
+                mock.patch.object(s.requests, "get", side_effect=fake_get):
+            got, _ = s.search("glass sheets", count=4)
+        self.assertEqual([g["id"] for g in got], ["openverse:0", "openverse:2", "openverse:4", "openverse:5"])
+        self.assertTrue(all(g["thumb"].startswith("/api/vision/photos/preview/") for g in got))
+        d = self.client("david", self.glass_wh[0])
+        r = self.get(d, got[0]["thumb"])
+        self.assertEqual((r.status_code, r.mimetype), (200, "image/png"))
+        self.assertEqual(self.get(d, "/api/vision/photos/preview/openverse%3Anope").status_code, 404)
+
+    def test_words_are_kept_per_product_inside_the_company(self):
+        d = self.client("david", self.glass_wh[0])
+        body = self.get(d, "/api/vision/photos/suggest?sku_id=GLS-FIR-BORO").get_json()
+        self.assertTrue(body["success"])
+        self.assertEqual(body["saved"], "")
+        self.assertEqual(body["default"], body["suggestions"][0])
+        r = self.send(d, "PUT", "/api/vision/photos/query", {"sku_id": "GLS-FIR-BORO", "query": "fire resistant glass panels"})
+        self.assertTrue(r.get_json()["success"], r.get_json())
+        body = self.get(d, "/api/vision/photos/suggest?sku_id=GLS-FIR-BORO").get_json()
+        self.assertEqual((body["saved"], body["default"]), ("fire resistant glass panels", "fire resistant glass panels"))
+        self.assertEqual(self.sql("SELECT company_id FROM sku_photo_queries WHERE sku_id = 'GLS-FIR-BORO'")[0][0], self.glass_wh[1])
+        # another company can't read or change them
+        leak = self.client("leakadmin", self.leak_wh)
+        self.assertEqual(self.get(leak, "/api/vision/photos/suggest?sku_id=GLS-FIR-BORO").get_json()["saved"], "")
+        self.assertEqual(self.send(leak, "PUT", "/api/vision/photos/query",
+                                   {"sku_id": "GLS-FIR-BORO", "query": "x"}).status_code, 404)
+        # clearing them
+        self.send(d, "PUT", "/api/vision/photos/query", {"sku_id": "GLS-FIR-BORO", "query": ""})
+        self.assertFalse(self.sql("SELECT 1 FROM sku_photo_queries WHERE sku_id = 'GLS-FIR-BORO'"))
 
 
 class TestFrontendWiring(unittest.TestCase):

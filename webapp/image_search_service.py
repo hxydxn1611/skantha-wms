@@ -28,7 +28,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 8
+TIMEOUT = 6
 USER_AGENT = "WARLOG-WMS/1.0 (product photo picker; python-requests)"
 MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024
 MAX_SIDE = 1600
@@ -79,7 +79,9 @@ def _pixabay(query: str, page: int) -> List[Dict]:
                     "url": h.get("largeImageURL") or h.get("webformatURL"),
                     "width": h.get("imageWidth"), "height": h.get("imageHeight"),
                     "author": h.get("user") or "", "page_url": h.get("pageURL") or "",
-                    "license": "Pixabay Content License"})
+                    "license": "Pixabay Content License",
+                    # Pixabay lists the most relevant tags first; later ones are loose associations
+                    "words": ", ".join(str(h.get("tags") or "").split(",")[:10])})
     return out
 
 
@@ -100,7 +102,7 @@ def _pexels(query: str, page: int) -> List[Dict]:
                     "url": src.get("large2x") or src.get("large") or src.get("original"),
                     "width": p.get("width"), "height": p.get("height"),
                     "author": p.get("photographer") or "", "page_url": p.get("url") or "",
-                    "license": "Pexels License"})
+                    "license": "Pexels License", "words": str(p.get("alt") or "")})
     return out
 
 
@@ -125,11 +127,199 @@ def _openverse(query: str, page: int) -> List[Dict]:
                     "width": it.get("width"), "height": it.get("height"),
                     "author": str(it.get("creator") or "")[:80], "page_url": it.get("foreign_landing_url") or "",
                     "license": f"{lic} {version}".strip() if lic.startswith("CC ") else lic,
-                    "title": str(it.get("title") or "")[:120]})
+                    "title": str(it.get("title") or "")[:120],
+                    "words": " ".join([str(it.get("title") or "")] + [str(t.get("name") or "") for t in (it.get("tags") or [])[:10]])})
     return out
 
 
-PROVIDERS = (("pixabay", _pixabay), ("pexels", _pexels), ("openverse", _openverse))
+_ANSWERS: Dict[Tuple[str, str, int], Tuple[float, List[Dict]]] = {}
+_ANSWER_TTL = {"pixabay": 24 * 3600, "pexels": 3600, "openverse": 3600}   # Pixabay's terms: cache 24 h
+
+
+def _cached(name: str, fn):
+    """Remembers a source's answer per (words, page), so repeated searches don't call it again."""
+    import copy
+    import time as _time
+
+    def call(query: str, page: int) -> List[Dict]:
+        key = (name, query.lower(), page)
+        hit = _ANSWERS.get(key)
+        if hit and _time.time() - hit[0] < _ANSWER_TTL.get(name, 3600):
+            return copy.deepcopy(hit[1])
+        res = fn(query, page)
+        if res:
+            if len(_ANSWERS) > 500:
+                _ANSWERS.clear()
+            _ANSWERS[key] = (_time.time(), copy.deepcopy(res))
+        return res
+    return call
+
+
+PROVIDERS = (("pixabay", _cached("pixabay", _pixabay)), ("pexels", _cached("pexels", _pexels)),
+             ("openverse", _cached("openverse", _openverse)))
+
+
+# ----------------------------------------------------------------------------- relevance + search words
+import re as _re
+
+_STOP = {"a", "an", "the", "of", "and", "or", "for", "with", "on", "in", "to", "by", "at", "from", "photo", "picture",
+         "image", "type", "grade", "standard", "rated", "clear", "new", "pcs", "unit", "units", "set"}
+_UNITS = r"(?:mm|cm|m|km|kg|g|mg|t|l|ml|in|inch|inches|ft|feet|mil|gsm|mic|micron|v|w|kw|a|hp|psi|bar)"
+# words that name what a product physically is (used to build a sensible search phrase)
+_MATERIALS = ("glass", "steel", "iron", "aluminium", "aluminum", "copper", "brass", "metal", "timber", "wood", "wooden",
+              "plywood", "mdf", "plastic", "pvc", "rubber", "concrete", "cement", "stone", "granite", "marble", "ceramic",
+              "paper", "cardboard", "fabric", "cotton", "foam", "rope", "cable", "wire")
+_FORMS = ("sheet", "panel", "plate", "pipe", "tube", "rod", "bar", "beam", "channel", "angle", "profile", "plank", "board",
+          "log", "block", "brick", "tile", "slab", "coil", "roll", "drum", "barrel", "bag", "sack", "carton", "box", "crate",
+          "pallet", "bundle", "bottle", "can", "jar", "frame", "door", "window", "mirror")
+_UOM_FORM = {"SHEET": "sheet", "SHEETS": "sheet", "PIPE": "pipe", "PIPES": "pipe", "PLANK": "plank", "PLANKS": "plank",
+             "BOX": "box", "BOXES": "box", "CARTON": "carton", "BAG": "bag", "ROLL": "roll", "COIL": "coil", "ROD": "rod",
+             "RODS": "rod", "BAR": "bar", "BEAM": "beam", "BEAMS": "beam", "DRUM": "drum", "BUNDLE": "bundle", "BUNDLES": "bundle"}
+
+
+def _norm(word: str) -> str:
+    w = word.lower().strip(".,;:!?\"'()[]")
+    for suf, rp in (("ies", "y"), ("ches", "ch"), ("shes", "sh"), ("xes", "x"), ("oes", "o")):
+        if w.endswith(suf) and len(w) > len(suf) + 2:
+            return w[: -len(suf)] + rp
+    if w.endswith("s") and not w.endswith("ss") and len(w) > 3:
+        return w[:-1]
+    return w
+
+
+def _terms(text: str) -> List[str]:
+    out = []
+    for w in _re.split(r"[^A-Za-z]+", text or ""):
+        n = _norm(w)
+        if len(n) >= 3 and n not in _STOP and n not in out:
+            out.append(n)
+    return out
+
+
+def clean_product_name(name: str) -> str:
+    """'6mm Fire-Rated Borosilicate Glass (E-120 Rated)' -> 'fire borosilicate glass'."""
+    t = str(name or "")
+    t = _re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", t)                                              # bracketed specs
+    t = _re.sub(r"\b\d+(?:[.,]\d+)?\s*[x×*]\s*\d+(?:[.,]\d+)?(?:\s*[x×*]\s*\d+(?:[.,]\d+)?)?\s*" + _UNITS + r"?\b",
+                " ", t, flags=_re.I)                                                          # 2440x1830mm
+    t = _re.sub(r"\b\d+(?:[.,]\d+)?\s*" + _UNITS + r"\b", " ", t, flags=_re.I)              # 6mm, 24 kg
+    t = _re.sub(r"\b[A-Za-z]*\d[\w+\-/]*", " ", t)                                           # codes / numbers: E-120, 8+12A+8
+    t = _re.sub(r"[-_/+&,]", " ", t)
+    return " ".join(w for w in t.lower().split() if w not in ("rated", "grade", "type"))[:80].strip()
+
+
+def suggest_queries(name: str, category: str = "", uom: str = "") -> List[str]:
+    """Search phrases that stock-photo sites understand, best first."""
+    base = clean_product_name(name)
+    norm = [_norm(w) for w in (base + " " + clean_product_name(category)).split()]
+    material = next((w for w in norm if w in _MATERIALS), "")
+    form = _UOM_FORM.get(str(uom or "").upper().strip()) or next((w for w in norm if w in _FORMS), "")
+    if material and not form:   # the usual shape of that material on a warehouse shelf
+        form = {"glass": "panel", "steel": "bar", "iron": "bar", "metal": "profile", "aluminium": "profile",
+                "aluminum": "profile", "timber": "plank", "wood": "plank", "wooden": "plank", "plywood": "sheet",
+                "mdf": "board", "paper": "roll", "cardboard": "box", "cement": "bag", "concrete": "block",
+                "stone": "slab", "granite": "slab", "marble": "slab", "ceramic": "tile", "cable": "roll",
+                "wire": "coil", "fabric": "roll", "plastic": "sheet", "pvc": "pipe"}.get(material, "")
+    plural = (form + "es") if form.endswith(("x", "ch", "sh")) else (form + "s") if form else ""
+    out = []
+    if material and plural:
+        out.append(f"{material} {plural}")
+    elif plural:
+        out.append(plural)
+    if base:
+        out += [" ".join(base.split()[-2:]), base]
+    if material:
+        out.append(material)
+    cat = clean_product_name(category)
+    if cat:
+        out.append(cat)
+    res = []
+    for q in out:
+        q = " ".join(q.split())
+        if len(q) >= 3 and q not in res:
+            res.append(q)
+    return res[:6]
+
+
+def relevance(photo: Dict, query_terms: List[str]) -> Tuple[bool, float]:
+    """(good match?, score): the photo's own title / leading tags against the search words."""
+    if not query_terms:
+        return True, 1.0
+    have = set(_terms(photo.get("words") or photo.get("title") or ""))
+    hit = [t for t in query_terms if t in have]
+    need = len(query_terms) if len(query_terms) <= 2 else max(2, -(-len(query_terms) * 6 // 10))
+    return len(hit) >= need, len(hit) / len(query_terms)
+
+
+# ----------------------------------------------------------------------------- previews (Openverse)
+# Many Openverse entries point at photos that no longer exist at the source (its preview service
+# answers 424), and it refuses preview requests that look like a web browser. So the server
+# checks each Openverse preview while searching, drops dead ones, and serves the working ones
+# itself from a small memory cache (/api/vision/photos/preview/<id>).
+import threading as _threading
+from collections import OrderedDict as _OrderedDict
+
+_PREVIEWS: "_OrderedDict[str, Tuple[bytes, str]]" = _OrderedDict()
+_PREVIEW_LOCK = _threading.Lock()
+_PREVIEW_MAX = 400
+
+
+def preview_path(photo_id: str) -> str:
+    from urllib.parse import quote
+    return "/api/vision/photos/preview/" + quote(photo_id, safe="")
+
+
+def get_preview(photo_id: str) -> Optional[Tuple[bytes, str]]:
+    with _PREVIEW_LOCK:
+        hit = _PREVIEWS.get(photo_id)
+        if hit:
+            _PREVIEWS.move_to_end(photo_id)
+        return hit
+
+
+def _fetch_preview(item: Dict) -> bool:
+    if get_preview(item["id"]):   # already checked in an earlier search
+        item["thumb"] = preview_path(item["id"])
+        return True
+    url = item.get("thumb") or ""
+    if not _allowed(url):
+        return False
+    import time as _time
+    r = None
+    for attempt in (1, 2):
+        try:
+            r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=5)
+        except requests.RequestException:
+            return False
+        if r.status_code != 429 or attempt == 2:
+            break
+        _time.sleep(1.2)   # the service asks us to slow down: one polite retry
+    ctype = (r.headers.get("content-type") or "").split(";")[0].strip()
+    if r.status_code != 200 or not ctype.startswith("image/") or not r.content or len(r.content) > 3 * 1024 * 1024:
+        return False
+    with _PREVIEW_LOCK:
+        _PREVIEWS[item["id"]] = (r.content, ctype)
+        while len(_PREVIEWS) > _PREVIEW_MAX:
+            _PREVIEWS.popitem(last=False)
+    item["thumb"] = preview_path(item["id"])
+    return True
+
+
+def _keep_working(items: List[Dict]) -> List[Dict]:
+    """Same order; photos whose preview can't be loaded are dropped (dead links at the source)."""
+    check = [it for it in items if str(it.get("thumb", "")).startswith("https://")]   # every source: no hotlinking
+    if check:
+        from concurrent.futures import ThreadPoolExecutor
+        gentle = [it for it in check if str(it["id"]).startswith("pixabay:")]   # Pixabay throttles bursts
+        others = [it for it in check if not str(it["id"]).startswith("pixabay:")]
+        ok: Dict[str, bool] = {}
+        with ThreadPoolExecutor(max_workers=8) as ex, ThreadPoolExecutor(max_workers=2) as slow:
+            fast_res = ex.map(_fetch_preview, others)
+            slow_res = slow.map(_fetch_preview, gentle)
+            ok.update(zip([it["id"] for it in others], fast_res))
+            ok.update(zip([it["id"] for it in gentle], slow_res))
+        items = [it for it in items if ok.get(it["id"], True)]
+    return items
 
 
 def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]] = None) -> Tuple[List[Dict], int]:
@@ -142,30 +332,61 @@ def search(query: str, count: int = 10, page: int = 1, seen: Optional[List[str]]
     status = providers_status()
     # every enabled source, mixed: Pixabay / Pexels (when their keys are set) and Openverse
     active = [(n, fn) for n, fn in PROVIDERS if status.get(n)]
-    found: List[Dict] = []
+    qterms = _terms(query)
+    pool: List[Dict] = []
     errors = 0
     page = max(1, int(page or 1))
+    last, exhausted = page, False
+    from concurrent.futures import ThreadPoolExecutor
+
+    def ask(src):
+        name, fn = src
+        try:
+            return name, fn(query, p), None
+        except requests.RequestException as e:
+            return name, [], e
+
     for p in range(page, page + 3):
+        last = p
+        if not active:
+            break
         batches = []
-        for name, fn in active:
-            try:
-                batches.append(fn(query, p))
-            except requests.RequestException as e:
+        with ThreadPoolExecutor(max_workers=len(active)) as ex:   # all sources at the same time
+            answers = list(ex.map(ask, active))
+        for name, batch, err in answers:
+            if err is not None:
                 errors += 1
-                logger.warning(f"[PhotoSearch] {name} unreachable: {e}")
+                logger.warning(f"[PhotoSearch] {name} unreachable: {err}")
+                active = [a for a in active if a[0] != name]   # slow / down: skip it for this search
+            else:
+                batches.append(batch)
         # interleave the sources so one doesn't fill the whole grid
         for i in range(max((len(b) for b in batches), default=0)):
             for b in batches:
                 if i < len(b) and b[i]["id"] not in seen_set and b[i].get("thumb") and b[i].get("url"):
-                    found.append(b[i])
+                    good, score = relevance(b[i], qterms)
+                    b[i]["match"], b[i]["score"] = ("good" if good else "loose"), round(score, 2)
+                    pool.append(b[i])
                     seen_set.add(b[i]["id"])
-        if len(found) >= count:
-            return found[:count], p + (0 if len(found) > count else 1)
         if not any(batches):
+            exhausted = True
             break
-    if not found and errors:
+        if sum(1 for x in pool if x["match"] == "good") >= count:
+            break
+    if not pool and errors:
         raise PhotoSearchError("Couldn't reach the photo services. Check the internet connection and try again.")
-    return found[:count], page + 3
+    # good matches first (in the services' own order), then the closest loose ones; photos that share
+    # no word with the search (sheet music for "glass sheet") are used only if nothing else is left
+    ranked = [x for _, x in sorted(enumerate(pool), key=lambda t: (t[1]["match"] != "good", -t[1]["score"], t[0]))]
+    usable = [x for x in ranked if x["match"] == "good" or x["score"] > 0] or ranked
+    picked: List[Dict] = []
+    i = 0
+    while len(picked) < count and i < len(usable):   # check previews a dozen at a time until enough work
+        chunk = usable[i:i + max(12, count - len(picked) + 4)]
+        i += len(chunk)
+        picked += _keep_working(chunk)[: count - len(picked)]
+    leftovers = i < len(usable)
+    return picked, (last if leftovers and not exhausted else last + 1)
 
 
 # ----------------------------------------------------------------------------- download

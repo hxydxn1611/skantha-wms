@@ -38,13 +38,13 @@ from typing import Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 COMPANY_TABLES = ("skus", "sku_images", "object_classes", "glass_measurement_profiles", "trained_workers",
-                  "sku_count_examples")
+                  "sku_count_examples", "sku_photo_queries")
 WAREHOUSE_TABLES = ("bins", "inventory", "expected_deliveries", "gate_passes", "vehicle_log", "invoices",
                     "outbound_orders", "pallets", "violations_log", "vision_counting_submissions",
                     "cameras", "vision_zones", "stock_movements", "stock_min_levels")
 # Warehouse tables created by a later migration step (born with their owner columns), so the
 # older ownership steps skip them on a fresh database.
-LATER_TABLES = ("stock_movements", "stock_min_levels", "sku_count_examples")
+LATER_TABLES = ("stock_movements", "stock_min_levels", "sku_count_examples", "sku_photo_queries")
 # child table -> (child column, parent table, parent column)
 CHILD_TABLES: Dict[str, Tuple[str, str, str]] = {
     "outbound_items": ("order_id", "outbound_orders", "id"),

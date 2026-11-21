@@ -152,6 +152,9 @@ ROUTE_PERMISSIONS: Dict[str, PermSpec] = {
     "vstudio.api_delete_example": "sku.edit",
     "vstudio.api_photo_search": "sku.create|sku.edit",
     "vstudio.api_photo_import": "sku.edit",
+    "vstudio.api_photo_suggest": "sku.create|sku.edit",
+    "vstudio.api_photo_preview": "sku.create|sku.edit",
+    "vstudio.api_photo_query": "sku.edit",
 
     # ------------------------------------------------------------ cycle count
     "audit_bin_cycle_count": "cyclecount.view",

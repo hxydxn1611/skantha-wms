@@ -95,6 +95,7 @@ EVENTS: Dict[str, Dict[str, Tuple[str, Optional[str], Tuple[str, ...]]]] = {
     "stock.api_transfer": {"POST": ("inventory.transferred", "inventory", ("body:inventory_id",))},
     "stock.api_min_level": {"PUT": ("inventory.min_level_set", None, ())},
     "vstudio.api_photo_import": {"POST": ("sku.photos_imported", "sku", ("body:sku_id",))},
+    "vstudio.api_photo_query": {"PUT": ("sku.photo_words_set", "sku", ("body:sku_id",))},
     "vstudio.api_save_example": {"POST": ("vision.count_example_saved", None, ())},
     "vstudio.api_delete_example": {"DELETE": ("vision.count_example_removed", None, ())},
     "api_transfer_vision_inventory": {"POST": ("inventory.transferred", None, ())},
